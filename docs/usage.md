@@ -429,16 +429,16 @@ Lists the services that stopped starting after a Kempt update, with the command 
 Kempt only looks: it never starts, stops or enables a unit.
 
 ```
-Didn't start after the update:
-  Bluetooth service (bluetooth.service)
+Not starting since an update:
+  Bluetooth service (bluetooth.service), since 20 Oct
     systemctl status bluetooth.service
 ```
 
-The first check after the restart compares against the earliest Kempt update since the previous
-one, and so does the check that ends a live update. Services already failing then stay quiet. With
-no Kempt update since the last restart, nothing is compared. Each new set gets one notification.
+Kempt notes what is failing when an update starts, and compares after the update and after the
+next restart. Services already failing stay quiet. With no Kempt update since the last restart,
+nothing is compared. Each new set gets one notification, and a service that runs again gets one more.
 
-`mute` hides a unit until it starts again. `--user` means a service in your session. `--json`
+`mute` hides a unit until it is seen running. `--user` means a service in your session. `--json`
 prints the `startup` block from `kempt check`.
 
 | Exit | When |
@@ -606,7 +606,7 @@ Its wording is fixed, so you can search it:
 | `check ok actionable=<n> held=<n>` | A check succeeded, with the counts the badge shows next. |
 | `security notified count=<n>` | A notification announced a new set of security updates. `<n>` counts all the pending ones. Needs `notify_security`. |
 | `startup failed after the update: <units>` | Services that started before a Kempt update stopped starting after it. `after the last restart` when another tool changed packages since. Needs `notify_startup`. |
-| `startup recovered: <units>` | Services Kempt announced start again. |
+| `startup recovered: <units>` | Services Kempt announced are running again. |
 | `startup muted <scope>:<unit>` / `startup unmuted <scope>:<unit>` | `kempt startup mute` or `unmute` ran. |
 | `security check failed` | dnf could not list the security advisories. The check itself still worked. At most once a day. |
 | `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |

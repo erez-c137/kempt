@@ -609,7 +609,8 @@ kempt_default() {  # key → default ("" if unknown)
     # for: the query costs a second per check, and a notification nobody asked for is noise.
     notify_security) echo false ;;
     # A notification when a service that started before an update no longer starts after it. On:
-    # it costs two systemctl queries per check, and Kempt only looks.
+    # a check asks systemd only for the failed units (and, while something is announced or muted,
+    # whether those run), and Kempt only looks.
     notify_startup) echo true ;;
     *) echo "" ;;
   esac
@@ -1709,18 +1710,20 @@ startup_systemctl() {  # system|user args...
   timeout 5 $KEMPT_SYSTEMCTL_CMD ${scope[@]+"${scope[@]}"} "$@" </dev/null 2>/dev/null 9>&-
 }
 
-# The units failing now in one scope, as [{unit, description}]; rc 1 when systemd did not answer.
-# Transient units and run-* leftovers are skipped: systemd-run made them, Kempt's own helpers
-# included, and nobody set them up to start. `show` names the transient ones and gives the
-# description; when it fails, the list's own description stands.
+# The units failing now in one scope, as [{unit, description}]; rc 1 when systemd did not answer,
+# or answered something that is not a list. Transient units and run-* leftovers are skipped:
+# systemd-run made them, Kempt's own helpers included, and nobody set them up to start. `show`
+# names the transient ones and gives the description, and is asked only when something failed;
+# when it fails, the list's own description stands.
 startup_failed() {  # system|user
   local list show="" names=()
   list="$(startup_systemctl "$1" --failed --output=json)" || return 1
-  jq -e 'type == "array"' <<<"$list" >/dev/null 2>&1 || return 1
-  mapfile -t names < <(jq -r '.[] | objects | .unit | strings | select(startswith("run-") | not)' <<<"$list")
-  if [[ ${#names[@]} -gt 0 ]]; then
-    show="$(startup_systemctl "$1" show -p Id -p Description -p Transient -- "${names[@]}")" || show=""
-  fi
+  mapfile -t names < <(jq -r 'if type == "array" then .[] | objects | .unit | strings | select(startswith("run-") | not)
+                              else error("shape") end' <<<"$list" 2>/dev/null; echo "rc=$?")
+  [[ "${names[-1]}" == rc=0 ]] || return 1
+  unset 'names[-1]'
+  [[ ${#names[@]} -gt 0 ]] || { echo '[]'; return 0; }
+  show="$(startup_systemctl "$1" show -p Id -p Description -p Transient -- "${names[@]}")" || show=""
   jq -c --arg show "$show" '
     ([$show | split("\n\n")[] | [split("\n")[] | capture("^(?<key>[A-Za-z]+)=(?<value>.*)$")]
       | from_entries | select(.Id != null) | {(.Id): .}] | add // {}) as $s
@@ -1771,24 +1774,23 @@ startup_hist_names() {  # → the history entries' file names, oldest first
   for f in "$HIST_DIR"/*.json; do [[ -f "$f" ]] && printf '%s\n' "${f##*/}"; done | LC_ALL=C sort
 }
 
-# The newest 50 history entries that carry a baseline, as one array, oldest first. A damaged
-# entry is skipped.
+# The newest 50 history entries that carry a baseline, as one array, oldest first. One jq for all
+# of them; a damaged entry stops that pass, and they are then read one at a time, skipping it.
 startup_runs() {
-  local f
-  {
-    while IFS= read -r f; do
-      jq -c --arg file "${f%.json}" '
-        select(type == "object" and (.failed_before | type) == "object")
-        | {file: $file, timestamp, surface: (.surface // ""), txid: .transaction_id,
-           boot: .failed_before.boot_id, at: (.failed_before.at // ""), base: .failed_before,
-           dnf_changed: ([.backends.dnf.updated, .backends.dnf.added, .backends.dnf.removed]
-                         | map(length? // 0) | add > 0)}' "$HIST_DIR/$f" 2>/dev/null || true
-    done < <(startup_hist_names | tail -n 50)
-  } | jq -cs '.'
-}
-
-startup_kind() {  # system|user → the body's words for it
-  if [[ "$1" == user ]]; then printf 'A service in your session'; else printf 'A system service'; fi
+  local files=() f out
+  mapfile -t files < <(startup_hist_names | tail -n 50)
+  [[ ${#files[@]} -gt 0 ]] || { echo '[]'; return 0; }
+  local prog='select(type == "object" and (.failed_before | type) == "object")
+    | {file: (input_filename | sub(".*/"; "") | sub("\\.json$"; "")), timestamp,
+       surface: (.surface // ""), txid: .transaction_id,
+       boot: .failed_before.boot_id, at: (.failed_before.at // ""),
+       base: (.failed_before | del(.enabled)),
+       dnf_changed: ([.backends.dnf.updated, .backends.dnf.added, .backends.dnf.removed]
+                     | map(length? // 0) | add > 0)}'
+  if out="$(jq -cn "[inputs | $prog]" "${files[@]/#/$HIST_DIR/}" 2>/dev/null)"; then
+    printf '%s\n' "$out"; return 0
+  fi
+  for f in "${files[@]}"; do jq -c "$prog" "$HIST_DIR/$f" 2>/dev/null || true; done | jq -cs '.'
 }
 
 startup_digest() {  # stdin: startup.json → the recovered set's digest, or nothing
@@ -1796,11 +1798,15 @@ startup_digest() {  # stdin: startup.json → the recovered set's digest, or not
 }
 
 # The check's step, right after harvest_offline. Every check asks systemd what is failing now, to
-# keep announced units current and to notice recovery. Only two moments compare against a
-# baseline and may announce: the first check of a new boot, against the EARLIEST run since the
-# previous boot began (a failure the first of two runs caused sits in the second run's baseline as
-# already failing), and the first check after a live run that changed packages, which is that run's
-# own closing check. With no Kempt run since the last boot, nothing is compared or said.
+# keep announced units current. Only two moments compare against a baseline and may announce:
+# - the first check of a new boot, against the EARLIEST run since the previous boot began that
+#   changed packages (a failure the first of two runs caused sits in the second run's baseline as
+#   already failing);
+# - the check that closes a live run that changed packages, against that run's own baseline.
+# A scope that did not answer then is compared by a later check of the same boot that it answers
+# (`pending`). With no such run since the last boot, nothing is compared or said.
+# A unit Kempt announced counts as running again only when systemd says it is active; one systemd
+# no longer knows is dropped in silence. A mute ends when its unit is seen active.
 # STARTUP_SEEN tells cmd_check that systemd answered, so the startup block is published.
 startup_observe() {
   STARTUP_SEEN=""
@@ -1811,127 +1817,148 @@ startup_observe() {
   [[ "$sys" != null || "$usr" != null ]] || return 0
   # shellcheck disable=SC2034  # read by cmd_check
   STARTUP_SEEN=1
-  local cur st prev last newest window='[]' base=null ref=null att=restart
+  local cur st mutes prev last newest win=null
   cur="$(current_boot_id)"
   st="$(startup_read)"
-  prev="$(jq -r '.boot_id // ""' <<<"$st")"
-  last="$(jq -r '.last_run // ""' <<<"$st")"
-  newest="$(startup_hist_names | tail -n 1)" || newest=""
+  mutes="$(startup_mutes_json)"
+  { IFS= read -r prev; IFS= read -r last; } < <(jq -r '.boot_id // "", .last_run // ""' <<<"$st")
+  newest="$(startup_hist_names | tail -n 1)"
   newest="${newest%.json}"
+  # Which announced or muted units are no longer failing, in a scope that answered: one `show`
+  # per scope says whether each is running, gone, or neither.
+  local scope unit psys="" pusr="" csys=() cusr=()
+  while IFS=$'\t' read -r scope unit; do
+    if [[ "$scope" == user ]]; then cusr+=("$unit"); else csys+=("$unit"); fi
+  done < <(jq -r --argjson sys "$sys" --argjson usr "$usr" --argjson m "$mutes" '
+    {system: $sys, user: $usr} as $now
+    | ([(.announced // [])[] | .scope + ":" + .unit] + $m) | unique[]
+    | index(":") as $i | {scope: .[:$i], unit: .[$i + 1:]}
+    | . as $c | select($now[$c.scope] != null and all($now[$c.scope][]; .unit != $c.unit))
+    | "\(.scope)\t\(.unit)"' <<<"$st" 2>/dev/null)
+  [[ ${#csys[@]} -eq 0 ]] || psys="$(startup_systemctl system show -p Id -p ActiveState -p LoadState -- "${csys[@]}")" || psys=""
+  [[ ${#cusr[@]} -eq 0 ]] || pusr="$(startup_systemctl user show -p Id -p ActiveState -p LoadState -- "${cusr[@]}")" || pusr=""
   # The history is read only when the boot changed or a run arrived since the last look.
   if [[ "$prev" != "$cur" || "$newest" != "$last" ]]; then
+    local window
     window="$(startup_runs | jq -c --arg prev "$prev" --arg cur "$cur" --arg last "$last" '
       def live: (.surface | test("^(offline|restart)") | not) and .dnf_changed;
-      [.[] | select(.boot == $cur and live)] as $here
-      | if $prev != $cur and $prev != "" then [.[] | select(.boot == $prev)] + $here
-        elif any($here[]; .file > $last) then $here
-        else [] end
+      if $prev != $cur and $prev != ""
+      then [.[] | select((.boot == $prev and .dnf_changed and .surface != "offline") or (.boot == $cur and live))]
+      else [.[] | select(.boot == $cur and live and .file > $last)] end
       | sort_by(.at, .file)' 2>/dev/null)" || window='[]'
-  fi
-  if [[ "$(jq -r 'length' <<<"$window" 2>/dev/null)" =~ ^[1-9] ]]; then
-    base="$(jq -c '.[0].base' <<<"$window")"
-    # "After the update" only while one of these runs' transactions is still dnf's newest.
-    local max=""
-    max="$(dnf_history_max_id 2>/dev/null)" || max=""
-    ref="$(jq -c --arg max "$max" '
-      ([.[] | .txid | numbers] | map(tostring)) as $tx
-      | {run: .[0].timestamp,
-         transaction_id: ((if ($max != "" and ($tx | index($max)) != null) then $max else ($tx | last) end)
-                          | if . == null then null else tonumber end)}' <<<"$window")" || ref=null
-    if [[ -n "$max" ]] && jq -e --arg max "$max" 'any(.[]; (.txid | tostring) == $max)' <<<"$window" >/dev/null 2>&1; then
-      att=update
+    if [[ "$window" != "[]" && "$window" == \[* ]]; then
+      # "After the update" only while one of these runs' transactions is still dnf's newest.
+      local max=""
+      max="$(dnf_history_max_id 2>/dev/null)" || max=""
+      win="$(jq -c --arg max "$max" '
+        ([.[] | .txid | numbers | tostring]) as $tx
+        | (($max != "") and ($tx | index($max)) != null) as $ours
+        | {base: .[0].base, attribution: (if $ours then "update" else "restart" end),
+           baseline: {run: .[0].timestamp,
+                      transaction_id: ((if $ours then $max else ($tx | last) end) | if . == null then null else tonumber end)}}' \
+            <<<"$window" 2>/dev/null)" || win=null
     fi
   fi
+  local bus=false
+  session_bus_present && bus=true
   writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
-  local out mutes
+  local out
   st="$(startup_read)"
   mutes="$(startup_mutes_json)"
-  out="$(jq -c -n --argjson sys "$sys" --argjson usr "$usr" --argjson base "${base:-null}" --argjson st "$st" \
-           --argjson mutes "$mutes" --arg ts "$(now_iso)" --arg cur "$cur" --arg newest "$newest" \
-           --argjson ref "${ref:-null}" --arg att "$att" '
+  out="$(jq -c -n --argjson sys "$sys" --argjson usr "$usr" --argjson st "$st" --argjson mutes "$mutes" \
+           --argjson win "${win:-null}" --arg psys "$psys" --arg pusr "$pusr" --arg ts "$(now_iso)" \
+           --arg cur "$cur" --arg newest "$newest" --argjson bus "$bus" '
     def key: .scope + ":" + .unit;
+    def in_keys($ks): key as $k | any($ks[]; . == $k);
     def recs($m): [("system", "user") as $s | ($m[$s] // empty) | .[] | {unit, scope: $s, description}];
     def scopes($m): [("system", "user") as $s | select($m[$s] != null) | $s];
     def good: (.description // "") as $d | $d != "" and $d != .unit;
     def named($d): . + {description: ($d[key] // .description // .unit)};
-    def has_key($ks): key as $k | any($ks[]; . == $k);
+    def props($t; $s): [$t | split("\n\n")[] | [split("\n")[] | capture("^(?<key>[A-Za-z]+)=(?<value>.*)$")]
+                         | from_entries | select(.Id != null) | {key: ($s + ":" + .Id), value: .}] | from_entries;
+    def phrase: if length <= 1 then join("") else (.[:-1] | join(", ")) + " and " + .[-1] end;
+    def kind: if .scope == "user" then "A service in your session" else "A system service" end;
     {system: $sys, user: $usr} as $now
     | recs($now) as $nowr | scopes($now) as $read | ($nowr | map(key)) as $nowk
-    | (if $base == null then [] else recs($base) end) as $baser
-    | (if $base == null then [] else scopes($base) end) as $bread
-    | ($baser | map(key)) as $basek
-    | ($st.boot_id != $cur) as $newboot
+    | (props($psys; "system") + props($pusr; "user")) as $p
+    | def state: $p[key] // {};
+      ($st.boot_id != $cur) as $newboot
+    | (if $win != null then $win elif $newboot then null else ($st.pending // null) end) as $cmp
+    | ($cmp.base // null) as $base
+    | (if $base == null then [] else [scopes($base)[] | select(IN($read[]))] end) as $cs
+    | (if $base == null then [] else [scopes($base)[] | select(IN($read[]) | not)] end) as $left
+    | ([recs($base // {})[] | select(.scope | IN($cs[]))] | map(key)) as $basek
     | ($st.announced // []) as $pa
-    | (reduce ($pa + ($st.already // []) + ($st.recovered // []) + $baser + $nowr)[] as $r
-         ($st.descriptions // {};
-          if ($r | good) and (has($r | key) | not) then .[$r | key] = $r.description else . end)) as $d
-    | [$pa[] | select(((.scope | IN($read[])) | not) or has_key($nowk))] as $still
-    | [$pa[] | select((.scope | IN($read[])) and (has_key($nowk) | not))] as $gone
+    | ($pa + ($st.already // []) + ($st.recovered // []) + recs($base // {}) + $nowr) as $all
+    | (reduce $all[] as $r ($st.descriptions // {};
+         if ($r | good) and (has($r | key) | not) then .[$r | key] = $r.description else . end)) as $d
+    | [$pa[] | select(((.scope | IN($read[])) | not) or in_keys($nowk)
+                      or ((state | .ActiveState != "active") and (state | .LoadState != "not-found")))] as $still
+    | [$pa[] | select((.scope | IN($read[])) and (in_keys($nowk) | not)
+                      and (state | .ActiveState == "active" and .LoadState != "not-found"))] as $gone
     | ($still | map(key)) as $stillk
-    | (if $base == null then []
-       else [$nowr[] | select((.scope | IN($bread[])) and (has_key($basek) | not)
-                              and (has_key($stillk) | not) and (has_key($mutes) | not))] end) as $new
-    | (if $base == null
-       then [($st.already // [])[] | select(((.scope | IN($read[])) | not) or has_key($nowk))]
-       else [$nowr[] | select((.scope | IN($bread[])) and has_key($basek) and (has_key($stillk) | not))] end) as $already
-    | ([(if $newboot then empty else ($st.recovered // [])[] end), $gone[]]
-       | map(select(has_key($nowk) | not)) | unique_by(key)) as $rec
-    | ([$still[], ($new[] | . + {since: $ts})] | map(named($d))) as $ann
+    | [$nowr[] | select((.scope | IN($cs[])) and (in_keys($basek) | not)
+                        and (in_keys($stillk) | not) and (in_keys($mutes) | not))] as $new
+    | ([($st.already // [])[] | select(((.scope | IN($cs[])) | not)
+                                       and (((.scope | IN($read[])) | not) or in_keys($nowk)))]
+       + [$nowr[] | select((.scope | IN($cs[])) and in_keys($basek) and (in_keys($stillk) | not))]) as $already
+    | ([($gone[] | . + {unsent: true}), (if $newboot then empty else ($st.recovered // [])[] end)]
+       | map(select(in_keys($nowk) | not)) | unique_by(key)) as $rec
+    | (if $cmp != null and ($cs | length) > 0 then $cmp.attribution else ($st.attribution // "restart") end) as $att
+    | (if $att == "update" then "update" else "last restart" end) as $when
+    | ([$new[] | . + {since: $ts, unsent: true}] + $still | map(named($d))) as $ann
+    | [$ann[] | select(.unsent)] as $tell
+    | [$rec[] | select(.unsent) | named($d)] as $told
+    | def sent: if $bus then del(.unsent) else . end;
+      [$mutes[] | index(":") as $i | {scope: .[:$i], unit: .[$i + 1:]}
+       | select((.scope | IN($read[])) and (in_keys($nowk) | not) and (state | .ActiveState == "active")) | key] as $clear
     | (($ann + $already + $rec + $nowr) | map(key)) as $keep
     | {state: ({schema: 1, boot_id: $cur, last_run: $newest,
-                baseline: (if $base == null then ($st.baseline // null) else $ref end),
-                attribution: (if $base == null then ($st.attribution // "restart") else $att end),
-                announced: $ann,
+                baseline: (if $cmp != null and ($cs | length) > 0 then $cmp.baseline else ($st.baseline // null) end),
+                attribution: $att,
+                announced: [$ann[] | sent],
                 already: [$already[] | named($d) | {unit, scope, description}],
-                recovered: [$rec[] | named($d) | {unit, scope, description}],
-                descriptions: ($d | with_entries(select(.key as $k | any(($keep + $mutes)[]; . == $k))))}),
-       new: [$new[] | named($d)], gone: [$gone[] | named($d)]}' 2>/dev/null)" || out=""
+                recovered: [$rec[] | named($d) | {unit, scope, description} + (if .unsent and ($bus | not) then {unsent: true} else {} end)],
+                descriptions: ($d | with_entries(select(.key as $k | any(($keep + $mutes)[]; . == $k)))) }
+               + (if $cmp != null and ($left | length) > 0
+                  then {pending: {base: (reduce $left[] as $s ({boot_id: $base.boot_id}; .[$s] = $base[$s])),
+                                  baseline: $cmp.baseline, attribution: $cmp.attribution}}
+                  else {} end)),
+       clear: $clear,
+       notes: ((if ($tell | length) == 0 then []
+                elif ($tell | length) == 1 then [$tell[0] | {body: "\(.description) didn'"'"'t start after the \($when). It stopped with an error. \(kind) (\(.unit)). To see why, run: kempt startup"}]
+                else [{body: "\($tell | length) services didn'"'"'t start after the \($when): \([$tell[].description] | phrase). To see why, run: kempt startup"}] end
+                | map(. + {event: "startup failed after the \($when): \([$tell[].unit] | join(", "))", keys: [$tell[] | key]}))
+              + (if ($told | length) == 0 then []
+                 elif ($told | length) == 1 then [$told[0] | {body: "\(.description) is running again. \(kind) (\(.unit))."}]
+                 else [{body: "\($told | length) services are running again: \([$told[].description] | phrase)."}] end
+                 | map(. + {event: "startup recovered: \([$told[].unit] | join(", "))", keys: [$told[] | key]})))}' 2>/dev/null)" || out=""
   if [[ "$out" != \{* ]]; then writer_unlock; return 0; fi
-  local new_st
+  local new_st wrote=1 clear
   new_st="$(jq -c '.state' <<<"$out")"
-  [[ "$new_st" == "$st" ]] || printf '%s\n' "$new_st" | atomic_write "$STARTUP_FILE" 2>/dev/null || true
-  # Recovery ends a mute: "until it starts" has happened.
-  local gone_keys
-  gone_keys="$(jq -r '.gone[] | .scope + ":" + .unit' <<<"$out")"
-  if [[ -n "$gone_keys" && -s "$STARTUP_MUTES_FILE" ]]; then
-    grep -vxF -f <(printf '%s\n' "$gone_keys") "$STARTUP_MUTES_FILE" | atomic_write "$STARTUP_MUTES_FILE" 2>/dev/null || true
+  if [[ "$new_st" != "$st" ]]; then
+    printf '%s\n' "$new_st" | atomic_write "$STARTUP_FILE" 2>/dev/null || wrote=""
+  fi
+  # A mute ends when its unit is seen running: "until it starts" has happened.
+  clear="$(jq -r '.clear[]' <<<"$out")"
+  if [[ -n "$wrote" && -n "$clear" && -s "$STARTUP_MUTES_FILE" ]]; then
+    grep -vxF -f <(printf '%s\n' "$clear") "$STARTUP_MUTES_FILE" | atomic_write "$STARTUP_MUTES_FILE" 2>/dev/null || true
   fi
   writer_unlock
-  startup_announce "$(jq -c '.new' <<<"$out")" "$(jq -r '.state.attribution' <<<"$out")" \
-                   "$(jq -c '.gone' <<<"$out")"
-}
-
-# One notification per new failure set and one per recovered set, and an event line for each.
-startup_announce() {  # new-json attribution gone-json
-  local n when units title body
-  when="update"; [[ "$2" == update ]] || when="last restart"
-  n="$(jq -r 'length' <<<"$1" 2>/dev/null)" || n=0
-  if [[ "$n" -ge 1 ]]; then
-    units="$(jq -r '[.[].unit] | join(", ")' <<<"$1")"
-    if [[ "$n" -eq 1 ]]; then
-      title="$(jq -r '.[0].description' <<<"$1") didn't start after the $when."
-      body="It stopped with an error. $(startup_kind "$(jq -r '.[0].scope' <<<"$1")") ($(jq -r '.[0].unit' <<<"$1"))."
-    else
-      title="$n services didn't start after the $when."
-      body="They stopped with an error: $(jq -r '.[].description' <<<"$1" | names_phrase)."
-    fi
-    notify "$title" "$body"
-    log_event "startup failed after the $when: $units"
-  fi
-  n="$(jq -r 'length' <<<"$3" 2>/dev/null)" || n=0
-  if [[ "$n" -ge 1 ]]; then
-    units="$(jq -r '[.[].unit] | join(", ")' <<<"$3")"
-    if [[ "$n" -eq 1 ]]; then
-      title="$(jq -r '.[0].description' <<<"$3") is starting again."
-      body="$(startup_kind "$(jq -r '.[0].scope' <<<"$3")") ($(jq -r '.[0].unit' <<<"$3"))."
-    else
-      title="$n services are starting again."
-      body="$(jq -r '.[].description' <<<"$3" | names_phrase)."
-    fi
-    notify "$title" "$body"
-    log_event "startup recovered: $units"
-  fi
-  return 0
+  # Told only once recorded, and recorded as told before it is sent, as the security notice is:
+  # one not delivered is marked unsent again, for the next check with a session to send.
+  [[ -n "$wrote" && "$bus" == true ]] || return 0
+  local body event keys unsent=()
+  while IFS=$'\t' read -r body event keys; do
+    if notify_delivered "Kempt" "$body"; then log_event "$event"
+    else read -ra keys <<<"$keys"; unsent+=("${keys[@]}"); fi
+  done < <(jq -r '.notes[] | [.body, .event, (.keys | join(" "))] | join("\t")' <<<"$out")
+  [[ ${#unsent[@]} -gt 0 ]] || return 0
+  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
+  jq -c --arg k "${unsent[*]}" '($k | split(" ")) as $ks
+    | def mark: if (.scope + ":" + .unit) as $x | any($ks[]; . == $x) then . + {unsent: true} else . end;
+      .announced |= map(mark) | .recovered |= map(mark)' <<<"$(startup_read)" | atomic_write "$STARTUP_FILE" 2>/dev/null || true
+  writer_unlock
 }
 
 # state.json's `startup` block, from startup.json and the mutes. Muted units leave announced and
@@ -1951,7 +1978,7 @@ startup_block() {
        already: [(.already // [])[] | select(unmuted) | {unit, scope, description}],
        recovered: [(.recovered // [])[] | {unit, scope, description}],
        muted: [$m[] | index(":") as $i | {unit: .[$i + 1:], scope: .[:$i]} | . + {description: ($d[key] // .unit)}],
-       recovered_digest: $digest}' <<<"$st" 2>/dev/null)" || return 1
+       recovered_digest: $digest, compared: (.baseline != null)}' <<<"$st" 2>/dev/null)" || return 1
   printf '%s\n' "$block"
 }
 

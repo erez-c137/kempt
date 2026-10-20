@@ -3385,6 +3385,10 @@ startup_status_cmd() {  # scope unit → the command that shows why, quoted when
   if [[ "$1" == user ]]; then printf 'systemctl --user status %s' "$u"; else printf 'systemctl status %s' "$u"; fi
 }
 
+startup_day() {  # ISO time → "20 Oct"
+  LC_ALL=C date -d "$1" '+%-d %b' 2>/dev/null || printf '%s' "${1%%T*}"
+}
+
 startup_list() {
   [[ $# -le 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
   if ! startup_on; then
@@ -3395,26 +3399,33 @@ startup_list() {
   local block
   block="$(startup_block)" || { echo "kempt: could not read $STARTUP_FILE" >&2; exit 1; }
   if [[ "$1" == --json ]]; then printf '%s\n' "$block"; return 0; fi
-  local when="update"
-  [[ "$(jq -r '.attribution' <<<"$block")" == update ]] || when="last restart"
-  local group heading said="" scope unit desc
-  for group in announced already muted recovered; do
-    case "$group" in
-      announced) heading="Didn't start after the $when:" ;;
-      already) heading="Already failing before the $when:" ;;
-      muted) heading="Muted until they start:" ;;
-      recovered) heading="Starting again:" ;;
-    esac
-    [[ "$(jq -r --arg g "$group" '.[$g] | length' <<<"$block")" -gt 0 ]] || continue
-    [[ -z "$said" ]] || echo
-    said=1
-    echo "$heading"
-    while IFS=$'\t' read -r scope unit desc; do
-      printf '  %s (%s)\n' "$desc" "$unit"
-      [[ "$group" == recovered ]] || printf '    %s\n' "$(startup_status_cmd "$scope" "$unit")"
-    done < <(jq -r --arg g "$group" '.[$g][] | [.scope, .unit, .description] | join("\t")' <<<"$block")
-  done
-  [[ -n "$said" ]] || echo "Everything that started before the last update starts."
+  # Each line names the day it stopped, not the newest update: an old failure is not the latest
+  # update's doing.
+  local group last="" scope unit desc since line
+  while IFS=$'\t' read -r group scope unit desc since; do
+    if [[ "$group" != "$last" ]]; then
+      [[ -z "$last" ]] || echo
+      case "$group" in
+        announced) echo "Not starting since an update:" ;;
+        already) echo "Already failing before an update:" ;;
+        muted) echo "Muted until they start:" ;;
+        recovered) echo "Running again:" ;;
+      esac
+      last="$group"
+    fi
+    line="  $desc ($unit)"
+    [[ -z "$since" ]] || line+=", since $(startup_day "$since")"
+    echo "$line"
+    [[ "$group" == recovered ]] || printf '    %s\n' "$(startup_status_cmd "$scope" "$unit")"
+  done < <(jq -r '("announced", "already", "muted", "recovered") as $g
+                  | .[$g][] | [$g, .scope, .unit, .description, (.since // "")] | join("\t")' <<<"$block")
+  [[ -z "$last" ]] || return 0
+  # The all-clear only once a comparison has happened: before that, there is nothing to vouch for.
+  if [[ "$(jq -r '.compared' <<<"$block")" == true ]]; then
+    echo "No service has stopped starting since a Kempt update."
+  else
+    echo "Nothing to report."
+  fi
 }
 
 startup_mute_cmd() {  # mute|unmute unit [--user]
@@ -3428,8 +3439,9 @@ startup_mute_cmd() {  # mute|unmute unit [--user]
   [[ -n "$unit" ]] || { echo "usage: kempt startup $verb <unit> [--user]" >&2; exit 2; }
   [[ "$unit" == *.* ]] || unit="$unit.service"
   # systemd's own unit name alphabet (escaped names keep their backslashes); no slash, so the
-  # name can never be read as a path, and nothing that could split a `scope:unit` line.
-  if [[ ${#unit} -gt 255 || ! "$unit" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.@\\-]*$ ]]; then
+  # name can never be read as a path, and no newline, which would split the mutes file. A colon
+  # is fine after the first character: the scope is read up to the first one.
+  if [[ ${#unit} -gt 255 || ! "$unit" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.:@\\-]*$ ]]; then
     echo "invalid unit name: $unit" >&2; exit 2
   fi
   kempt_init_dirs
@@ -3472,7 +3484,8 @@ startup_ack() {
   return "$rc"
 }
 
-# One row: WARN for what stopped starting (muted units excluded), ok otherwise, info without
+# One row: WARN for what stopped starting (muted units excluded), dated rather than tied to the
+# newest update; ok once a comparison found nothing; info before any comparison, and without
 # systemctl. Info, not a warning, so a build root without systemd counts no warning.
 doctor_startup_row() {
   startup_on || return 0
@@ -3480,18 +3493,19 @@ doctor_startup_row() {
     doctor_info "startup: systemctl did not answer, so Kempt cannot tell whether services still start after an update"
     return 0
   fi
-  local block n when first
+  local block n first since compared
   block="$(startup_block 2>/dev/null)" || block='{}'
-  n="$(jq -r '.announced | length? // 0' <<<"$block" 2>/dev/null)" || n=0
-  when="update"
-  [[ "$(jq -r '.attribution // ""' <<<"$block")" == update ]] || when="restart"
-  if [[ "$n" -eq 1 ]]; then
-    first="$(jq -r '.announced[0].description' <<<"$block")"
-    doctor_warn "startup: $first didn't start after the last $when. See: kempt startup"
-  elif [[ "$n" -gt 1 ]]; then
-    doctor_warn "startup: $n services didn't start after the last $when. See: kempt startup"
+  { IFS= read -r n; IFS= read -r first; IFS= read -r since; IFS= read -r compared; } < <(jq -r '
+      (.announced // []) as $a | ($a | length), ($a[0].description // ""),
+      ([$a[].since | strings] | min // ""), (.compared // false)' <<<"$block" 2>/dev/null)
+  if [[ "${n:-0}" -eq 1 ]]; then
+    doctor_warn "startup: $first has not started since an update on $(startup_day "$since"). See: kempt startup"
+  elif [[ "${n:-0}" -gt 1 ]]; then
+    doctor_warn "startup: $n services have not started since an update on $(startup_day "$since"). See: kempt startup"
+  elif [[ "$compared" == true ]]; then
+    doctor_ok "startup: no service has stopped starting since a Kempt update"
   else
-    doctor_ok "startup: everything that started before the last update starts"
+    doctor_info "startup: no Kempt update compared yet"
   fi
 }
 
@@ -4826,10 +4840,10 @@ EOF
 EOF
     ;;
     startup) cat <<'EOF'
-  startup [--json]      services that stopped starting after an update, with the command that
-                        shows why. Kempt only looks
+  startup [--json]      services that stopped starting after an update, and how to see why
+                        (read only)
   startup mute|unmute <unit> [--user]
-                        stop or start mentioning one until it starts again
+                        hide one until it starts again, or show it again
 EOF
     ;;
     config) cat <<'EOF'

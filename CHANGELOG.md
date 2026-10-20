@@ -15,7 +15,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Kempt says when a service stops starting after an update.** Each update notes which
   services were failing before it. If one that was starting fails after the update or the restart
   that installs it, you get one notification, such as "Bluetooth service didn't start after the
-  update.", and another when it starts again. Services that were already failing stay quiet.
+  update.", and another when it is running again. Services that were already failing stay quiet.
   `kempt startup` lists them with the command that shows why, `kempt startup mute` silences one
   until it starts, and `kempt doctor` warns. Kempt only looks: it never starts or stops a service.
   Turn it off with `notify_startup=false`.
