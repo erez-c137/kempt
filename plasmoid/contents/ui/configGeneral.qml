@@ -299,7 +299,10 @@ KCM.SimpleKCM {
                         function (stdout, stderr, rc) {
             page.mutedBusy = false;
             if (rc !== 0) {
-                page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "", "").text
+                // Exit 6 from mute: the service started since it was listed. Not a failure.
+                page.loadError = verb === "mute" && rc === 6
+                    ? i18n("%1 is running again, so there is nothing to mute.", entry.name)
+                    : Logic.answerOutcomeOf(rc, "", stderr, "", "").text
                     || (verb === "mute" ? i18n("Could not mute %1.", entry.name)
                                         : i18n("Could not stop muting %1.", entry.name));
                 return;

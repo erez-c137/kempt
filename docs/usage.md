@@ -54,7 +54,7 @@ Most commands use these codes. Each command's section lists its own cases.
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 4 | No terminal emulator. |
 | 5 | Stopped before changing anything. |
-| 6 | `reclaim` only: the list changed. Nothing was removed. |
+| 6 | `reclaim` and `startup`: what you were shown changed. |
 | 7 | `update` only: another program held the package lock. |
 | 8 | Run as root. Run Kempt as your own user, and it asks for a password when it needs one. |
 
@@ -438,14 +438,15 @@ Kempt notes what is failing when an update starts, and compares after the update
 next restart. Services already failing stay quiet. With no Kempt update since the last restart,
 nothing is compared. Each new set gets one notification, and so does a recovery.
 
-`mute` hides a unit, and its recovery, until it runs. It refuses running or unknown units.
-`--user` means a session service. `--json` prints the `startup` block from `kempt check`.
+`mute` is for a service that stopped starting. It hides it, and its recovery, until it
+runs. `--user` means a session service. `--json` prints the `startup` block of `kempt check`.
 
 | Exit | When |
 | --- | --- |
 | 0 | Listed, muted or unmuted. |
 | 1 | The state directory could not be written. |
-| 2 | Unknown option, or an invalid, unknown or running unit. |
+| 2 | Unknown option, or an invalid or unknown unit. |
+| 6 | `mute`: the unit is running. `ack`: the recovered list changed. |
 
 ## status
 

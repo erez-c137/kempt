@@ -3453,15 +3453,22 @@ startup_mute_cmd() {  # mute|unmute unit [--user]
   # An alias is stored under the unit's own name, the one systemd reports failing; when systemctl
   # does not answer, the name is kept as typed. Unmute drops both spellings.
   # A unit systemd does not know, or one running now, is refused: the next check would end that
-  # mute at once, and the mute would have done nothing.
+  # mute at once, and the mute would have done nothing. Running is exit 6, as ack's: what was shown
+  # changed (the widget offers Mute only for a unit that was failing).
   local id show typed="$scope:$unit"
   if startup_on && show="$(startup_systemctl "$scope" show -p Id -p LoadState -p ActiveState -- "$unit")"; then
     id="$(sed -n 's/^Id=//p' <<<"$show" | head -n 1)"
     if [[ "$verb" == mute ]]; then
       if grep -qx 'LoadState=not-found' <<<"$show"; then
+        local u="$unit" other
+        [[ "$u" == *\\* ]] && u="'$u'"
+        if [[ "$scope" == system ]] && other="$(startup_systemctl user show -p LoadState -- "$unit")" \
+           && grep -q '^LoadState=' <<<"$other" && ! grep -qx 'LoadState=not-found' <<<"$other"; then
+          echo "$unit is a service in your session. To mute it, run: kempt startup mute $u --user" >&2; exit 2
+        fi
         echo "Kempt does not know a service called $unit." >&2; exit 2
       elif grep -qx 'ActiveState=active' <<<"$show"; then
-        echo "$unit is running, so there is nothing to mute. Kempt mutes a service that has stopped starting." >&2; exit 2
+        echo "$unit is running, so there is nothing to mute." >&2; exit 6
       fi
     fi
     [[ ${#id} -gt 255 || ! "$id" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.:@\\-]*\.[a-z]+$ ]] || unit="$id"

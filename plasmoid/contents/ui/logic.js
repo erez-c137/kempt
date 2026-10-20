@@ -552,6 +552,7 @@ var COPY = {
     startupMuteTooltip: "Kempt stops mentioning it until it starts cleanly again.",
     startupMuting: "Muting…",
     startupMuteFailed: "Could not mute %1.",
+    startupMuteRunning: "%1 is running again, so there is nothing to mute.",
     startupStopMuting: "Stop Muting %1",
     startupStopMutingDescription: "Kempt mentions it again if it still does not start.",
     startupUnmuted: "Stopped muting %1.",

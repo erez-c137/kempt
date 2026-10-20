@@ -236,6 +236,14 @@ lev("startupRepeater.itemAt(0).actions[1].trigger()")
 settle()
 p.check("a failure that says nothing names the service as the person knows it",
         lev("startupRepeater.itemAt(0).text.split('\\n')[2]"), "Could not mute Bluetooth service.")
+# The service started between the check and the press: the CLI's exit 6, said calmly, by name.
+open(MUTERC, "w").write("6")
+open(MUTEMSG, "w").write("bluetooth.service is running, so there is nothing to mute.\n")
+lev("startupRepeater.itemAt(0).actions[1].trigger()")
+settle()
+p.check("a service that started before the press is said to be running again, not a failure",
+        lev("startupRepeater.itemAt(0).text.split('\\n')[2]"),
+        "Bluetooth service is running again, so there is nothing to mute.")
 ev("root.popupOpened()")
 ev("root.popupClosed()")
 p.check("...and closing the widget clears it", [ev("root.startupMuteError"), lev("startupRepeater.itemAt(0).text.split('\\n').length")],

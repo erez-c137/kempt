@@ -311,19 +311,23 @@ assert_exit 0 "unmute" "$KEMPT" startup unmute foo.service --user
 assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo gone)" "gone" "...removes the mute"
 assert_exit 2 "a unit name with a slash is refused" "$KEMPT" startup mute ../etc/passwd
 # Muting a unit systemd does not know, or one that is running, would be undone by the next check.
-echo nosuch.service > "$SD/gone-system"
+echo nosuch.service > "$SD/gone-system"; echo nosuch.service > "$SD/gone-user"
 rc=0; out="$("$KEMPT" startup mute nosuch.service 2>&1)" || rc=$?
 assert_eq "$rc" "2" "a unit systemd does not know is refused"
 assert_eq "$out" "Kempt does not know a service called nosuch.service." "...with a plain message"
+echo mine.service > "$SD/gone-system"
+rc=0; out="$("$KEMPT" startup mute mine.service 2>&1)" || rc=$?
+assert_eq "$rc" "2" "a unit only your session knows is refused without --user"
+assert_eq "$out" "mine.service is a service in your session. To mute it, run: kempt startup mute mine.service --user" \
+  "...and the message says how to mute it"
 echo running.service > "$SD/active-system"
 rc=0; out="$("$KEMPT" startup mute running.service 2>&1)" || rc=$?
-assert_eq "$rc" "2" "a running unit is refused"
-assert_eq "$out" "running.service is running, so there is nothing to mute. Kempt mutes a service that has stopped starting." \
-  "...with a plain message"
+assert_eq "$rc" "6" "a running unit is refused as having changed since it was shown"
+assert_eq "$out" "running.service is running, so there is nothing to mute." "...with a plain message"
 assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo none)" "none" "...and neither is recorded"
 touch "$SD/down-system"
 assert_exit 0 "when systemctl does not answer, the mute is kept as typed" "$KEMPT" startup mute running.service
-rm -f "$SD/down-system" "$SD/gone-system" "$SD/active-system"
+rm -f "$SD/down-system" "$SD/gone-system" "$SD/gone-user" "$SD/active-system"
 assert_exit 2 "an unknown startup subcommand is a usage error" "$KEMPT" startup frob
 
 # --- the first good description is kept after the package is removed -----------------------------
