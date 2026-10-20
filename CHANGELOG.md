@@ -23,6 +23,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **Copy Command** for the command that shows why and **Mute Until It Starts**. Services already
   failing before the update are listed quietly. The panel count and icon never include this. Settings
   has a **Services** checkbox and lists muted services, each with **Stop Muting**.
+- **`kempt startup --all` shows what starts and runs on its own.** It lists what didn't start
+  this boot with its log line, what changed since the last update, and what starts with the
+  computer, grouped by package. Then timers, cron and anacron, and startup time against the
+  usual. `--json` is for scripts. The `startup_page` setting, off by default, will show it in the
+  widget. Kempt only reads.
 
 ### Fixed
 

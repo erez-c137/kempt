@@ -32,6 +32,7 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .RB [ \-\-expect=\fIdigest\fR ]
 .br
 .B kempt startup
+.RB [ \-\-all ]
 .RB [ \-\-json ]
 .br
 .B kempt startup
@@ -217,10 +218,12 @@ unused less than an hour ago. Exit 1: Flatpak failed, possibly after removing so
 .B "kempt reclaim \-\-list"
 to see what is left.
 .TP
-.BR startup " [" \-\-json ]
+.BR startup " [" \-\-all "] [" \-\-json ]
 List the services that stopped starting after a Kempt update. Kempt only looks.
 .B mute
 hides one until it starts again.
+.B \-\-all
+lists everything that starts or runs on a schedule, and startup time.
 .TP
 .BR status " [" \-\-list "] [" \-\-json ]
 Say what the last check found, and the last update. It only reads. Exit 1: no state,
@@ -390,8 +393,10 @@ or in the widget's settings. The keys are
 .BR risky_regex ,
 .BR reclaim " (" ask ", " automatic " or " off "; default " ask ")",
 .BR notify_security " (default " false ),
-which announces each new set of security updates once, and
-.BR notify_startup " (default " true ).
+which announces each new set of security updates once,
+.BR notify_startup " (default " true ")"
+and
+.BR startup_page " (default " false ).
 A boolean is true when it is
 .BR true ", " 1 " or " yes .
 Everything else is false.
