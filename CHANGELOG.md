@@ -27,8 +27,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt startup --all` shows what starts and runs on its own.** It lists what didn't start
   this boot with its log line, what changed since the last update, and what starts with the
   computer, grouped by package. Then timers, cron and anacron, and startup time against the
-  usual. `--json` is for scripts. The `startup_page` setting, off by default, will show it in the
-  widget. Kempt only reads.
+  usual. `--json` is for scripts. Kempt only reads.
+- **The widget can show the same list on a Startup page.** Turn on **Show a Startup page**
+  (`startup_page`) and a **Startup** button joins the header. The page reads when it opens or
+  when you refresh it, lists failures and changes in full, counts the rest with **Show All**, and
+  offers only **Copy Command**.
 
 ### Fixed
 
