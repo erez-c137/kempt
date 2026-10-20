@@ -24,12 +24,19 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   **Copy Command** for the command that shows why and **Mute Until It Starts**. Services already
   failing before the update are listed quietly. The panel count and icon never include this.
   Settings has a **Services** checkbox and lists muted services, each with **Stop Muting**.
+- **`kempt startup --all` shows what starts and runs on its own.** It lists what didn't start
+  this boot with its log line, what changed since the last update, and what starts with the
+  computer, grouped by package. Then timers, cron and anacron, and startup time against the
+  usual. `--json` is for scripts. The `startup_page` setting, off by default, will show it in the
+  widget. Kempt only reads.
 
 ### Fixed
 
 - **A staged update now says how many updates it holds.** When the check before staging found
   nothing new, but staging then found updates, the summary and `kempt log` said "Staged 0
   updates". The count now comes from the staged update itself.
+- **Notifications show `&`, `<` and `>` as written.** Plasma read them as markup, so a service
+  or package name with one could garble the message.
 - **An update no longer stops when Kempt cannot tidy its history.** Kempt keeps the newest 50
   run records and removes older ones. If one of them could not be removed, the run stopped there.
   Tidying is now best effort, as intended.

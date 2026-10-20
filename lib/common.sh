@@ -138,6 +138,8 @@ SECURITY_NOTIFY_TIMEOUT=5
 # writers' lock.
 STARTUP_FILE="$KEMPT_STATE_DIR/startup.json"
 STARTUP_MUTES_FILE="$KEMPT_STATE_DIR/startup-mutes"
+# The Startup page's record of how long each boot took, newest last (startup_boot_record).
+BOOT_TIMES_FILE="$KEMPT_STATE_DIR/boot-times.json"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
 # it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
@@ -213,6 +215,19 @@ KEMPT_HOME_ROOTS="${KEMPT_HOME_ROOTS:-/home /var/home}"
 KEMPT_SSSD_DIR="${KEMPT_SSSD_DIR:-/etc/sssd}"
 KEMPT_SMB_CONF="${KEMPT_SMB_CONF:-/etc/samba/smb.conf}"
 KEMPT_SYSTEMCTL_CMD="${KEMPT_SYSTEMCTL_CMD:-systemctl}"
+# What `kempt startup --all` reads, beside systemctl. Each is a read-only query as the user.
+KEMPT_JOURNALCTL_CMD="${KEMPT_JOURNALCTL_CMD:-journalctl}"
+KEMPT_GROUPS_CMD="${KEMPT_GROUPS_CMD:-id -Gn}"
+KEMPT_CRONTAB_CMD="${KEMPT_CRONTAB_CMD:-crontab}"
+KEMPT_ATQ_CMD="${KEMPT_ATQ_CMD:-atq}"
+KEMPT_RPM_QF_CMD="${KEMPT_RPM_QF_CMD:-rpm}"
+KEMPT_SYSTEMD_ANALYZE_CMD="${KEMPT_SYSTEMD_ANALYZE_CMD:-systemd-analyze}"
+# Where cron, anacron and rc.local live, anacron's last-run stamps, and systemd's lingering flags.
+KEMPT_STARTUP_ETC="${KEMPT_STARTUP_ETC:-/etc}"
+KEMPT_ANACRON_SPOOL="${KEMPT_ANACRON_SPOOL:-/var/spool/anacron}"
+KEMPT_LINGER_DIR="${KEMPT_LINGER_DIR:-/var/lib/systemd/linger}"
+# Where an enabled template unit's file is looked for: `show` refuses a template name.
+KEMPT_SYSTEM_UNIT_DIRS="${KEMPT_SYSTEM_UNIT_DIRS:-/etc/systemd/system /usr/lib/systemd/system}"
 # Asks polkit whether this process may remove Flatpak runtimes WITHOUT asking anyone, before an
 # unattended removal starts (reclaim_remove). No --allow-user-interaction, so it can never raise a
 # dialog itself.
@@ -527,7 +542,7 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security notify_startup"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security notify_startup startup_page"
 
 # The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
@@ -612,6 +627,8 @@ kempt_default() {  # key → default ("" if unknown)
     # a check asks systemd only for the failed units (and, while something is announced or muted,
     # whether those run), and Kempt only looks.
     notify_startup) echo true ;;
+    # The widget's Startup button. `kempt startup --all` works either way.
+    startup_page) echo false ;;
     *) echo "" ;;
   esac
 }
@@ -1575,7 +1592,14 @@ run_failure_reason() {  # log-file → one line, possibly empty
   line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"
 }
-notify()       { "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1 || true; }
+# Plasma reads a notification's body as markup, and Kempt's notes carry outside text (unit
+# descriptions, package names), so & < > are escaped for every caller.
+notify_escape() {  # args... → NOTIFY_ARGS
+  local a
+  NOTIFY_ARGS=()
+  for a in "$@"; do a="${a//&/\&amp;}"; a="${a//</\&lt;}"; a="${a//>/\&gt;}"; NOTIFY_ARGS+=("$a"); done
+}
+notify()       { notify_escape "$@"; "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1 || true; }
 now_iso()      { date -Is; }
 
 # --- the security notification (notify_security) ----------------------------------------------
@@ -1583,7 +1607,11 @@ now_iso()      { date -Is; }
 # notification was delivered: one tried from a timer with no session bus is tried again by the
 # next check that has one. Bounded, because a check is waiting on it.
 session_bus_present() { [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" || -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]]; }
-notify_delivered() { session_bus_present || return 1; timeout "$SECURITY_NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "$@" >/dev/null 2>&1; }
+notify_delivered() {
+  session_bus_present || return 1
+  notify_escape "$@"
+  timeout "$SECURITY_NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1
+}
 
 # The seen file, always as {notified:[ids], acknowledged:[ids]}: missing, damaged or the wrong
 # shape reads as empty, which at worst announces a set once more.
@@ -1702,12 +1730,32 @@ security_notice() {  # stdin: one package name per line → the body
 # container) is left out rather than read as "nothing failed".
 startup_on() { is_true "$(config_get notify_startup 2>/dev/null)"; }
 
-startup_systemctl() {  # system|user args...
-  local scope=()
-  [[ "$1" == user ]] && scope=(--user)
-  shift
+# Every outside call of the startup code, under `timeout -k1 5`. While the Startup page gathers,
+# each call also fits in what is left of its budget (STARTUP_DEADLINE, in $SECONDS), and a session
+# call that times out marks the session slow so the page asks it nothing more. The mark is a file
+# in STARTUP_TMP because the callers run in subshells.
+startup_timed() {  # system|user cmd args...
+  local scope="$1" cmd="$2" t=5 rc=0
+  shift 2
+  [[ "$scope" != user || -z "${STARTUP_TMP:-}" || ! -e "$STARTUP_TMP/user-slow" ]] || return 1
+  if [[ -n "${STARTUP_DEADLINE:-}" ]]; then
+    t=$(( STARTUP_DEADLINE - SECONDS ))
+    (( t > 0 )) || return 1
+    (( t <= 5 )) || t=5
+  fi
   # shellcheck disable=SC2086  # the seam carries its own arguments
-  timeout 5 $KEMPT_SYSTEMCTL_CMD ${scope[@]+"${scope[@]}"} "$@" </dev/null 2>/dev/null 9>&-
+  timeout -k1 "$t" $cmd "$@" </dev/null 2>/dev/null 9>&- || rc=$?
+  if [[ $rc -eq 124 || $rc -eq 137 ]] && [[ "$scope" == user && $t -eq 5 && -n "${STARTUP_TMP:-}" ]]; then
+    : > "$STARTUP_TMP/user-slow" 2>/dev/null || true
+  fi
+  return "$rc"
+}
+
+startup_systemctl() {  # system|user args...
+  local scope="$1"
+  shift
+  if [[ "$scope" == user ]]; then startup_timed user "$KEMPT_SYSTEMCTL_CMD" --user "$@"
+  else startup_timed system "$KEMPT_SYSTEMCTL_CMD" "$@"; fi
 }
 
 # The units failing now in one scope, as [{unit, description}]; rc 1 when systemd did not answer,
@@ -1724,17 +1772,50 @@ startup_failed() {  # system|user
   unset 'names[-1]'
   [[ ${#names[@]} -gt 0 ]] || { echo '[]'; return 0; }
   show="$(startup_systemctl "$1" show -p Id -p Description -p Transient -- "${names[@]}")" || show=""
-  jq -c --arg show "$show" '
+  jq -c --rawfile show <(printf '%s' "$show") '
     ([$show | split("\n\n")[] | [split("\n")[] | capture("^(?<key>[A-Za-z]+)=(?<value>.*)$")]
       | from_entries | select(.Id != null) | {(.Id): .}] | add // {}) as $s
     | [.[] | objects | select((.unit | type) == "string") | .unit as $u
        | select(($u | startswith("run-") | not) and ($s[$u].Transient // "no") != "yes")
-       | {unit: $u, description: ($s[$u].Description // .description // $u | tostring)}] | sort_by(.unit)' <<<"$list"
+       | {unit: $u, description: ($s[$u].Description // .description // $u | tostring)}] | sort_by(.unit)' <<<"$list" \
+    | startup_autostart_labels
 }
 
-startup_enabled() {  # system|user → the enabled unit files, sorted; rc 1 when systemd did not answer
-  local list
-  list="$(startup_systemctl "$1" list-unit-files --state=enabled --output=json)" || return 1
+# systemd names a session's autostart entry app-<escaped file name>@autostart.service, and its
+# description is often that unit name. A person knows it by the entry's Name=, else by the file name.
+startup_autostart_label() {  # unit → a name for it
+  local n="${1#app-}" d f name
+  n="${n%@autostart?service}"
+  printf -v n '%b' "$n"
+  if [[ -n "$n" && "$n" != */* ]]; then
+    local IFS=:
+    for d in "${XDG_CONFIG_HOME:-$HOME/.config}" ${XDG_CONFIG_DIRS:-/etc/xdg}; do
+      f="$d/autostart/$n.desktop"
+      [[ -r "$f" ]] || continue
+      name="$(sed -n '/^\[Desktop Entry\]/,/^\[/s/^Name[[:space:]]*=[[:space:]]*//p' "$f" 2>/dev/null | head -n 1)"
+      [[ -z "$name" ]] || { printf '%s' "$name"; return 0; }
+    done
+    printf '%s' "$n"
+  else
+    printf '%s' "$1"
+  fi
+}
+
+startup_autostart_labels() {  # stdin: [{unit, description, ...}] → the same, autostart units named
+  local list u found=()
+  list="$(cat)"
+  mapfile -t found < <(jq -r '.[] | select(.description == .unit and (.unit | test("^app-.+@autostart\\.service$"))) | .unit' <<<"$list" 2>/dev/null)
+  for u in "${found[@]}"; do
+    list="$(jq -c --arg u "$u" --arg d "$(startup_autostart_label "$u")" \
+              'map(if .unit == $u and .description == $u then .description = $d else . end)' <<<"$list")"
+  done
+  printf '%s\n' "$list"
+}
+
+startup_enabled() {  # system|user [pattern...] → the enabled unit files, sorted; rc 1 when systemd did not answer
+  local list which="$1"
+  shift
+  list="$(startup_systemctl "$which" list-unit-files --state=enabled --output=json "$@")" || return 1
   jq -c 'if type == "array" then [.[] | objects | .unit_file | strings] | sort else error("shape") end' <<<"$list" 2>/dev/null
 }
 
@@ -1975,7 +2056,7 @@ startup_observe() {
   while IFS=$'\t' read -r body event keys; do
     if notify_delivered "Kempt" "$body"; then log_event "$event"
     else read -ra keys <<<"$keys"; unsent+=("${keys[@]}"); fi
-  done < <(jq -r '.notes[] | [.body, .event, (.keys | join(" "))] | join("\t")' <<<"$out")
+  done < <(jq -r "$STARTUP_CLEAN_JQ"'.notes[] | [(.body | clean), (.event | clean), (.keys | join(" "))] | join("\t")' <<<"$out")
   [[ ${#unsent[@]} -gt 0 ]] || return 0
   writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
   jq -c --arg k "${unsent[*]}" '($k | split(" ")) as $ks
@@ -2020,6 +2101,413 @@ startup_patch_state() {
   fi
   if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
   return "$rc"
+}
+
+# --- the Startup page (`kempt startup --all`) ---
+# One gatherer for the terminal and the widget: what did not start this boot, what changed since
+# the last run's baseline, what starts with the computer, what runs on a schedule, and how long
+# startup took. Every outside call is a read-only query as the user through startup_timed, and a
+# unit name reaches a command only as an argument of its own. What a command printed reaches jq on
+# stdin or as a file, never as an argument: one argument holds 128 KB, and a long journal would
+# lose the whole section. A section with nothing in it is left out.
+startup_page_on() { is_true "$(config_get startup_page 2>/dev/null)"; }
+
+startup_run() { startup_timed system "$@"; }  # seam args... → its output, stderr dropped
+
+startup_file() { printf '%s' "${1:-null}"; }  # JSON for jq's --slurpfile, through <(...)
+startup_raw() { printf '%s' "$1"; }            # text for jq's --rawfile, through <(...)
+
+# `systemctl show` output, read as startup_failed reads it: {Id: {Key: value}}.
+STARTUP_SHOW_JQ='[split("\n\n")[] | [split("\n")[] | capture("^(?<key>[A-Za-z]+)=(?<value>.*)$")]
+                  | from_entries | select(.Id != null) | {(.Id): .}] | add // {}'
+# The copied command, single quoted unless the name is plain; a name with a quote gets none.
+# shellcheck disable=SC2016  # jq code, not shell
+STARTUP_STATUS_JQ='def statuscmd($scope): if test("'"'"'") then null
+  else "systemctl " + (if $scope == "user" then "--user " else "" end) + "status "
+       + (if test("^[A-Za-z0-9_.@:-]+$") then . else "'"'"'" + . + "'"'"'" end) end;'
+# Control characters (C0, DEL, C1; newlines and tabs too) as spaces, for text shown in a terminal.
+STARTUP_CLEAN_JQ='def clean: explode | map(if . < 32 or (. >= 127 and . < 160) then 32 else . end) | implode;'
+# The page's times are UTC; history entries carry the local offset.
+# shellcheck disable=SC2016  # jq code, not shell
+STARTUP_UTC_JQ='def utc: if type != "string" then . else
+  (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2})(\\.[0-9]+)?(?<z>Z|(?<s>[+-])(?<h>[0-9]{2}):?(?<m>[0-9]{2}))$") // null) as $c
+  | if $c == null then . else ($c.d + "Z" | fromdateiso8601)
+      - (if $c.z == "Z" then 0 else (if $c.s == "-" then -1 else 1 end) * (($c.h | tonumber) * 3600 + ($c.m | tonumber) * 60) end)
+      | todate end end;'
+# systemd's durations ("3min 996ms", "6.117s") in seconds.
+STARTUP_DUR_AWK='function dur(s,   n, a, i, v, u, t) {
+  n = split(s, a, " "); t = 0
+  for (i = 1; i <= n; i++) {
+    if (!match(a[i], /^[0-9.]+/)) continue
+    v = substr(a[i], 1, RLENGTH); u = substr(a[i], RLENGTH + 1)
+    t += v * (u == "y" ? 31557600 : u == "month" ? 2629800 : u == "w" ? 604800 : u == "d" ? 86400 \
+              : u == "h" ? 3600 : u == "min" ? 60 : u == "ms" ? 0.001 : u == "us" ? 0.000001 : 1)
+  }
+  return sprintf("%.3f", t)
+}'
+
+startup_journal_available() { command -v "${KEMPT_JOURNALCTL_CMD%% *}" >/dev/null 2>&1; }
+
+# journalctl exits 0 for someone who may not read the system journal and prints a hint instead, so
+# only a line proves access. The groups that grant it are asked first, which reads no journal.
+startup_journal_readable() {
+  local g
+  if [[ $EUID -ne 0 ]]; then
+    g=" $(startup_run "$KEMPT_GROUPS_CMD" | tr '\n' ' ') "
+    [[ "$g" == *" wheel "* || "$g" == *" adm "* || "$g" == *" systemd-journal "* ]] || return 1
+  fi
+  [[ -n "$(startup_run "$KEMPT_JOURNALCTL_CMD" --system -b -n 1 -q -o cat)" ]]
+}
+
+startup_journal() {  # system|user units... → this boot's journal entries for them, as json lines
+  local scope="$1" sargs=() args=() u
+  [[ "$scope" == user ]] && sargs=(--user)
+  shift
+  for u in "$@"; do args+=(-u "$u"); done
+  startup_timed "$scope" "$KEMPT_JOURNALCTL_CMD" ${sargs[@]+"${sargs[@]}"} -b -q --no-pager -o json \
+    --output-fields=MESSAGE,PRIORITY,_SYSTEMD_UNIT,_SYSTEMD_USER_UNIT,UNIT,USER_UNIT -n "$(( 50 * $# ))" "${args[@]}"
+}
+
+# Didn't start this boot: {units, journal_denied, journal_available}, or nothing. The line that
+# explains a failure is the unit's own last warning, else its own last line (a service's stderr is
+# logged as info), else systemd's last line about it. One journal query per scope, none when
+# nothing failed, and only the fields used.
+startup_page_failed() {
+  local scope list names=() show journal readable="" units='[]' more denied=false avail=true
+  startup_journal_available || avail=false
+  for scope in system user; do
+    list="$(startup_failed "$scope")" || continue
+    [[ "$list" != "[]" ]] || continue
+    mapfile -t names < <(jq -r '.[].unit' <<<"$list")
+    show="$(startup_systemctl "$scope" show -p Id -p ActiveState -p Result -- "${names[@]}")" || show=""
+    journal=""
+    if [[ "$avail" == false ]]; then
+      :
+    elif [[ "$scope" == user ]]; then
+      journal="$(startup_journal user "${names[@]}")" || journal=""
+    else
+      if [[ -z "$readable" ]]; then
+        if startup_journal_readable; then readable=yes; else readable=no; fi
+      fi
+      if [[ "$readable" == yes ]]; then journal="$(startup_journal system "${names[@]}")" || journal=""
+      else denied=true; fi
+    fi
+    more="$(printf '%s' "$journal" | jq -cRn --arg scope "$scope" --rawfile show <(startup_raw "$show") \
+        --slurpfile list <(startup_file "$list") --slurpfile acc <(startup_file "$units") "$STARTUP_STATUS_JQ"'
+      def msg: if type == "string" then . elif type == "array" then (try implode catch null) else null end;
+      ($show | '"$STARTUP_SHOW_JQ"') as $s
+      | [inputs | fromjson? | objects] as $j
+      | $acc[0] + [$list[0][] | .unit as $u
+        | [$j[] | select(._SYSTEMD_UNIT == $u or ._SYSTEMD_USER_UNIT == $u)
+           | {p: ((.PRIORITY // "6") | tonumber? // 6), m: (.MESSAGE | msg)} | select(.m != null and .m != "")] as $own
+        | [$j[] | select(.UNIT == $u or .USER_UNIT == $u) | .MESSAGE | msg | select(. != null and . != "")] as $sys
+        | {scope: $scope, unit: $u, description, state: ($s[$u].ActiveState // "failed"),
+           result: ($s[$u].Result // null),
+           log: (([$own[] | select(.p <= 4)] | last | .m) // ($own | last | .m) // ($sys | last)),
+           status_command: ($u | statuscmd($scope))}]')" && units="$more"
+  done
+  [[ "$units" != "[]" ]] || return 0
+  jq -c --argjson d "$denied" --argjson a "$avail" '{units: ., journal_denied: $d, journal_available: $a}' <<<"$units"
+}
+
+# Changed since the last update: the enabled services and timers that differ from the newest run's
+# baseline, in each scope that answered both times. {since, added, removed}, or nothing.
+startup_page_changed() {  # enabled-system enabled-user (each a list, or null)
+  local files=()
+  mapfile -t files < <(startup_hist_names | sed "s|^|$HIST_DIR/|" \
+                         | xargs -r -d '\n' grep -lF '"enabled"' -- 2>/dev/null | tail -n 5)
+  [[ ${#files[@]} -gt 0 ]] || return 0
+  jq -cn --slurpfile s <(startup_file "$1") --slurpfile u <(startup_file "$2") "$STARTUP_UTC_JQ"'
+    def keep: select(endswith(".service") or endswith(".timer"));
+    [inputs | select(type == "object" and (.failed_before.enabled | type) == "object")] | last
+    | select(. != null) | .failed_before as $b
+    | [{scope: "system", now: $s[0], was: $b.enabled.system}, {scope: "user", now: $u[0], was: $b.enabled.user}]
+    | map(select((.now | type) == "array" and (.was | type) == "array")) as $c
+    | {since: ($b.at // null | utc),
+       added: [$c[] | .scope as $sc | (.now - .was)[] | keep | {scope: $sc, unit: .}],
+       removed: [$c[] | .scope as $sc | (.was - .now)[] | keep | {scope: $sc, unit: .}]}
+    | select((.added | length) + (.removed | length) > 0)' "${files[@]}" 2>/dev/null || true
+}
+
+# Starts with the computer: enabled services in both scopes and the session's autostart entries as
+# systemd's generator made them, each with the package that owns its file (one rpm query for all).
+# Sockets, paths, targets and timers are plumbing or listed under the schedule. A unit whose
+# condition was checked this boot and failed (guest tools outside a VM, the live image's setup) is
+# marked skipped. One never tried (socket or D-Bus activated, not needed yet) is not.
+startup_page_starts() {  # enabled-system enabled-user (each a list, or null)
+  local scope list svcs=() tpls=() names=() auto show tsv t d dirs items='[]' more
+  for scope in system user; do
+    if [[ "$scope" == system ]]; then list="$1"; else list="$2"; fi
+    [[ "$list" != null ]] || continue
+    mapfile -t svcs < <(jq -r '.[] | select(endswith(".service") and (test("@\\.") | not))' <<<"$list")
+    mapfile -t tpls < <(jq -r '.[] | select(endswith(".service") and test("@\\."))' <<<"$list")
+    auto='[]'
+    if [[ "$scope" == user ]]; then
+      auto="$(startup_systemctl user list-units 'app-*@autostart.service' --all --output=json \
+              | jq -c '[.[]? | objects | select(.load != "not-found" and (.unit | type) == "string") | {unit, description}]' 2>/dev/null)" || auto='[]'
+      [[ -n "$auto" ]] || auto='[]'
+    fi
+    names=("${svcs[@]}")
+    mapfile -t -O "${#names[@]}" names < <(jq -r '.[].unit' <<<"$auto")
+    show=""
+    [[ ${#names[@]} -eq 0 ]] \
+      || show="$(startup_systemctl "$scope" show -p Id -p Description -p FragmentPath -p SourcePath \
+                   -p ActiveState -p ConditionResult -p ConditionTimestampMonotonic -- "${names[@]}")" || show=""
+    # `show` refuses a template name and then answers for no unit at all, so a template's file is
+    # looked for where systemd keeps unit files.
+    tsv=""
+    dirs="$KEMPT_SYSTEM_UNIT_DIRS"
+    [[ "$scope" == system ]] || dirs="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user /etc/systemd/user /usr/lib/systemd/user"
+    for t in "${tpls[@]}"; do
+      for d in $dirs; do [[ -e "$d/$t" ]] && { tsv+="$t"$'\t'"$d/$t"$'\n'; break; }; done
+      [[ "$tsv" == *"$t"$'\t'* ]] || tsv+="$t"$'\t'$'\n'
+    done
+    more="$(jq -c --arg scope "$scope" --rawfile show <(startup_raw "$show") --rawfile tsv <(startup_raw "$tsv") \
+              --slurpfile auto <(startup_file "$auto") --slurpfile acc <(startup_file "$items") '
+      ($show | '"$STARTUP_SHOW_JQ"') as $s
+      | def skipped($u): $s[$u].ConditionResult == "no" and ($s[$u].ConditionTimestampMonotonic // "0") != "0"
+                         and (($s[$u].ActiveState // "") | IN("active", "activating", "reloading") | not);
+      ([$tsv | split("\n")[] | select(. != "") | split("\t") | {(.[0]): .[1]}] | add // {}) as $t
+      | $acc[0]
+        + [.[] | select(endswith(".service") and (test("@\\.") | not))
+           | {scope: $scope, kind: "service", unit: ., description: ($s[.].Description // .), path: ($s[.].FragmentPath // ""),
+              skipped: skipped(.)}]
+        + [$t | to_entries[] | {scope: $scope, kind: "service", unit: .key, description: .key, path: .value, skipped: false}]
+        + [$auto[0][] | {scope: $scope, kind: "autostart", unit, description: (.description // $s[.unit].Description // .unit),
+                         path: ($s[.unit].SourcePath // ""), skipped: skipped(.unit)}]' <<<"$list")" && items="$more"
+  done
+  # Also when present: rc.local, which systemd runs when it is executable, and Plasma's autostart scripts.
+  [[ -x "$KEMPT_STARTUP_ETC/rc.local" ]] \
+    && items="$(jq -c --arg p "$KEMPT_STARTUP_ETC/rc.local" '. + [{scope: "system", kind: "rc-local", unit: $p, description: $p, path: "", skipped: false}]' <<<"$items")"
+  local f
+  for f in "${XDG_CONFIG_HOME:-$HOME/.config}"/autostart-scripts/*; do
+    [[ -f "$f" ]] || continue
+    items="$(jq -c --arg n "${f##*/}" '. + [{scope: "user", kind: "script", unit: $n, description: $n, path: "", skipped: false}]' <<<"$items")"
+  done
+  [[ "$items" != "[]" ]] || return 0
+  # rpm prints the owner of each path it is given, one line per owner, and nothing for a path that
+  # does not exist. An unowned directory between paths marks where each answer ends.
+  local paths=() args=() p map='{}' mark out
+  while IFS= read -r p; do [[ -e "$p" ]] && paths+=("$p"); done < <(jq -r '[.[].path | select(. != "")] | unique[]' <<<"$items")
+  if [[ ${#paths[@]} -gt 0 ]] && mark="$(mktemp -d -p "${STARTUP_TMP:-${TMPDIR:-/tmp}}")"; then
+    for p in "${paths[@]}"; do args+=("$p" "$mark"); done
+    out="$(startup_run "$KEMPT_RPM_QF_CMD" -qf --qf '%{NAME}\n' "${args[@]}" || true)"
+    rmdir "$mark" 2>/dev/null || true
+    map="$(jq -cn --rawfile out <(startup_raw "$out") --arg mark "file $mark is not owned by any package" '
+      $ARGS.positional as $p
+      | reduce ($out | split("\n")[]) as $l ({i: 0, m: {}};
+          if $l == $mark then .i += 1
+          elif $l == "" or ($l | test("^file .* is not owned")) or .i >= ($p | length) then .
+          else .m[$p[.i]] //= $l end)
+      | .m' --args "${paths[@]}")" || map='{}'
+  fi
+  jq -c --slurpfile m <(startup_file "$map") '
+    map({scope, kind, unit, description, package: ($m[0][.path] // null), skipped})
+    | sort_by(.scope, .kind, .unit)' <<<"$items" | startup_autostart_labels
+}
+
+# Every cron job this user can see, as tab-separated source, schedule, user, command and the
+# anacron stamp's time. Lines that only run a cron.* directory are left out: its scripts are listed.
+startup_cron_parse() {  # source system|user; stdin: a crontab
+  awk -v src="$1" -v mode="$2" '
+    function take(   t) { match(s, /^[^ \t]+/); t = substr(s, 1, RLENGTH); s = substr(s, RLENGTH + 1); sub(/^[ \t]+/, "", s); return t }
+    { s = $0; sub(/^[ \t]+/, "", s)
+      if (s == "" || s ~ /^#/ || s ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=/) next
+      sched = take()
+      if (sched !~ /^@/) for (i = 0; i < 4; i++) sched = sched " " take()
+      user = (mode == "system") ? take() : ""
+      if (s == "" || s ~ /(^|[ \t\/])run-parts[ \t]+[^ \t]*cron\.(hourly|daily|weekly|monthly)/) next
+      gsub(/\t/, " ", s)
+      print src "\t" sched "\t" user "\t" s "\t" }'
+}
+
+startup_cron_skip() {  # file name → rc 0 for what cron and run-parts skip: backups and package leftovers
+  case "$1" in .*|*~|*,|*.rpmsave|*.rpmnew|*.rpmorig|*.swp|*.dpkg-*) return 0 ;; esac
+  return 1
+}
+
+startup_cron_jobs() {  # → [{source, schedule, user, command, last}]
+  local etc="$KEMPT_STARTUP_ETC" f period id cmd
+  {
+    startup_run "$KEMPT_CRONTAB_CMD" -l | startup_cron_parse crontab user || true
+    if [[ -r "$etc/crontab" ]]; then startup_cron_parse /etc/crontab system < "$etc/crontab"; fi
+    for f in "$etc"/cron.d/*; do
+      startup_cron_skip "${f##*/}" || [[ ! -f "$f" || ! -r "$f" ]] || startup_cron_parse "/etc/cron.d/${f##*/}" system < "$f"
+    done
+    # 0anacron runs anacron, which runs the daily, weekly and monthly scripts and stamps each run.
+    for period in hourly daily weekly monthly; do
+      for f in "$etc/cron.$period"/*; do
+        [[ -f "$f" && -x "$f" && "${f##*/}" != 0anacron ]] || continue
+        startup_cron_skip "${f##*/}" && continue
+        printf 'cron.%s\t%s\t\t%s\t%s\n' "$period" "$period" "${f##*/}" \
+          "$(stat -c %Y "$KEMPT_ANACRON_SPOOL/cron.$period" 2>/dev/null)"
+      done
+    done
+    if [[ -r "$etc/anacrontab" ]]; then
+      while IFS=$'\t' read -r period id cmd; do
+        printf 'anacron\t%s\t\t%s\t%s\n' "$period" "$cmd" "$(stat -c %Y "$KEMPT_ANACRON_SPOOL/$id" 2>/dev/null)"
+      done < <(awk '
+        function take(   t) { match(s, /^[^ \t]+/); t = substr(s, 1, RLENGTH); s = substr(s, RLENGTH + 1); sub(/^[ \t]+/, "", s); return t }
+        { s = $0; sub(/^[ \t]+/, "", s)
+          if (s == "" || s ~ /^#/ || s ~ /^[A-Za-z_][A-Za-z0-9_]*[ \t]*=/) next
+          period = take(); take(); id = take()
+          if (s == "" || s ~ /(^|[ \t\/])run-parts[ \t]+[^ \t]*cron\.(daily|weekly|monthly)/) next
+          gsub(/\t/, " ", s); print period "\t" id "\t" s }' "$etc/anacrontab")
+    fi
+    true
+  } | jq -Rsc '[split("\n")[] | select(. != "") | split("\t")
+               | {source: .[0], schedule: .[1], user: (if .[2] == "" then null else .[2] end), command: .[3],
+                  last: (if (.[4] // "") == "" then null else (.[4] | tonumber | todate) end)}]'
+}
+
+startup_at_jobs() {  # → [{id, when}], when in UTC, or null when atq's time did not parse
+  local id rest w
+  { startup_run "$KEMPT_ATQ_CMD" || true; } | while IFS=$'\t' read -r id rest; do
+    [[ -n "$rest" ]] || continue
+    # atq: "Tue Oct 21 10:00:00 2026 a user", in local time; the queue and the user go.
+    w="$(date -u -d "${rest% * *}" +%FT%TZ 2>/dev/null)" || w=""
+    printf '%s\t%s\n' "$id" "$w"
+  done | jq -Rsc '[split("\n")[] | select(contains("\t")) | split("\t") | {id: .[0], when: (if .[1] == "" then null else .[1] end)}]'
+}
+
+# Runs on a schedule: {timers, cron, at, notes}, or nothing. A timer that ran late is not a
+# failure, so only the started service's Result counts. Notes: crond_down (cron jobs exist and
+# crond is not running) and linger_off (session timers stop at logout).
+startup_page_schedule() {
+  local cron at timers='[]' more notes='[]' scope list acts=() show
+  cron="$(startup_cron_jobs)" || cron='[]'
+  for scope in system user; do
+    list="$(startup_systemctl "$scope" list-timers --all --output=json)" || continue
+    list="$(jq -c '[.[]? | objects | select((.unit | type) == "string" and ((.next // 0) > 0 or (.last // 0) > 0))]' <<<"$list" 2>/dev/null)" || continue
+    [[ "$list" != "[]" ]] || continue
+    mapfile -t acts < <(jq -r '.[].activates | strings' <<<"$list")
+    show=""
+    [[ ${#acts[@]} -eq 0 ]] || show="$(startup_systemctl "$scope" show -p Id -p Description -p Result -- "${acts[@]}")" || show=""
+    more="$(jq -c --arg scope "$scope" --rawfile show <(startup_raw "$show") --slurpfile acc <(startup_file "$timers") '
+      def iso: if (. // 0) > 0 then (. / 1000000 | floor | todate) else null end;
+      ($show | '"$STARTUP_SHOW_JQ"') as $s
+      | $acc[0] + [.[] | {scope: $scope, unit, activates: (.activates // null),
+                     description: ($s[.activates // ""].Description // .unit), last: (.last | iso), next: (.next | iso),
+                     result: ($s[.activates // ""].Result // null)}]' <<<"$list")" && timers="$more"
+  done
+  if [[ "$cron" != "[]" ]]; then
+    show="$(startup_systemctl system show -p ActiveState -- crond.service)" \
+      && [[ "$show" != *ActiveState=active* ]] && notes="$(jq -c '. + ["crond_down"]' <<<"$notes")"
+  fi
+  if jq -e 'any(.[]; .scope == "user")' <<<"$timers" >/dev/null 2>&1 \
+     && [[ ! -e "$KEMPT_LINGER_DIR/${USER:-$(id -un)}" ]]; then
+    notes="$(jq -c '. + ["linger_off"]' <<<"$notes")"
+  fi
+  at="$(startup_at_jobs)" || at='[]'
+  [[ -n "$at" ]] || at='[]'
+  [[ "$timers$cron$at" != "[][][]" ]] || return 0
+  jq -cn --slurpfile t <(startup_file "$timers") --slurpfile c <(startup_file "$cron") \
+     --slurpfile a <(startup_file "$at") --argjson n "$notes" \
+    '{timers: $t[0], cron: $c[0], at: $a[0], notes: $n}'
+}
+
+# Startup time. systemd-analyze answers only once startup has finished, so a boot is recorded the
+# first time it answers: by the check while the page is on, or by the page. The slowest unit costs
+# half a second, so only the page asks for it, once per boot. The file keeps the newest 11 boots.
+startup_analyze_times() {  # → "ready userspace total" in seconds, "-" for what systemd did not say
+  startup_run "$KEMPT_SYSTEMD_ANALYZE_CMD" time | awk "$STARTUP_DUR_AWK"'
+    /\(userspace\)/ { s = $0; sub(/ \(userspace\).*/, "", s); sub(/.*(\+ | in )/, "", s); user = dur(s) }
+    /\(userspace\).* = / { s = $0; sub(/.* = /, "", s); total = dur(s) }
+    / reached after / { s = $0; sub(/.* reached after /, "", s); sub(/ in userspace.*/, "", s); ready = dur(s) }
+    END { if (user == "") exit 1; print (ready == "" ? "-" : ready) " " user " " (total == "" ? "-" : total) }'
+}
+
+startup_slowest() {  # → {unit, description, sec}, or nothing
+  local line unit desc
+  line="$(startup_run "$KEMPT_SYSTEMD_ANALYZE_CMD" blame --no-pager | awk "$STARTUP_DUR_AWK"'
+    NF >= 2 { u = $NF; $NF = ""; print u "\t" dur($0); exit }')" || true
+  [[ "$line" == *$'\t'* ]] || return 0
+  unit="${line%%$'\t'*}"
+  desc="$(startup_systemctl system show -p Description -- "$unit" | sed -n 's/^Description=//p' | head -n 1)" || desc=""
+  jq -cn --arg u "$unit" --arg d "$desc" --arg s "${line#*$'\t'}" \
+    '{unit: $u, description: (if $d == "" then $u else $d end), sec: ($s | tonumber)}'
+}
+
+startup_boot_record() {  # [slowest]
+  local cur all entry times ready user total slow
+  cur="$(current_boot_id)"
+  all="$(jq -c 'if type == "array" then . else [] end' "$BOOT_TIMES_FILE" 2>/dev/null)" || all='[]'
+  entry="$(jq -c --arg b "$cur" '[.[] | select(.boot_id == $b and has("userspace_sec"))] | last // empty' <<<"${all:-[]}")"
+  if [[ -n "$entry" ]]; then
+    [[ -n "${1:-}" ]] && ! jq -e 'has("slowest")' <<<"$entry" >/dev/null || return 0
+  else
+    times="$(startup_analyze_times)" || return 1
+    read -r ready user total <<<"$times"
+    entry="$(jq -cn --arg b "$cur" --arg at "$(date -u +%FT%TZ)" --arg r "$ready" --arg u "$user" --arg t "$total" '
+      def num: if . == "-" then null else tonumber end;
+      {boot_id: $b, at: $at, ready_sec: ($r | num), userspace_sec: ($u | num), total_sec: ($t | num)}')"
+  fi
+  if [[ -n "${1:-}" ]]; then
+    slow="$(startup_slowest)"
+    entry="$(jq -c --argjson s "${slow:-null}" '. + {slowest: $s}' <<<"$entry")"
+  fi
+  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 1
+  all="$(jq -c 'if type == "array" then . else [] end' "$BOOT_TIMES_FILE" 2>/dev/null)" || all='[]'
+  jq -c --argjson e "$entry" 'map(select(.boot_id != $e.boot_id)) + [$e] | .[-11:]' <<<"${all:-[]}" \
+    | atomic_write "$BOOT_TIMES_FILE" 2>/dev/null || true
+  writer_unlock
+}
+
+startup_boot_record_if_on() { startup_page_on || return 0; startup_boot_record >/dev/null 2>&1 || true; }
+
+startup_page_boot() {  # → {ready_sec, userspace_sec, total_sec, usual, slowest, recent}, or nothing
+  startup_boot_record slowest >/dev/null 2>&1 || true
+  jq -c --arg b "$(current_boot_id)" "$STARTUP_UTC_JQ"'
+    def median: sort | length as $n
+      | if $n == 0 then null elif $n % 2 == 1 then .[($n - 1) / 2] else (.[$n / 2 - 1] + .[$n / 2]) / 2 end;
+    (if type == "array" then . else [] end | map(select(type == "object" and (.userspace_sec | type) == "number"))) as $all
+    | ([$all[] | select(.boot_id == $b)] | last) as $now | select($now != null)
+    | ([$all[] | select(.boot_id != $b)] | .[-10:]) as $prev
+    | {ready_sec: $now.ready_sec, userspace_sec: $now.userspace_sec, total_sec: ($now.total_sec // null),
+       usual: (if ($prev | length) >= 3
+               then {ready_sec: ([$prev[].ready_sec | numbers] | median),
+                     userspace_sec: ([$prev[].userspace_sec] | median), boots: ($prev | length)}
+               else null end),
+       slowest: ($now.slowest // null),
+       recent: [$prev | reverse | .[:5][] | {boot_id, at: (.at | utc), ready_sec, userspace_sec, total_sec: (.total_sec // null)}]}' \
+    "$BOOT_TIMES_FILE" 2>/dev/null || true
+}
+
+# The whole page as one JSON object (docs/architecture.md has its shape). The system scope's
+# enabled list is the slowest query (systemd works out every unit file's state, ~0.4 s on a full
+# desktop even when asked for services and timers only), so it runs while the rest is gathered.
+# The gather has 8 s in all; its folder goes however it ends.
+startup_page_gather() {
+  local bg=() es eu failed schedule boot changed starts notes='[]'
+  STARTUP_TMP="$(mktemp -d)" || return 1
+  # shellcheck disable=SC2064  # the folder is known now
+  trap "rm -rf -- '$STARTUP_TMP'" EXIT
+  trap 'exit 130' INT TERM
+  STARTUP_DEADLINE=$(( SECONDS + 8 ))
+  { startup_enabled system '*.service' '*.timer' || echo null; } > "$STARTUP_TMP/system" &
+  bg+=($!)
+  { startup_enabled user '*.service' '*.timer' || echo null; } > "$STARTUP_TMP/user" &
+  bg+=($!)
+  failed="$(startup_page_failed)"
+  schedule="$(startup_page_schedule)"
+  boot="$(startup_page_boot)"
+  wait "${bg[@]}" || true
+  es="$(cat "$STARTUP_TMP/system")"; eu="$(cat "$STARTUP_TMP/user")"
+  [[ -n "$es" ]] || es=null
+  [[ -n "$eu" ]] || eu=null
+  changed="$(startup_page_changed "$es" "$eu")"
+  starts="$(startup_page_starts "$es" "$eu")"
+  [[ ! -e "$STARTUP_TMP/user-slow" ]] || notes='["session_slow"]'
+  jq -cn --arg boot "$(current_boot_id)" --arg at "$(date -u +%FT%TZ)" --argjson notes "$notes" \
+     --slurpfile failed <(startup_file "$failed") --slurpfile changed <(startup_file "$changed") \
+     --slurpfile starts <(startup_file "$starts") --slurpfile schedule <(startup_file "$schedule") \
+     --slurpfile bt <(startup_file "$boot") '
+    {schema: 1, boot_id: $boot, generated_at: $at, notes: $notes}
+    + (if $failed[0] == null then {} else {failed: $failed[0]} end)
+    + (if $changed[0] == null then {} else {changed: $changed[0]} end)
+    + (if $starts[0] == null then {} else {starts: $starts[0]} end)
+    + (if $schedule[0] == null then {} else {schedule: $schedule[0]} end)
+    + (if $bt[0] == null then {} else {boot_time: $bt[0]} end)'
 }
 
 # --- passwordless polkit rule rendering ---

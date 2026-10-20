@@ -422,6 +422,7 @@ terminal. A removal writes an event line and no history entry.
 
 ```
 kempt startup [--json]
+kempt startup --all [--json]
 kempt startup mute|unmute <unit> [--user]
 ```
 
@@ -440,6 +441,30 @@ nothing is compared. Each new set gets one notification, and so does a recovery.
 
 `mute` is for a service that stopped starting. It hides it, and its recovery, until it
 runs. `--user` means a session service. `--json` prints the `startup` block of `kempt check`.
+
+`--all` shows everything that starts or runs on its own: what didn't start this boot, what
+changed since the last update, what starts with the computer, what runs on a schedule, and
+startup time. Empty parts are left out. Log lines of system services need membership of `wheel`,
+`adm` or `systemd-journal`. `--all` works whatever `startup_page` says, and `--json` prints
+[this shape](architecture.md#startup-page-json).
+
+```
+Didn't start this boot:
+  Bluetooth service
+    Its log says: No Bluetooth adapter found
+    To see why: systemctl status bluetooth.service
+
+Runs on a schedule:
+  Timers
+    Discard unused blocks (fstrim.timer): last run 19 Oct 01:25, next 26 Oct 00:22
+  Cron
+    backup.sh: every day at 23:55 (your crontab)
+    These jobs never run: crond is not running.
+
+Startup time:
+  Ready in 6 s; all services by 3 min 1 s.
+  Usually ready in 7 s; all services by 2 min 55 s.
+```
 
 | Exit | When |
 | --- | --- |
