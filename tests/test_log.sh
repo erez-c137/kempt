@@ -455,6 +455,7 @@ done < <(grep -rhoE 'log_event "[^"]*' "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_
            | sed -e 's/^log_event "//' -e 's/\$.*//' -e 's/ *$//' | sort -u)
 assert_eq "${missing%; }" "" "every kind of event the code writes is in the sample"
 assert_contains "$plain_out" "cli Security update notice shown (3 pending)" "a security notice reads as one"
+assert_contains "$plain_out" "cli Running again: bluetooth.service" "a recovery reads as the notification does"
 assert_contains "$plain_out" "cli Staged update recorded, but its result after the restart will not be reported" \
   "a stage without its baseline says what that costs"
 assert_contains "$plain_out" "cli Staged update dropped (a live update replaced it)" "a superseded stage says why"

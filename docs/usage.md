@@ -434,18 +434,18 @@ Not starting since an update:
     systemctl status bluetooth.service
 ```
 
-Kempt notes what is failing when an update starts, and compares after the update and after the
+Kempt notes what is failing when an update starts, and compares after the update and the
 next restart. Services already failing stay quiet. With no Kempt update since the last restart,
-nothing is compared. Each new set gets one notification, and a service that runs again gets one more.
+nothing is compared. Each new set gets one notification, and so does a recovery.
 
-`mute` hides a unit until it is seen running. `--user` means a service in your session. `--json`
-prints the `startup` block from `kempt check`.
+`mute` hides a unit, and its recovery, until it runs. It refuses running or unknown units.
+`--user` means a session service. `--json` prints the `startup` block from `kempt check`.
 
 | Exit | When |
 | --- | --- |
 | 0 | Listed, muted or unmuted. |
 | 1 | The state directory could not be written. |
-| 2 | Unknown option, or not a unit name. |
+| 2 | Unknown option, or an invalid, unknown or running unit. |
 
 ## status
 

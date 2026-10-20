@@ -3446,9 +3446,18 @@ startup_mute_cmd() {  # mute|unmute unit [--user]
   fi
   # An alias is stored under the unit's own name, the one systemd reports failing; when systemctl
   # does not answer, the name is kept as typed. Unmute drops both spellings.
-  local id typed="$scope:$unit"
-  if startup_on && id="$(startup_systemctl "$scope" show -p Id -- "$unit")"; then
-    id="$(sed -n '1s/^Id=//p' <<<"$id")"
+  # A unit systemd does not know, or one running now, is refused: the next check would end that
+  # mute at once, and the mute would have done nothing.
+  local id show typed="$scope:$unit"
+  if startup_on && show="$(startup_systemctl "$scope" show -p Id -p LoadState -p ActiveState -- "$unit")"; then
+    id="$(sed -n 's/^Id=//p' <<<"$show" | head -n 1)"
+    if [[ "$verb" == mute ]]; then
+      if grep -qx 'LoadState=not-found' <<<"$show"; then
+        echo "Kempt does not know a service called $unit." >&2; exit 2
+      elif grep -qx 'ActiveState=active' <<<"$show"; then
+        echo "$unit is running, so there is nothing to mute. Kempt mutes a service that has stopped starting." >&2; exit 2
+      fi
+    fi
     [[ ${#id} -gt 255 || ! "$id" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.:@\\-]*\.[a-z]+$ ]] || unit="$id"
   fi
   kempt_init_dirs
