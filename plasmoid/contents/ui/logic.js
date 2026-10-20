@@ -1249,11 +1249,14 @@ var MESSAGE_CAP = 2;
 // answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
 // `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
 // only one of the two is ever on screen.
-// `startup` (a service that stopped starting after an update, or started again) sits under the
-// restart: after the restart that installs an update, the messages above it are usually gone, and a
-// broken service outranks advice and offers. Its one-time line is acknowledged only while drawn.
-var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "restart",
-                     "startup", "fetchMissed", "kernel", "surfaceOffer", "discoverOffer", "reclaim"];
+// `startup` (a service that stopped starting after an update) sits above the restart: a live run
+// that broke a service and owes a restart shows its report and the failure, and the footer says
+// `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
+// and sits under the restart. With a failure up, that line rides in the failure's slot instead.
+// Either is acknowledged only while drawn.
+var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "startup",
+                     "restart", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
+                     "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1282,7 +1285,7 @@ function messageStack(wants) {
 // The block is optional: absent while notify_startup is off or systemctl does not answer. Every
 // entry is checked before it is believed, and a unit name outside systemd's alphabet (the one
 // `kempt startup mute` accepts) is left out rather than given buttons that cannot work.
-var STARTUP_UNIT_RE = /^[A-Za-z0-9_@\\][A-Za-z0-9_.@\\-]*$/;
+var STARTUP_UNIT_RE = /^[A-Za-z0-9_@\\][A-Za-z0-9_.@:\\-]*$/;
 var STARTUP_DIGEST_RE = /^[0-9a-f]{16}$/;
 
 function startupEntriesOf(list) {
@@ -1291,7 +1294,10 @@ function startupEntriesOf(list) {
         e = items[i];
         if (!e || typeof e !== "object" || typeof e.unit !== "string") continue;
         if (e.unit.length > 255 || !STARTUP_UNIT_RE.test(e.unit)) continue;
-        out.push({ unit: e.unit, scope: e.scope === "user" ? "user" : "system",
+        // A scope Kempt does not know is left out: guessing "system" would point the buttons at
+        // a different unit than the one that failed.
+        if (e.scope !== "user" && e.scope !== "system") continue;
+        out.push({ unit: e.unit, scope: e.scope,
                    name: typeof e.description === "string" && e.description !== "" ? e.description : e.unit });
     }
     return out;
@@ -2903,8 +2909,9 @@ function viewModel(state, updating, cliError, opts) {
     // --- a service that stopped starting after an update ---------------------------------------
     // Never in the count, the badge, the icon or its attention: the update count is about updates.
     var startup = startupOf(usable ? state : null, opts.startupRecoveredKept);
-    var startupWanted = !updating && !noEngine
-        && (startup.entries.length > 0 || startup.recoveredText !== "");
+    var startupFree = !updating && !noEngine;
+    var startupWanted = startupFree && startup.entries.length > 0;
+    var startupRecoveredWanted = startupFree && !startupWanted && startup.recoveredText !== "";
 
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
@@ -2938,7 +2945,8 @@ function viewModel(state, updating, cliError, opts) {
         surfaceOffer: surfaceOffer,
         discoverOffer: discoverOffer,
         reclaim: reclaimShown && !updating,
-        startup: startupWanted
+        startup: startupWanted,
+        startupRecovered: startupRecoveredWanted
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -3166,7 +3174,8 @@ function viewModel(state, updating, cliError, opts) {
         startupHeading: startup.heading,
         startupAlready: startup.already,
         startupRecoveredText: startup.recoveredText,
-        startupAckDigest: messageSlots.indexOf("startup") >= 0 ? startup.digest : "",
+        startupAckDigest: messageSlots.indexOf("startup") >= 0 || messageSlots.indexOf("startupRecovered") >= 0
+            ? startup.digest : "",
         footerText: footerParts.join(DOT),
         checkAnswerText: checkAnswerText,
         // Published rather than left inside the two strings above, so a future surface (a

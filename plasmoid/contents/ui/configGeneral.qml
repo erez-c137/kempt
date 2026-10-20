@@ -275,12 +275,22 @@ KCM.SimpleKCM {
         cfgExecutor.run(kemptCmd + " startup --json", 15000, function (stdout, stderr, rc) {
             page.mutedBusy = false;
             page.muted = rc === 0 ? Logic.startupMutedOf(stdout) : [];
+            // After Stop Muting its button is gone with the row, so the keyboard goes to Undo,
+            // once the list read has re-enabled it.
+            if (page.focusUndo) {
+                page.focusUndo = false;
+                Qt.callLater(function () {
+                    if (undoUnmute.visible && undoUnmute.enabled) undoUnmute.forceActiveFocus(Qt.TabFocusReason);
+                });
+            }
         });
     }
 
     // verb is "mute" or "unmute"; the unit is shell-quoted by Logic.startupVerbArgs. Durable, as
     // removeHold is, because the button can be pressed just before OK. A finished unmute is kept
     // in lastUnmuted for Undo; a finished Undo clears it.
+    property bool focusUndo: false
+
     function setMuted(verb, entry) {
         var args = Logic.startupVerbArgs(verb, entry);
         if (args === "") return;
@@ -295,6 +305,7 @@ KCM.SimpleKCM {
                 return;
             }
             page.lastUnmuted = verb === "unmute" ? entry : null;
+            page.focusUndo = verb === "unmute";
             page.loadMuted();
         });
     }

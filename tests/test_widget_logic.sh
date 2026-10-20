@@ -1198,6 +1198,12 @@ assert_eq "$(js "L.startupVerbArgs('unmute', {unit:'bluetooth.service', scope:'s
 assert_eq "$(js "L.startupVerbArgs('rm', {unit:'bluetooth.service', scope:'system'})")" "" "...and no other verb"
 assert_eq "$(su "announced:[{unit:\"evil;rm -rf ~\",scope:\"system\",description:\"x\"}, $SU_BT]" 'startupEntries.length')" "1" \
   "a unit name the CLI would refuse is left out rather than offered a button that cannot work"
+assert_eq "$(su "announced:[{unit:\"systemd-backlight@backlight:acpi_video0.service\",scope:\"system\",description:\"Backlight\"}]" 'startupEntries.length')" "1" \
+  "...but a colon, which systemd and the CLI allow, is kept, so the banner counts what the notification counted"
+assert_eq "$(su "announced:[{unit:\"a.service\",scope:\"machine\",description:\"A\"}, {unit:\"b.service\",description:\"B\"}, $SU_BT]" 'startupEntries.map(function (e) { return e.unit; })')" \
+  '["bluetooth.service"]' "a scope that is neither system nor user is left out, not guessed as system"
+assert_eq "$(js "JSON.stringify(L.startupMutedOf('{\"notify\":true,\"muted\":[{\"unit\":\"a.service\",\"scope\":\"machine\"}]}'))")" '[]' \
+  "...in the muted list too"
 # Already failing at the baseline: quiet, in the banner's details, and only with a banner.
 assert_eq "$(su "announced:[$SU_BT], already:[$SU_USR, {unit:\"im.service\",scope:\"user\",description:\"Input Method starter\"}]" 'startupAlready')" \
   "Already failing before the update: plasma-foo.service, Input Method starter." "already failing is one quiet line"
@@ -1206,13 +1212,19 @@ assert_eq "$(su "already:[$SU_USR]" 'messageSlots.indexOf("startup")')" "-1" "..
 assert_eq "$(su "announced:[$SU_BT]" 'messageSlots')" '["startup"]' "a failure takes a message slot"
 assert_eq "$(js "L.viewModel($(su_state "announced:[$SU_BT]"), true, '', {}).messageSlots")" '[]' "...not during an update"
 assert_eq "$(su "announced:[$SU_BT], notify:false" 'messageSlots')" '[]' "...nor with the setting off"
-assert_eq "$(js 'L.messageStack({restart: true, startup: true, fetchMissed: true})')" '["restart","startup"]' \
-  "it sits below the restart and above a missed fetch"
+assert_eq "$(js 'L.messageStack({restart: true, startup: true, fetchMissed: true})')" '["startup","restart"]' \
+  "a failure ranks above the restart"
+assert_eq "$(js 'L.messageStack({report: true, restart: true, startup: true})')" '["report","startup"]' \
+  "...so a run that broke a service shows its report and the failure, and the restart waits in the footer"
+assert_eq "$(js 'L.messageStack({restart: true, startupRecovered: true, fetchMissed: true})')" '["restart","startupRecovered"]' \
+  "the running-again line alone stays below the restart"
 assert_eq "$(js 'L.viewModel(S("live"), false, "", {}).startupEntries')" '[]' "no block, no banner"
 # Recovered: one line, acknowledged by the digest, and kept on screen after the acknowledgement.
 REC="recovered:[$SU_BT], recovered_digest:'0123456789abcdef'"
 assert_eq "$(su "$REC" 'startupRecoveredText')" "Bluetooth service is running again." "a recovered service: one line"
-assert_eq "$(su "$REC" 'messageSlots')" '["startup"]' "...in the same slot"
+assert_eq "$(su "$REC" 'messageSlots')" '["startupRecovered"]' "...in its own slot, below the restart"
+assert_eq "$(su "announced:[$SU_USR], $REC" 'messageSlots')" '["startup"]' "...or inside a failure's slot when there is one"
+assert_eq "$(su "announced:[$SU_USR], $REC" 'startupAckDigest')" "0123456789abcdef" "...and acknowledged there too"
 assert_eq "$(su "$REC" 'startupAckDigest')" "0123456789abcdef" "...with the digest the popup acknowledges"
 assert_eq "$(su "recovered:[$SU_BT], recovered_digest:'nope'" 'startupAckDigest')" "" "a digest of the wrong shape is never sent"
 assert_eq "$(su "$REC" 'startupAckDigest' '{reportShown: true, restartReminder: true, doctorShown: false}')" "0123456789abcdef" "(a report beside it leaves room)"

@@ -14,6 +14,8 @@ time, it may need a plasmashell restart or a new login. To hide it or move it be
 
 > Right-click the panel > **Add Widgets…** > search for **Kempt** > drag it onto the panel.
 
+Using both gives you two icons.
+
 ## What the panel icon means
 
 | Icon | State | What it tells you |
@@ -108,7 +110,7 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 
    **Show Log** opens the run's log, when there is one. **Check Installation** appears when the
    message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
-   starts, and so does a report that something worked. The note about a failed
+   starts. A report that something worked also goes when a check starts. The note about a failed
    check goes when fresh counts arrive, or when you ask for a check. Other reports stay until your
    next press.
 3. **This system updates with rpm-ostree**, on an image-based Fedora such as Kinoite. It points at
@@ -121,14 +123,14 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    and **Update Now** updates live.
 5. **What the next restart will install**, when an update is staged. See
    [The staged banner](#the-staged-banner).
-6. **Restart to apply installed updates**, with **Restart…** and a close button. See
-   [About the restart](#about-the-restart).
-7. **A service did not start after the update.** *"Bluetooth service didn't start after the
+6. **A service did not start after the update.** *"Bluetooth service didn't start after the
    update. It stopped with an error. A system service (bluetooth.service)."* Several get a heading
    and a message each. **Copy Command** copies its `systemctl status` command. **Mute Until It
    Starts** stops Kempt mentioning it until it starts cleanly again. Services that were already
-   failing before the update are listed quietly below. When one runs again, a line says so once.
-   The panel count and icon never include this.
+   failing before the update are listed quietly below. When one runs again, a line says so once,
+   ranked under the restart message. The panel count and icon never include this.
+7. **Restart to apply installed updates**, with **Restart…** and a close button. See
+   [About the restart](#about-the-restart).
 8. **"This update includes a kernel. The safest way is to install it on the next restart, so
    nothing changes under the running desktop."** Another version also names the NVIDIA driver.
    Without a kernel, it names the session packages in the update: `This update touches 20 packages
@@ -281,7 +283,7 @@ succeeds it reads `No successful check yet`. It can add:
 - ` · restart pending`, when a restart is owed and its message is not showing.
 
 The size leaves out new dependencies and held items, and overstates Flatpak, which downloads only
-the changes.
+the changes. Below a megabyte it reads `< 1 MB`.
 
 **Update Now** runs updates wherever **Run updates in** says. With **On the next
 restart** and system updates pending, it reads **Install on Next Restart**. A press shows a
@@ -304,8 +306,8 @@ If a run dies without writing its state, the widget gives up after three hours a
 ### When the widget checks
 
 **Opening the widget checks** when the last successful check is older than five minutes or your
-check interval, whichever is shorter, and on every open until a check succeeds. If a check is already running,
-one more runs when it
+check interval, whichever is shorter, and on every open until a check succeeds. The counts on
+screen stay until the answer arrives. If a check is already running, one more runs when it
 finishes, however often you open the widget.
 
 Every 30 seconds (every 2 during an update) the widget also checks the package databases, the
@@ -316,7 +318,8 @@ staged update in that minute is checked when the minute is up.
 
 ### When nothing is pending
 
-The list says `Everything is up to date` and the footer has no **Update Now**. In place of
+The list says `Everything is up to date` and the footer has no **Update Now**. The restart message
+can still show, because a restart can be owed with nothing pending. In place of
 `Everything is up to date`, the **Held** group shows when every pending update is held,
 and `Apps installed for you only could not be checked.` when those apps could not be listed. When a
 check could not run Kempt at all, it says so there, with **Check Installation** under it. When the

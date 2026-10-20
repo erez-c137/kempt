@@ -1374,6 +1374,7 @@ PlasmoidItem {
         startupAckSent = "";
         // ...and a "running again" line that was acknowledged has now been seen.
         startupRecoveredKept = [];
+        startupMuteError = null;
         // Only when the in-use sentence was on screen as the popup closed, in the post-run line or
         // under the Last update row. Asked BEFORE the post-run line clears.
         if (Logic.reclaimInUseOnScreen(lastRun, reclaimInUseSeen, updating,
@@ -1605,6 +1606,8 @@ PlasmoidItem {
     // (vm.startupAckDigest is "" otherwise). A set that changed in between is refused (exit 6).
     // The CLI then clears the line from state.json, so the set acknowledged is kept here and
     // shown until the popup closes: a line that vanished as it was read would not be read.
+    // Exit 1 is kept too: the CLI may have forgotten the set and then failed to patch state.json,
+    // and the next state written would take the line away unread.
     property string startupAckSent: ""
     property var startupRecoveredKept: []
 
@@ -1615,7 +1618,7 @@ PlasmoidItem {
         var seen = kemptState && kemptState.startup ? kemptState.startup.recovered : [];
         executor.run(kemptCmd + " startup ack --expect=" + Logic.shellQuote(digest),
                      Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
-            if (rc !== 0) return;
+            if (rc !== 0 && rc !== 1) return;
             root.startupRecoveredKept = seen;
             root.adoptState();
         });
@@ -1624,11 +1627,12 @@ PlasmoidItem {
     // Mute Until It Starts. The unit came out of the CLI's JSON and goes back onto a command line,
     // so Logic.startupVerbArgs shell-quotes it. One at a time; the CLI rewrites state.json's
     // startup block, which is read straight back so the entry leaves the banner at once.
-    // A failure is said in that entry (startupMuteError), where the press was.
+    // A failure is said in that entry (startupMuteError), where the press was, naming the service
+    // as the banner does; it goes when the popup closes. `then` runs once the entry has left.
     property string startupMutePending: ""
     property var startupMuteError: null
 
-    function muteStartup(unit, scope) {
+    function muteStartup(unit, scope, name, then) {
         if (startupMutePending !== "") return;
         var args = Logic.startupVerbArgs("mute", { unit: unit, scope: scope });
         if (args === "") return;
@@ -1638,11 +1642,14 @@ PlasmoidItem {
             if (rc !== 0) {
                 root.startupMuteError = { key: scope + ":" + unit,
                     text: Logic.answerOutcomeOf(rc, "", stderr, "", "").text
-                          || i18n("Could not mute %1.", unit) };
+                          || i18n("Could not mute %1.", name || unit) };
                 root.startupMutePending = "";
                 return;
             }
-            root.adoptState(function () { root.startupMutePending = ""; });
+            root.adoptState(function () {
+                root.startupMutePending = "";
+                if (typeof then === "function") then();
+            });
         });
     }
 

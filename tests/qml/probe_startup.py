@@ -23,6 +23,7 @@ STATE_JSON = os.path.join(p.state, "state.json")
 SRC = os.path.join(p.sandbox, "src.json")       # what `kempt check` serves
 ACKRC = os.path.join(p.sandbox, "ackrc")
 MUTERC = os.path.join(p.sandbox, "muterc")
+MUTEMSG = os.path.join(p.sandbox, "mutemsg")    # what a failed mute says on stderr
 VALUES = os.path.join(p.sandbox, "values")      # the settings page's stored config
 os.makedirs(VALUES)
 STARTUP_JSON = os.path.join(p.sandbox, "startup.json")   # what `kempt startup --json` answers
@@ -48,6 +49,7 @@ def serve(**block):
 serve(announced=[BT], recovered=[USR], recovered_digest="0123456789abcdef")
 open(ACKRC, "w").write("0")
 open(MUTERC, "w").write("0")
+open(MUTEMSG, "w").write("kempt: could not write the mutes file\n")
 
 p.stub("""
 case "$1" in
@@ -65,7 +67,7 @@ case "$1" in
             fi
             exit "$rc" ;;
       mute) rc="$(cat %(MRC)s)"
-            [[ "$rc" == 0 ]] || { echo "kempt: could not write the mutes file" >&2; exit "$rc"; }
+            [[ "$rc" == 0 ]] || { cat %(MSG)s >&2; exit "$rc"; }
             jq -c --arg u "$3" '.startup.announced |= map(select(.unit != $u))' %(ST)s > %(ST)s.t && mv %(ST)s.t %(ST)s
             exit 0 ;;
       --json) cat %(SJ)s; exit 0 ;;
@@ -73,7 +75,7 @@ case "$1" in
     esac ;;
 esac
 """ % {"CFG": harness.config_arm(), "SRC": SRC, "ST": STATE_JSON, "ACKRC": ACKRC, "MRC": MUTERC,
-       "SJ": STARTUP_JSON})
+       "SJ": STARTUP_JSON, "MSG": MUTEMSG})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.kemptState !== null", True)
@@ -88,6 +90,7 @@ settle()
 
 from PySide6.QtCore import QUrl                                    # noqa: E402
 from PySide6.QtQml import QQmlComponent, QQmlEngine                # noqa: E402
+from PySide6.QtQuick import QQuickWindow                           # noqa: E402
 
 full = QQmlComponent(p.engine, QUrl.fromLocalFile(os.path.join(harness.UI, "FullRepresentation.qml")))
 pop = full.createWithInitialProperties({"plasmoidItem": root, "vm": root.property("vm")})
@@ -99,6 +102,14 @@ p.keep.append((full, pop))
 lev = p.evaluator(pop)
 # The popup's vm is handed down once; keep it following main.qml's, as the real binding does.
 lev("popup.vm = Qt.binding(function () { return popup.plasmoidItem.vm; })")
+# A real offscreen window, as in probe_focus.py: without a scene there is no activeFocus to check.
+win = QQuickWindow()
+win.resize(460, 900)
+pop.setParentItem(win.contentItem())
+pop.setWidth(460)
+pop.setHeight(900)
+win.show()
+p.pump(200)
 
 # --- the banner, and the panel it leaves alone ---------------------------------------------------
 p.check("a failed service takes the startup slot", ev("root.vm.messageSlots.indexOf('startup') >= 0"), True)
@@ -146,11 +157,32 @@ p.check("...and the line stays on screen until the widget closes",
         [True, "plasma-foo.service is running again."])
 ev("root.popupClosed()")
 p.check("closed, it is gone", lev("startupRecovered.visible"), False)
+# A recorded acknowledgement whose state.json patch failed (exit 1): the CLI may already have
+# forgotten the line, so it stays for this open rather than vanishing unread at the next refresh.
+serve(announced=[], recovered=[USR], recovered_digest="00000000000000aa")
+ev("root.doCheck()")
+settle()
+p.check("the running-again line alone has its own slot, below the restart",
+        [ev("root.vm.messageSlots.indexOf('startupRecovered') >= 0"), lev("startupBanner.visible"),
+         lev("startupRecovered.visible")], [True, True, True])
+open(ACKRC, "w").write("1")
+ev("root.popupOpened()")
+settle()
+serve(announced=[BT])
+ev("root.doCheck()")
+settle()
+p.check("an acknowledgement that exited 1 keeps the line for this open",
+        [lev("startupRecovered.visible"), lev("startupRecovered.text")],
+        [True, "plasma-foo.service is running again."])
+ev("root.popupClosed()")
+open(ACKRC, "w").write("0")
+p.check("...until the widget closes", lev("startupRecovered.visible"), False)
 p.check("...and the failure is still there", lev("startupBanner.visible"), True)
 
 # --- Mute Until It Starts ------------------------------------------------------------------------
 serve(announced=[BT, USR, dict(BT, unit=ESCAPED, description="File System Check"),
-                 dict(BT, unit=HOSTILE, description="Hostile")])
+                 dict(BT, unit=HOSTILE, description="Hostile")],
+      already=[{"unit": "im.service", "scope": "user", "description": "Input Method starter"}])
 ev("root.doCheck()")
 settle()
 p.check("a unit name the CLI would refuse gets no message, so three services: a heading with the count, one message each",
@@ -170,18 +202,43 @@ p.check("Mute runs kempt startup mute <unit> --user",
         p.argv("startup"), ["startup", "mute", "plasma-foo.service", "--user"])
 p.check("...and the muted service leaves the banner",
         [lev("startupRepeater.count"), ev("root.startupMutePending")], [2, ""])
+NEXT_FOCUSED = ("popup.Window.activeFocusItem !== null"
+                " && popup.Window.activeFocusItem === popup.buttonFor(startupRepeater.itemAt(1),"
+                " startupRepeater.itemAt(1).actions[0])")
+p.wait_for(lev, NEXT_FOCUSED, True)
+p.check("...and the keyboard moves to the next service's first button",
+        [lev(NEXT_FOCUSED), lev("startupRepeater.itemAt(1).modelData.unit")], [True, ESCAPED])
 p.clear_calls()
 lev("startupRepeater.itemAt(1).actions[1].trigger()")
 settle()
 p.check("an escaped unit reaches the CLI as one argument, backslash intact",
         p.argv("startup"), ["startup", "mute", ESCAPED])
-p.check("...and the refused name never reached a shell", os.path.exists(os.path.join(p.sandbox, "PWNED")), False)
+p.wait_for(lev, "popup.Window.activeFocusItem === startupAlready", True)
+p.check("with no service after it, the keyboard moves to the already-failing line",
+        [lev("popup.Window.activeFocusItem === startupAlready"), lev("startupAlready.text")],
+        [True, "Already failing before the update: Input Method starter."])
+# Characters systemd allows and a shell would not leave alone: one argument, exactly as named.
+ODD = "systemd-backlight@backlight:acpi\\x2dvideo0.service"
+p.clear_calls()
+ev("root.muteStartup(%s, 'system', 'Backlight')" % json.dumps(ODD))
+settle()
+p.check("a unit with @, a colon and a backslash reaches the CLI as one argument, unchanged",
+        p.argv("startup"), ["startup", "mute", ODD])
 open(MUTERC, "w").write("1")
 lev("startupRepeater.itemAt(0).actions[1].trigger()")
 settle()
 p.check("a mute that failed says so in that service's message",
         lev("startupRepeater.itemAt(0).text.split('\\n')[2]"), "kempt: could not write the mutes file")
 p.check("...and the buttons are live again", lev("startupRepeater.itemAt(0).actions[1].enabled"), True)
+open(MUTEMSG, "w").write("")
+lev("startupRepeater.itemAt(0).actions[1].trigger()")
+settle()
+p.check("a failure that says nothing names the service as the person knows it",
+        lev("startupRepeater.itemAt(0).text.split('\\n')[2]"), "Could not mute Bluetooth service.")
+ev("root.popupOpened()")
+ev("root.popupClosed()")
+p.check("...and closing the widget clears it", [ev("root.startupMuteError"), lev("startupRepeater.itemAt(0).text.split('\\n').length")],
+        [None, 2])
 
 # --- the settings page ---------------------------------------------------------------------------
 for k, v in harness.CONFIG_DEFAULTS.items():
@@ -208,6 +265,13 @@ esac
 p.clear_calls()
 page, pev = p.create("configGeneral.qml")
 p.wait_for(pev, "page.pendingReads === 0 && !page.mutedBusy", True)
+win2 = QQuickWindow()
+win2.resize(460, 1600)
+page.setParentItem(win2.contentItem())
+page.setWidth(460)
+page.setHeight(1600)
+win2.show()
+p.pump(200)
 p.wait_idle(pev, "cfgExecutor")
 p.check("the page reads notify_startup", p.calls_matching("config get notify_startup"),
         ["config get notify_startup"])
@@ -240,6 +304,8 @@ p.check("Stop Muting runs kempt startup unmute <unit> --user",
 p.check("...the list is read again, and Undo is offered",
         [pev("page.muted.length"), pev("mutedEmpty.text"), pev("unmutedRow.visible")],
         [0, "Nothing is muted.", True])
+p.wait_for(pev, "page.Window.activeFocusItem === undoUnmute", True)
+p.check("...and the keyboard is on Undo", pev("page.Window.activeFocusItem === undoUnmute"), True)
 p.clear_calls()
 pev("undoUnmute.clicked()")
 p.wait_for(pev, "page.mutedBusy", False)
