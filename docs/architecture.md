@@ -373,18 +373,19 @@ tolerate absence.
 
 ## Startup page JSON
 
-`kempt startup --all --json` prints one object, the widget's page. Each outside call runs under
-`timeout 5`. A section with nothing in it is absent, and a present one has every key. Times are
-ISO 8601.
+`kempt startup --all --json` prints one object for the widget. Each outside call runs under
+`timeout 5`, all within 8 s. Empty sections are absent; present ones have every key. Times are
+UTC ISO 8601. Strings are raw; the text view prints control characters as spaces.
 
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `schema`, `boot_id`, `generated_at` | 1, string, string | Always present |
-| `failed` | object | `units`: each `{scope, unit, description, state, result, log, status_command}`. `log` is the unit's own last warning, else its own last line, else systemd's last line about it, or `null`. `status_command` is `systemctl [--user] status <unit>`, single quoted unless the name is plain. `journal_denied`: a system unit failed and the system journal is not readable |
+| `notes` | array | Always present. `session_slow`: the session timed out and its part is missing |
+| `failed` | object | `units`: each `{scope, unit, description, state, result, log, status_command}`. `log` is the unit's own last warning, else its own last line, else systemd's last line about it, or `null`. `status_command` is `systemctl [--user] status <unit>`, single quoted unless the name is plain. `journal_denied`: a system unit failed and the system journal is not readable. `journal_available`: false without journalctl |
 | `changed` | object | `since` (the baseline's time), `added` and `removed`: `{scope, unit}` services and timers enabled or no longer enabled since the newest history entry's `failed_before.enabled` |
-| `starts` | array | `{scope, kind, unit, description, package}`. `kind`: `service`, `autostart` (systemd's `app-*@autostart.service`), `rc-local` or `script` (`~/.config/autostart-scripts`). `package` is `null` when no package owns the file |
+| `starts` | array | `{scope, kind, unit, description, package, skipped}`. `kind`: `service`, `autostart` (systemd's `app-*@autostart.service`), `rc-local` or `script` (`~/.config/autostart-scripts`). `package` is `null` when no package owns the file. `skipped`: its condition failed this boot |
 | `schedule` | object | `timers`: `{scope, unit, activates, description, last, next, result}`, `result` being the started service's. `cron`: `{source, schedule, user, command, last}`, `source` being `crontab`, `/etc/crontab`, `/etc/cron.d/<file>`, `cron.<period>` or `anacron`. `at`: `{id, when}`. `notes`: `crond_down`, `linger_off` |
-| `boot_time` | object | `ready_sec` (the default target, or `null`), `total_sec` (userspace), `usual` (`{ready_sec, total_sec, boots}`, medians of up to 10 earlier boots, `null` under 3), `slowest` (`{unit, sec}` or `null`), `recent` (up to 5 earlier boots, newest first) |
+| `boot_time` | object | `ready_sec` (default target, or `null`) and `userspace_sec` count from userspace's start, `total_sec` from power on (or `null`). `usual`: `{ready_sec, userspace_sec, boots}`, medians of up to 10 earlier boots, `null` under 3. `slowest`: `{unit, description, sec}` or `null`. `recent`: up to 5 earlier boots, newest first |
 
 ## The offline transaction, end to end
 

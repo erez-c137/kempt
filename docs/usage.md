@@ -450,20 +450,20 @@ startup time. Empty parts are left out. Log lines of system services need member
 
 ```
 Didn't start this boot:
-  Bluetooth service (bluetooth.service)
-    No Bluetooth adapter found
-    systemctl status bluetooth.service
+  Bluetooth service
+    Its log says: No Bluetooth adapter found
+    To see why: systemctl status bluetooth.service
 
 Runs on a schedule:
   Timers
-    Discard unused blocks (fstrim.timer): last 19 Oct 01:25, next 26 Oct 00:22
+    Discard unused blocks (fstrim.timer): last run 19 Oct 01:25, next 26 Oct 00:22
   Cron
-    brave-browser: every day, last 20 Oct
+    backup.sh: every day at 23:55 (your crontab)
     These jobs never run: crond is not running.
 
 Startup time:
-  Ready in 6 s; everything started in 3 min 1 s.
-  Usually ready in 7 s; everything in 2 min 55 s.
+  Ready in 6 s; all services by 3 min 1 s.
+  Usually ready in 7 s; all services by 2 min 55 s.
 ```
 
 | Exit | When |
