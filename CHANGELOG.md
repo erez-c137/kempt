@@ -26,6 +26,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An update no longer stops when Kempt cannot tidy its history.** Kempt keeps the newest 50
+  run records and removes older ones. If one of them could not be removed, the run stopped there.
+  Tidying is now best effort, as intended.
 - **A computer without Flatpak no longer fails every check.** Kempt checks and updates system
   packages only, and the widget shows no failed check. In the widget's settings, **Include Flatpak
   apps** is greyed out. `kempt doctor` warns only if you set `include_flatpak=true` yourself.
