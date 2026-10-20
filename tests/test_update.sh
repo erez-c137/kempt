@@ -285,6 +285,18 @@ assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" "..
 
 "$KEMPT" unhold flatpak:org.gimp.GIMP
 
+# No flatpak command on the box and include_flatpak never set: the run skips Flatpak, as it does
+# with include_flatpak=false, rather than reporting a Flatpak half that could never run.
+: > "$WORLD/apply-calls"
+nofp_rc=0
+KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" KEMPT_FLATPAK_SNAP_CMD="kempt-no-such-flatpak list" \
+  "$KEMPT" update --surface=background >/dev/null 2>&1 || nofp_rc=$?
+nofp_hist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
+assert_eq "$nofp_rc" "0" "no flatpak at the default: the run succeeds"
+assert_eq "$(jq -r .backends.flatpak.status "$nofp_hist")" "skipped" "...with Flatpak skipped, not failed"
+assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls" || true)" "0" "...and never run"
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" "...on a run that updated dnf"
+
 # A typo'd flag must never be treated as "run with the configured defaults".
 assert_exit 2 "unknown update option rejected" "$KEMPT" update --bogus
 

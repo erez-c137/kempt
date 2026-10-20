@@ -341,7 +341,7 @@ unsaved changes asks first. A change reaches the panel at the widget's next look
 file (see [When the widget checks](#when-the-widget-checks)).
 
 **Include Flatpak apps** (`include_flatpak`, on by default) checks and updates Flatpak apps and
-runtimes too.
+runtimes, if Flatpak is installed.
 
 **Apply updates without asking for confirmation** (`auto_accept`, on by default) answers dnf and
 Flatpak for you. With it off, **Run updates in** is greyed out, because only a terminal window can

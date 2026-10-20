@@ -15,6 +15,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A computer without Flatpak no longer fails every check.** Kempt checks and updates system
+  packages only, and the widget shows no failed check. `kempt doctor` says Flatpak is not
+  installed, as information. If you set `include_flatpak=true` yourself, a missing Flatpak is
+  still reported.
 - **A staged update cancelled by a dnf command of your own is announced straight away.** dnf5
   keeps calling such a stage ready, so Kempt said nothing until after the next restart, which
   then installed nothing. The next check now says once that the staged update can no longer

@@ -198,7 +198,7 @@ cope with that.
 | `last_success` | ISO 8601, or `null` | When a check last succeeded. `null` until the first success. Kept at its old value while `status` is `stale`. |
 | `status` | `"ok"` or `"stale"` | `stale` means at least one backend failed and its previous items were reused. |
 | `error` | string | Empty when fine. Otherwise the backend failure messages, joined with `"; "`. Each ends with at most 200 bytes of the tool's output, redacted as for `refresh_error`. |
-| `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`). |
+| `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`), or left at its default where `flatpak` is not installed (`flatpak_included`). |
 | `backends.<name>.actionable` | integer | Pending, not held, in this backend. |
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
 | `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). Several versions of one package are comma-joined in **ascending** order. Readers that show one version take the last. |
@@ -767,8 +767,8 @@ optional can be skipped.
 | Where | What it names today | What a third backend needs |
 | --- | --- | --- |
 | `bin/kempt`, the `source` lines at the top | `backends/dnf.sh`, `backends/flatpak.sh` | One more `source` line. |
-| `cmd_check` | `dnf_check` / `flatpak_check`, `mark_held`, `state_prev_items`, the `include_flatpak` gate | A call pair, its own enable gate, and its own previous-items fallback for the stale path. |
-| `maybe_refresh_metadata` (`lib/common.sh`) | `include_flatpak` and `flatpak_refresh`, by name | Its own arm and enable gate, if the backend needs a network fetch. Without it the backend answers from whatever its cache holds. |
+| `cmd_check` | `dnf_check` / `flatpak_check`, `mark_held`, `state_prev_items`, the `flatpak_included` gate | A call pair, its own enable gate, and its own previous-items fallback for the stale path. |
+| `maybe_refresh_metadata` (`lib/common.sh`) | `flatpak_included` and `flatpak_refresh`, by name | Its own arm and enable gate, if the backend needs a network fetch. Without it the backend answers from whatever its cache holds. |
 | `assemble_state` (`lib/common.sh`) | Items arrive **positionally** (`$1` dnf, `$2` flatpak), and the jq body writes `backends: {dnf, flatpak}` | A **signature change**, so every caller changes. This is the one edit here that is not additive. |
 | `cmd_update` | Before and after snapshots, the `apply_with_retry` runner and its arguments, per-backend status, held lists, and the history entry's `backends` object | The same set again, plus a runner: the verb from step 2 behind `priv_apply`, or the backend's own apply function. |
 | `dnf_reboot_needed` in `cmd_update` and `cmd_check` | Called whatever backends ran | Nothing today. If dnf ever gets an `include_<name>` gate, these calls go behind it. |

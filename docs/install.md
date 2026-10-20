@@ -12,7 +12,7 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | `jq` | Every state and history file is JSON. Without it, every command exits 3. `sudo dnf install jq` |
 | `polkit` (`pkexec`) | The two root helpers are launched through polkit actions. Present on any Plasma install. |
 | bash 4+, coreutils, GNU awk/grep/sed/join/sort, `flock` | The CLI is bash and the parsers are GNU text tools. All are in a base Fedora install. |
-| `flatpak` | Only when `include_flatpak` is on (the default). On a machine without Flatpak, run `kempt config set include_flatpak false`. |
+| `flatpak` | Only for Flatpak apps. Without it, Kempt checks and updates system packages only. |
 | `getfacl` (acl) | `kempt doctor` reads ACL entries with it. Checkout installs: `sudo dnf install acl`. |
 | `notify-send` (libnotify) | Desktop notifications from runs outside a terminal. If it is missing, notifications are skipped. |
 | `konsole` | Only for updates in a terminal window (`surface=terminal`). For another emulator, set `KEMPT_TERMINAL` in your environment. |

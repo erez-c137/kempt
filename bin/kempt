@@ -564,7 +564,7 @@ cmd_check() {
     serr="$(explain_helper_error "$(stderr_tail "$errf")")"
     status="stale"; error="dnf check failed${serr:+: $serr}"; dnf_items="$(state_prev_items dnf)"
   fi
-  if is_true "$(config_get include_flatpak)"; then
+  if flatpak_included; then
     if fp_items="$(flatpak_check "$fp_sz" "$fp_scopes_f" 2>"$errf")"; then fp_priced=true; else
       serr="$(stderr_tail "$errf")"
       status="stale"; error="${error:+$error; }flatpak check failed${serr:+: $serr}"; fp_items="$(state_prev_items flatpak)"
@@ -1406,7 +1406,9 @@ cmd_update() {
     --surface=*) surface="${a#--surface=}" ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
-  [[ -z "$include_fp" ]] && include_fp="$(config_get include_flatpak)"
+  if [[ -z "$include_fp" ]]; then
+    if flatpak_included; then include_fp=true; else include_fp=false; fi
+  fi
   local auto; auto="$(config_get auto_accept)"
   # validate BEFORE the auto-accept guard so the two compose (unknown → terminal → still terminal)
   surface="$(resolve_surface "$surface")"
@@ -3693,10 +3695,13 @@ doctor_tool_rows() {
   local fp_cmd; fp_cmd="${KEMPT_FLATPAK_LIST_CMD%% *}"
   if command -v "$fp_cmd" >/dev/null; then
     doctor_ok "flatpak: $(command -v "$fp_cmd")"
-  elif is_true "$(config_get include_flatpak)"; then
+  elif ! is_true "$(config_get include_flatpak)"; then
+    doctor_info "flatpak command '$fp_cmd' not found. Kempt does not need it while include_flatpak=false"
+  elif config_is_set include_flatpak; then
     doctor_fail "flatpak command '$fp_cmd' not found. With include_flatpak=true, every check reports Flatpak stale. Install flatpak or run: kempt config set include_flatpak false"
   else
-    doctor_info "flatpak command '$fp_cmd' not found. Kempt does not need it while include_flatpak=false"
+    # The default, left alone: check and update skip Flatpak here (flatpak_included).
+    doctor_info "Flatpak is not installed, so Kempt checks system packages only"
   fi
   # Apps installed with `flatpak install --user`. Listed only when that installation exists,
   # because any --user command creates one.
