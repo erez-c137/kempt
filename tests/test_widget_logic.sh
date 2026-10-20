@@ -1161,6 +1161,92 @@ assert_eq "$(js "L.viewModel($NODIGEST,false).engineFault")" "undefined" "(and i
 assert_eq "$(js "var a = V('live'), b = V('security'); ['tooltipSub','needsAttention','securityDigest','securityCount'].forEach(function (k) { delete a[k]; delete b[k]; }); var drop = function (k, v) { return k === 'security' ? undefined : v; }; JSON.stringify(a, drop) === JSON.stringify(b, drop)")" \
   "true" "the block moves the token, the tooltip and the attention, and nothing else"
 
+# --- notify_startup: services that stopped starting after an update ------------------------------
+# The CLI's state.json `startup` block, as bin/kempt writes it. The banner, its buttons and the
+# one-time "starting again" line are derived here; the panel's count and attention never see it.
+SU_BT='{unit:"bluetooth.service",scope:"system",description:"Bluetooth service",since:"2026-10-20T20:33:15+03:00"}'
+SU_ESC='{unit:"systemd-fsck@dev-disk-by\\x2duuid-1.service",scope:"system",description:"File System Check on /dev/disk/by-uuid/1"}'
+SU_USR='{unit:"plasma-foo.service",scope:"user",description:"plasma-foo.service"}'
+su_state() {  # startup block body (JS object fields) → a live state carrying it
+  echo "Object.assign(S('live'), {startup: {notify:true, attribution:'update', already:[], recovered:[], muted:[], recovered_digest:'', $1}})"
+}
+su() {  # block fields, vm field [opts]
+  js "L.viewModel($(su_state "$1"), false, '', ${3:-{\}}).$2"
+}
+assert_eq "$(su "announced:[$SU_BT]" 'startupEntries.map(function (e) { return e.text; })')" \
+  '["Bluetooth service didn'"'"'t start after the update.\nIt stopped with an error. A system service (bluetooth.service)."]' \
+  "one service: the title names it, the body names the kind and the unit"
+assert_eq "$(su "announced:[$SU_BT]" 'startupHeading')" "" "...and needs no heading above it"
+assert_eq "$(su "announced:[$SU_BT], attribution:'restart'" 'startupTitle')" \
+  "Bluetooth service didn't start after the last restart." "another tool changed packages since: no update is named"
+assert_eq "$(su "announced:[$SU_USR]" 'startupEntries[0].text.split("\n")[1]')" \
+  "It stopped with an error. A service in your session (plasma-foo.service)." "a session service says so in the body"
+assert_eq "$(su "announced:[$SU_BT, $SU_USR, $SU_ESC]" 'startupHeading')" \
+  "3 services didn't start after the update." "several: one heading with the count"
+assert_eq "$(su "announced:[$SU_BT, $SU_USR, $SU_ESC]" 'startupEntries.map(function (e) { return e.text.split("\n")[0]; })')" \
+  '["Bluetooth service","plasma-foo.service","File System Check on /dev/disk/by-uuid/1"]' "...and each one listed under it by name"
+assert_eq "$(su "announced:[{unit:\"x.service\",scope:\"system\",description:\"\"}]" 'startupTitle')" \
+  "x.service didn't start after the update." "no description: the unit name stands in"
+# The command each Copy Command copies, quoted only where a shell would mangle it.
+assert_eq "$(su "announced:[$SU_BT, $SU_USR, $SU_ESC]" 'startupEntries.map(function (e) { return e.command; })')" \
+  '["systemctl status bluetooth.service","systemctl --user status plasma-foo.service","systemctl status '"'"'systemd-fsck@dev-disk-by\\x2duuid-1.service'"'"'"]' \
+  "Copy Command: systemctl status, --user for a session service, single quotes around a backslash"
+assert_eq "$(js "L.startupVerbArgs('mute', {unit:'plasma-foo.service', scope:'user'})")" " startup mute 'plasma-foo.service' --user" \
+  "Mute Until It Starts runs kempt startup mute <unit> --user for a session service"
+assert_eq "$(js "L.startupVerbArgs('unmute', {unit:'bluetooth.service', scope:'system'})")" " startup unmute 'bluetooth.service'" \
+  "...and Stop Muting runs unmute, without --user for a system one"
+assert_eq "$(js "L.startupVerbArgs('rm', {unit:'bluetooth.service', scope:'system'})")" "" "...and no other verb"
+assert_eq "$(su "announced:[{unit:\"evil;rm -rf ~\",scope:\"system\",description:\"x\"}, $SU_BT]" 'startupEntries.length')" "1" \
+  "a unit name the CLI would refuse is left out rather than offered a button that cannot work"
+assert_eq "$(su "announced:[{unit:\"systemd-backlight@backlight:acpi_video0.service\",scope:\"system\",description:\"Backlight\"}]" 'startupEntries.length')" "1" \
+  "...but a colon, which systemd and the CLI allow, is kept, so the banner counts what the notification counted"
+assert_eq "$(su "announced:[{unit:\"a.service\",scope:\"machine\",description:\"A\"}, {unit:\"b.service\",description:\"B\"}, $SU_BT]" 'startupEntries.map(function (e) { return e.unit; })')" \
+  '["bluetooth.service"]' "a scope that is neither system nor user is left out, not guessed as system"
+assert_eq "$(js "JSON.stringify(L.startupMutedOf('{\"notify\":true,\"muted\":[{\"unit\":\"a.service\",\"scope\":\"machine\"}]}'))")" '[]' \
+  "...in the muted list too"
+# Already failing at the baseline: quiet, in the banner's details, and only with a banner.
+assert_eq "$(su "announced:[$SU_BT], already:[$SU_USR, {unit:\"im.service\",scope:\"user\",description:\"Input Method starter\"}]" 'startupAlready')" \
+  "Already failing before the update: plasma-foo.service, Input Method starter." "already failing is one quiet line"
+assert_eq "$(su "already:[$SU_USR]" 'messageSlots.indexOf("startup")')" "-1" "...and alone it shows nothing"
+# The slot.
+assert_eq "$(su "announced:[$SU_BT]" 'messageSlots')" '["startup"]' "a failure takes a message slot"
+assert_eq "$(js "L.viewModel($(su_state "announced:[$SU_BT]"), true, '', {}).messageSlots")" '[]' "...not during an update"
+assert_eq "$(su "announced:[$SU_BT], notify:false" 'messageSlots')" '[]' "...nor with the setting off"
+assert_eq "$(js 'L.messageStack({restart: true, startup: true, fetchMissed: true})')" '["startup","restart"]' \
+  "a failure ranks above the restart"
+assert_eq "$(js 'L.messageStack({report: true, restart: true, startup: true})')" '["report","startup"]' \
+  "...so a run that broke a service shows its report and the failure, and the restart waits in the footer"
+assert_eq "$(js 'L.messageStack({restart: true, startupRecovered: true, fetchMissed: true})')" '["restart","startupRecovered"]' \
+  "the running-again line alone stays below the restart"
+assert_eq "$(js 'L.viewModel(S("live"), false, "", {}).startupEntries')" '[]' "no block, no banner"
+# Recovered: one line, acknowledged by the digest, and kept on screen after the acknowledgement.
+REC="recovered:[$SU_BT], recovered_digest:'0123456789abcdef'"
+assert_eq "$(su "$REC" 'startupRecoveredText')" "Bluetooth service is running again." "a recovered service: one line"
+assert_eq "$(su "$REC" 'messageSlots')" '["startupRecovered"]' "...in its own slot, below the restart"
+assert_eq "$(su "announced:[$SU_USR], $REC" 'messageSlots')" '["startup"]' "...or inside a failure's slot when there is one"
+assert_eq "$(su "announced:[$SU_USR], $REC" 'startupAckDigest')" "0123456789abcdef" "...and acknowledged there too"
+assert_eq "$(su "$REC" 'startupAckDigest')" "0123456789abcdef" "...with the digest the popup acknowledges"
+assert_eq "$(su "recovered:[$SU_BT], recovered_digest:'nope'" 'startupAckDigest')" "" "a digest of the wrong shape is never sent"
+assert_eq "$(su "$REC" 'startupAckDigest' '{reportShown: true, restartReminder: true, doctorShown: false}')" "0123456789abcdef" "(a report beside it leaves room)"
+assert_eq "$(js "var s = $(su_state "$REC"); s.reboot_needed = true; s.offline_staged = {staged_at:'2026-09-09T09:00:00+03:00', count:2, armed:true}; L.viewModel(s, false, '', {}).startupAckDigest")" "" \
+  "...and a line the cap keeps off the screen is not acknowledged"
+assert_eq "$(su "recovered:[], recovered_digest:''" 'startupRecoveredText' "{startupRecoveredKept: [$SU_BT]}")" \
+  "Bluetooth service is running again." "acknowledged, the line stays until the widget closes"
+assert_eq "$(su "recovered:[], recovered_digest:''" 'startupAckDigest' "{startupRecoveredKept: [$SU_BT]}")" "" "...with nothing left to acknowledge"
+# Never in the count, the badge, the icon or the attention.
+assert_eq "$(js "var a = V('live'), b = L.viewModel($(su_state "announced:[$SU_BT, $SU_USR], $REC"), false); ['badgeText','badgeVisible','iconState','actionable','needsAttention','tooltipMain','tooltipSub','headerText'].map(function (k) { return a[k] === b[k]; }).join(',')")" \
+  "true,true,true,true,true,true,true,true" "the panel's count, icon, attention and tooltip ignore all of it"
+# Settings: the muted list, from `kempt startup --json`.
+assert_eq "$(js "JSON.stringify(L.startupMutedOf('{\"notify\":true,\"muted\":[{\"unit\":\"plasma-foo.service\",\"scope\":\"user\",\"description\":\"Plasma Foo\"}]}'))")" \
+  '[{"unit":"plasma-foo.service","scope":"user","name":"Plasma Foo"}]' "the settings page lists the muted services by name"
+assert_eq "$(js "JSON.stringify(L.startupMutedOf('{}'))")" '[]' "...an empty answer (setting off) lists none"
+assert_eq "$(js "JSON.stringify(L.startupMutedOf('not json'))")" '[]' "...and neither does garbage"
+assert_eq "$(js '[L.COPY.startupCopyCommand, L.COPY.startupMute, L.COPY.startupMuteTooltip].join("|")')" \
+  "Copy Command|Mute Until It Starts|Kempt stops mentioning it until it starts cleanly again." "the two buttons and the mute's tooltip"
+assert_eq "$(js '[L.COPY.startupSetting, L.COPY.startupSettingNote, L.COPY.startupStopMuting].join("|")')" \
+  "Tell me when something stops starting after an update|Kempt only looks. It never turns anything on or off, and the update count never includes this.|Stop Muting %1" \
+  "the setting, its note, and the settings button"
+
 # --- per-user Flatpak apps: the same id installed both ways is two rows, one marked ------------------
 UFP='{schema:1,status:"ok",actionable:2,held_total:0,backends:{flatpak:{enabled:true,items:[
   {name:"net.mkiol.SpeechNote",from:"4.8.4",to:"4.8.5",held:false},
@@ -3376,7 +3462,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -4075,15 +4161,17 @@ assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
 # .qml files alone are the question.
 for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedDiscardTooltip \
             reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
-            installOnNextRestartTooltip installOnNextRestartSystemTooltip; do
+            installOnNextRestartTooltip installOnNextRestartSystemTooltip \
+            startupMute startupMuting startupMuteTooltip startupSetting startupSettingNote \
+            startupStopMutingDescription startupNothingMuted; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\")" {} + | wc -l)" "1" \
     "the popup writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
 # The tooltip is the accessible description as well, and that is the load-bearing half: a polkit
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
 # the authorization and the discard cost by then hears them never.
-assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "3" \
-  "...and both banner actions, and Free Up Space, say the same words to a screen reader as to a mouse"
+assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "5" \
+  "...and both banner actions, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting

@@ -101,7 +101,7 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    and **Copy Command**. Either one shows alone. See
    [install.md](install.md#installing-from-the-kde-store-first).
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
-   `Update failed: <the reason>`, or why a button press failed. After an answer to message 8 or 9,
+   `Update failed: <the reason>`, or why a button press failed. After an answer to message 9 or 10,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
    check that worked. If the press got no fresh lists, another message says why and, when known,
    gives their age, until closed or the next check. On battery or a metered connection it offers **Download
@@ -123,9 +123,15 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    and **Update Now** updates live.
 5. **What the next restart will install**, when an update is staged. See
    [The staged banner](#the-staged-banner).
-6. **Restart to apply installed updates**, with **Restart…** and a close button. See
+6. **A service did not start after the update.** *"Bluetooth service didn't start after the
+   update. It stopped with an error. A system service (bluetooth.service)."* Several get a heading
+   and a message each. **Copy Command** copies its `systemctl status` command. **Mute Until It
+   Starts** stops Kempt mentioning it until it starts cleanly again. Services that were already
+   failing before the update are listed quietly below. When one runs again, a line says so once,
+   ranked under the restart message. The panel count and icon never include this.
+7. **Restart to apply installed updates**, with **Restart…** and a close button. See
    [About the restart](#about-the-restart).
-7. **"This update includes a kernel. The safest way is to install it on the next restart, so
+8. **"This update includes a kernel. The safest way is to install it on the next restart, so
    nothing changes under the running desktop."** Another version also names the NVIDIA driver.
    Without a kernel, it names the session packages in the update: `This update touches 20 packages
    your running session depends on (dbus, glibc, kf6, mesa, …). The safest way is to install them
@@ -135,18 +141,18 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    yet."*, ends *"Install on the next restart, or now?"* and adds **Install Now**. **Install on Next
    Restart** gets the keyboard focus. In a terminal, the terminal asks instead. While a Fedora
    release upgrade is stored, it does not ask, and **Update Now** updates live.
-8. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
+9. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
    install that kept the terminal on upgrading to 0.1.8. **Use This Widget** switches
    **Run updates in** to **In this widget**. **Keep the Terminal Window** keeps your setting. Either
    hides the message for good ([more](configuration.md#upgrading-from-an-older-kempt)). To go back
    later, set **Run updates in** to **Terminal window**, or run `kempt config set surface terminal`.
-9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
-   from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
-   starts with your session. If message 8 is showing, it waits until you answer that one.
-   **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
-   nothing. Either answer hides the message for good. The **Discover** row in settings turns the
-   notifier back on.
-10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
+10. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
+    from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
+    starts with your session. If message 9 is showing, it waits until you answer that one.
+    **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
+    nothing. Either answer hides the message for good. The **Discover** row in settings turns the
+    notifier back on.
+11. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
     is at least 100 MB to free, or an amount Kempt could not measure. **Show Runtimes** lists the
     runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
     saw. If the list changed, or removing needs an administrator, nothing is removed and the widget
@@ -282,7 +288,7 @@ the changes. Below a megabyte it reads `< 1 MB`.
 **Update Now** runs updates wherever **Run updates in** says. With **On the next
 restart** and system updates pending, it reads **Install on Next Restart**. A press shows a
 spinner until Kempt answers. It hides when nothing is pending, an update is staged, or its question
-is open. Kernel or desktop updates make it ask first (message 7), unless a release upgrade is
+is open. Kernel or desktop updates make it ask first (message 8), unless a release upgrade is
 stored.
 
 ### While an update runs
@@ -377,7 +383,11 @@ is on, with **Turn Off Discover's Notifier**, or turned off by Kempt, with
 **Turn On Discover's Notifier**, which acts at once, without **Apply**. When a startup file of your
 own keeps it off, the row names that file, says to delete it, and has no button.
 
-**Held** lists your holds, each with a button to stop holding it.
+**Services** (`notify_startup`, on by default) shows the message about services that did not start
+after an update. Kempt only looks: it never turns a service on or off.
+
+**Held** lists your holds, each with a button to stop holding it. **Muted** lists muted services,
+each with **Stop Muting**, and **Undo** right after.
 
 ## What each button runs
 
@@ -397,6 +407,9 @@ Each button runs a command described in [usage.md](usage.md).
 | **Turn Off Discover's Notifier**, **Turn On Discover's Notifier**, **Keep Discover's Notifier** | `kempt discover-notifier off`, `on`, `keep` |
 | **Use This Widget**, **Keep the Terminal Window** | `kempt config set surface popup`, `terminal` |
 | **Allow without password…**, **Require a password…** | `kempt enable-passwordless`, `kempt disable-passwordless` |
+| **Copy Command** for a service | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
+| **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |
+| Opening the widget while it says a service runs again | `kempt startup ack --expect=<digest>` |
 | Every setting | `kempt config set` |
 
 The widget's automatic checks run `kempt check --coalesce`.

@@ -734,7 +734,12 @@ def _code(name):
 #
 # The fifth is the footer button when updates run on the next restart: it reads Install on Next
 # Restart, and its tooltip says the press downloads now and installs at the restart.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 5}
+#
+# The sixth and seventh are the startup banner's Copy Command and Mute Until It Starts: one pair
+# per service, so the description (the command, and what muting does) tells them apart by ear.
+#
+# configGeneral.qml has one: Undo beside a service just unmuted names the service it mutes again.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 7, "configGeneral.qml": 1}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)

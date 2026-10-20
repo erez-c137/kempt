@@ -331,7 +331,8 @@ PlasmoidItem {
                                                 reportRepeatsStaged: reportLatest === "run"
                                                     && Logic.reportRepeatsStaged(lastRun),
                                                 doctorShown: doctorRunning
-                                                             || doctorSummary.length > 0 })
+                                                             || doctorSummary.length > 0,
+                                                startupRecoveredKept: startupRecoveredKept })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
@@ -1343,6 +1344,7 @@ PlasmoidItem {
         refreshClock();
         // Before the refresh-on-open check below, so the acknowledgement is first on the queue.
         acknowledgeSecurity();
+        acknowledgeStartup();
         // Settings can answer the Discover offer too (Turn Off or Turn On), from a dialog that
         // cannot call back into this file, so the CLI's marker is looked for again at each open.
         if (!discoverOfferAnswered) readDiscoverAnswered();
@@ -1369,6 +1371,10 @@ PlasmoidItem {
         popupOnScreen = false;
         // An acknowledgement that did not land is tried again at the next open.
         securityAckSent = "";
+        startupAckSent = "";
+        // ...and a "running again" line that was acknowledged has now been seen.
+        startupRecoveredKept = [];
+        startupMuteError = null;
         // Only when the in-use sentence was on screen as the popup closed, in the post-run line or
         // under the Last update row. Asked BEFORE the post-run line clears.
         if (Logic.reclaimInUseOnScreen(lastRun, reclaimInUseSeen, updating,
@@ -1574,6 +1580,7 @@ PlasmoidItem {
     onVmChanged: {
         claimTrayPresence();
         acknowledgeSecurity();
+        acknowledgeStartup();
     }
 
     // The digest the last `kempt security-ack` was sent for, so a view model that changes while
@@ -1591,6 +1598,58 @@ PlasmoidItem {
         executor.run(kemptCmd + " security-ack --expect=" + Logic.shellQuote(digest),
                      Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
             if (rc === 0) root.adoptState();
+        });
+    }
+
+    // The "running again" line, the security pattern again: shown once, acknowledged with
+    // `kempt startup ack --expect=<digest>` while the popup is on screen and the line is drawn
+    // (vm.startupAckDigest is "" otherwise). A set that changed in between is refused (exit 6).
+    // The CLI then clears the line from state.json, so the set acknowledged is kept here and
+    // shown until the popup closes: a line that vanished as it was read would not be read.
+    // Exit 1 is kept too: the CLI may have forgotten the set and then failed to patch state.json,
+    // and the next state written would take the line away unread.
+    property string startupAckSent: ""
+    property var startupRecoveredKept: []
+
+    function acknowledgeStartup() {
+        var digest = vm.startupAckDigest;
+        if (!popupOnScreen || digest === "" || digest === startupAckSent) return;
+        startupAckSent = digest;
+        var seen = kemptState && kemptState.startup ? kemptState.startup.recovered : [];
+        executor.run(kemptCmd + " startup ack --expect=" + Logic.shellQuote(digest),
+                     Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
+            if (rc !== 0 && rc !== 1) return;
+            root.startupRecoveredKept = seen;
+            root.adoptState();
+        });
+    }
+
+    // Mute Until It Starts. The unit came out of the CLI's JSON and goes back onto a command line,
+    // so Logic.startupVerbArgs shell-quotes it. One at a time; the CLI rewrites state.json's
+    // startup block, which is read straight back so the entry leaves the banner at once.
+    // A failure is said in that entry (startupMuteError), where the press was, naming the service
+    // as the banner does; it goes when the popup closes. `then` runs once the entry has left.
+    property string startupMutePending: ""
+    property var startupMuteError: null
+
+    function muteStartup(unit, scope, name, then) {
+        if (startupMutePending !== "") return;
+        var args = Logic.startupVerbArgs("mute", { unit: unit, scope: scope });
+        if (args === "") return;
+        startupMutePending = scope + ":" + unit;
+        startupMuteError = null;
+        executor.run(kemptCmd + args, Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
+            if (rc !== 0) {
+                root.startupMuteError = { key: scope + ":" + unit,
+                    text: Logic.answerOutcomeOf(rc, "", stderr, "", "").text
+                          || i18n("Could not mute %1.", name || unit) };
+                root.startupMutePending = "";
+                return;
+            }
+            root.adoptState(function () {
+                root.startupMutePending = "";
+                if (typeof then === "function") then();
+            });
         });
     }
 

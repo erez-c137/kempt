@@ -19,6 +19,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `kempt startup` lists them with the command that shows why, `kempt startup mute` silences one
   until it starts, and `kempt doctor` warns. Kempt only looks: it never starts or stops a service.
   Turn it off with `notify_startup=false`.
+- **The widget shows a service that stopped starting after an update.** A warning names it, with
+  **Copy Command** for the command that shows why and **Mute Until It Starts**. Services already
+  failing before the update are listed quietly. The panel count and icon never include this. Settings
+  has a **Services** checkbox and lists muted services, each with **Stop Muting**.
 
 ### Fixed
 

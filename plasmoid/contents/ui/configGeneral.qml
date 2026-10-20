@@ -65,6 +65,11 @@ KCM.SimpleKCM {
     property string loadError: ""
     property var holds: []
     property bool holdsBusy: false
+    // Services muted with Mute Until It Starts, from `kempt startup --json`, and the last one
+    // unmuted here, which Undo mutes again. Actions, like the holds: they run at once, not on Apply.
+    property var muted: []
+    property bool mutedBusy: false
+    property var lastUnmuted: null
     property string passwordlessResult: ""
     property bool passwordlessBusy: false
     // Discover's update notifier: what to say and which button to offer (Logic.discoverSettingOf),
@@ -136,6 +141,7 @@ KCM.SimpleKCM {
         setIfChanged("widget_icon_size", page.iconSizeKey);
         setIfChanged("restart_reminder", restartReminder.checked ? "true" : "false");
         setIfChanged("notify_security", notifySecurity.checked ? "true" : "false");
+        setIfChanged("notify_startup", notifyStartup.checked ? "true" : "false");
         setIfChanged("reclaim", page.reclaimKey);
         finishWrite();      // release the sentinel
     }
@@ -264,6 +270,46 @@ KCM.SimpleKCM {
         });
     }
 
+    function loadMuted() {
+        mutedBusy = true;
+        cfgExecutor.run(kemptCmd + " startup --json", 15000, function (stdout, stderr, rc) {
+            page.mutedBusy = false;
+            page.muted = rc === 0 ? Logic.startupMutedOf(stdout) : [];
+            // After Stop Muting its button is gone with the row, so the keyboard goes to Undo,
+            // once the list read has re-enabled it.
+            if (page.focusUndo) {
+                page.focusUndo = false;
+                Qt.callLater(function () {
+                    if (undoUnmute.visible && undoUnmute.enabled) undoUnmute.forceActiveFocus(Qt.TabFocusReason);
+                });
+            }
+        });
+    }
+
+    // verb is "mute" or "unmute"; the unit is shell-quoted by Logic.startupVerbArgs. Durable, as
+    // removeHold is, because the button can be pressed just before OK. A finished unmute is kept
+    // in lastUnmuted for Undo; a finished Undo clears it.
+    property bool focusUndo: false
+
+    function setMuted(verb, entry) {
+        var args = Logic.startupVerbArgs(verb, entry);
+        if (args === "") return;
+        mutedBusy = true;
+        cfgExecutor.run(page.durable(kemptCmd + args), Logic.ANSWER_TIMEOUT_MS,
+                        function (stdout, stderr, rc) {
+            page.mutedBusy = false;
+            if (rc !== 0) {
+                page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "", "").text
+                    || (verb === "mute" ? i18n("Could not mute %1.", entry.name)
+                                        : i18n("Could not stop muting %1.", entry.name));
+                return;
+            }
+            page.lastUnmuted = verb === "unmute" ? entry : null;
+            page.focusUndo = verb === "unmute";
+            page.loadMuted();
+        });
+    }
+
     function removeHold(id) {
         holdsBusy = true;
         // Durable, for the same reason the config writes are: this button lives on the settings
@@ -372,6 +418,14 @@ KCM.SimpleKCM {
             }
             notifySecurity.checked = Logic.isTrue(v);
         });
+        // Newer still, so the same guard.
+        readKey("notify_startup", function (v) {
+            if (v === "") {
+                page.readFailed["notify_startup"] = true;
+                return;
+            }
+            notifyStartup.checked = Logic.isTrue(v);
+        });
         // Newer than `kempt config` too, so the same guard: an older CLI answers "" for a key it
         // does not know, and that is unknown, not ask.
         readKey("reclaim", function (v) {
@@ -389,6 +443,7 @@ KCM.SimpleKCM {
             page.flatpakKnown = true;
         });
         loadHolds();
+        loadMuted();
         loadDiscover();
     }
 
@@ -677,6 +732,27 @@ KCM.SimpleKCM {
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
 
+        // --- services that stop starting after an update ------------------------------------------
+        // notify_startup: on by default, like the CLI's own default. The CLI does the looking and
+        // the notification; this page writes the key and lists what is muted, below the holds.
+        QQC2.CheckBox {
+            id: notifyStartup
+            Kirigami.FormData.label: i18n("Services:")
+            text: i18n("Tell me when something stops starting after an update")
+            checked: true
+            enabled: !page.loading
+            onToggled: page.markChanged("notify_startup")
+        }
+
+        QQC2.Label {
+            id: notifyStartupNote
+            text: i18n("Kempt only looks. It never turns anything on or off, and the update count never includes this.")
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            opacity: 0.8
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
+        }
+
         Item { Kirigami.FormData.isSection: true }
 
         // --- holds ----------------------------------------------------------------------------------
@@ -729,6 +805,76 @@ KCM.SimpleKCM {
                     QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
                     onClicked: page.removeHold(modelData.id)
                 }
+            }
+        }
+
+        // --- muted services, beside the holds ---------------------------------------------------
+        QQC2.Label {
+            id: mutedEmpty
+            Kirigami.FormData.label: i18n("Muted:")
+            visible: page.muted.length === 0
+            text: page.mutedBusy ? i18n("Loading…") : i18n("Nothing is muted.")
+            font: Kirigami.Theme.smallFont
+            opacity: 0.8
+        }
+
+        Repeater {
+            id: mutedRepeater
+            model: page.muted
+
+            RowLayout {
+                required property var modelData
+                required property int index
+                Kirigami.FormData.label: index === 0 ? i18n("Muted:") : ""
+                spacing: Kirigami.Units.smallSpacing
+
+                QQC2.Label {
+                    text: modelData.name
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 14
+                }
+                QQC2.Label {
+                    text: modelData.unit
+                    font: Kirigami.Theme.smallFont
+                    opacity: 0.7
+                    elide: Text.ElideRight
+                    Layout.maximumWidth: Kirigami.Units.gridUnit * 8
+                }
+                // Icon-only, named and described as the hold's button is.
+                QQC2.ToolButton {
+                    icon.name: "notifications"
+                    enabled: !page.mutedBusy
+                    text: i18n("Stop Muting %1", modelData.name)
+                    display: QQC2.AbstractButton.IconOnly
+                    Accessible.name: text
+                    Accessible.description: i18n("Kempt mentions it again if it still does not start.")
+                    QQC2.ToolTip.text: text
+                    QQC2.ToolTip.visible: hovered
+                    QQC2.ToolTip.delay: Kirigami.Units.toolTipDelay
+                    onClicked: page.setMuted("unmute", modelData)
+                }
+            }
+        }
+
+        // Undo, for the one just unmuted: it mutes it again.
+        RowLayout {
+            id: unmutedRow
+            visible: page.lastUnmuted !== null
+            spacing: Kirigami.Units.smallSpacing
+
+            QQC2.Label {
+                text: page.lastUnmuted ? i18n("Stopped muting %1.", page.lastUnmuted.name) : ""
+                font: Kirigami.Theme.smallFont
+                elide: Text.ElideRight
+                Layout.maximumWidth: Kirigami.Units.gridUnit * 16
+            }
+            QQC2.Button {
+                id: undoUnmute
+                text: i18n("Undo")
+                icon.name: "edit-undo"
+                enabled: !page.mutedBusy
+                Accessible.description: page.lastUnmuted ? i18n("Mutes %1 again.", page.lastUnmuted.name) : ""
+                onClicked: page.setMuted("mute", page.lastUnmuted)
             }
         }
 
