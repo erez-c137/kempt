@@ -7,7 +7,8 @@ KEMPT="$REPO_ROOT/bin/kempt"
 
 # A systemctl stand-in driven by files: failed-<scope>.json is what `--failed` lists,
 # transient-<scope> names the units `show` calls transient, active-<scope> the ones running and
-# gone-<scope> the ones systemd no longer knows, enabled-<scope>.json is the list-unit-files
+# gone-<scope> the ones systemd no longer knows, success-<scope> the inactive ones whose last run
+# succeeded, alias-<scope> holds name=canonical lines, enabled-<scope>.json is the list-unit-files
 # answer, down-<scope> makes that scope fail and garbage-<scope> makes it answer nonsense. Every
 # call is recorded.
 SD="$TESTTMP/sd"; mkdir -p "$SD"
@@ -28,13 +29,16 @@ case "$1" in
     while [[ "$1" == -p ]]; do shift 2; done
     [[ "$1" == -- ]] && shift
     for u in "$@"; do
+      id="$(sed -n "s/^$u=//p" "$d/alias-$scope" 2>/dev/null)"
       desc="$(jq -r --arg u "$u" '.[] | select(.unit == $u) | .description' "$d/failed-$scope.json" 2>/dev/null)"
       t=no; grep -qxF "$u" "$d/transient-$scope" 2>/dev/null && t=yes
-      a=inactive l=loaded
+      a=inactive l=loaded r=exit-code
       [[ -n "$desc" ]] && a=failed
-      grep -qxF "$u" "$d/active-$scope" 2>/dev/null && a=active
+      grep -qxF "$u" "$d/active-$scope" 2>/dev/null && { a=active; r=success; }
+      grep -qxF "$u" "$d/success-$scope" 2>/dev/null && r=success
       grep -qxF "$u" "$d/gone-$scope" 2>/dev/null && l=not-found
-      printf 'Id=%s\nDescription=%s\nTransient=%s\nActiveState=%s\nLoadState=%s\n\n' "$u" "${desc:-$u}" "$t" "$a" "$l"
+      printf 'Id=%s\nDescription=%s\nTransient=%s\nActiveState=%s\nLoadState=%s\nResult=%s\n\n' \
+        "${id:-$u}" "${desc:-$u}" "$t" "$a" "$l" "$r"
     done ;;
   *) exit 1 ;;
 esac
@@ -112,7 +116,7 @@ entry() {
 }
 reset_world() {
   rm -rf "$HD" "$KEMPT_STATE_DIR/startup.json" "$KEMPT_STATE_DIR/startup-mutes" "$TESTTMP/notifications" "$SD/calls"
-  rm -f "$SD"/active-* "$SD"/gone-* "$SD"/garbage-*
+  rm -f "$SD"/active-* "$SD"/gone-* "$SD"/garbage-* "$SD"/success-* "$SD"/alias-*
   failing system; failing user
   export KEMPT_BOOT_ID=boot-A
 }
@@ -464,6 +468,77 @@ export KEMPT_BOOT_ID=boot-B
 failing system 'bluetooth.service=Bluetooth service'
 check >/dev/null
 assert_eq "$(note_count)" "0" "after a run that changed no package, the next boot says nothing"
+
+# --- a scope still waiting for its comparison keeps its own baseline -----------------------------
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing user 'foo.service=Foo'
+touch "$SD/down-user"
+check >/dev/null
+rm -f "$SD/down-user"
+cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
+"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+assert_contains "$(notes)" "Foo didn't start after the update." \
+  "a run before the waiting scope answered does not make its failure look older than it is"
+
+# --- a unit that ends cleanly without staying active ---------------------------------------------
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+check >/dev/null
+"$KEMPT" startup mute bluetooth.service >/dev/null
+failing system
+echo bluetooth.service > "$SD/success-system"
+check >/dev/null
+assert_eq "$(note_count)" "1" "a unit that last ran cleanly and stopped is not announced as running again"
+assert_eq "$(startup_state '[(.announced | length), (.recovered | length)]')" '[0,0]' "...and is dropped from the announced list"
+assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo cleared)" "cleared" "...and its mute ends"
+
+# --- a failure never told that recovers is never told either -------------------------------------
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$TESTTMP/no-runtime" "$KEMPT" check >/dev/null 2>&1
+failing system
+echo bluetooth.service > "$SD/active-system"
+check >/dev/null
+assert_eq "$(note_count)" "0" "an unsent failure that recovers is dropped, with no running-again notice"
+assert_eq "$(startup_state '[(.announced | length), (.recovered | length)]')" '[0,0]' "...from both lists"
+
+# --- mutes of units systemd no longer knows, and aliases -----------------------------------------
+reset_world; check >/dev/null
+"$KEMPT" startup mute foo.service --user >/dev/null
+echo foo.service > "$SD/gone-user"
+check >/dev/null
+assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo cleared)" "cleared" \
+  "a mute of a unit systemd no longer knows ends"
+echo 'dbus.service=dbus-broker.service' > "$SD/alias-system"
+"$KEMPT" startup mute dbus.service >/dev/null
+assert_eq "$(cat "$KEMPT_STATE_DIR/startup-mutes")" "system:dbus-broker.service" "a mute of an alias records the unit's own name"
+
+# --- the history window ----------------------------------------------------------------------------
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+for i in $(seq 10 69); do
+  jq 'del(.failed_before) | .backends.dnf.updated = []' "$HD/20261020T110000.json" > "$HD/20261020T12${i}00.json"
+done
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+# Retention keeps history to 50 entries; a directory it cannot prune is how more are left.
+chmod 555 "$HD"
+check >/dev/null || true
+chmod 755 "$HD"
+assert_contains "$(notes)" "Bluetooth service didn't start" "a run with a baseline is found behind 60 entries without one"
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+jq '.backends.dnf.updated = 5' "$HD/20261020T110000.json" > "$TESTTMP/e.json" && mv "$TESTTMP/e.json" "$HD/20261020T110000.json"
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+check >/dev/null
+assert_eq "$(note_count)" "0" "a package list that is not a list does not count as a change"
 
 # --- kempt doctor and kempt startup ------------------------------------------------------------
 reset_world; dnf_max 150; check >/dev/null
