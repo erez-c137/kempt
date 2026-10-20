@@ -167,9 +167,9 @@ p.pump(100)
 p.check("the button opens the page in place of the updates",
         [lev("popup.startupOpen"), lev("startupPage.visible"), lev("startupButton.checked")], [True, True, True])
 p.check("...gathering with kempt startup --all --json", p.argv("startup"), ["startup", "--all", "--json"])
-p.check("...a busy indicator and a calm line meanwhile, Refresh refusing",
+p.check("...a busy indicator and a calm line meanwhile, Refresh still enabled, so focus can stay on it",
         [pev("busyIndicator.running"), pev("loadingLabel.text"), pev("refreshButton.enabled")],
-        [True, "Reading what starts with the computer…", False])
+        [True, "Reading what starts with the computer…", True])
 pev("refreshButton.clicked()")
 settle()
 p.check("...so a second press while it runs gathers nothing more", p.call_count("startup --all"), 1)
@@ -208,7 +208,9 @@ p.check("Show All lists them, and says Hide",
 p.check("the startup time is one line", pev("bootLabel.text"), "Ready in 6 s; all services by 41 s.")
 BUTTONS = """(function () { var out = [];
   (function walk(o) {
-     if (o.clicked !== undefined && o.text !== undefined && o.visible && out.indexOf(String(o.text)) < 0)
+     // A section header is an ItemDelegate underneath, with no action and no focus: not a button.
+     if (o.clicked !== undefined && o.text !== undefined && o.visible && o.Accessible.role !== Accessible.Heading
+         && out.indexOf(String(o.text)) < 0)
        out.push(String(o.text));
      for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
   })(page); return JSON.stringify(out.sort()); })()"""
@@ -252,7 +254,10 @@ serve({"schema": 1, "boot_id": "b", "generated_at": "x", "notes": []})
 pev("refreshButton.clicked()")
 settle()
 p.check("a page with nothing in it says so", pev("emptyLabel.text"), "Kempt found nothing to list.")
-serve(FULL)
+serve("", rc=1)
+pev("refreshButton.clicked()")
+settle()
+pev("page.startsOpen = true")
 
 # --- back ------------------------------------------------------------------------------------------
 pev("backButton.clicked()")
@@ -261,9 +266,33 @@ p.check("Back returns to the updates", [lev("popup.startupOpen"), lev("startupPa
 p.wait_for(lev, "popup.Window.activeFocusItem === startupButton", True)
 p.check("...with the keyboard on the Startup button", lev("popup.Window.activeFocusItem === startupButton"), True)
 p.clear_calls()
+serve(FULL, delay=1)
+lev("startupButton.clicked()")
+p.pump(100)
+p.check("opening again starts afresh: the last error gone, the loading line, the lists folded",
+        [ev("root.startupPage === null"), pev("problemLabel.text"), pev("loadingLabel.text"), pev("page.startsOpen")],
+        [True, "", "Reading what starts with the computer…", False])
+settle()
+p.check("...and gathers again", p.call_count("startup --all"), 1)
+
+# --- the keyboard on Refresh -----------------------------------------------------------------------
+serve(FULL, delay=1)
+pev("refreshButton.forceActiveFocus(Qt.TabFocusReason)")
+press(Qt.Key_Space)
+p.pump(100)
+p.check("Refresh from the keyboard gathers", [pev("page.busy"), p.call_count("startup --all")], [True, 2])
+press(Qt.Key_Space)
+p.check("...a second press while it runs is ignored, and the keyboard stays on Refresh",
+        [p.call_count("startup --all"), pev("page.Window.activeFocusItem === refreshButton")], [2, True])
+settle()
+p.check("...still there when the gather answers", pev("page.Window.activeFocusItem === refreshButton"), True)
+press(Qt.Key_Escape)
+p.wait_for(lev, "popup.Window.activeFocusItem === startupButton", True)
+p.check("...and Escape from there returns to the updates, the keyboard on the Startup button",
+        [lev("popup.startupOpen"), lev("popup.Window.activeFocusItem === startupButton")], [False, True])
+serve(FULL)
 lev("startupButton.clicked()")
 settle()
-p.check("opening again gathers again", p.call_count("startup --all"), 1)
 before = sev("closes")
 press(Qt.Key_Escape)
 p.check("Escape on the page goes back, and does not close the widget",

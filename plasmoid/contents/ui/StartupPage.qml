@@ -37,15 +37,13 @@ ColumnLayout {
         backButton.forceActiveFocus(Qt.TabFocusReason);
     }
 
-    // A section title. A heading to a screen reader, so its headings list can jump between them.
-    component SectionHeading: PlasmaExtras.Heading {
+    // A section title, drawn as the update list draws its groups. Kirigami marks the header's own
+    // label Accessible.ignored, so the name is set here, and Heading is what a screen reader jumps
+    // between. Every label is a fixed string, or one with a date logic.js formatted itself.
+    component SectionHeading: PlasmaExtras.ListSectionHeader {
         Layout.fillWidth: true
-        Layout.topMargin: Kirigami.Units.smallSpacing
-        level: 5
-        textFormat: Text.PlainText
-        wrapMode: Text.Wrap
         Accessible.role: Accessible.Heading
-        Accessible.name: text
+        Accessible.name: label
     }
 
     // A line of text from the page.
@@ -106,11 +104,11 @@ ColumnLayout {
             PlasmaComponents.ToolTip.text: Accessible.description
             PlasmaComponents.ToolTip.visible: hovered || visualFocus
             PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-            // Disabled, not hidden, while a gather runs: the keyboard may be standing on it.
-            enabled: !page.busy
+            // Never disabled: a disabled button drops the keyboard focus standing on it. A press
+            // while a gather runs is ignored, here and in gatherStartupPage.
             Keys.onReturnPressed: animateClick()
             Keys.onEnterPressed: animateClick()
-            onClicked: if (enabled) page.plasmoidItem.gatherStartupPage()
+            onClicked: if (!page.busy) page.plasmoidItem.gatherStartupPage()
         }
     }
 
@@ -162,7 +160,7 @@ ColumnLayout {
             SectionHeading {
                 id: failedHeading
                 visible: page.showsPage && page.sp.failed.length > 0
-                text: i18n("Didn't start this boot")
+                label: i18n("Didn't start this boot")
             }
 
             Repeater {
@@ -182,7 +180,7 @@ ColumnLayout {
                     }
                     PageLine {
                         text: failedEntry.modelData.log
-                        font: Kirigami.Theme.smallFont
+                        font.pointSize: Kirigami.Theme.smallFont.pointSize
                     }
                     PlasmaComponents.ToolButton {
                         visible: failedEntry.modelData.command.length > 0
@@ -203,14 +201,14 @@ ColumnLayout {
             PageLine {
                 id: failedNoteLabel
                 text: page.showsPage ? page.sp.failedNote : ""
-                font: Kirigami.Theme.smallFont
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
                 opacity: 0.8
             }
 
             // --- what changed since the last update ------------------------------------------------
             SectionHeading {
                 visible: page.showsPage && page.sp.changed.length > 0
-                text: page.showsPage ? page.sp.changedTitle : ""
+                label: page.showsPage ? page.sp.changedTitle : ""
             }
 
             Repeater {
@@ -226,7 +224,7 @@ ColumnLayout {
             // --- scheduled jobs whose last run failed ----------------------------------------------
             SectionHeading {
                 visible: page.showsPage && page.sp.timerFailures.length > 0
-                text: i18n("Last run failed")
+                label: i18n("Last run failed")
             }
 
             Repeater {
@@ -243,7 +241,7 @@ ColumnLayout {
             SectionHeading {
                 id: startsHeading
                 visible: page.showsPage && (page.sp.startsLines.length > 0 || page.sp.skippedLine.length > 0)
-                text: i18n("Starts with the computer")
+                label: i18n("Starts with the computer")
             }
 
             RowLayout {
@@ -256,7 +254,7 @@ ColumnLayout {
                 ListToggle {
                     id: startsToggle
                     open: page.startsOpen
-                    section: startsHeading.text
+                    section: startsHeading.label
                     onToggled: page.startsOpen = !page.startsOpen
                 }
             }
@@ -275,7 +273,7 @@ ColumnLayout {
             PageLine {
                 id: skippedLabel
                 text: page.showsPage ? page.sp.skippedLine : ""
-                font: Kirigami.Theme.smallFont
+                font.pointSize: Kirigami.Theme.smallFont.pointSize
                 opacity: 0.8
             }
 
@@ -283,7 +281,7 @@ ColumnLayout {
             SectionHeading {
                 id: scheduleHeading
                 visible: page.showsPage && page.sp.scheduleLines.length > 0
-                text: i18n("Runs on a schedule")
+                label: i18n("Runs on a schedule")
             }
 
             RowLayout {
@@ -296,7 +294,7 @@ ColumnLayout {
                 ListToggle {
                     id: scheduleToggle
                     open: page.scheduleOpen
-                    section: scheduleHeading.text
+                    section: scheduleHeading.label
                     onToggled: page.scheduleOpen = !page.scheduleOpen
                 }
             }

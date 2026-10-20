@@ -215,6 +215,11 @@ PlasmaExtras.Representation {
 
     function openStartup() {
         if (!popup.plasmoidItem.startupPageOn) return;
+        // Each opening starts afresh: the last page or error is cleared and the lists fold again,
+        // so what shows is the loading line until this gather answers.
+        popup.plasmoidItem.startupPage = null;
+        startupPage.startsOpen = false;
+        startupPage.scheduleOpen = false;
         popup.startupOpen = true;
         popup.plasmoidItem.gatherStartupPage();
         Qt.callLater(function () { if (popup.startupOpen) startupPage.focusFirst(); });
@@ -502,7 +507,7 @@ PlasmaExtras.Representation {
             PlasmaComponents.ToolButton {
                 id: startupButton
                 visible: popup.plasmoidItem.startupPageOn === true
-                icon.name: "preferences-system-startup"
+                icon.name: "system-run"
                 display: PlasmaComponents.AbstractButton.IconOnly
                 text: i18n("Startup")
                 checkable: true

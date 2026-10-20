@@ -1274,7 +1274,7 @@ SP_STARTS='[
   {scope:"user", kind:"script", unit:"hello.sh", description:"hello.sh", package:null, skipped:false}]'
 SP_FULL="{schema:1, boot_id:'b', generated_at:'2026-10-20T03:00:00Z', notes:[],
   failed:{units:[$SP_FAILED, $SP_SYS], journal_denied:false, journal_available:true},
-  changed:{since:'2026-10-18T09:00:00Z', added:[{scope:'user', unit:'syncthing.service'}], removed:[{scope:'system', unit:'cups.service'}]},
+  changed:{since:'2026-10-18T09:00:00Z', added:[{scope:'user', unit:'syncthing.service', description:'Syncthing'}], removed:[{scope:'system', unit:'cups.service'}]},
   starts:$SP_STARTS,
   schedule:{timers:[$SP_TIMER_OK, $SP_TIMER_BAD],
     cron:[{source:'crontab', schedule:'55 23 * * *', user:null, command:'/home/u/bin/backup.sh >> /home/u/log 2>&1', last:null},
@@ -1287,6 +1287,11 @@ SP_FULL="{schema:1, boot_id:'b', generated_at:'2026-10-20T03:00:00Z', notes:[],
 
 assert_eq "$(spjs "[L.startupWhenOf('2026-10-20T13:56:00Z', $SP_NOW), L.startupWhenOf('2026-10-20T15:00:00Z', $SP_NOW), L.startupWhenOf('2026-10-22T00:00:00Z', $SP_NOW)]")" \
   '["today 22:56","tomorrow 00:00","22 Oct 09:00"]' "times read local: today, tomorrow, then the date, as the CLI says them"
+# Tomorrow is the next calendar day, not 24 hours on: the day a clock changes is 23 or 25 hours.
+assert_eq "$(TZ=Europe/Berlin js "[L.startupWhenOf('2026-03-29T08:00:00Z', Date.parse('2026-03-28T22:30:00Z')),
+  L.startupWhenOf('2026-10-26T08:00:00Z', Date.parse('2026-10-24T22:30:00Z')),
+  L.startupWhenOf('2026-10-25T21:00:00Z', Date.parse('2026-10-24T22:30:00Z'))]")" \
+  '["tomorrow 10:00","tomorrow 09:00","today 22:00"]' "...and tomorrow stays tomorrow across both clock changes"
 assert_eq "$(spjs "[L.startupWhenOf('2026-10-19T14:59:00Z', $SP_NOW), L.startupWhenOf('2027-01-01T01:00:00Z', $SP_NOW)]")" \
   '["19 Oct 23:59","1 Jan 10:00"]' "...yesterday and next year by their date"
 assert_eq "$(spjs "[L.startupWhenOf('soon', $SP_NOW), L.startupWhenOf(null, $SP_NOW), L.startupWhenOf(42, $SP_NOW)]")" \
@@ -1299,7 +1304,10 @@ assert_eq "$(sp "$SP_FULL" 'failed.map(function (f) { return [f.title, f.log, f.
   '[["imsettings-start (when you log in)","Its log says: Current desktop is not supported.","systemctl --user status '"'"'app-imsettings\\x2dstart'"$AT"'autostart.service'"'"'"],["Bluetooth service","Stopped with an error (exit-code)","systemctl status bluetooth.service"]]' \
   "didn't start: the name, (when you log in) for a login item, its log line or the result, and the command to copy"
 assert_eq "$(sp "$SP_FULL" 'changedTitle')" "Changed since the last update (18 Oct)" "changes since the last update, dated"
-assert_eq "$(sp "$SP_FULL" 'changed')" '["Now starts: syncthing.service, when you log in","No longer starts: cups.service"]' "...each one a line"
+assert_eq "$(sp "$SP_FULL" 'changed')" '["Now starts: Syncthing (syncthing.service), when you log in","No longer starts: cups.service"]' \
+  "...each one a line, by its description, else (an older CLI) its name"
+assert_eq "$(sp "{schema:1, changed:{since:'<b>x</b> later', added:[{scope:'system', unit:'a.service'}], removed:[]}}" 'changedTitle')" \
+  "Changed since the last update" "...and a since that is not a time is left out of the heading, which is not plain text"
 assert_eq "$(sp "$SP_FULL" 'timerFailures')" '["Nightly backup (backup.timer): last run tomorrow 00:00, next 22 Oct 09:00"]' \
   "a timer whose last run failed is listed in full"
 assert_eq "$(sp "$SP_FULL" 'startsSummary')" "5 services, 2 login items" "what starts: counted, skipped ones apart"

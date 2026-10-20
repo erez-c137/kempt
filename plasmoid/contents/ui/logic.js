@@ -565,6 +565,7 @@ var COPY = {
     startupPageButton: "Startup",
     startupPageButtonTip: "What starts with the computer and what runs on a schedule.",
     startupPageBack: "Back",
+    startupPageBackTip: "Returns to the list of updates.",
     startupPageRefresh: "Refresh",
     startupPageRefreshTip: "Reads the startup list again.",
     startupPageLoading: "Reading what starts with the computer…",
@@ -1426,7 +1427,10 @@ function startupWhenOf(iso, nowMs) {
     if (t === null) return startupClean(iso);
     var hm = startupPad(t.getHours()) + ":" + startupPad(t.getMinutes());
     if (startupYmd(t) === startupYmd(new Date(nowMs))) return "today " + hm;
-    if (startupYmd(t) === startupYmd(new Date(nowMs + 86400000))) return "tomorrow " + hm;
+    // The next calendar day, not 24 hours on: the day a clock changes is 23 or 25 hours long.
+    var now = new Date(nowMs);
+    if (startupYmd(t) === startupYmd(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)))
+        return "tomorrow " + hm;
     return t.getDate() + " " + STARTUP_MONTHS[t.getMonth()] + " " + hm;
 }
 
@@ -1622,7 +1626,7 @@ function startupPageOf(text, nowMs) {
     if (changed !== null) {
         var line = function (verb) {
             return function (e) {
-                return verb + startupClean(e.unit) + (e.scope === "user" ? ", when you log in" : "");
+                return verb + startupNamedOf(e) + (e.scope === "user" ? ", when you log in" : "");
             };
         };
         var named = function (e) { return typeof e.unit === "string"; };
@@ -1630,7 +1634,7 @@ function startupPageOf(text, nowMs) {
             .concat(startupObjectsOf(changed.removed).filter(named).map(line("No longer starts: ")));
         if (page.changed.length > 0)
             page.changedTitle = COPY.startupPageChanged
-                + (typeof changed.since === "string" ? " (" + startupDayOf(changed.since, nowMs, false) + ")" : "");
+                + (startupLocalOf(changed.since) !== null ? " (" + startupDayOf(changed.since, nowMs, false) + ")" : "");
     }
 
     var starts = startupObjectsOf(d.starts).filter(function (e) { return typeof e.unit === "string"; });
