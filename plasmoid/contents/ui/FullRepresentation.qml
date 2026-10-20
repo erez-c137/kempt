@@ -1043,6 +1043,101 @@ PlasmaExtras.Representation {
             }
         }
 
+        // A service that stopped starting after an update, and one that runs again. One slot for
+        // both (logic.js, MESSAGE_ORDER). A Warning per service, each with its own two buttons, under
+        // a heading only when there are several; the services already failing before the update are
+        // one quiet line under them. Nothing here acts on a unit: Copy Command puts the command that
+        // shows why on the clipboard, and Mute Until It Starts only tells Kempt to stop mentioning it.
+        // Polite when it appears: the person opened the widget and is reading, and the notification
+        // already interrupted them once.
+        ColumnLayout {
+            id: startupBanner
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
+            visible: popup.shows("startup")
+            readonly property string sentence: [popup.vm.startupTitle, popup.vm.startupRecoveredText]
+                .filter(function (t) { return t.length > 0; }).join("\n")
+            property string spoken: ""
+            function speak() {
+                if (sentence.length > 0) popup.speakMessage(startupBanner, false, sentence);
+            }
+            onSentenceChanged: speak()
+            onVisibleChanged: speak()
+
+            PlasmaComponents.Label {
+                id: startupHeading
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: popup.vm.startupHeading
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                font.weight: Font.DemiBold
+            }
+
+            Repeater {
+                id: startupRepeater
+                model: popup.vm.startupEntries
+
+                Kirigami.InlineMessage {
+                    id: startupEntry
+                    required property var modelData
+                    Component.onCompleted: popup.plainTextMessage(startupEntry)
+                    Layout.fillWidth: true
+                    type: Kirigami.MessageType.Warning
+                    // Kirigami starts every InlineMessage hidden; the banner around it decides.
+                    visible: true
+                    readonly property string key: modelData.scope + ":" + modelData.unit
+                    readonly property var muteError: popup.plasmoidItem.startupMuteError
+                    text: muteError && muteError.key === key ? modelData.text + "\n" + muteError.text
+                                                             : modelData.text
+                    Accessible.name: text
+                    actions: [
+                        Kirigami.Action {
+                            text: i18n("Copy Command")
+                            icon.name: "edit-copy"
+                            tooltip: startupEntry.modelData.command
+                            Accessible.description: tooltip
+                            onTriggered: source => popup.copyToClipboard(startupEntry.modelData.command)
+                        },
+                        Kirigami.Action {
+                            // The label is what a screen reader reads, so the running state is words.
+                            text: popup.plasmoidItem.startupMutePending === startupEntry.key
+                                  ? i18n("Muting…") : i18n("Mute Until It Starts")
+                            icon.name: "notifications-disabled"
+                            tooltip: i18n("Kempt stops mentioning it until it starts cleanly again.")
+                            Accessible.description: tooltip
+                            enabled: popup.plasmoidItem.startupMutePending === ""
+                            onTriggered: source => popup.plasmoidItem.muteStartup(startupEntry.modelData.unit,
+                                                                                  startupEntry.modelData.scope)
+                        }
+                    ]
+                }
+            }
+
+            PlasmaComponents.Label {
+                id: startupAlready
+                Layout.fillWidth: true
+                visible: text.length > 0
+                text: popup.vm.startupAlready
+                textFormat: Text.PlainText
+                wrapMode: Text.Wrap
+                font: Kirigami.Theme.smallFont
+                opacity: 0.7
+            }
+
+            // Shown once: main.qml acknowledges it while it is on screen, and keeps it until the
+            // popup closes.
+            Kirigami.InlineMessage {
+                id: startupRecovered
+                Component.onCompleted: popup.plainTextMessage(startupRecovered)
+                Layout.fillWidth: true
+                type: Kirigami.MessageType.Positive
+                visible: text.length > 0
+                text: popup.vm.startupRecoveredText
+                Accessible.name: text
+            }
+        }
+
         // A Check for Updates that could not fetch fresh lists: why, and how old the lists behind
         // the counts are. Information, because those counts are still the best known. It goes at
         // the next check, whoever starts it, or with its close button.

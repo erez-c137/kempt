@@ -659,7 +659,7 @@ p.clear_calls()
 page6, ev6 = build()
 p.check("every setting the page writes is read back on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
-        ["auto_accept", "include_flatpak", "notify_security", "reclaim", "refresh_interval_min",
+        ["auto_accept", "include_flatpak", "notify_security", "notify_startup", "reclaim", "refresh_interval_min",
          "restart_reminder", "surface", "widget_icon_size"])
 p.check("...and the holds list too", p.call_count("holds"), 1)
 p.check("a true boolean renders as a ticked box", ev6("includeFlatpak.checked"), True)

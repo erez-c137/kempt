@@ -543,7 +543,22 @@ var COPY = {
     // The Last update row and the line after a run, when automatic reclaim removed something.
     reclaimFreedTail: "%1 freed",
     reclaimRemovedOne: "1 unused runtime removed",
-    reclaimRemovedMore: "%1 unused runtimes removed"
+    reclaimRemovedMore: "%1 unused runtimes removed",
+
+    // A service that stopped starting after an update (state.json `startup`). Copy Command puts
+    // `systemctl status <unit>` on the clipboard; nothing in the widget acts on a unit.
+    startupCopyCommand: "Copy Command",
+    startupMute: "Mute Until It Starts",
+    startupMuteTooltip: "Kempt stops mentioning it until it starts cleanly again.",
+    startupMuting: "Muting…",
+    startupMuteFailed: "Could not mute %1.",
+    startupStopMuting: "Stop Muting %1",
+    startupStopMutingDescription: "Kempt mentions it again if it still does not start.",
+    startupUnmuted: "Stopped muting %1.",
+    startupUnmuteFailed: "Could not stop muting %1.",
+    startupNothingMuted: "Nothing is muted.",
+    startupSetting: "Tell me when something stops starting after an update",
+    startupSettingNote: "Kempt only looks. It never turns anything on or off, and the update count never includes this."
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -1234,8 +1249,11 @@ var MESSAGE_CAP = 2;
 // answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
 // `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
 // only one of the two is ever on screen.
+// `startup` (a service that stopped starting after an update, or started again) sits under the
+// restart: after the restart that installs an update, the messages above it are usually gone, and a
+// broken service outranks advice and offers. Its one-time line is acknowledged only while drawn.
 var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "restart",
-                     "fetchMissed", "kernel", "surfaceOffer", "discoverOffer", "reclaim"];
+                     "startup", "fetchMissed", "kernel", "surfaceOffer", "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1258,6 +1276,81 @@ function messageStack(wants) {
         out.splice(at >= 0 ? at + 1 : 0, 0, "doctor");
     }
     return out;
+}
+
+// --- did everything come back after the update? (state.json `startup`) -----------------------
+// The block is optional: absent while notify_startup is off or systemctl does not answer. Every
+// entry is checked before it is believed, and a unit name outside systemd's alphabet (the one
+// `kempt startup mute` accepts) is left out rather than given buttons that cannot work.
+var STARTUP_UNIT_RE = /^[A-Za-z0-9_@\\][A-Za-z0-9_.@\\-]*$/;
+var STARTUP_DIGEST_RE = /^[0-9a-f]{16}$/;
+
+function startupEntriesOf(list) {
+    var out = [], items = arrayOf(list), i, e;
+    for (i = 0; i < items.length; i++) {
+        e = items[i];
+        if (!e || typeof e !== "object" || typeof e.unit !== "string") continue;
+        if (e.unit.length > 255 || !STARTUP_UNIT_RE.test(e.unit)) continue;
+        out.push({ unit: e.unit, scope: e.scope === "user" ? "user" : "system",
+                   name: typeof e.description === "string" && e.description !== "" ? e.description : e.unit });
+    }
+    return out;
+}
+
+// The command Copy Command copies, as `kempt startup` prints it: quoted when the unit holds a
+// backslash (systemd's escapes), which a shell would otherwise eat.
+function startupCommandOf(entry) {
+    var u = entry.unit.indexOf("\\") >= 0 ? "'" + entry.unit + "'" : entry.unit;
+    return (entry.scope === "user" ? "systemctl --user status " : "systemctl status ") + u;
+}
+
+// startupVerbArgs("mute"|"unmute", entry) -> the arguments after `kempt`, unit shell-quoted.
+function startupVerbArgs(verb, entry) {
+    if (verb !== "mute" && verb !== "unmute") return "";
+    if (!entry || typeof entry.unit !== "string") return "";
+    return " startup " + verb + " " + shellQuote(entry.unit) + (entry.scope === "user" ? " --user" : "");
+}
+
+// startupOf(state, kept) -> what the banner says. `kept` is the recovered set this widget already
+// acknowledged: the CLI has cleared it, and the line stays until the widget closes.
+function startupOf(state, kept) {
+    var b = state && state.startup && typeof state.startup === "object" && !isArray(state.startup)
+        ? state.startup : null;
+    var none = { entries: [], title: "", heading: "", already: "", recoveredText: "", digest: "" };
+    if (b === null || b.notify !== true) return none;
+    var when = b.attribution === "update" ? "update" : "last restart";
+    var announced = startupEntriesOf(b.announced), i;
+    var title = announced.length === 1 ? announced[0].name + " didn't start after the " + when + "."
+        : announced.length > 1 ? announced.length + " services didn't start after the " + when + "." : "";
+    var entries = [];
+    for (i = 0; i < announced.length; i++) {
+        var a = announced[i];
+        var body = "It stopped with an error. " + (a.scope === "user" ? "A service in your session" : "A system service")
+            + " (" + a.unit + ").";
+        entries.push({ unit: a.unit, scope: a.scope, name: a.name, command: startupCommandOf(a),
+                       text: (announced.length === 1 ? title : a.name) + "\n" + body });
+    }
+    var already = startupEntriesOf(b.already).map(function (e) { return e.name; });
+    var recovered = startupEntriesOf(b.recovered);
+    var digest = recovered.length > 0 && typeof b.recovered_digest === "string"
+        && STARTUP_DIGEST_RE.test(b.recovered_digest) ? b.recovered_digest : "";
+    if (recovered.length === 0) recovered = startupEntriesOf(kept);
+    return {
+        entries: entries,
+        title: title,
+        heading: announced.length > 1 ? title : "",
+        already: announced.length > 0 && already.length > 0
+            ? "Already failing before the " + when + ": " + already.join(", ") + "." : "",
+        recoveredText: recovered.map(function (e) { return e.name + " is running again."; }).join("\n"),
+        digest: digest
+    };
+}
+
+// startupMutedOf(stdout of `kempt startup --json`) -> [{unit, scope, name}] for the settings page.
+function startupMutedOf(text) {
+    var block;
+    try { block = JSON.parse(String(text)); } catch (e) { return []; }
+    return block && typeof block === "object" ? startupEntriesOf(block.muted) : [];
 }
 
 // --- the reclaim offer ------------------------------------------------------------------------
@@ -2807,6 +2900,12 @@ function viewModel(state, updating, cliError, opts) {
     // its close button (opts.fetchMissedDismissed).
     var fetchMissedMessage = usable && !updating && !noEngine
         ? fetchMissedOf(state, opts.refreshAskedMs, opts.refreshCheckStamp) : "";
+    // --- a service that stopped starting after an update ---------------------------------------
+    // Never in the count, the badge, the icon or its attention: the update count is about updates.
+    var startup = startupOf(usable ? state : null, opts.startupRecoveredKept);
+    var startupWanted = !updating && !noEngine
+        && (startup.entries.length > 0 || startup.recoveredText !== "");
+
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
         // ...and while a blocked stage is up, a report saying the stage installs on the next restart
@@ -2838,7 +2937,8 @@ function viewModel(state, updating, cliError, opts) {
         riskyChoice: riskyChoice,
         surfaceOffer: surfaceOffer,
         discoverOffer: discoverOffer,
-        reclaim: reclaimShown && !updating
+        reclaim: reclaimShown && !updating,
+        startup: startupWanted
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -3057,6 +3157,16 @@ function viewModel(state, updating, cliError, opts) {
         reclaimLines: reclaimLines,
         reclaimDigest: reclaimDigest,
         reclaimAutomatic: reclaimMessage !== "" && reclaimAutoPending(reclaim),
+        // The startup banner: one entry per service with its text and the command Copy Command
+        // copies, a heading only when there are several, the quiet already-failing line, the
+        // one-time recovered line, and the digest `kempt startup ack` takes. The digest is ""
+        // unless the line is actually on screen, so a line the cap displaced is not acknowledged.
+        startupEntries: startup.entries,
+        startupTitle: startup.title,
+        startupHeading: startup.heading,
+        startupAlready: startup.already,
+        startupRecoveredText: startup.recoveredText,
+        startupAckDigest: messageSlots.indexOf("startup") >= 0 ? startup.digest : "",
         footerText: footerParts.join(DOT),
         checkAnswerText: checkAnswerText,
         // Published rather than left inside the two strings above, so a future surface (a
@@ -3130,6 +3240,8 @@ if (typeof module !== "undefined" && module.exports) {
         staleAnswerOf: staleAnswerOf,
         rowsOf: rowsOf,
         securityOf: securityOf,
+        startupVerbArgs: startupVerbArgs,
+        startupMutedOf: startupMutedOf,
         isTrue: isTrue,
         DEFAULT_SURFACE: DEFAULT_SURFACE,
         resolveSurface: resolveSurface,
