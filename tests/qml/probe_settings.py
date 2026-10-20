@@ -706,7 +706,10 @@ for k, v in DEFAULTS:
 pageNF, evNF = build()
 p.check("with flatpak not installed the group is greyed out",
         evNF("reclaimRepeater.itemAt(0).enabled"), False)
-p.check("...and says so", evNF("reclaimNote.text"), "Flatpak is not installed.")
+p.check("...and so is Include Flatpak apps", evNF("includeFlatpak.enabled"), False)
+p.check("...which says why, under it", [evNF("includeFlatpakNote.visible"), evNF("includeFlatpakNote.text")],
+        [True, "Flatpak is not installed."])
+p.check("...said once, so the group adds nothing", evNF("reclaimNote.visible"), False)
 p.check("...while the stored choice still shows", evNF("page.reclaimKey"), "automatic")
 open(FLATPAK_BIN, "w").write("#!/bin/sh\nexit 0\n")
 os.chmod(FLATPAK_BIN, 0o755)

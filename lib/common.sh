@@ -1279,6 +1279,23 @@ config_get() {  # key [default]; explicit default wins, else the kempt_default t
   printf '%s\n' "${v:-${2:-$(kempt_default "$1")}}"
 }
 
+# Whether the config file gives a key a value of its own, rather than leaving it to kempt_default.
+# An empty value counts as unset, because config_get reads it as the default too.
+config_is_set() {  # key → 0 when the file sets it
+  [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]] || return 2
+  [[ -n "$(grep -s "^$1=" "$CONFIG_FILE" | tail -1 | cut -d= -f2- || true)" ]]
+}
+
+# Whether check, update and the refresh include Flatpak: include_flatpak on and the command here.
+# Without the command every check would fail with "command not found", once an interval, and say
+# nothing doctor does not say once (its flatpak row). The command is the first word of the
+# backend's list seam, the one doctor asks about too.
+flatpak_included() {  # → 0 when Flatpak is part of Kempt's checks and updates here
+  is_true "$(config_get include_flatpak)" || return 1
+  local cmd="${KEMPT_FLATPAK_LIST_CMD:-flatpak}"
+  command -v "${cmd%% *}" >/dev/null 2>&1
+}
+
 config_set() {  # key value [if-absent]
   # With a third argument, the write happens only when the file has no line for the key, decided
   # inside the lock: rc 3 means a line was there and nothing was written. surface_migrate needs it,
@@ -2116,13 +2133,13 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
     fi
     rm -f "$errf"
   fi
-  # Gated on include_flatpak: fetching flathub's summary for a backend the user switched off is
+  # Gated on flatpak_included: fetching flathub's summary for a backend the user switched off is
   # network nobody asked for, on the one code path whose entire job is to be careful with it. The
   # arm runs independently of dnf's verdict - they fail for unrelated reasons (a declined
   # authentication against an unreachable remote), so one failing must not cancel the other. And it
   # stays unprivileged: flatpak_refresh runs as this user, never through priv_refresh, so the
   # no-dialog polkit action remains dnf-only.
-  if (( due_fp )) && is_true "$(config_get include_flatpak)"; then
+  if (( due_fp )) && flatpak_included; then
     local fp_rc=0
     flatpak_refresh || fp_rc=$?
     # 2 is no Flatpak remote at all: nothing was downloaded, so no line claims a download, and no

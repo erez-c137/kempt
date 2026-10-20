@@ -427,8 +427,19 @@ KCM.SimpleKCM {
             id: includeFlatpak
             Kirigami.FormData.label: i18n("Updates:")
             text: i18n("Include Flatpak apps")
-            enabled: !page.loading
+            // Without flatpak the CLI leaves Flatpak out whatever this says (flatpak_included).
+            enabled: !page.loading && page.flatpakPresent
             onToggled: page.markChanged("include_flatpak")
+        }
+
+        QQC2.Label {
+            id: includeFlatpakNote
+            visible: !page.flatpakPresent
+            text: i18n("Flatpak is not installed.")
+            wrapMode: Text.WordWrap
+            font: Kirigami.Theme.smallFont
+            opacity: 0.8
+            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
 
         QQC2.CheckBox {
@@ -448,7 +459,8 @@ KCM.SimpleKCM {
 
         // --- unused Flatpak runtimes ---------------------------------------------------------------
         // `reclaim`: what Kempt does with runtimes no installed app uses. The CLI does nothing with
-        // it when flatpak is absent or left out of updates, so the group greys out and says which.
+        // it when flatpak is absent or left out of updates, so the group greys out. The note says which
+        // when Flatpak is left out; an absent flatpak is said under the checkbox above.
         Repeater {
             id: reclaimRepeater
             model: [
@@ -482,7 +494,8 @@ KCM.SimpleKCM {
 
         QQC2.Label {
             id: reclaimNote
-            text: !page.flatpakPresent ? i18n("Flatpak is not installed.")
+            // Not installed is said once, under Include Flatpak apps.
+            text: !page.flatpakPresent ? ""
                 : !includeFlatpak.checked ? i18n("Only applies when Flatpak apps are included in updates.")
                 : !page.flatpakKnown ? i18n("Only applies when Flatpak is installed.")
                 // The engine acts as ask on an image-based system, and when more than one person may

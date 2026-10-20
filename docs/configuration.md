@@ -32,7 +32,7 @@ half a minute.
 
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
-| `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. |
+| `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. On a computer without Flatpak, it counts as off. If you set it to `true` yourself there, `kempt doctor` warns. |
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). When off, the run always uses the `terminal` surface with live output, because no other surface can answer a prompt. |
 | `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. `kempt config set surface widget` stores `popup`. An unrecognised value logs a warning and falls back to `terminal`. An older install keeps `terminal`: see [Upgrading](#upgrading-from-an-older-kempt). |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
