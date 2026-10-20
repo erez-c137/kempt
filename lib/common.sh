@@ -252,7 +252,7 @@ kempt_init_dirs() {
   # -printf '%T@ %p' plus a re-sort, which is more moving parts on a path that deletes files. The
   # glob is shell-expanded, so ls never parses a name.
   # shellcheck disable=SC2012
-  while IFS= read -r f; do [[ -n "$f" ]] && rm -f "$f"; done \
+  while IFS= read -r f; do [[ -z "$f" ]] || rm -f "$f" 2>/dev/null || true; done \
     < <(ls -1t "$HIST_DIR"/*.json 2>/dev/null | tail -n +51 || true)
   find "$LOG_DIR" -name '*.log' -mtime +60 -delete 2>/dev/null || true
   return 0
@@ -1774,11 +1774,13 @@ startup_hist_names() {  # → the history entries' file names, oldest first
   for f in "$HIST_DIR"/*.json; do [[ -f "$f" ]] && printf '%s\n' "${f##*/}"; done | LC_ALL=C sort
 }
 
-# The newest 50 history entries that carry a baseline, as one array, oldest first. One jq for all
-# of them; a damaged entry stops that pass, and they are then read one at a time, skipping it.
+# The newest 50 history entries that carry a baseline, as one array, oldest first: grep picks the
+# entries that name one, then one jq reads them all; a damaged entry stops that pass, and they are
+# then read one at a time, skipping it.
 startup_runs() {
   local files=() f out
-  mapfile -t files < <(startup_hist_names | tail -n 50)
+  mapfile -t files < <(startup_hist_names | sed "s|^|$HIST_DIR/|" \
+                         | xargs -r -d '\n' grep -lF '"failed_before"' -- 2>/dev/null | tail -n 50)
   [[ ${#files[@]} -gt 0 ]] || { echo '[]'; return 0; }
   local prog='select(type == "object" and (.failed_before | type) == "object")
     | {file: (input_filename | sub(".*/"; "") | sub("\\.json$"; "")), timestamp,
@@ -1786,11 +1788,11 @@ startup_runs() {
        boot: .failed_before.boot_id, at: (.failed_before.at // ""),
        base: (.failed_before | del(.enabled)),
        dnf_changed: ([.backends.dnf.updated, .backends.dnf.added, .backends.dnf.removed]
-                     | map(length? // 0) | add > 0)}'
-  if out="$(jq -cn "[inputs | $prog]" "${files[@]/#/$HIST_DIR/}" 2>/dev/null)"; then
+                     | map(if type == "array" then length else 0 end) | add > 0)}'
+  if out="$(jq -cn "[inputs | $prog]" "${files[@]}" 2>/dev/null)"; then
     printf '%s\n' "$out"; return 0
   fi
-  for f in "${files[@]}"; do jq -c "$prog" "$HIST_DIR/$f" 2>/dev/null || true; done | jq -cs '.'
+  for f in "${files[@]}"; do jq -c "$prog" "$f" 2>/dev/null || true; done | jq -cs '.'
 }
 
 startup_digest() {  # stdin: startup.json → the recovered set's digest, or nothing
@@ -1806,7 +1808,8 @@ startup_digest() {  # stdin: startup.json → the recovered set's digest, or not
 # A scope that did not answer then is compared by a later check of the same boot that it answers
 # (`pending`). With no such run since the last boot, nothing is compared or said.
 # A unit Kempt announced counts as running again only when systemd says it is active; one systemd
-# no longer knows is dropped in silence. A mute ends when its unit is seen active.
+# no longer knows, or one that stopped after a clean run, is dropped in silence. A mute ends the
+# same ways.
 # STARTUP_SEEN tells cmd_check that systemd answered, so the startup block is published.
 startup_observe() {
   STARTUP_SEEN=""
@@ -1835,8 +1838,8 @@ startup_observe() {
     | index(":") as $i | {scope: .[:$i], unit: .[$i + 1:]}
     | . as $c | select($now[$c.scope] != null and all($now[$c.scope][]; .unit != $c.unit))
     | "\(.scope)\t\(.unit)"' <<<"$st" 2>/dev/null)
-  [[ ${#csys[@]} -eq 0 ]] || psys="$(startup_systemctl system show -p Id -p ActiveState -p LoadState -- "${csys[@]}")" || psys=""
-  [[ ${#cusr[@]} -eq 0 ]] || pusr="$(startup_systemctl user show -p Id -p ActiveState -p LoadState -- "${cusr[@]}")" || pusr=""
+  [[ ${#csys[@]} -eq 0 ]] || psys="$(startup_systemctl system show -p Id -p ActiveState -p LoadState -p Result -- "${csys[@]}")" || psys=""
+  [[ ${#cusr[@]} -eq 0 ]] || pusr="$(startup_systemctl user show -p Id -p ActiveState -p LoadState -p Result -- "${cusr[@]}")" || pusr=""
   # The history is read only when the boot changed or a run arrived since the last look.
   if [[ "$prev" != "$cur" || "$newest" != "$last" ]]; then
     local window
@@ -1882,27 +1885,45 @@ startup_observe() {
     | recs($now) as $nowr | scopes($now) as $read | ($nowr | map(key)) as $nowk
     | (props($psys; "system") + props($pusr; "user")) as $p
     | def state: $p[key] // {};
+      def up: state | .ActiveState == "active" and .LoadState != "not-found";
+      def ended: state | .LoadState == "not-found" or (.ActiveState == "inactive" and .Result == "success");
       ($st.boot_id != $cur) as $newboot
-    | (if $win != null then $win elif $newboot then null else ($st.pending // null) end) as $cmp
-    | ($cmp.base // null) as $base
+    # A scope still waiting keeps the baseline it was waiting with; a newer run does not replace
+    # it, or what broke before that run would read as already failing at its start.
+    | (if $newboot then null else ($st.pending // null) end) as $pend
+    | (if $pend == null then [] else scopes($pend.base) end) as $pss
+    | (if $win == null and $pend == null then null
+       else {boot_id: ($win // $pend).base.boot_id}
+            + (reduce ("system", "user") as $s ({};
+                 if IN($pss[]; $s) then .[$s] = $pend.base[$s]
+                 elif $win != null and $win.base[$s] != null then .[$s] = $win.base[$s] else . end)) end) as $b0
+    | (if $b0 != null and (scopes($b0) | length) > 0 then $b0 else null end) as $base
     | (if $base == null then [] else [scopes($base)[] | select(IN($read[]))] end) as $cs
     | (if $base == null then [] else [scopes($base)[] | select(IN($read[]) | not)] end) as $left
+    | (if ([$left[] | select(IN($pss[]))] | length) > 0 then $pend else $win end) as $pfrom
     | ([recs($base // {})[] | select(.scope | IN($cs[]))] | map(key)) as $basek
     | ($st.announced // []) as $pa
     | ($pa + ($st.already // []) + ($st.recovered // []) + recs($base // {}) + $nowr) as $all
     | (reduce $all[] as $r ($st.descriptions // {};
          if ($r | good) and (has($r | key) | not) then .[$r | key] = $r.description else . end)) as $d
-    | [$pa[] | select(((.scope | IN($read[])) | not) or in_keys($nowk)
-                      or ((state | .ActiveState != "active") and (state | .LoadState != "not-found")))] as $still
-    | [$pa[] | select((.scope | IN($read[])) and (in_keys($nowk) | not)
-                      and (state | .ActiveState == "active" and .LoadState != "not-found"))] as $gone
+    # Running again only when active. Gone from systemd, or stopped after a clean run (a oneshot,
+    # a reset-failed): dropped without a word. Anything else, activating included, stays.
+    | [$pa[] | select(((.scope | IN($read[])) | not) or in_keys($nowk) or ((up | not) and (ended | not)))] as $still
+    | [$pa[] | select((.scope | IN($read[])) and (in_keys($nowk) | not) and up)] as $gone
     | ($still | map(key)) as $stillk
     | [$nowr[] | select((.scope | IN($cs[])) and (in_keys($basek) | not)
                         and (in_keys($stillk) | not) and (in_keys($mutes) | not))] as $new
+    # The comparison this check reports on: that of the waiting scope when it found something or
+    # the newer run found nothing, so its failures carry the wording of their own update.
+    | ([$cs[] | select(IN($pss[]))] | length > 0) as $pc
+    | ([$cs[] | select(IN($pss[]) | not)] | length > 0 and $win != null) as $wc
+    | (if $pc and (($wc | not) or any($new[]; .scope | IN($pss[])) or ([$new[] | select(.scope | IN($pss[]) | not)] | length) == 0) then $pend
+       elif $wc then $win else null end) as $cmp
     | ([($st.already // [])[] | select(((.scope | IN($cs[])) | not)
                                        and (((.scope | IN($read[])) | not) or in_keys($nowk)))]
        + [$nowr[] | select((.scope | IN($cs[])) and in_keys($basek) and (in_keys($stillk) | not))]) as $already
-    | ([($gone[] | . + {unsent: true}), (if $newboot then empty else ($st.recovered // [])[] end)]
+    # A failure never told that recovers is never told either.
+    | ([($gone[] | select(.unsent | not) | . + {unsent: true}), (if $newboot then empty else ($st.recovered // [])[] end)]
        | map(select(in_keys($nowk) | not)) | unique_by(key)) as $rec
     | (if $cmp != null and ($cs | length) > 0 then $cmp.attribution else ($st.attribution // "restart") end) as $att
     | (if $att == "update" then "update" else "last restart" end) as $when
@@ -1911,7 +1932,7 @@ startup_observe() {
     | [$rec[] | select(.unsent) | named($d)] as $told
     | def sent: if $bus then del(.unsent) else . end;
       [$mutes[] | index(":") as $i | {scope: .[:$i], unit: .[$i + 1:]}
-       | select((.scope | IN($read[])) and (in_keys($nowk) | not) and (state | .ActiveState == "active")) | key] as $clear
+       | select((.scope | IN($read[])) and (in_keys($nowk) | not) and (up or ended)) | key] as $clear
     | (($ann + $already + $rec + $nowr) | map(key)) as $keep
     | {state: ({schema: 1, boot_id: $cur, last_run: $newest,
                 baseline: (if $cmp != null and ($cs | length) > 0 then $cmp.baseline else ($st.baseline // null) end),
@@ -1922,7 +1943,7 @@ startup_observe() {
                 descriptions: ($d | with_entries(select(.key as $k | any(($keep + $mutes)[]; . == $k)))) }
                + (if $cmp != null and ($left | length) > 0
                   then {pending: {base: (reduce $left[] as $s ({boot_id: $base.boot_id}; .[$s] = $base[$s])),
-                                  baseline: $cmp.baseline, attribution: $cmp.attribution}}
+                                  baseline: $pfrom.baseline, attribution: $pfrom.attribution}}
                   else {} end)),
        clear: $clear,
        notes: ((if ($tell | length) == 0 then []

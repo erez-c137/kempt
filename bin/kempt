@@ -3444,6 +3444,13 @@ startup_mute_cmd() {  # mute|unmute unit [--user]
   if [[ ${#unit} -gt 255 || ! "$unit" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.:@\\-]*$ ]]; then
     echo "invalid unit name: $unit" >&2; exit 2
   fi
+  # An alias is stored under the unit's own name, the one systemd reports failing; when systemctl
+  # does not answer, the name is kept as typed. Unmute drops both spellings.
+  local id typed="$scope:$unit"
+  if startup_on && id="$(startup_systemctl "$scope" show -p Id -- "$unit")"; then
+    id="$(sed -n '1s/^Id=//p' <<<"$id")"
+    [[ ${#id} -gt 255 || ! "$id" =~ ^[A-Za-z0-9_@\\][A-Za-z0-9_.:@\\-]*\.[a-z]+$ ]] || unit="$id"
+  fi
   kempt_init_dirs
   writer_lock "$SECURITY_LOCK_WAIT" || exit 1
   local key="$scope:$unit" rc=0 out
@@ -3451,7 +3458,7 @@ startup_mute_cmd() {  # mute|unmute unit [--user]
     grep -qxF "$key" "$STARTUP_MUTES_FILE" 2>/dev/null \
       || printf '%s\n' "$key" >> "$STARTUP_MUTES_FILE" || rc=1
   elif [[ -f "$STARTUP_MUTES_FILE" ]]; then
-    out="$(grep -vxF "$key" "$STARTUP_MUTES_FILE")" || [[ $? -eq 1 ]] || rc=1
+    out="$(grep -vxF -e "$key" -e "$typed" "$STARTUP_MUTES_FILE")" || [[ $? -eq 1 ]] || rc=1
     [[ $rc -ne 0 ]] || printf '%s' "${out:+$out$'\n'}" | atomic_write "$STARTUP_MUTES_FILE" || rc=1
   fi
   [[ $rc -ne 0 ]] || startup_patch_state || true
