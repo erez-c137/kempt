@@ -562,6 +562,17 @@ cmd_check() {
       sec_asked=1
       if sec_raw="$(dnf_security_query)"; then sec_rc=0; else sec_rc=1; fi
     fi
+  elif helper_busy_in "$errf"; then
+    # The helper refused because a Kempt run is under way: an update (the person's own, perhaps)
+    # or the check it started earlier. That is not a failed check, and the widget must not flash
+    # one: serve the previous state unchanged, as when another check holds the lock above, and
+    # say why in one event line.
+    rm -f "$errf" "$dnf_sz" "$fp_sz" "$fp_scopes_f"
+    echo "warning: a Kempt update is running; serving previous state" >&2
+    log_event "check skipped (a Kempt update is running)"
+    jq -e -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null || true
+    [[ -z "$strict" ]] || return 1
+    return 0
   else
     # explain_helper_error rewrites the one case the raw text gets WRONG: a missing root helper,
     # which `timeout` reports as a failure to run a command and reads as a timeout. dnf only -

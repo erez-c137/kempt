@@ -321,6 +321,7 @@ event_plain() {  # event text → EVENT_PLAIN
     "startup recovered: "*) EVENT_PLAIN="Running again: ${t#startup recovered: }" ;;
     "startup muted "*:*) EVENT_PLAIN="Stopped mentioning ${t#startup muted *:} until it starts" ;;
     "startup unmuted "*:*) EVENT_PLAIN="Mentioning ${t#startup unmuted *:} again" ;;
+    "check skipped "*) EVENT_PLAIN="Not checked ${t#check skipped }" ;;
     "check shared last_check="*) EVENT_PLAIN="Check used the answer of the check at ${t#check shared last_check=}" ;;
     "refresh ok") EVENT_PLAIN="Package lists downloaded" ;;
     "refresh failed") EVENT_PLAIN="Package lists could not be downloaded" ;;
@@ -1421,6 +1422,11 @@ KEMPT_HELPER_BUSY_TEXT="dnf5 was not started, because the one Kempt started earl
 # "another kempt update is running" (exit 3); a check reports it in place of the helper's line.
 # shellcheck disable=SC2034 # read by backends/dnf.sh and bin/kempt
 KEMPT_HELPER_UPDATE_BUSY_TEXT="dnf5 was not started, because a Kempt update is running. Nothing changed."
+# Whether a captured stderr holds either busy sentence (a helper's refusal with exit 5, with or
+# without its name in front): a Kempt run is under way, so a check or refresh skips rather than fails.
+helper_busy_in() {  # file
+  grep -qF -e "$KEMPT_HELPER_BUSY_TEXT" -e "$KEMPT_HELPER_UPDATE_BUSY_TEXT" -- "$1" 2>/dev/null
+}
 # The line both helpers print once when dnf5 has run for 15 minutes. Information for the run log,
 # never why something failed: dnf_check drops it from what it passes on, and run_failure_reason
 # never falls back to it.
@@ -3012,6 +3018,10 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
       touch "$LAST_REFRESH_DNF_FILE" || true
       rm -f "$REFRESH_DNF_FAILED_FILE" || true
       log_event "refresh ok"
+    elif (( rc == KEMPT_APPLY_BUSY )) && helper_busy_in "$errf"; then
+      # A Kempt run is under way (helper_busy_in): not a failed refresh. The marker and the 3h
+      # stamp stay as they are, so the next check fetches; the check below logs the one line.
+      :
     else
       refresh_error_line "$errf" "$rc" > "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || true
       log_event "refresh failed"

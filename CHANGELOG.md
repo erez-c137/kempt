@@ -40,7 +40,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   installed. It now notices the update has finished and reads the result from dnf's history. A
   setup step that runs long is never interrupted. After 15 minutes the log says so once, as
   information, never as a warning. If an update or check is already running, a new one changes
-  nothing and says so at once, also when another user started it.
+  nothing and says so at once, also when another user started it. A check while an update runs
+  keeps the last answer instead of showing an error.
 - **A staged update now says how many updates it holds.** When the check before staging found
   nothing new, but staging then found updates, the summary and `kempt log` said "Staged 0
   updates". The count now comes from the staged update itself.
