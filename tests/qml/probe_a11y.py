@@ -398,6 +398,18 @@ expected = (["refreshButton", "configureButton", "riskyMessage:Install on Next R
             + pins() + [*LASTRUN, "updateButton"])
 p.check("...so its action is the stop after the header, and the restart message's two are gone",
         walk(len(expected)), expected)
+# As the question after Update Now, the popup opens on Install on Next Restart with Update Now
+# hidden, so that button says the heading's count as well.
+ev("root.riskyChoiceOpen = true")
+p.pump(150)
+_stage = "popup.buttonFor(riskyMessage, riskyStageAction)"
+p.check("asking, Install on Next Restart's description starts with the heading's count",
+        [lev("updateButton.visible"), str(lev(_stage + ".Accessible.description")).split("\n")],
+        [False, [lev("popup.vm.headerText"), lev("popup.stageTooltip")]])
+ev("root.riskyChoiceOpen = false")
+p.pump(150)
+p.check("...and only its tooltip once the question has closed",
+        lev(_stage + ".Accessible.description"), lev("popup.stageTooltip"))
 lev("popup.focusPrimary()")
 p.pump(20)
 p.check("...and backwards the same way", walk(len(expected), back=True), reverse_of(expected))

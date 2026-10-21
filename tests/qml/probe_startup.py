@@ -196,10 +196,10 @@ BTN = "popup.buttonFor(startupRepeater.itemAt(%d), startupRepeater.itemAt(%d).ac
 _names = [lev("startupRepeater.itemAt(%d).modelData.name" % i) for i in range(3)]
 p.check("each Mute button names its own service to a screen reader",
         [lev(BTN % (i, i, 1) + ".Accessible.name") for i in range(3)],
-        ["Mute %s until it starts" % n for n in _names])
+        ["Mute Until It Starts: %s" % n for n in _names])
 p.check("...and so does each Copy Command button",
         [lev(BTN % (i, i, 0) + ".Accessible.name") for i in range(3)],
-        ["Copy command for %s" % n for n in _names])
+        ["Copy Command: %s" % n for n in _names])
 p.check("...while the words drawn on them stay as they were",
         [lev(BTN % (0, 0, 0) + ".text"), lev(BTN % (0, 0, 1) + ".text")],
         ["Copy Command", "Mute Until It Starts"])
@@ -210,6 +210,45 @@ p.check("...Copy Command says what happened to the service, and the command it c
 p.check("...and Mute says what muting does",
         lev(BTN % (0, 0, 1) + ".Accessible.description"),
         "Kempt stops mentioning it until it starts cleanly again.")
+
+# A narrow banner: Kirigami swaps in icon-only buttons and puts what does not fit in a More
+# Actions menu, all built in its own time. Every one of them still names its service.
+SPOKEN = """(function (i, a) {
+  var entry = startupRepeater.itemAt(i), action = entry.actions[a], out = [];
+  (function walk(o) {
+     if (o.action === action) out.push(String(o.Accessible.name));
+     if (o.menu !== undefined && o.menu !== null)
+       for (var k = 0; k < o.menu.count; k++) {
+         var it = o.menu.itemAt(k);
+         if (it && it.action === action) out.push("menu:" + String(it.Accessible.name));
+       }
+     for (var c = 0; c < o.children.length; c++) walk(o.children[c]);
+  })(entry);
+  return JSON.stringify(out); })(%d, %d)"""
+lev("popup.width = 120")
+p.pump(400)
+# The menu's entries exist only while it is open, so open each message's.
+OPEN_MENUS = """(function (show) { var n = 0;
+  for (var i = 0; i < startupRepeater.count; i++)
+    (function walk(o) {
+       if (o.menu !== undefined && o.menu !== null && o.visible) {
+         if (show) o.menu.open(); else o.menu.close(); n++; }
+       for (var c = 0; c < o.children.length; c++) walk(o.children[c]);
+    })(startupRepeater.itemAt(i));
+  return n; })(%s)"""
+p.check("narrow, each message has a More Actions menu", lev(OPEN_MENUS % "true"), 3)
+p.pump(200)
+_narrow = [json.loads(lev(SPOKEN % (i, a))) for i in range(3) for a in range(2)]
+_want = [("Copy Command: %s" if a == 0 else "Mute Until It Starts: %s") % _names[i]
+         for i in range(3) for a in range(2)]
+p.check("narrow, every button and menu entry drawn for an action carries its spoken name",
+        [sorted(set(n.replace("menu:", "") for n in names)) for names in _narrow],
+        [[w] for w in _want])
+p.check("...the overflow menu's entries included",
+        any(n.startswith("menu:") for names in _narrow for n in names), True)
+lev(OPEN_MENUS % "false")
+lev("popup.width = 460")
+p.pump(200)
 
 lev("engineCopyClip.text = ''")
 lev("startupRepeater.itemAt(1).actions[0].trigger()")

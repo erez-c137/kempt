@@ -181,20 +181,56 @@ PlasmaExtras.Representation {
     // What a screen reader hears from a message's buttons. Kirigami names each button by its
     // action's text and gives the action no say, so three services' banners read as three
     // identical "Mute Until It Starts". An action that declares `spokenName` (and
-    // `spokenDescription`) has them bound onto its buttons here; the drawn words stay the
-    // action's text. Run whenever the message may have built its buttons, which Kirigami does in
-    // its own time, and harmless to run again.
+    // `spokenDescription`) has them bound onto its buttons and its More Actions menu entries
+    // here; the drawn words stay the action's text. Harmless to run again.
+    //
+    // Kirigami builds all of these in its own time: the full and icon-only buttons as its toolbar
+    // lays out, the More Actions menu in the background, and the menu's entries only while it is
+    // open. So the first run also hooks each of those to run this again (message.spokenHooks
+    // remembers what is hooked, so nothing is hooked twice).
     function speakActionsAs(message) {
-        const actions = message ? message.actions : [];
-        for (let i = 0; i < actions.length; i++) {
-            const a = actions[i];
-            if (a.spokenName === undefined) continue;
-            const buttons = popup.buttonsFor(message, a);
-            for (let j = 0; j < buttons.length; j++) {
-                buttons[j].Accessible.name = Qt.binding(() => a.spokenName);
-                buttons[j].Accessible.description = Qt.binding(() => a.spokenDescription);
+        if (!message) return;
+        const actions = message.actions;
+        const named = [];
+        for (let i = 0; i < actions.length; i++)
+            if (actions[i].spokenName !== undefined) named.push(actions[i]);
+        if (named.length === 0) return;
+        const rerun = message.speakButtons;
+        const hooks = message.spokenHooks;
+        const hook = (obj, signal, later) => {
+            if (hooks.indexOf(obj) >= 0) return;
+            hooks.push(obj);
+            obj[signal].connect(later ? () => Qt.callLater(rerun) : rerun);
+        };
+        const speak = (item, a) => {
+            item.Accessible.name = Qt.binding(() => a.spokenName);
+            item.Accessible.description = Qt.binding(() => a.spokenDescription);
+        };
+        (function walk(o) {
+            const kids = o.children || [];
+            for (let k = 0; k < kids.length; k++) {
+                const kid = kids[k];
+                // The toolbar layout: it adds a button whenever it decides to draw one.
+                if (kid.hiddenActions !== undefined) hook(kid, "childrenChanged", true);
+                const a = named.find(x => x === kid.action);
+                if (a) speak(kid, a);
+                // The More Actions button: its menu arrives late, and fills only while open.
+                if (kid.menu !== undefined) {
+                    hook(kid, "menuChanged", true);
+                    const menu = kid.menu;
+                    if (menu) {
+                        // At once, not later: the entry takes focus as the menu opens.
+                        hook(menu, "countChanged", false);
+                        for (let m = 0; m < menu.count; m++) {
+                            const entry = menu.itemAt(m);
+                            const ea = entry ? named.find(x => x === entry.action) : undefined;
+                            if (ea) speak(entry, ea);
+                        }
+                    }
+                }
+                walk(kid);
             }
-        }
+        })(message);
     }
 
     // The risky choice opens on the recommended answer, so Enter stages rather than installs.
@@ -991,6 +1027,11 @@ PlasmaExtras.Representation {
                          : popup.vm.riskyMessage
             Accessible.name: text
             readonly property bool asking: popup.shows("riskyChoice")
+            // Its buttons' words for a screen reader (speakActionsAs), hooked as the banner's are.
+            function speakButtons() { popup.speakActionsAs(riskyMessage); }
+            property var spokenHooks: []
+            Component.onCompleted: Qt.callLater(speakButtons)
+            onVisibleChanged: Qt.callLater(speakButtons)
             visible: popup.shows("kernel") || asking
             // Polite: it answers the click. Said after the focus lands on Install on Next Restart,
             // so it follows the button's name instead of being cut off by it, and it ends on the
@@ -1013,6 +1054,11 @@ PlasmaExtras.Representation {
                     // one staging a transaction, is not a distinction anybody can make.
                     icon.name: "system-software-update"
                     tooltip: popup.stageTooltip
+                    // As the question after Update Now the popup opens here, with Update Now gone,
+                    // so this is where a listener hears the heading's count.
+                    readonly property string spokenName: text
+                    readonly property string spokenDescription: riskyMessage.asking
+                        ? popup.vm.headerText + "\n" + tooltip : tooltip
                     // Gone, not greyed, while a Fedora release upgrade is stored: the message that
                     // replaces this one says why, and a disabled button with its explanation in a
                     // different message is a puzzle rather than an answer.
@@ -1248,12 +1294,12 @@ PlasmaExtras.Representation {
                         popup.plainTextMessage(startupEntry);
                         Qt.callLater(speakButtons);
                     }
-                    // Kirigami builds the buttons when it lays the message out, and builds the
-                    // icon-only ones only when the row gets too narrow for the full ones. A
-                    // function of each message's own, since Qt.callLater runs one call per
-                    // function: handed popup.speakActionsAs, three messages got one call.
+                    // Names the buttons for a screen reader (speakActionsAs), which hooks what
+                    // Kirigami builds later. A function of each message's own, since
+                    // Qt.callLater runs one call per function: handed popup.speakActionsAs,
+                    // three messages got one call.
                     function speakButtons() { popup.speakActionsAs(startupEntry); }
-                    onWidthChanged: Qt.callLater(speakButtons)
+                    property var spokenHooks: []
                     onVisibleChanged: Qt.callLater(speakButtons)
                     // What happened to the service, without the line that only names it: the
                     // buttons already say the name. One service's message has no such line,
@@ -1278,8 +1324,11 @@ PlasmaExtras.Representation {
                         // Copy is the first stop in each message, so its description is the
                         // message's own news as well as the command it copies.
                         Kirigami.Action {
+                            // The drawn words first, so voice control finds the button by
+                            // what it shows, as the Startup page's Copy Command does.
                             readonly property string spokenName:
-                                i18n("Copy command for %1", startupEntry.modelData.name)
+                                i18nc("@action:button a service's name follows",
+                                      "Copy Command: %1", startupEntry.modelData.name)
                             readonly property string spokenDescription:
                                 startupEntry.whatHappened + "\n" + startupEntry.modelData.command
                             text: i18n("Copy Command")
@@ -1292,8 +1341,10 @@ PlasmaExtras.Representation {
                             readonly property bool muting:
                                 popup.plasmoidItem.startupMutePending === startupEntry.key
                             readonly property string spokenName: muting
-                                ? i18n("Muting %1…", startupEntry.modelData.name)
-                                : i18n("Mute %1 until it starts", startupEntry.modelData.name)
+                                ? i18nc("@action:button a service's name follows",
+                                        "Muting…: %1", startupEntry.modelData.name)
+                                : i18nc("@action:button a service's name follows",
+                                        "Mute Until It Starts: %1", startupEntry.modelData.name)
                             readonly property string spokenDescription: tooltip
                             // The label is what a screen reader reads, so the running state is words.
                             text: muting ? i18n("Muting…") : i18n("Mute Until It Starts")
