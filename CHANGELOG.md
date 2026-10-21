@@ -32,6 +32,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   right-click menu, or in **More actions** in the system tray. There is nothing to turn on. The
   page reads when it opens or when you refresh it, lists failures and changes in full, counts the
   rest with **Show All**, and offers only **Copy Command**.
+  In the system tray, **Check for Updates** moves into **More actions** too, so the widget now
+  shows its own refresh button in its header there, as it already did on the desktop.
 
 ### Fixed
 
