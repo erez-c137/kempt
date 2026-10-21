@@ -99,6 +99,26 @@ RowLayout {
     // accessible name, so the two cannot say different things about the same row.
     readonly property string fromText: row.newPackage ? i18n("new") : row.from
 
+    // What the row says about itself to a screen reader, as one sentence or a few. The pin is the
+    // row's only tab stop, so its description is the only place a listener walking the list hears
+    // the version change and the state words drawn beside the name. Same facts as the drawn
+    // line, from the same Logic.versionTextOf, in words instead of an arrow.
+    readonly property string spokenFacts: {
+        const parts = [];
+        if (row.security) parts.push(i18n("Security update."));
+        if (row.forYouOnly) parts.push(i18n("For you only."));
+        if (row.from === Logic.VERSION_UNKNOWN && row.to === Logic.VERSION_UNKNOWN) {
+            // Nothing to say: the drawn line is empty too.
+        } else if (row.newPackage) {
+            parts.push(i18n("Installs version %1.", row.to));
+        } else if (row.from === row.to) {
+            parts.push(Logic.versionTextOf(row.from, row.to) + ".");
+        } else {
+            parts.push(i18n("Updates from %1 to %2.", row.from, row.to));
+        }
+        return parts.join(" ");
+    }
+
     spacing: Kirigami.Units.smallSpacing
 
     ColumnLayout {
@@ -246,11 +266,14 @@ RowLayout {
         // pressing this does. Kempt-only and per package, because a dnf user reads versionlock
         // into a padlock and a kernel is three rows.
         // A hold is by id, so with the app installed both ways it covers both copies, and says so.
-        Accessible.description: row.bothScopes
+        // The row's own facts go first (spokenFacts): nothing else in the row is a tab stop.
+        readonly property string consequence: row.bothScopes
             ? (row.held ? i18n("Kempt offers the update again for both copies, the system one and the one for you only.")
                         : i18n("Kempt skips both copies, the system one and the one for you only, until you stop holding it."))
             : (row.held ? i18n("Kempt offers its update again.")
                         : i18n("Kempt skips it on every update until you stop holding it."))
+        Accessible.description: row.spokenFacts.length > 0
+            ? row.spokenFacts + " " + consequence : consequence
         // A ListView only builds the delegates near its viewport, so the focus chain holds only
         // the rows that happen to exist and Tab walks to the last one and leaves the list
         // (measured: 17 of 24 padlocks reachable). Announcing the focus lets the list scroll this

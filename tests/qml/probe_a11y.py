@@ -324,9 +324,23 @@ p.check("...and it introduces itself by naming its own package, at its own versi
 # The description is the CONSEQUENCE and not the name read back. QQC2 already hands `text` to
 # AT-SPI as the accessible name, so a description bound to `text` was the sentence spoken twice
 # and the one slot that could explain what pressing this does, wasted.
-p.check("...while the description says what holding it will DO, which nothing else says anywhere",
+# The version change comes first in it: the version line is never a tab stop, so a listener
+# walking the pins hears what each update is only from here.
+p.check("...while the description says what the update is and what holding it will DO",
         lev("popup.Window.activeFocusItem.Accessible.description"),
-        "Kempt skips it on every update until you stop holding it.")
+        "Updates from 3.105-0.9.20210729git2a87ac6.fc44 to 3.106-1.fc44."
+        " Kempt skips it on every update until you stop holding it.")
+walk(1)
+p.check("...a row carrying a multilib set says the newest version, as the line draws it",
+        lev("popup.Window.activeFocusItem.Accessible.description"),
+        "Updates from 5.3.9-3.fc44 to 5.3.10-1.fc44."
+        " Kempt skips it on every update until you stop holding it.")
+walk(1)
+p.check("...and a package that is not installed yet says the version it would install",
+        [focused(), lev("popup.Window.activeFocusItem.Accessible.description")],
+        [pins()[2], "Installs version 1.0-1.fc44."
+         " Kempt skips it on every update until you stop holding it."])
+walk(2, back=True)
 p.check("...and is not the name a second time",
         lev("popup.Window.activeFocusItem.Accessible.description"
             " === popup.Window.activeFocusItem.text"), False)
@@ -797,13 +811,15 @@ def _code(name):
 #
 # The sixth and seventh are the startup banner's Copy Command and Mute Until It Starts: one pair
 # per service, so the description (the command, and what muting does) tells them apart by ear.
+# The eighth is popup.speakActionsAs binding those two actions' spoken descriptions onto the
+# buttons Kirigami draws for them, since an action cannot reach its own button's.
 #
 # configGeneral.qml has one: Undo beside a service just unmuted names the service it mutes again.
 #
 # StartupPage.qml has three: Back says where it goes, each Copy Command carries the command it
 # copies, so one service's button is told from the next by ear, and Refresh's tooltip reads its
 # description back rather than repeating the literal.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 7, "configGeneral.qml": 1, "StartupPage.qml": 3}
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 8, "configGeneral.qml": 1, "StartupPage.qml": 3}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)
