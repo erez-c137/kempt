@@ -3486,7 +3486,11 @@ p.check("...and the two state words elide like the name line rather than clip at
             % (for_you, held_word)), True)
 p.check("...and the padlock says the hold covers both copies",
         row(SYS_COPY, "(%s).Accessible.description" % copy_pin),
-        "Kempt skips both copies, the system one and the one for you only, until you stop holding it.")
+        "Updates from 4.8.4 to 4.8.5."
+        " Kempt skips both copies, the system one and the one for you only, until you stop holding it.")
+p.check("...and the copy for you only says so first, since the words beside its name are not a stop",
+        str(row(USER_COPY, "(%s).Accessible.description" % copy_pin)).startswith("For you only. Updates from "),
+        True)
 
 # The two pins that keep the drivable seam honest: a `traysHeading` that stopped being computed
 # from the containment's hint, or a gear whose visibility stopped being that property, would leave
