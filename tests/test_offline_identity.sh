@@ -554,6 +554,11 @@ assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$RE
 printf '%s\n' ">>> Running %post scriptlet: demo-1.0" ">>> Remote peer disconnected: error" "Complete!" > "$TESTTMP/reason.log"
 assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log")" \
   "Complete!" "...and \"Remote peer disconnected\" never does"
+# The helper's 15-minute line is information, not why a run failed: never the last-line fallback.
+printf '%s\n' "== System (dnf) ==" "Upgrading demo-1.0" \
+  "kempt-apply: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." > "$TESTTMP/reason.log"
+assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log")" \
+  "Upgrading demo-1.0" "the helper's 15-minute line is never the failure reason"
 
 # A transaction PackageKit ran has no command line, and dnf5 lists it with command_line null. That
 # is another command, not a history of another shape: one such entry must not blind either reader.

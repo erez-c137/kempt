@@ -61,14 +61,20 @@ dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update, text or
 
 dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure
   local out rc=0 lookup prc=0 herr
-  # The helper's stderr is held back for one case: exit 5 (KEMPT_APPLY_BUSY), the check Kempt
-  # started earlier still running. That gets its own plain sentence, without the helper's name.
+  # The helper's stderr is held back for exit 5 (KEMPT_APPLY_BUSY): the check Kempt started earlier
+  # still running, or a Kempt update running. Each gets its own plain sentence, without the
+  # helper's name. Otherwise it is passed on without the helper's 15-minute line, which is never
+  # why a check failed.
   herr="$(mktemp)" || herr=""
   out="$(priv_refresh check 2>"${herr:-/dev/stderr}")" || rc=$?
   if [[ $rc -eq $KEMPT_APPLY_BUSY ]]; then
-    printf '%s\n' "$KEMPT_HELPER_BUSY_TEXT" >&2
+    if [[ -n "$herr" ]] && grep -qF -- "$KEMPT_HELPER_UPDATE_BUSY_TEXT" "$herr"; then
+      printf '%s\n' "$KEMPT_HELPER_UPDATE_BUSY_TEXT" >&2
+    else
+      printf '%s\n' "$KEMPT_HELPER_BUSY_TEXT" >&2
+    fi
   elif [[ -n "$herr" ]]; then
-    cat "$herr" >&2
+    grep -vF -- "$KEMPT_HELPER_LONG_RUN_TEXT" "$herr" >&2 || :
   fi
   [[ -z "$herr" ]] || rm -f "$herr"
   if [[ $rc -ne 0 && $rc -ne 100 ]]; then return 1; fi

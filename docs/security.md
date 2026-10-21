@@ -132,8 +132,8 @@ keeps PID 1 from writing.
 
 Each verb runs as a service with a fixed name from a table, such as
 `kempt-apply-dnf-upgrade.service`. No argument or environment variable reaches the name or any
-`-p` property. If that service is still running, the helper exits 5. Otherwise it clears the
-service's last failure and starts it.
+`-p` property. If that service is still running, the helper exits 5. The refresh helper also exits
+5 while a `kempt-apply` service runs. Otherwise it clears the service's last failure and starts it.
 
 `systemd-run` can lose track of the service when PID 1 restarts during a package's setup step.
 So the helper polls the service, each second until it sees it running (up to 10 seconds), then

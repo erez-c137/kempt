@@ -217,7 +217,7 @@ doctor` checks it.
 | 0 | Every backend succeeded, or you aborted at the prompt. |
 | 1 | A backend failed. |
 | 2 | Unknown option. |
-| 3 | Another update is running. |
+| 3 | Another update is running, including another user's. Kempt says so before it checks anything. |
 | 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, or `--surface=offline` while a Fedora release upgrade is stored. |
 | 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. A busy lock while rebuilding a staged update exits 1. |
 

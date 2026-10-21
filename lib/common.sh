@@ -1416,6 +1416,15 @@ KEMPT_APPLY_BUSY=5
 # earlier one still going reads as that and not as a broken check.
 # shellcheck disable=SC2034 # read by backends/dnf.sh, which is sourced beside this file
 KEMPT_HELPER_BUSY_TEXT="dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed."
+# kempt-refresh's sentence when the busy unit is one of kempt-apply's: a Kempt update is running,
+# perhaps another user's or the widget's. `kempt update`'s pre-flight stops on it with the plain
+# "another kempt update is running" (exit 3); a check reports it in place of the helper's line.
+# shellcheck disable=SC2034 # read by backends/dnf.sh and bin/kempt
+KEMPT_HELPER_UPDATE_BUSY_TEXT="dnf5 was not started, because a Kempt update is running. Nothing changed."
+# The line both helpers print once when dnf5 has run for 15 minutes. Information for the run log,
+# never why something failed: dnf_check drops it from what it passes on, and run_failure_reason
+# never falls back to it.
+KEMPT_HELPER_LONG_RUN_TEXT="dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on."
 apply_refusal_reason() {  # → why the helper refused, as the user's side of the boundary sees it
   local relup
   if relup="$(offline_release_upgrade)"; then
@@ -1602,14 +1611,16 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
 # so it comes after every other line that names a failure, and is never the last-line fallback.
 # Only when no other line names one does the first `>>> ` line saying "error" or "failed" stand in,
 # before the last line. "Remote peer disconnected" is never chosen: a step that restarted a service
-# prints it, and it reads as the update failing when dnf5 itself may have finished fine.
+# prints it, and it reads as the update failing when dnf5 itself may have finished fine. Nor is
+# the helpers' 15-minute line (KEMPT_HELPER_LONG_RUN_TEXT), which says only that dnf5 is still going.
 run_failure_reason() {  # log-file → one line, possibly empty
   local line=""
   [[ -r "$1" ]] || { printf '\n'; return 0; }
   line="$(grep -vE '^[[:space:]]*>>> ' "$1" | grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' || true)"
   [[ -n "$line" ]] || line="$(grep -E '^[[:space:]]*>>> ' "$1" | grep -viF 'remote peer disconnected' \
                               | grep -m1 -iE 'error|failed' || true)"
-  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$|^[[:space:]]*>>> ' "$1" | tail -1 || true)"
+  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$|^[[:space:]]*>>> ' "$1" \
+                              | grep -vF -- "$KEMPT_HELPER_LONG_RUN_TEXT" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
   line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"

@@ -148,6 +148,26 @@ state_busy="$("$KEMPT" check)"
 assert_eq "$(jq -r .error <<<"$state_busy")" \
   "dnf check failed: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." \
   "a busy check helper is reported in its own plain words"
+# ...and so is its answer while a Kempt update runs (exit 5 with the update-running sentence).
+cat > "$TESTTMP/refresh-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "kempt-refresh: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
+exit 5
+STUB
+state_busy="$("$KEMPT" check)"
+assert_eq "$(jq -r .error <<<"$state_busy")" \
+  "dnf check failed: dnf5 was not started, because a Kempt update is running. Nothing changed." \
+  "a check refused while a Kempt update runs says so in plain words"
+# The helper's 15-minute line is information: a failed check is reported by its real failure.
+cat > "$TESTTMP/refresh-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "Failed to download metadata for repo 'fedora'" >&2
+echo "kempt-refresh: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
+exit 1
+STUB
+state_lr="$("$KEMPT" check)"
+assert_eq "$(jq -r .error <<<"$state_lr")" "dnf check failed: Failed to download metadata for repo 'fedora'" \
+  "a failed check is never reported as the helper's 15-minute line"
 printf '#!/usr/bin/env bash\necho "error: While fetching https://u:pw@dlhost/repo/summary#t0ken: refused" >&2\nexit 1\n' \
   > "$TESTTMP/fp-fail-red"; chmod +x "$TESTTMP/fp-fail-red"
 "$KEMPT" config set include_flatpak true

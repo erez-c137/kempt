@@ -965,8 +965,18 @@ recommend_offline_if_risky() {
     # must never stop the user updating.
     risky_list="$(dnf_check 2>"$rerr" | mark_held dnf | risky_names)" || {
       risky_list=""
+      # The helper refused because a Kempt update is running, perhaps another user's or the
+      # widget's, whose lock this run cannot see. That is the busy answer, not a check that failed:
+      # stop here, before the lock, exactly as a held lock would.
+      if grep -qxF -- "$KEMPT_HELPER_UPDATE_BUSY_TEXT" "$rerr"; then
+        rm -f "$rerr"
+        echo "another kempt update is running" >&2
+        exit 3
+      fi
       # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
-      echo "warning: could not check for session-critical updates: $(explain_helper_error "$(stderr_tail "$rerr")")" >&2
+      local why
+      why="$(explain_helper_error "$(stderr_tail "$rerr")")"
+      echo "warning: could not check for session-critical updates${why:+: $why}" >&2
     }
     rm -f "$rerr"
     if [[ -n "$risky_list" ]]; then
@@ -1478,6 +1488,14 @@ cmd_update() {
   # Only the OFFLINE surface. A live run does not replace the stored transaction, and refusing
   # ordinary updates because a release upgrade is waiting would be a bigger imposition than the one
   # this avoids - which is also why this sits after the surface is resolved rather than before.
+  # Another run of this user's holding the update lock is refused HERE, before the pre-flight check:
+  # that check goes through the root helper, which would wait on dnf5's lock until the other run's
+  # transaction ends, and only then reach acquire_lock below. Non-blocking, and only a probe: the
+  # lock itself is still taken by acquire_lock, so a run that starts between the two is refused there.
+  if update_running_elsewhere; then
+    echo "another kempt update is running" >&2
+    exit 3
+  fi
   local risky_advice=""
   recommend_offline_if_risky
   # AFTER the recommendation, and that ordering is the whole point: `[s]tage offline` at that prompt
