@@ -86,9 +86,16 @@ config_set notify_startup false
 assert_eq "$(is_true "$(config_get notify_startup)" && echo on || echo off)" "off" "turning it off round-trips"
 config_set notify_startup true
 
-# --- startup_page: the widget's Startup button, off unless turned on ------------------------------
-assert_eq "$(kempt_default startup_page)" "false" "the defaults table knows startup_page, and it is off"
-assert_contains " $KEMPT_CONFIG_KEYS " " startup_page " "...and it is a known setting"
+# --- startup_page: gone, the widget's menu opens the Startup page --------------------------------
+# A config file written while the setting existed still holds the line. It is left there and
+# ignored: nothing reads it, and the other settings read as before.
+assert_eq "$(kempt_default startup_page)" "" "the defaults table no longer knows startup_page"
+assert_not_contains " $KEMPT_CONFIG_KEYS " " startup_page " "...and it is not a known setting"
+_cfg_before="$(cat "$KEMPT_CONFIG_DIR/config")"
+printf 'startup_page=true\n' >> "$KEMPT_CONFIG_DIR/config"
+assert_eq "$(config_get notify_startup 2>&1)" "true" "a leftover startup_page line is ignored, quietly"
+assert_eq "$(config_get startup_page)" "true" "...and left where it was"
+printf '%s\n' "$_cfg_before" > "$KEMPT_CONFIG_DIR/config"
 
 # --- reclaim: what happens to the Flatpak runtimes no installed app uses --------------------------
 # ask is the default, and the resolver is the only reader. The rule it carries is the safety one:

@@ -56,8 +56,9 @@ PlasmaExtras.Representation {
     // falls out is the safe one (no host heading known, keep our own gear).
     // tests/qml/probe_popup.py overwrites this AND pins the expression verbatim.
     //
-    // TWO controls read this and it must stay two - the gear and the refresh icon, because the
-    // tray's heading genuinely draws both. Vault gates its whole footer this way and Kempt must
+    // ONE control reads this and it must stay one - the gear, because the tray's heading genuinely
+    // draws it. (The refresh icon used to read it too, until a second menu action made the heading
+    // draw a menu in place of a refresh icon.) Vault gates its whole footer this way and Kempt must
     // not copy that: a host that draws its own heading would take Update Now with it, and the
     // footer is the one row a containment may not replace.
     property bool traysHeading: (Plasmoid.containmentDisplayHints
@@ -207,14 +208,21 @@ PlasmaExtras.Representation {
     }
 
     // --- the Startup page ----------------------------------------------------------------------
-    // A second page in place of the update list, behind the header's Startup button, offered only
-    // while startup_page is on. Opening it gathers (main.qml, gatherStartupPage); nothing else
-    // does. It closes with Back, Escape, the button again, the setting going off, or the popup
-    // closing, so the next open starts on the updates.
+    // A second page in place of the update list, opened from the widget's menu (main.qml,
+    // startupAction). Opening it gathers (main.qml, gatherStartupPage); nothing else does. It
+    // closes with Back, Escape, or the popup closing, so the next open starts on the updates.
     property bool startupOpen: false
 
+    // The menu's request, taken once: from a popup already built, or by this one as it is built
+    // for the open the request asked for. Only while the widget is on screen: a request it finds
+    // closed is dropped, so nothing gathers out of sight and the next open shows the updates.
+    function takeStartupRequest() {
+        if (!popup.plasmoidItem.startupPageWanted) return;
+        popup.plasmoidItem.startupPageWanted = false;
+        if (popup.plasmoidItem.expanded || popup.plasmoidItem.popupOnScreen) popup.openStartup();
+    }
+
     function openStartup() {
-        if (!popup.plasmoidItem.startupPageOn) return;
         // Each opening starts afresh: the last page or error is cleared and the lists fold again,
         // so what shows is the loading line until this gather answers.
         popup.plasmoidItem.startupPage = null;
@@ -225,11 +233,14 @@ PlasmaExtras.Representation {
         Qt.callLater(function () { if (popup.startupOpen) startupPage.focusFirst(); });
     }
 
+    // Back to the updates with the keyboard on the header's first control, Check for Updates,
+    // where Tab order starts. It refuses while a check runs, and then the keyboard goes wherever
+    // the popup's own open would put it.
     function closeStartup() {
         if (!popup.startupOpen) return;
         popup.startupOpen = false;
         Qt.callLater(function () {
-            if (popup.canTakeFocus(startupButton)) startupButton.forceActiveFocus(Qt.TabFocusReason);
+            if (popup.canTakeFocus(refreshButton)) refreshButton.forceActiveFocus(Qt.TabFocusReason);
             else popup.focusPrimary();
         });
     }
@@ -240,9 +251,7 @@ PlasmaExtras.Representation {
         function onPopupOnScreenChanged() {
             if (!popup.plasmoidItem.popupOnScreen) popup.startupOpen = false;
         }
-        function onStartupPageOnChanged() {
-            if (!popup.plasmoidItem.startupPageOn) popup.closeStartup();
-        }
+        function onStartupPageWantedChanged() { popup.takeStartupRequest(); }
     }
 
     // --- what the popup says out loud ---------------------------------------------------------
@@ -440,7 +449,10 @@ PlasmaExtras.Representation {
         target: popup.plasmoidItem
         function onPopupShown() { popup.focusPrimary(); }
     }
-    Component.onCompleted: if (popup.plasmoidItem.expanded) popup.focusPrimary()
+    Component.onCompleted: {
+        popup.takeStartupRequest();
+        if (popup.plasmoidItem.expanded) popup.focusPrimary();
+    }
 
     // --- keeping the keyboard on something ------------------------------------------------------
     // A message button can hide itself under the keyboard: Use This Widget ends its offer, Install
@@ -502,47 +514,13 @@ PlasmaExtras.Representation {
                 elide: Text.ElideRight
             }
 
-            // The Startup page, when startup_page is on. Checked while the page is showing, so the
-            // same press goes back.
-            PlasmaComponents.ToolButton {
-                id: startupButton
-                visible: popup.plasmoidItem.startupPageOn === true
-                icon.name: "system-run"
-                display: PlasmaComponents.AbstractButton.IconOnly
-                text: i18n("Startup")
-                checkable: true
-                checked: popup.startupOpen
-                Accessible.name: text
-                Accessible.description: i18n("What starts with the computer and what runs on a schedule.")
-                PlasmaComponents.ToolTip.text: text
-                PlasmaComponents.ToolTip.visible: hovered || visualFocus
-                PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
-                Keys.onReturnPressed: animateClick()
-                Keys.onEnterPressed: animateClick()
-                // `checked` is put back to the binding's answer: a checkable button flips itself
-                // on a press, and that would cut the binding.
-                onClicked: {
-                    if (popup.startupOpen) popup.closeStartup();
-                    else popup.openStartup();
-                    checked = Qt.binding(function () { return popup.startupOpen; });
-                }
-            }
-
-            // Refresh, in Bluetooth's Header.qml shape, and hidden in the
-            // tray for the same reason Bluetooth hides its own: Plasma 6.7 renders a SINGLE
-            // contextual action as an ICON in the heading it draws, beside the pin and the gear,
-            // so registering checkAction (main.qml) already puts a view-refresh icon on screen at
-            // one click and ours underneath it would be the second.
+            // Refresh, in Bluetooth's Header.qml shape, and shown in the tray too. Plasma 6.7's
+            // tray heading draws a SINGLE contextual action as an icon beside the pin and the gear,
+            // and this button used to hide under the refresh icon that made. Two actions
+            // (Check for Updates and Startup Page, main.qml) are drawn as one More actions menu
+            // instead, so the heading has no refresh icon and this is the one-click way to check.
             PlasmaComponents.ToolButton {
                 id: refreshButton
-                // Both halves, never the hint alone. claimContextualActions() is a try with a
-                // witness precisely because it can fail, and a tray heading with no action
-                // registered draws no refresh icon at all - gating on the hint by itself would
-                // leave the popup with no way to re-check on the one host where the claim did not
-                // take. Off the tray this button is the only refresh there is, which is why the
-                // default that falls out of an undefined hint is to show it.
-                visible: !(popup.traysHeading
-                           && popup.plasmoidItem.contextualActionsClaimed)
                 // DISABLED while a check or a run is in flight, and still on screen. A control
                 // that leaves the screen takes the keyboard with it: QQC2 delivers Space to
                 // whatever holds activeFocus whether it is drawn or not, so swapping a spinner in

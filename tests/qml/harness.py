@@ -41,7 +41,6 @@ CONFIG_DEFAULTS = {
     "widget_icon_size": "auto",
     "restart_reminder": "true",
     "reclaim": "ask",
-    "startup_page": "false",
 }
 
 

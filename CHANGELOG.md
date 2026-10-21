@@ -28,10 +28,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   this boot with its log line, what changed since the last update, and what starts with the
   computer, grouped by package. Then timers, cron and anacron, and startup time against the
   usual. `--json` is for scripts. Kempt only reads.
-- **The widget can show the same list on a Startup page.** Turn on **Show a Startup page**
-  (`startup_page`) and a **Startup** button joins the header. The page reads when it opens or
-  when you refresh it, lists failures and changes in full, counts the rest with **Show All**, and
-  offers only **Copy Command**.
+- **The widget shows the same list on a Startup page.** Choose **Startup Page** in the widget's
+  right-click menu, or in **More actions** in the system tray. There is nothing to turn on. The
+  page reads when it opens or when you refresh it, lists failures and changes in full, counts the
+  rest with **Show All**, and offers only **Copy Command**.
+  In the system tray, **Check for Updates** moves into **More actions** too, so the widget now
+  shows its own refresh button in its header there, as it already did on the desktop.
 
 ### Fixed
 

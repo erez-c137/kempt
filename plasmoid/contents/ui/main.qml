@@ -718,7 +718,7 @@ PlasmoidItem {
             if (root.updating) {
                 if (delta.config) {
                     root.readInterval(); root.readSurface(); root.readIconSize();
-                    root.readRestartReminder(); root.readStartupPage();
+                    root.readRestartReminder();
                 }
                 return;
             }
@@ -729,7 +729,6 @@ PlasmoidItem {
             root.readSurface();
             root.readIconSize();
             root.readRestartReminder();
-            root.readStartupPage();
 
             // ...and the check itself, unless this change is still the wake of the last one.
             // Logic.watcherCheckDue carries the rule and the trade it makes. One exemption:
@@ -814,19 +813,10 @@ PlasmoidItem {
         });
     }
 
-    // Whether the header offers the Startup page. Same rule as readSurface; off is the CLI's default.
-    function readStartupPage() {
-        executor.run(kemptCmd + " config get startup_page", 10000, function(stdout, stderr, rc) {
-            var v = Logic.firstLineOf(stdout);
-            if (rc === 0 && v !== "") root.startupPageOn = Logic.isTrue(v);
-        });
-    }
-
     // --- the Startup page ---------------------------------------------------------------------
     // Gathered when the page opens and on its own Refresh, and by nothing else: the journal and
     // crontab reads are the costly part, and nobody needs them unless looking. What comes back is
     // Logic.startupPageOutcomeOf's: the page, or a problem to show in its place.
-    property bool startupPageOn: false
     property var startupPage: null
     property bool startupPageBusy: false
 
@@ -1396,6 +1386,8 @@ PlasmoidItem {
     // seen, so the persistent Last update row takes over.
     function popupClosed() {
         popupOnScreen = false;
+        startupPageWanted = false;
+        // A Startup page request belongs to the open it asked for, never to the next one.
         // An acknowledgement that did not land is tried again at the next open.
         securityAckSent = "";
         startupAckSent = "";
@@ -1699,6 +1691,32 @@ PlasmoidItem {
         onTriggered: root.doCheck(false, true)
     }
 
+    // The Startup page, on demand from the same menus: nothing to turn on, and nothing on screen
+    // until someone asks for it. A second action also changes what the tray heading draws: one
+    // action is an icon there, two are a More actions menu, which is why the popup's own refresh
+    // button now shows in the tray too (FullRepresentation.qml, refreshButton).
+    // The literal is repeated from Logic.COPY.startupPageAction, as checkAction's is.
+    PlasmaCore.Action {
+        id: startupAction
+        text: i18n("Startup Page")
+        icon.name: "system-run"
+        onTriggered: root.showStartupPage()
+    }
+
+    // A request rather than a call, because the popup item is built lazily on the open this asks
+    // for and may not exist yet. The popup takes it (sets it back to false) when it opens the page,
+    // whether it was already there or is built by this open. Only a closed widget is opened:
+    // writing `expanded` outside plasmashell segfaults, so a probe drives the open widget, and
+    // popupOnScreen is what says it is open. The expandedChanged that the write emits has run
+    // popupOpened by the next line, so an open that did not happen leaves no request behind for
+    // the next ordinary open to find; popupClosed drops one that was not taken.
+    property bool startupPageWanted: false
+
+    function showStartupPage() {
+        if (!root.popupOnScreen) root.expanded = true;
+        if (root.popupOnScreen) root.startupPageWanted = true;
+    }
+
     // Assigned imperatively, in a try, with a witness - same shape and reason as claimTrayPresence.
     // Measured: `Plasmoid.contextualActions` reads back undefined outside plasmashell and the
     // assignment is a silent no-op, whose only symptom in a real panel is an entry missing from a
@@ -1708,10 +1726,10 @@ PlasmoidItem {
 
     function claimContextualActions() {
         try {
-            Plasmoid.contextualActions = [checkAction];
+            Plasmoid.contextualActions = [checkAction, startupAction];
             root.contextualActionsClaimed = true;
         } catch (e) {
-            console.warn("kempt: could not register the contextual action:", e);
+            console.warn("kempt: could not register the contextual actions:", e);
         }
     }
 
@@ -1734,7 +1752,6 @@ PlasmoidItem {
         readSurface();
         readIconSize();
         readRestartReminder();
-        readStartupPage();
         // Before any run happens in this session, so the popup's Last update row has something
         // true to say the first time it is opened.
         loadLastRun();

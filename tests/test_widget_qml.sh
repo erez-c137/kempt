@@ -121,7 +121,7 @@ declare -A PROBE_HEADING=(
   [probe_focus]="controls that vanish or go inert under the keyboard, and where focus goes then"
   [probe_restart]="the restart message: asking for KDE's prompt, and what the popup remembers"
   [probe_startup]="the startup banner: Copy Command, Mute Until It Starts, the acknowledged line, the muted list"
-  [probe_startup_page]="the Startup page: the header button, the gather, Copy Command, plain text"
+  [probe_startup_page]="the Startup page: the menu entry, the gather, Copy Command, plain text"
 )
 probes=()
 for f in "$QMLDIR"/probe_*.py; do

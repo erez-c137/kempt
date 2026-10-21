@@ -901,7 +901,7 @@ missing path, unless the row says otherwise.
 | `KEMPT_JOURNALCTL_CMD`, `KEMPT_GROUPS_CMD` | `journalctl`, `id -Gn` | `kempt startup --all`'s log lines. The system journal is read only for members of `wheel`, `adm` or `systemd-journal`, and only after `journalctl --system -b -n 1` prints a line: it exits 0 without access. One query per scope, and none when nothing failed |
 | `KEMPT_CRONTAB_CMD`, `KEMPT_ATQ_CMD` | `crontab`, `atq` | Your own cron and `at` jobs for the Startup page |
 | `KEMPT_RPM_QF_CMD` | `rpm` | One `rpm -qf` for every unit and autostart file the Startup page lists, with an unowned directory between paths to mark each answer |
-| `KEMPT_SYSTEMD_ANALYZE_CMD` | `systemd-analyze` | Startup time, recorded once per boot in `boot-times.json`. `blame`, which costs half a second, is asked only by the page, once per boot |
+| `KEMPT_SYSTEMD_ANALYZE_CMD` | `systemd-analyze` | Startup time, recorded once per boot in `boot-times.json`. Until startup has finished, `time` says so and each check asks again (a few milliseconds). `blame`, which costs half a second, is asked only by the page, once per boot |
 | `KEMPT_STARTUP_ETC`, `KEMPT_ANACRON_SPOOL`, `KEMPT_LINGER_DIR`, `KEMPT_SYSTEM_UNIT_DIRS` | `/etc`, `/var/spool/anacron`, `/var/lib/systemd/linger`, `/etc/systemd/system /usr/lib/systemd/system` | Where the Startup page finds `crontab`, `cron.d`, `cron.*`, `anacrontab` and `rc.local`, anacron's stamps (their times give the last run), the lingering flag, and an enabled template's file, which `systemctl show` refuses |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `KEMPT_GETFACL` | `getfacl` | Doctor's ACL scan of the dnf folders |

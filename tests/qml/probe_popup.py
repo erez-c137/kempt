@@ -929,61 +929,39 @@ p.check("...and does not take the header with it - the count is ours to draw, an
 p.check("...the status heading included, which is the pending count and not a second title",
         lev("popup.vm.headerText === popup.plasmoidItem.vm.headerText"), True)
 
-# --- one refresh icon, not two ----------------------------------------------------------------
-# The same bug as the gear, one control along, and only a real panel could show it. Plasma 6.7
-# renders a SINGLE contextual action as an ICON in the heading it draws, next to the pin and
-# the gear - so registering checkAction (main.qml) does not merely fill a menu, it puts a
-# view-refresh icon on screen. Ours sits underneath it, and a real tray drew both at once.
-#
-# This is where the file's earlier reasoning was wrong rather than merely incomplete: it copied
-# Bluetooth's pairing but kept the button on the argument that the tray only offers the action
-# through a menu, so hiding ours would cost two clicks. The tray draws it as one click, and the
-# premise is gone.
-#
-# The condition is the PAIR, never the hint alone. claimContextualActions() can fail - it is a
-# try with a witness for exactly that reason - and a tray heading with no action registered
-# draws no refresh icon at all. Gating on the hint by itself would leave the popup with no way
-# to re-check on the one host where the registration did not take.
-p.check("a tray already drawing the registered action does not get our second icon",
-        lev("refreshButton.visible"), False)
-p.check("...and the claim really did happen, so that is the both-of-them case",
-        ev("root.contextualActionsClaimed"), True)
+# --- the refresh icon stays, because the tray draws a menu ------------------------------------
+# Plasma 6.7's tray heading draws a SINGLE contextual action as an icon beside the pin and the
+# gear, and two or more as one More actions menu (applets/systemtray ExpandedRepresentation.qml,
+# `visibleActions`). With Check for Updates alone the heading drew a refresh icon and ours was
+# hidden under it. Startup Page is the second action, so the heading now draws the menu, no
+# refresh icon, and ours is the only one-click Check for Updates in the tray as everywhere else.
+p.check("two actions are registered, so a tray heading draws them as a menu",
+        "Plasmoid.contextualActions = [checkAction, startupAction];"
+        in " ".join(open(os.path.join(harness.UI, "main.qml")).read().split()), True)
+p.check("...and the refresh button stays in a tray heading",
+        lev("refreshButton.visible"), True)
 
-# The spinner is a sibling cell, not the button's child, so hiding the button must not take it
-# with it. In the tray it becomes the ONLY thing on screen saying a check is running: the
-# heading's icon is the host's and does not spin.
+# The spinner is a sibling cell, not the button's child, so a button that leaves the screen
+# does not take it along.
 ev("root.checking = true")
 p.pump(50)
-p.check("...while the spinner beside it still says a check is running",
+p.check("...with the spinner beside it saying a check is running",
         [lev("refreshBusy.running"), lev("refreshBusy.visible")], [True, True])
-p.check("...which is why it must not live inside the button that just went away",
+p.check("...in a cell of its own, not inside the button",
         lev("refreshBusy.parent !== refreshButton"), True)
 ev("root.checking = false")
 p.pump(50)
 
-# A control nobody can see must not hold the keyboard either. canTakeFocus is visible &&
-# enabled and focusPrimary walks Update Now, then Refresh, then the gear, so both hidden
-# controls have to fall out of that walk on their own.
-p.check("a hidden refresh button cannot take the keyboard",
-        lev("canTakeFocus(refreshButton)"), False)
-p.check("...nor can the hidden gear", lev("canTakeFocus(configureButton)"), False)
+# A control nobody can see must not hold the keyboard. canTakeFocus is visible && enabled and
+# focusPrimary walks Update Now, then Refresh, then the gear, so the hidden gear has to fall out
+# of that walk on its own, and Refresh stays in it.
+p.check("the hidden gear cannot take the keyboard", lev("canTakeFocus(configureButton)"), False)
+p.check("...while the refresh button can", lev("canTakeFocus(refreshButton)"), True)
 
-# A registration that did NOT take: the hint is still set, nothing is drawing the action, so
-# our button is the only refresh there is and it comes back.
-ev("root.contextualActionsClaimed = false")
-p.pump(50)
-p.check("a tray heading with no action registered keeps our refresh button",
-        lev("refreshButton.visible"), True)
-ev("root.contextualActionsClaimed = true")
-p.pump(50)
-p.check("...and registering it takes ours away again", lev("refreshButton.visible"), False)
-
-# Back to the standalone panel for everything below, which is also the case that matters most
-# here: nobody else is drawing a refresh icon, so ours is the only one and it stays.
+# Back to the standalone panel for everything below.
 lev("popup.traysHeading = false")
 p.pump(50)
-p.check("off the tray the refresh button is ours to show, registered action or not",
-        lev("refreshButton.visible"), True)
+p.check("off the tray the refresh button is there too", lev("refreshButton.visible"), True)
 
 # ==============================================================================================
 # The layout - the message stack, the list, the Last update row and the footer.
@@ -3534,9 +3512,8 @@ p.check("traysHeading is computed from the containment's own display hint",
         " & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0" in _src, True)
 p.check("...and the gear's visibility is that property and nothing else",
         "visible: !popup.traysHeading" in _src, True)
-p.check("...while the refresh icon's is that property AND the claim, never the hint on its own",
-        "visible: !(popup.traysHeading && popup.plasmoidItem.contextualActionsClaimed)" in _src,
-        True)
+p.check("...while the refresh icon no longer reads it: the tray draws our two actions as a menu",
+        "popup.traysHeading && popup.plasmoidItem.contextualActionsClaimed" in _src, False)
 
 # ...and that the footer never learns the same trick. org.kde.plasma.vault gates its footer on the
 # containment hint, and copying it verbatim would put the primary action back on the one row
@@ -3544,14 +3521,14 @@ p.check("...while the refresh icon's is that property AND the claim, never the h
 # Counted rather than searched, because "the string is not next to the word
 # footer" is a pin that a reformatting would satisfy.
 #
-# TWO readers, and the number is the assertion: the gear and the refresh icon, which are the two
-# controls the tray's own heading genuinely draws. A third would mean something else had started
-# letting a host take it away, and the footer is where that would hurt.
+# ONE reader, and the number is the assertion: the gear, the one control the tray's own heading
+# genuinely draws in our place. A second would mean something else had started letting a host
+# take it away, and the footer is where that would hurt.
 p.check("the containment hint is consulted exactly once in the whole popup",
         _code_src.count("ContainmentDrawsPlasmoidHeading"), 1)
-p.check("...and the answer it computes is read exactly twice, by the gear and the refresh icon - "
+p.check("...and the answer it computes is read exactly once, by the gear - "
         "so the footer and the button in it cannot be taken away by a host",
-        _code_src.count("popup.traysHeading"), 2)
+        _code_src.count("popup.traysHeading"), 1)
 
 # The group header's property. `label` is what ListSectionHeader documents and what its own example
 # uses; the pin is here because this is a one-word seam that a reviewer cannot see from the popup.

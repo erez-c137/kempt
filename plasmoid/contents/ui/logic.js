@@ -561,9 +561,8 @@ var COPY = {
     startupSetting: "Tell me when something stops starting after an update",
     startupSettingNote: "Kempt only looks. It never turns anything on or off, and the update count never includes this.",
 
-    // The Startup page (startup_page): a header button, then a page that only reads.
-    startupPageButton: "Startup",
-    startupPageButtonTip: "What starts with the computer and what runs on a schedule.",
+    // The Startup page: an entry in the widget's menu, then a page that only reads.
+    startupPageAction: "Startup Page",
     startupPageBack: "Back",
     startupPageBackTip: "Returns to the list of updates.",
     startupPageRefresh: "Refresh",
@@ -571,8 +570,6 @@ var COPY = {
     startupPageLoading: "Reading what starts with the computer…",
     startupPageShowAll: "Show All",
     startupPageHide: "Hide",
-    startupPageSetting: "Show a Startup page",
-    startupPageSettingNote: "Lists what starts with the computer and what runs on a schedule. It reads the system journal when you are allowed to.",
     startupPageUnreadable: "Kempt could not read the startup list.",
     startupPageTimedOut: "Kempt did not answer in time. Press Refresh to try again.",
     startupPageFailed: "Kempt could not gather the startup list: %1",

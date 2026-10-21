@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""The Startup page: the header button, the page it opens, and the one command it gathers with.
+"""The Startup page: the menu entry, the page it opens, and the one command it gathers with.
 
 The node tests pin every line logic.js derives from `kempt startup --all --json`. This proves the
-QML: the button follows startup_page, opening gathers with that exact argv and nothing else ever
-does, the page draws what came back as plain text, Copy Command copies the CLI's command, Refresh
-gathers again and refuses while one runs, a failure is said calmly, and Back, Escape and the button
-itself return to the updates with the keyboard on the button. Then the settings page's checkbox.
+QML: the widget's menu offers Startup Page with no setting behind it, choosing it opens the page and
+gathers with that exact argv and nothing else ever does, the page draws what came back as plain
+text, Copy Command copies the CLI's command, Refresh gathers again and refuses while one runs, a
+failure is said calmly, and Back and Escape return to the updates with the keyboard on the header's
+Check for Updates. Then the settings page, which has no checkbox for it.
 """
 import json
 import os
@@ -20,7 +21,6 @@ if not harness.have_pyside():
 p = harness.Probe("probe-startup-page")
 os.makedirs(p.state)
 STATE_JSON = os.path.join(p.state, "state.json")
-SETTING = os.path.join(p.sandbox, "startup_page")    # what `config get startup_page` answers
 PAGE = os.path.join(p.sandbox, "page.json")          # what `startup --all --json` prints
 RC = os.path.join(p.sandbox, "rc")                   # ...and exits with
 DELAY = os.path.join(p.sandbox, "delay")             # ...after sleeping this long
@@ -66,7 +66,6 @@ def serve(page, rc=0, delay=0):
 
 
 serve(FULL)
-open(SETTING, "w").write("false")
 live = json.load(open(os.path.join(harness.FIXTURES, "state-live.json")))
 json.dump(live, open(os.path.join(p.sandbox, "src.json"), "w"))
 
@@ -85,7 +84,7 @@ case "$1" in
     fi
     exit 0 ;;
 esac
-""" % {"CFG": harness.config_arm(startup_page="cat %s" % SETTING),
+""" % {"CFG": harness.config_arm(),
        "SRC": os.path.join(p.sandbox, "src.json"), "ST": STATE_JSON, "PAGE": PAGE, "RC": RC,
        "DELAY": DELAY})
 
@@ -138,20 +137,23 @@ def press(key):
     p.pump(30)
 
 
-# --- the button follows the setting ---------------------------------------------------------------
-p.check("main.qml reads startup_page", p.call_count("config get startup_page") >= 1, True)
-p.check("off (the default): no Startup button", [ev("root.startupPageOn"), lev("startupButton.visible")],
-        [False, False])
-open(SETTING, "w").write("true")
-ev("root.readStartupPage()")
-settle()
-p.check("on: the Startup button is in the header", lev("startupButton.visible"), True)
-p.check("...named and described for a screen reader",
-        [lev("startupButton.Accessible.name"), lev("startupButton.Accessible.description")],
-        ["Startup", "What starts with the computer and what runs on a schedule."])
-p.check("...and an empty answer (an older CLI) keeps it", (open(SETTING, "w").write(""),
-        ev("root.readStartupPage()"), settle(), lev("startupButton.visible"))[3], True)
-open(SETTING, "w").write("true")
+# --- the menu entry, with no setting behind it ----------------------------------------------------
+p.check("nothing asks for a startup_page setting", p.call_count("config get startup_page"), 0)
+p.check("the header has no Startup button", lev("typeof startupButton"), "undefined")
+p.check("the widget's menu offers Startup Page, with the icon the button had",
+        [ev("startupAction.text"), ev("startupAction.icon.name")], ["Startup Page", "system-run"])
+p.check("...registered with Check for Updates", ev("root.contextualActionsClaimed"), True)
+_MAIN = " ".join(open(os.path.join(harness.UI, "main.qml")).read().split())
+p.check("...beside it, in that order", "Plasmoid.contextualActions = [checkAction, startupAction];" in _MAIN, True)
+# Writing `expanded` outside plasmashell segfaults the probe, so the closed case is pinned here and
+# the request it leaves is driven at the end of this file.
+p.check("...and a closed widget opens first, through the property only main.qml writes",
+        "if (!root.popupOnScreen) root.expanded = true;" in _MAIN, True)
+p.check("...and asks for the page only if that open happened, so a failed one leaves no request behind",
+        "if (!root.popupOnScreen) root.expanded = true; if (root.popupOnScreen) root.startupPageWanted = true;" in _MAIN,
+        True)
+p.check("...and a request left when the widget closes goes with it",
+        "function popupClosed() { popupOnScreen = false; startupPageWanted = false;" in _MAIN, True)
 
 # --- never by the background check ----------------------------------------------------------------
 ev("root.doCheck()")
@@ -162,10 +164,10 @@ p.check("a check, and opening the widget, gather nothing", p.call_count("startup
 
 # --- opening ---------------------------------------------------------------------------------------
 serve(FULL, delay=1)
-lev("startupButton.clicked()")
+ev("startupAction.trigger()")
 p.pump(100)
-p.check("the button opens the page in place of the updates",
-        [lev("popup.startupOpen"), lev("startupPage.visible"), lev("startupButton.checked")], [True, True, True])
+p.check("the menu entry opens the page in place of the updates",
+        [lev("popup.startupOpen"), lev("startupPage.visible"), ev("root.startupPageWanted")], [True, True, False])
 p.check("...gathering with kempt startup --all --json", p.argv("startup"), ["startup", "--all", "--json"])
 p.check("...a busy indicator and a calm line meanwhile, Refresh still enabled, so focus can stay on it",
         [pev("busyIndicator.running"), pev("loadingLabel.text"), pev("refreshButton.enabled")],
@@ -269,11 +271,12 @@ pev("page.startsOpen = true")
 pev("backButton.clicked()")
 p.pump(80)
 p.check("Back returns to the updates", [lev("popup.startupOpen"), lev("startupPage.visible")], [False, False])
-p.wait_for(lev, "popup.Window.activeFocusItem === startupButton", True)
-p.check("...with the keyboard on the Startup button", lev("popup.Window.activeFocusItem === startupButton"), True)
+p.wait_for(lev, "popup.Window.activeFocusItem === refreshButton", True)
+p.check("...with the keyboard on the header's Check for Updates, the first control there",
+        lev("popup.Window.activeFocusItem === refreshButton"), True)
 p.clear_calls()
 serve(FULL, delay=1)
-lev("startupButton.clicked()")
+ev("startupAction.trigger()")
 p.pump(100)
 p.check("opening again starts afresh: the last error gone, the loading line, the lists folded",
         [ev("root.startupPage === null"), pev("problemLabel.text"), pev("loadingLabel.text"), pev("page.startsOpen")],
@@ -293,11 +296,11 @@ p.check("...a second press while it runs is ignored, and the keyboard stays on R
 settle()
 p.check("...still there when the gather answers", pev("page.Window.activeFocusItem === refreshButton"), True)
 press(Qt.Key_Escape)
-p.wait_for(lev, "popup.Window.activeFocusItem === startupButton", True)
-p.check("...and Escape from there returns to the updates, the keyboard on the Startup button",
-        [lev("popup.startupOpen"), lev("popup.Window.activeFocusItem === startupButton")], [False, True])
+p.wait_for(lev, "popup.Window.activeFocusItem === refreshButton", True)
+p.check("...and Escape from there returns to the updates, the keyboard on Check for Updates",
+        [lev("popup.startupOpen"), lev("popup.Window.activeFocusItem === refreshButton")], [False, True])
 serve(FULL)
-lev("startupButton.clicked()")
+ev("startupAction.trigger()")
 settle()
 before = sev("closes")
 press(Qt.Key_Escape)
@@ -305,29 +308,63 @@ p.check("Escape on the page goes back, and does not close the widget",
         [lev("popup.startupOpen"), sev("closes") - before], [False, 0])
 press(Qt.Key_Escape)
 p.check("...and Escape again asks to close", sev("closes") - before, 1)
-lev("startupButton.clicked()")
+ev("startupAction.trigger()")
 settle()
-lev("startupButton.clicked()")
-p.pump(50)
-p.check("the button pressed again goes back too, and stays bound to the page",
-        [lev("popup.startupOpen"), lev("startupButton.checked")], [False, False])
-lev("startupButton.clicked()")
+p.clear_calls()
+ev("startupAction.trigger()")
 settle()
+p.check("choosing it again while the page is open stays there and gathers afresh",
+        [lev("popup.startupOpen"), p.call_count("startup --all")], [True, 1])
 ev("root.popupClosed()")
 p.check("closing the widget leaves the page, so it opens on the updates", lev("popup.startupOpen"), False)
 ev("root.popupOpened()")
 settle()
-lev("startupButton.clicked()")
-settle()
-open(SETTING, "w").write("false")
-ev("root.readStartupPage()")
-settle()
-p.check("the setting going off closes the page and hides the button",
-        [lev("popup.startupOpen"), lev("startupButton.visible")], [False, False])
 p.clear_calls()
 ev("root.doCheck()")
 settle()
 p.check("...and nothing gathers in the background after all that", p.call_count("startup"), 0)
+
+# --- a request while the widget is not on screen ----------------------------------------------------
+# The open it asked for did not happen. Nothing gathers out of sight, and the next ordinary open
+# shows the updates.
+ev("root.popupClosed()")
+p.pump(50)
+p.clear_calls()
+ev("root.startupPageWanted = true")
+p.pump(100)
+p.check("a request while the widget is not on screen gathers nothing and opens no page",
+        [p.call_count("startup --all"), lev("popup.startupOpen"), ev("root.startupPageWanted")], [0, False, False])
+ev("root.popupOpened()")
+settle()
+p.check("...so the next ordinary open shows the updates, and still gathers nothing",
+        [lev("popup.startupOpen"), lev("startupPage.visible"), p.call_count("startup --all")], [False, False, 0])
+ev("startupAction.trigger()")
+settle()
+p.check("...and the menu entry still opens the page after that", [lev("popup.startupOpen"), p.call_count("startup --all")],
+        [True, 1])
+ev("root.popupClosed()")
+p.check("a request is gone once the widget closes", ev("root.startupPageWanted"), False)
+
+# --- chosen while the widget was closed ----------------------------------------------------------------
+# Plasma builds the full view lazily, on the open the menu entry asks for: the open comes first,
+# then the request, which waits on main.qml until the view being built takes it. The view above
+# goes first, as there is only ever one, and a second one built now stands in for that first build.
+pop.setParentItem(None)
+pop.deleteLater()
+p.pump(50)
+p.clear_calls()
+ev("root.popupOpened()")
+settle()
+p.clear_calls()
+ev("root.startupPageWanted = true")
+pop2 = full.createWithInitialProperties({"plasmoidItem": root, "vm": root.property("vm")})
+QQmlEngine.setObjectOwnership(pop2, QQmlEngine.CppOwnership)
+p.keep.append(pop2)
+lev2 = p.evaluator(pop2)
+settle()
+p.check("a view built after the request opens on the Startup page, and takes the request",
+        [lev2("popup.startupOpen"), ev("root.startupPageWanted")], [True, False])
+p.check("...and gathers once", p.call_count("startup --all"), 1)
 
 # --- the settings page ------------------------------------------------------------------------------
 for k, v in harness.CONFIG_DEFAULTS.items():
@@ -348,18 +385,7 @@ p.clear_calls()
 cfg, cev = p.create("configGeneral.qml")
 p.wait_for(cev, "page.pendingReads === 0 && !page.mutedBusy", True)
 p.wait_idle(cev, "cfgExecutor")
-p.check("the settings page reads startup_page", p.calls_matching("config get startup_page"),
-        ["config get startup_page"])
-p.check("...a stored false is an empty box, under the setting's words",
-        [cev("startupPage.checked"), cev("startupPage.text")], [False, "Show a Startup page"])
-p.check("...with the note under it", cev("startupPageNote.text"),
-        "Lists what starts with the computer and what runs on a schedule. "
-        "It reads the system journal when you are allowed to.")
-cev("startupPage.checked = true")
-cev("startupPage.toggled()")
-p.clear_calls()
-cev("page.saveConfig()")
-p.wait_idle(cev, "cfgExecutor")
-p.check("Apply writes it", p.argv("config"), ["config", "set", "startup_page", "true"])
+p.check("the settings page has no Startup page setting to read",
+        [p.calls_matching("config get startup_page"), cev("typeof startupPage")], [[], "undefined"])
 
 sys.exit(p.done())

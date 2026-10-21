@@ -87,11 +87,8 @@ as `dnf check failed: repo 'updates' unavailable`. While a check or update runs,
 with a spinner. A screen reader reads its answer, and the panel icon says it when the widget is
 closed. It is also in the right-click and **More actions** menus.
 
-With **Show a Startup page** on, **Startup** sits beside it and opens
-[the Startup page](#the-startup-page).
-
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
-the tray's own heading has the arrow and the gear, so the widget hides its copies.
+the tray's own heading has a gear and a **More actions** menu, so the widget hides its gear.
 
 ### Messages
 
@@ -343,8 +340,9 @@ for good.
 ### The Startup page
 
 The Startup page shows `kempt startup --all`: what starts with the computer and what runs on a
-schedule. It reads when it opens and when you press its arrow, never in the background, and it
-changes nothing.
+schedule. Open it with **Startup Page** in the widget's right-click menu, or in **More actions**
+inside the system tray. It reads when it opens and when you press its arrow, never in the
+background, and it changes nothing.
 
 It lists in full what didn't start this boot, with its log line and **Copy Command**, what changed
 since the last update, and timers whose last run failed. What starts and what runs on a schedule
@@ -400,8 +398,6 @@ own keeps it off, the row names that file, says to delete it, and has no button.
 **Services** (`notify_startup`, on by default) shows the message about services that did not start
 after an update. Kempt only looks: it never turns a service on or off.
 
-**Show a Startup page** (`startup_page`, off by default) adds the **Startup** button.
-
 **Held** lists your holds, each with a button to stop holding it. **Muted** lists muted services,
 each with **Stop Muting**, and **Undo** right after.
 
@@ -426,7 +422,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Copy Command** for a service | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |
 | Opening the widget while it says a service runs again | `kempt startup ack --expect=<digest>` |
-| **Startup**, and the arrow on the Startup page | `kempt startup --all --json` |
+| **Startup Page** in the menu, and the arrow on the Startup page | `kempt startup --all --json` |
 | Every setting | `kempt config set` |
 
 The widget's automatic checks run `kempt check --coalesce`.
