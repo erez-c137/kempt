@@ -449,6 +449,35 @@ _again = walk(len(_rows) + 5)
 p.check("...after which Tab still visits every pin top to bottom",
         [x for x in _again if x.startswith("row:")], _rows)
 
+# While a hold is in flight every other padlock is disabled, so a step from the working row has
+# nowhere to go in the list. It leaves the list without scrolling it: looking for a live padlock
+# used to scroll to each later row in turn, taking the working row off screen.
+_mid = lev("""(function () {
+  var rows = popup.vm.rows, n = 0;
+  for (var i = 0; i < rows.length; i++) if (rows[i].kind === "item" && ++n === 40) return i;
+  return -1; })()""")
+ev("root.pendingHold = {name: %s, backend: %s}"
+   % (json.dumps(lev("popup.vm.rows[%d].name" % _mid)), json.dumps(lev("popup.vm.rows[%d].backend" % _mid))))
+p.pump(50)
+lev("rowsView.positionViewAtIndex(%d, ListView.Center)" % _mid)
+p.pump(30)
+lev("rowsView.itemAtIndex(%d).item.focusPin()" % _mid)
+p.pump(30)
+_y = lev("rowsView.contentY")
+p.check("with a hold in flight, Tab from its row leaves the list for the last-update row",
+        walk(1), ["lastRun:row"])
+p.check("...without scrolling the list away from the working row",
+        abs(lev("rowsView.contentY") - _y) < 1, True)
+lev("rowsView.positionViewAtIndex(%d, ListView.Center)" % _mid)
+p.pump(30)
+lev("rowsView.itemAtIndex(%d).item.focusPin()" % _mid)
+p.pump(30)
+_y = lev("rowsView.contentY")
+p.check("...and Shift+Tab leaves it upwards, the list still where it was",
+        [walk(1, back=True), abs(lev("rowsView.contentY") - _y) < 1], [["configureButton"], True])
+ev("root.pendingHold = null")
+p.pump(50)
+
 # The quietest state, where most of the popup is not there: the ring still closes, and it still
 # never stops on the hidden Update Now.
 state(UPTODATE)
@@ -478,6 +507,18 @@ press(Qt.Key_Space)
 p.pump(150)
 p.check("...and Space again closes it and says so",
         [lev("lastRunView.currentItem.expanded"), focused()], [False, LASTRUN[1]])
+
+# The row's focus is drawn by its view's highlight, which follows the view's current row, and
+# the component clears that whenever the pointer leaves the row. The row keeps its frame anyway.
+lev("lastRunView.currentIndex = -1")          # the pointer left the row before Tab reached it
+walk(1, back=True)
+p.check("the last-update row shows its focus when Tab lands on it, whatever the pointer did",
+        [focused(), lev("lastRunView.highlightItem !== null && lastRunView.highlightItem.visible")],
+        ["lastRun:row", True])
+lev("lastRunView.currentIndex = -1")          # ...and the pointer leaves while it has focus
+p.pump(20)
+p.check("...and keeps it when the pointer leaves the row",
+        lev("lastRunView.highlightItem !== null && lastRunView.highlightItem.visible"), True)
 
 # ==================================================================================================
 # Escape.

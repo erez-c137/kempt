@@ -452,6 +452,11 @@ PlasmaExtras.Representation {
     function pinAt(i) {
         const rows = popup.vm.rows;
         if (i < 0 || i >= rows.length || rows[i].kind !== "item" || rows[i].holdable === false) return null;
+        // While a hold is in flight only its own row's padlock is live (otherPending, below). Said
+        // before positioning: finding that out by building each row scrolled through all of them.
+        const pending = popup.plasmoidItem.pendingHold;
+        if (pending !== null && (pending.name !== rows[i].name || pending.backend !== rows[i].backend))
+            return null;
         // Contain, so a row already on screen does not move. It also BUILDS the delegate.
         rowsView.positionViewAtIndex(i, ListView.Contain);
         const loader = rowsView.itemAtIndex(i);
@@ -1703,6 +1708,13 @@ PlasmaExtras.Representation {
             highlight: PlasmaExtras.Highlight {
                 visible: lastRunView.currentItem !== null && lastRunView.currentItem.activeFocus
             }
+            // The highlight follows the current row, and the component clears it whenever the
+            // pointer leaves the row (ExpandableListItem's hover handling). While the row has the
+            // keyboard it stays current, so its frame stays drawn.
+            onCurrentIndexChanged: {
+                const row = itemAtIndex(0);
+                if (currentIndex < 0 && row !== null && row.activeFocus) currentIndex = 0;
+            }
 
             delegate: PlasmaExtras.ExpandableListItem {
                 id: lastRunItem
@@ -1718,6 +1730,7 @@ PlasmaExtras.Representation {
                 // the row sits between the last padlock and its expander in both directions, and
                 // what it says is the title as its name and the subtitle as its description.
                 activeFocusOnTab: true
+                onActiveFocusChanged: if (activeFocus) lastRunView.currentIndex = 0
 
                 // The expander says only "Expand" and never whether the row is open: libplasma
                 // names it, and Qt 6.11 has no accessible expanded state to report. So it is named
