@@ -50,8 +50,10 @@ BUSY=5
 # nothing outlives this shell.
 # When the watch reports that the unit has ended and systemd-run is still waiting, systemd-run will
 # never return (see watch_unit). Only then the shell stops it, the client and never the unit, takes
-# the status systemd recorded, and says so. The cats get one more poll interval for what is left
-# in the pipes, and are then stopped: a stdio bridge left behind can hold them open for good.
+# the status systemd recorded, and says so. A systemd-run still there one poll interval after the
+# TERM is killed: it is the client, which owns no unit, and the helper must return. The cats get
+# one more poll interval for what is left in the pipes, and are then stopped: a stdio bridge left
+# behind can hold them open for good.
 # Identical in kempt-refresh.
 run_watched() {  # systemd-run --pipe|--pty ... → dnf5's exit status
   local out err out_pid="" err_pid="" sd_pid wd wd_pid wd_live=1 who r rc=0 woke=0 stopped=0 sig=0 verdict="" pause
@@ -98,7 +100,15 @@ run_watched() {  # systemd-run --pipe|--pty ... → dnf5's exit status
   trap - TERM INT HUP
   if [[ -n "$verdict" ]]; then
     kill -s TERM "$sd_pid" 2>/dev/null || :
-    wait "$sd_pid" || :
+    exec {pause}<> <(:)
+    { read -r -t "$POLL" -u "$pause" _ || :; } &
+    ids=("$sd_pid" "$!")
+    exec {pause}<&-
+    who=""
+    wait -n -p who "${ids[@]}" || :
+    if [[ "${who:-}" == "$sd_pid" ]]; then kill "${ids[1]}" 2>/dev/null || :
+    else kill -s KILL "$sd_pid" 2>/dev/null || :; fi
+    wait "${ids[@]}" 2>/dev/null || :
     if [[ "$verdict" =~ ^rc\ ([0-9]{1,3})$ ]]; then
       rc="${BASH_REMATCH[1]}"
       echo "$ME: systemd-run stopped reporting after dnf5 finished, so its exit status ($rc) was read from systemd." >&2
@@ -147,12 +157,20 @@ claim_unit() {  # → returns, or exits BUSY while the unit of an earlier run is
 # is unloaded once nothing refers to it, and a failed one stays loaded until reset, so gone after
 # running is success. Another InvocationID under the name is another run, and this run's result
 # is gone with it. A unit never seen running is never judged: systemd-run may still be starting it.
+# Until it has been seen, the first FIRST_READS reads come every FIRST seconds, so a dnf5 that ends
+# within seconds is still seen running. A read with no InvocationID names no run (systemd answers
+# like that while it re-executes itself), so it is never taken as this run's or another one's.
 # Nothing here stops anything. A unit still running after LONG_RUN reads is only reported, once.
 watch_unit() {  # → "rc N" or "unknown" once dnf5's unit has ended; nothing while it runs
-  local pause k v load active result code status inv mine="" seen=0 ended=0 polls=0
+  local pause k v load active result code status inv mine="" seen=0 ended=0 polls=0 early=0
   exec {pause}<> <(:)
   while :; do
-    read -r -t "$POLL" -u "$pause" _ || :
+    if (( ! seen && early < FIRST_READS )); then
+      early=$(( early + 1 ))
+      read -r -t "$FIRST" -u "$pause" _ || :
+    else
+      read -r -t "$POLL" -u "$pause" _ || :
+    fi
     load="" active="" result="" code="" status="" inv=""
     while IFS='=' read -r k v; do
       case "$k" in
@@ -167,7 +185,8 @@ watch_unit() {  # → "rc N" or "unknown" once dnf5's unit has ended; nothing wh
     [[ -n "$load" && -n "$active" ]] || continue
     case "$active" in
       active|activating|deactivating|reloading|refreshing)
-        if (( ! seen )); then seen=1 mine="$inv"
+        if [[ -z "$inv" ]]; then :
+        elif (( ! seen )); then seen=1 mine="$inv"
         elif [[ "$inv" != "$mine" ]]; then echo unknown; return 0; fi
         ended=0 polls=$(( polls + 1 ))
         if (( polls == LONG_RUN )); then
@@ -191,14 +210,17 @@ watch_unit() {  # → "rc N" or "unknown" once dnf5's unit has ended; nothing wh
 }
 
 # systemd-run, the directory that exists only while systemd is PID 1 (sd_booted(3)), systemctl,
-# and the watch's timing: a read every POLL seconds, a verdict after GRACE reads of an ended unit
-# (10 s), the long-run line after LONG_RUN reads of a running one (15 minutes). Fixed whenever this
+# and the watch's timing: a read every POLL seconds, but every FIRST seconds (POLL if shorter)
+# for the first FIRST_READS reads until the unit is seen running, a verdict after GRACE reads of an
+# ended unit (10 s), the long-run line after LONG_RUN reads of a running one (15 minutes). Fixed whenever this
 # runs as root; the seams are honoured only for an unprivileged caller, which is the test suite,
 # like KEMPT_OFFLINE_TOML below. UNIT is set from a fixed table once the verb is known.
 SYSTEMD_RUN=/usr/bin/systemd-run
 SYSTEMD_BOOTED=/run/systemd/system
 SYSTEMCTL=/usr/bin/systemctl
 POLL=5
+FIRST=1
+FIRST_READS=10
 GRACE=2
 LONG_RUN=180
 UNIT=""
@@ -207,6 +229,7 @@ if [[ $EUID -ne 0 ]]; then
   SYSTEMD_BOOTED="${KEMPT_SYSTEMD_BOOTED:-$SYSTEMD_BOOTED}"
   SYSTEMCTL="${KEMPT_SYSTEMD_SYSTEMCTL:-$SYSTEMCTL}"
   if [[ "${KEMPT_SYSTEMD_POLL:-}" =~ ^[0-9]{1,3}(\.[0-9]{1,3})?$ && "$KEMPT_SYSTEMD_POLL" =~ [1-9] ]]; then POLL="$KEMPT_SYSTEMD_POLL"; fi
+  if [[ "${POLL%%.*}" =~ ^0+$ ]]; then FIRST="$POLL"; fi
   if [[ "${KEMPT_SYSTEMD_GRACE:-}" =~ ^[1-9][0-9]{0,4}$ ]]; then GRACE="$KEMPT_SYSTEMD_GRACE"; fi
   if [[ "${KEMPT_SYSTEMD_LONG_RUN:-}" =~ ^[1-9][0-9]{0,4}$ ]]; then LONG_RUN="$KEMPT_SYSTEMD_LONG_RUN"; fi
 fi

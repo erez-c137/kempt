@@ -475,7 +475,15 @@ run_watched() {
   trap - TERM INT HUP
   if [[ -n "$verdict" ]]; then
     kill -s TERM "$sd_pid" 2>/dev/null || :
-    wait "$sd_pid" || :
+    exec {pause}<> <(:)
+    { read -r -t "$POLL" -u "$pause" _ || :; } &
+    ids=("$sd_pid" "$!")
+    exec {pause}<&-
+    who=""
+    wait -n -p who "${ids[@]}" || :
+    if [[ "${who:-}" == "$sd_pid" ]]; then kill "${ids[1]}" 2>/dev/null || :
+    else kill -s KILL "$sd_pid" 2>/dev/null || :; fi
+    wait "${ids[@]}" 2>/dev/null || :
     if [[ "$verdict" =~ ^rc\ ([0-9]{1,3})$ ]]; then
       rc="${BASH_REMATCH[1]}"
       echo "$ME: systemd-run stopped reporting after dnf5 finished, so its exit status ($rc) was read from systemd." >&2
@@ -509,10 +517,15 @@ claim_unit() {
   "$SYSTEMCTL" reset-failed --no-pager -- "$UNIT" 2>/dev/null || :
 }
 watch_unit() {
-  local pause k v load active result code status inv mine="" seen=0 ended=0 polls=0
+  local pause k v load active result code status inv mine="" seen=0 ended=0 polls=0 early=0
   exec {pause}<> <(:)
   while :; do
-    read -r -t "$POLL" -u "$pause" _ || :
+    if (( ! seen && early < FIRST_READS )); then
+      early=$(( early + 1 ))
+      read -r -t "$FIRST" -u "$pause" _ || :
+    else
+      read -r -t "$POLL" -u "$pause" _ || :
+    fi
     load="" active="" result="" code="" status="" inv=""
     while IFS='=' read -r k v; do
       case "$k" in
@@ -527,7 +540,8 @@ watch_unit() {
     [[ -n "$load" && -n "$active" ]] || continue
     case "$active" in
       active|activating|deactivating|reloading|refreshing)
-        if (( ! seen )); then seen=1 mine="$inv"
+        if [[ -z "$inv" ]]; then :
+        elif (( ! seen )); then seen=1 mine="$inv"
         elif [[ "$inv" != "$mine" ]]; then echo unknown; return 0; fi
         ended=0 polls=$(( polls + 1 ))
         if (( polls == LONG_RUN )); then
@@ -636,6 +650,8 @@ assert_exit 0 "...it catches the caller's argument in a unit name" -- \
   grep -q 'unit name other than' <(mutant 's|^  dnf-upgrade) UNIT=kempt-apply-dnf-upgrade.service ;;$|  dnf-upgrade) UNIT="kempt-apply-$1.service" ;;|')
 assert_exit 0 "...it catches a systemctl stop smuggled into the watch" -- \
   grep -q 'vetted function other than' <(mutant 's|^    (( seen )) \|\| continue$|    (( seen )) \|\| "$SYSTEMCTL" stop -- "$UNIT"|')
+assert_exit 0 "...it catches the watch's last resort aimed at something other than systemd-run" -- \
+  grep -q 'vetted function other than' <(mutant 's|kill -s KILL "\$sd_pid"|kill -s KILL -1|')
 assert_exit 0 "...it catches systemctl run outside the vetted functions" -- \
   grep -q 'starts another' <(mutant 's|^set -euo pipefail$|set -euo pipefail; systemctl stop kempt-apply-dnf-upgrade.service|')
 for h in "$RH" "$AH"; do
@@ -819,6 +835,50 @@ assert_eq "$HRC" 1 "another run under the same name: this run's result is gone, 
 assert_contains "$HERR" "systemd no longer has its result" "...and says it could not read it"
 hang_run "loaded active 0 0 inv1" "loaded inactive 0 0 inv2"
 assert_eq "$HRC" 1 "...the same when the unit systemd shows is another run that has ended too"
+# systemd can answer with no InvocationID while it re-executes itself. A read like that names no
+# run, so it is never taken as this run's, nor as another one.
+hang_run "loaded active 0 0 -" "loaded active 0 0 inv1" "loaded active 0 0 inv1" "not-found inactive 0 0 -"
+assert_eq "$HRC" 0 "a first read with no InvocationID is not this run's: the run is still judged by its own"
+hang_run "loaded active 0 0 inv1" "loaded active 0 0 -" "loaded active 0 0 inv1" "not-found inactive 0 0 -"
+assert_eq "$HRC" 0 "...and a later one is not another run's"
+
+# A unit that ends a couple of seconds after it starts, before the first read at the usual interval,
+# must still be seen running: the watch reads every second at first. And a systemd-run that ignores
+# the TERM after the verdict is killed a poll interval later, the client only, so the helper returns.
+# KEMPT_SYSTEMD_POLL=3 puts the usual first read after the unit has gone.
+QUICKSC="$TESTTMP/quick-systemctl"; QUICKSD="$TESTTMP/quick-systemd-run"
+cat > "$QUICKSC" <<EOF
+#!/usr/bin/env bash
+echo "systemctl \$*" >> "$TESTTMP/systemd.calls"
+[[ "\$1" == show ]] || exit 0
+[[ " \$* " == *" --value "* ]] && { echo inactive; exit 0; }
+t0="\$(cat "$TESTTMP/quick.start" 2>/dev/null || echo 0)"
+if (( \$(date +%s%N) - t0 < 2000000000 )); then
+  printf 'LoadState=loaded\nActiveState=active\nResult=success\nExecMainCode=0\nExecMainStatus=0\nInvocationID=inv1\n'
+else
+  printf 'LoadState=not-found\nActiveState=inactive\nResult=success\nExecMainCode=0\nExecMainStatus=0\nInvocationID=\n'
+fi
+EOF
+cat > "$QUICKSD" <<EOF
+#!/usr/bin/env bash
+date +%s%N > "$TESTTMP/quick.start"
+echo "\$\$" > "$TESTTMP/quick.pid"
+trap '' TERM
+sleep 60 >/dev/null 2>&1 </dev/null & echo "\$!" > "$TESTTMP/quick.sleep"
+wait
+EOF
+chmod +x "$QUICKSC" "$QUICKSD"
+rm -f "$SDCALLS" "$TESTTMP/quick.start"
+t0=$SECONDS; HRC=0
+env KEMPT_SYSTEMD_RUN="$QUICKSD" KEMPT_SYSTEMD_SYSTEMCTL="$QUICKSC" KEMPT_SYSTEMD_POLL=3 \
+  timeout 40 bash "$AH" dnf-upgrade -y >"$TESTTMP/hang-out" 2>"$TESTTMP/hang-err" || HRC=$?
+HSECS=$(( SECONDS - t0 ))
+assert_eq "$HRC" 0 "a unit that ends 2 s in, with systemd-run hung: judged from systemd, and the helper exits 0"
+assert_eq "$(( HSECS < 25 ))" 1 "...returning on its own"
+assert_exit 1 "...after killing the systemd-run that ignored TERM" -- kill -0 "$(cat "$TESTTMP/quick.pid" 2>/dev/null || echo 0)"
+assert_eq "$(grep -cvE '^(systemctl (show|reset-failed) .*kempt-apply-dnf-upgrade\.service)$' "$SDCALLS")" 0 \
+  "...and systemctl was never told to stop or kill anything"
+kill -s KILL "$(cat "$TESTTMP/quick.sleep" 2>/dev/null || echo 0)" 2>/dev/null || true   # it ignores TERM, as its parent did
 
 # Still running: the helper waits as long as it takes, says once after the long-run mark that it
 # will not interrupt, and stops nothing. A unit never seen running is not judged either, since
@@ -875,6 +935,10 @@ for h in "$RH" "$AH"; do
   assert_eq "$(awk '/^if \[\[ \$EUID -ne 0 \]\]; then$/ { inb = 1; next } inb && /^fi$/ { inb = 0; next }
                     !inb && /KEMPT_SYSTEMD_/ && !/^[[:space:]]*#/' "$h")" "" \
     "$(basename "$h"): every KEMPT_SYSTEMD_ setting is honoured only when not root"
+  assert_eq "$(awk '/^if \[\[ \$EUID -ne 0 \]\]; then$/ { inb = 1; next } inb && /^fi$/ { inb = 0; next }
+                    !inb && /(^|[^A-Za-z_])(POLL|FIRST|FIRST_READS|GRACE|LONG_RUN)=/' "$h")" \
+    "$(printf 'POLL=5\nFIRST=1\nFIRST_READS=10\nGRACE=2\nLONG_RUN=180')" \
+    "$(basename "$h"): as root the watch's timing is the fixed one"
 done
 
 # Fail closed. Without systemd as PID 1 (a container, say) or without systemd-run, nothing runs and
