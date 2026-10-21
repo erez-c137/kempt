@@ -179,6 +179,31 @@ p.check("...including the panel icon size it was never told to guess", ev0("page
 p.check("...shown as the selected radio, not merely held in a property",
         ev0("iconSizeRepeater.itemAt(2).checked"), True)
 
+# A screen reader stopping on a radio hears its option and nothing else: "Small, radio button"
+# says neither what is small nor which of three groups it sits in. Each radio's accessible name
+# carries its group's label, and the spin box, which has no words of its own, carries its label
+# (its text field too, which is the part a reader lands on when typing).
+NAMES = ("(function () { var r = [], i;"
+         " for (i = 0; i < %(r)s.count; i++) r.push(%(r)s.itemAt(i).Accessible.name);"
+         " return r.join('|'); })()")
+p.check("each unused-runtimes radio is named with its setting",
+        ev0(NAMES % {"r": "reclaimRepeater"}),
+        "|".join(["Unused Flatpak runtimes: Ask me first",
+                  "Unused Flatpak runtimes: Remove after updates", "Unused Flatpak runtimes: Never"]))
+p.check("...and each surface radio",
+        ev0(NAMES % {"r": "surfaceRepeater"}),
+        "|".join(["Run updates in: Terminal window", "Run updates in: In this widget",
+                  "Run updates in: In the background", "Run updates in: On the next restart"]))
+p.check("...and each panel-icon-size radio",
+        ev0(NAMES % {"r": "iconSizeRepeater"}),
+        "|".join(["Panel icon size: Automatic", "Panel icon size: Small",
+                  "Panel icon size: Medium", "Panel icon size: Large"]))
+p.check("...while the words drawn beside them stay the option alone",
+        ev0("iconSizeRepeater.itemAt(1).text"), "Small")
+p.check("the interval spin box is named by its label, and so is the text field inside it",
+        [ev0("interval.Accessible.name"), ev0("interval.contentItem.Accessible.name")],
+        ["Check every", "Check every"])
+
 # ==================================================================================================
 # The three radio groups are INDEPENDENT of each other (the third, unused Flatpak runtimes, came
 # later and joins the same FormLayout parent, so it would have joined the same group).

@@ -36,6 +36,12 @@ RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNJSON, "w").write(
     json.dumps(json.load(open(os.path.join(harness.FIXTURES, "run-last.json")))))
 
+# The keyboard standing on a padlock. The Shortcut reason, which draws the ring as Tab does: a Tab
+# reason from outside the list now means the Tab key arriving there, and the list sends that to its
+# first padlock (FullRepresentation's rowsView).
+STAND_ON_PIN = "b.forceActiveFocus(Qt.ShortcutFocusReason)"
+
+
 def _code(name):
     """One .qml file with its comments removed, on one line."""
     lines = [ln.split("//")[0] for ln in open(os.path.join(harness.UI, name))]
@@ -309,7 +315,7 @@ p.pump(80)
 open(HOLDSLEEP, "w").write("2")          # hold the pending window open, on purpose
 p.clear_calls()
 sev("clear()")
-pin(idx, "b.forceActiveFocus(Qt.TabFocusReason)")
+pin(idx, STAND_ON_PIN)
 p.pump(60)
 p.check("the keyboard is on the pin of the row about to be pressed",
         focused(), pin_label(TARGET, False))
@@ -359,7 +365,7 @@ p.check("the outcome is spoken, which it never was before", said(), ["Holding %s
 # ...and back again, which is the sentence the other half of the toggle owes.
 sev("clear()")
 held_idx = row_index(TARGET, True)
-pin(held_idx, "b.forceActiveFocus(Qt.TabFocusReason)")
+pin(held_idx, STAND_ON_PIN)
 p.pump(60)
 press(Qt.Key_Space)
 settle()
@@ -401,7 +407,7 @@ sev("clear()")
 long_held = row_index(LONG_TARGET, True)
 lev("rowsView.positionViewAtIndex(%d, ListView.Contain)" % long_held)
 p.pump(80)
-pin(long_held, "b.forceActiveFocus(Qt.TabFocusReason)")
+pin(long_held, STAND_ON_PIN)
 p.pump(60)
 press(Qt.Key_Space)
 settle()
@@ -427,7 +433,7 @@ open(HOLDRC, "w").write("1")
 sev("clear()")
 ev('root.actionMessage = ""')
 fail_idx = row_index(TARGET, False)
-pin(fail_idx, "b.forceActiveFocus(Qt.TabFocusReason)")
+pin(fail_idx, STAND_ON_PIN)
 p.pump(60)
 press(Qt.Key_Space)
 settle()

@@ -521,6 +521,8 @@ KCM.SimpleKCM {
         // when Flatpak is left out; an absent flatpak is said under the checkbox above.
         Repeater {
             id: reclaimRepeater
+            // The form label, said once beside the first radio and in each radio's accessible name.
+            readonly property string groupLabel: i18n("Unused Flatpak runtimes:")
             model: [
                 { key: "ask",       label: i18n("Ask me first") },
                 { key: "automatic", label: i18n("Remove after updates") },
@@ -532,8 +534,12 @@ KCM.SimpleKCM {
                 required property int index
                 readonly property string reclaimOption: modelData.key
 
-                Kirigami.FormData.label: index === 0 ? i18n("Unused Flatpak runtimes:") : ""
+                Kirigami.FormData.label: index === 0 ? reclaimRepeater.groupLabel : ""
                 text: modelData.label
+                // A screen reader hears the group as well as the option: "Small" alone says
+                // nothing about what is small.
+                Accessible.name: i18nc("@info:whatsthis a radio button's setting, then its option",
+                                       "%1 %2", reclaimRepeater.groupLabel, text)
                 // Off for the same reason as the other radio groups on this page: they share one
                 // FormLayout parent, and QQC2 would otherwise run them all as one exclusive group.
                 autoExclusive: false
@@ -573,6 +579,8 @@ KCM.SimpleKCM {
         // --- where a run happens -----------------------------------------------------------------
         Repeater {
             id: surfaceRepeater
+            // The form label, said once beside the first radio and in each radio's accessible name.
+            readonly property string groupLabel: i18n("Run updates in:")
             model: [
                 { key: "terminal",   label: i18n("Terminal window") },
                 { key: "popup",      label: i18n("In this widget") },
@@ -585,8 +593,12 @@ KCM.SimpleKCM {
                 required property int index
                 readonly property string surfaceKey: modelData.key
 
-                Kirigami.FormData.label: index === 0 ? i18n("Run updates in:") : ""
+                Kirigami.FormData.label: index === 0 ? surfaceRepeater.groupLabel : ""
                 text: modelData.label
+                // A screen reader hears the group as well as the option: "Small" alone says
+                // nothing about what is small.
+                Accessible.name: i18nc("@info:whatsthis a radio button's setting, then its option",
+                                       "%1 %2", surfaceRepeater.groupLabel, text)
                 // Exclusivity here is the `checked` binding below and NOTHING else, so QQC2's own
                 // must be turned off. A RadioButton with autoExclusive left on joins the group of
                 // its PARENT - and a Repeater reparents its delegates to the Repeater's parent, so
@@ -620,6 +632,13 @@ KCM.SimpleKCM {
         QQC2.SpinBox {
             id: interval
             Kirigami.FormData.label: i18n("Check every:")
+            // A spin box has no words of its own, so a screen reader would say only "spin button".
+            // The text field inside it is a stop of its own when typing, so it gets the name too.
+            Accessible.name: i18n("Check every")
+            Component.onCompleted: {
+                if (contentItem)
+                    contentItem.Accessible.name = Qt.binding(() => interval.Accessible.name);
+            }
             from: 15
             to: 1440
             // 5, not 15. `from` lowers itself below to meet a smaller value the CLI is holding, and
@@ -641,6 +660,8 @@ KCM.SimpleKCM {
         // thicknesses; the three named sizes are for panels where that judgement is wrong.
         Repeater {
             id: iconSizeRepeater
+            // The form label, said once beside the first radio and in each radio's accessible name.
+            readonly property string groupLabel: i18n("Panel icon size:")
             model: [
                 { key: "auto",   label: i18n("Automatic") },
                 { key: "small",  label: i18n("Small") },
@@ -653,8 +674,12 @@ KCM.SimpleKCM {
                 required property int index
                 readonly property string sizeKey: modelData.key
 
-                Kirigami.FormData.label: index === 0 ? i18n("Panel icon size:") : ""
+                Kirigami.FormData.label: index === 0 ? iconSizeRepeater.groupLabel : ""
                 text: modelData.label
+                // A screen reader hears the group as well as the option: "Small" alone says
+                // nothing about what is small.
+                Accessible.name: i18nc("@info:whatsthis a radio button's setting, then its option",
+                                       "%1 %2", iconSizeRepeater.groupLabel, text)
                 // Off for the same reason as the surface radios above: these share a FormLayout
                 // parent with them, and QQC2 would otherwise run all eight as one exclusive group.
                 autoExclusive: false

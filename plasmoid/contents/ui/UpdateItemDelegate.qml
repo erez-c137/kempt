@@ -66,12 +66,25 @@ RowLayout {
     signal toggleHold(string backend, string name, bool hold, bool keyboard)
 
     // The list refocuses this row by name after the model is rebuilt, and it cannot reach into the
-    // delegate for a private id. Qt.TabFocusReason and not the default: a QQC2 control draws its
-    // ring on `visualFocus`, which only the keyboard reasons set, so any other reason here would
-    // be focus nobody can see.
-    function focusPin() {
-        pinButton.forceActiveFocus(Qt.TabFocusReason);
+    // delegate for a private id. Qt.ShortcutFocusReason and not the default: a QQC2 control draws
+    // its ring on `visualFocus`, which only the keyboard reasons set, so any other reason here
+    // would be focus nobody can see. Not Tab or Backtab, which the list reads as the keys
+    // themselves arriving from outside it (FullRepresentation's rowsView).
+    // `reason` is for the list's own keyboard steps (stepPin): a step up the list stays a Backtab,
+    // so the walk keeps its direction.
+    function focusPin(reason) {
+        pinButton.forceActiveFocus(reason === undefined ? Qt.ShortcutFocusReason : reason);
     }
+
+    // Whether the padlock can take focus now: there is one, and no other row's hold has it
+    // standing down.
+    function pinFocusable() {
+        return pinButton.visible && pinButton.enabled;
+    }
+
+    // Tab (forward) or Shift+Tab on the padlock. The list moves the keyboard by row number,
+    // because the order Qt would walk is the order the view happened to build the rows in.
+    signal tabbed(bool forward)
 
     // The pin has taken keyboard focus. A row does not know it is in a list and cannot scroll
     // itself, so it says so and the list decides what to do about it.
@@ -85,6 +98,27 @@ RowLayout {
     // ...and what the version line draws in its place. One property, read by the line and by its
     // accessible name, so the two cannot say different things about the same row.
     readonly property string fromText: row.newPackage ? i18n("new") : row.from
+
+    // What the row says about itself to a screen reader, as one sentence or a few. The pin is the
+    // row's only tab stop, so its description is the only place a listener walking the list hears
+    // the version change and the state words drawn beside the name. Same facts as the drawn
+    // line, from the same Logic.versionTextOf, in words instead of an arrow.
+    readonly property string spokenFacts: {
+        const parts = [];
+        if (row.security) parts.push(i18n("Security update."));
+        if (row.forYouOnly) parts.push(i18n("For you only."));
+        if (row.from === Logic.VERSION_UNKNOWN && row.to === Logic.VERSION_UNKNOWN) {
+            // Nothing to say: the drawn line is empty too.
+        } else if (row.newPackage) {
+            parts.push(i18n("Installs version %1.", row.to));
+        } else if (row.from === row.to) {
+            parts.push(i18nc("@info:accessible a version, said as a sentence", "%1.",
+                             Logic.versionTextOf(row.from, row.to)));
+        } else {
+            parts.push(i18n("Updates from %1 to %2.", row.from, row.to));
+        }
+        return parts.join(" ");
+    }
 
     spacing: Kirigami.Units.smallSpacing
 
@@ -233,11 +267,14 @@ RowLayout {
         // pressing this does. Kempt-only and per package, because a dnf user reads versionlock
         // into a padlock and a kernel is three rows.
         // A hold is by id, so with the app installed both ways it covers both copies, and says so.
-        Accessible.description: row.bothScopes
+        // The row's own facts go first (spokenFacts): nothing else in the row is a tab stop.
+        readonly property string consequence: row.bothScopes
             ? (row.held ? i18n("Kempt offers the update again for both copies, the system one and the one for you only.")
                         : i18n("Kempt skips both copies, the system one and the one for you only, until you stop holding it."))
             : (row.held ? i18n("Kempt offers its update again.")
                         : i18n("Kempt skips it on every update until you stop holding it."))
+        Accessible.description: row.spokenFacts.length > 0
+            ? row.spokenFacts + " " + consequence : consequence
         // A ListView only builds the delegates near its viewport, so the focus chain holds only
         // the rows that happen to exist and Tab walks to the last one and leaves the list
         // (measured: 17 of 24 padlocks reachable). Announcing the focus lets the list scroll this
@@ -251,6 +288,8 @@ RowLayout {
         // is the shipped Plasma pattern, per button, and it draws the press as well as sending it.
         Keys.onReturnPressed: animateClick()
         Keys.onEnterPressed: animateClick()
+        Keys.onTabPressed: event => { event.accepted = true; row.tabbed(true); }
+        Keys.onBacktabPressed: event => { event.accepted = true; row.tabbed(false); }
         // The guard the `enabled` binding used to be: a second press on the package already in
         // flight is refused HERE, where refusing costs no focus.
         onClicked: if (!row.pending) row.toggleHold(row.backend, row.name, !row.held,

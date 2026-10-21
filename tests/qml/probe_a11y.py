@@ -131,12 +131,18 @@ FOCUSED = """(function () {
   var t = (it.text === undefined || it.text === null) ? "" : String(it.text);
   function within(c) { for (var q = it; q; q = q.parent) if (q === c) return true; return false; }
   if (within(rowsView)) return "row:" + t;
-  if (within(lastRunView)) return "lastRun:" + t;
+  if (within(lastRunView))
+    return it === lastRunView.currentItem ? "lastRun:row" : "lastRun:" + (it.Accessible.name || t);
   var msgs = {restartMessage: restartMessage, riskyMessage: riskyMessage,
               stagedMessage: stagedMessage, reportMessage: reportMessage};
   for (var k in msgs) if (within(msgs[k])) return k + ":" + t;
   return "elsewhere:" + t;
 })()"""
+
+
+# The last-run row is two stops: the row itself, named by its title (a date, so not spelled out
+# here), and its expander, named by what pressing it does with the state in the words.
+LASTRUN = ["lastRun:row", "lastRun:Show details of the last update"]
 
 
 def focused():
@@ -267,6 +273,11 @@ p.check("...with real focus in a real scene, not just a flag on the item",
 p.check("...and visibly so: a focus ring is drawn from visualFocus, which only the keyboard "
         "focus reasons set, so Qt.PopupFocusReason here would be focus nobody can see",
         lev("updateButton.visualFocus"), True)
+# The count in the heading is never a tab stop, so the first stop says it: opening the popup
+# reads "Update Now, button" and then how many updates it would install.
+p.check("...and Update Now's description is the heading's count, so opening says how many",
+        [lev("updateButton.Accessible.description"), lev("popup.vm.headerText")],
+        [lev("popup.vm.headerText"), "10 updates available"])
 settle()
 
 # ...and the state where that button is not on screen at all. It is HIDDEN rather than disabled,
@@ -284,6 +295,8 @@ ev("root.popupOpened()")
 p.pump(50)
 p.check("...so opening the popup puts the keyboard on Refresh instead", focused(), "refreshButton")
 p.check("...and nothing is focusing the hidden button", lev("updateButton.activeFocus"), False)
+p.check("...and Refresh, the first stop now, starts its description with the heading",
+        str(lev("refreshButton.Accessible.description")).split("\n")[0], lev("popup.vm.headerText"))
 settle()
 
 # ==================================================================================================
@@ -300,7 +313,7 @@ ev("root.popupOpened()")
 settle()
 lev("popup.focusPrimary()")
 p.pump(50)
-expected = ["refreshButton", "configureButton"] + pins() + ["lastRun:Expand", "updateButton"]
+expected = ["refreshButton", "configureButton"] + pins() + [*LASTRUN, "updateButton"]
 got = walk(len(expected))
 p.check("Tab walks the whole popup from Update Now and comes back to it", got, expected)
 p.check("...which means every package row's pin is a tab stop", len(pins()), 10)
@@ -318,18 +331,40 @@ p.check("...and it introduces itself by naming its own package, at its own versi
 # The description is the CONSEQUENCE and not the name read back. QQC2 already hands `text` to
 # AT-SPI as the accessible name, so a description bound to `text` was the sentence spoken twice
 # and the one slot that could explain what pressing this does, wasted.
-p.check("...while the description says what holding it will DO, which nothing else says anywhere",
+# The version change comes first in it: the version line is never a tab stop, so a listener
+# walking the pins hears what each update is only from here.
+p.check("...while the description says what the update is and what holding it will DO",
         lev("popup.Window.activeFocusItem.Accessible.description"),
-        "Kempt skips it on every update until you stop holding it.")
+        "Updates from 3.105-0.9.20210729git2a87ac6.fc44 to 3.106-1.fc44."
+        " Kempt skips it on every update until you stop holding it.")
+walk(1)
+p.check("...a row carrying a multilib set says the newest version, as the line draws it",
+        lev("popup.Window.activeFocusItem.Accessible.description"),
+        "Updates from 5.3.9-3.fc44 to 5.3.10-1.fc44."
+        " Kempt skips it on every update until you stop holding it.")
+walk(1)
+p.check("...and a package that is not installed yet says the version it would install",
+        [focused(), lev("popup.Window.activeFocusItem.Accessible.description")],
+        [pins()[2], "Installs version 1.0-1.fc44."
+         " Kempt skips it on every update until you stop holding it."])
+walk(2, back=True)
 p.check("...and is not the name a second time",
         lev("popup.Window.activeFocusItem.Accessible.description"
             " === popup.Window.activeFocusItem.text"), False)
 
-# Backwards, once, because a chain that only walks one way is a chain with a trap in it.
+# Backwards, the whole way round, because a chain that only walks one way is a chain with a trap
+# in it. Measured before this was asserted: Shift+Tab from the last-run row jumped straight to the
+# gear, so every pin was unreachable backwards, and the row itself was a stop only that way.
+def reverse_of(ring):
+    """The Shift+Tab order a forward ring implies, starting from the same control: every stop
+    but the one it started on, last to first, and then back to the start."""
+    return list(reversed(ring[:-1])) + [ring[-1]]
+
+
 lev("popup.focusPrimary()")
 p.pump(20)
-p.check("Shift+Tab from Update Now goes to the other end of the ring rather than nowhere",
-        walk(1, back=True), ["lastRun:Expand"])
+p.check("Shift+Tab walks the same ring in exactly the reverse order",
+        walk(len(expected), back=True), reverse_of(expected))
 
 # A message that appears puts its actions in the ring, between the header and the list, and takes
 # them away again when it goes. Both halves matter: an action nobody can reach by keyboard is not
@@ -343,10 +378,14 @@ lev("popup.focusPrimary()")
 p.pump(50)
 expected = (["refreshButton", "configureButton",
              "restartMessage:Restart…", "restartMessage:Close"]
-            + pins() + ["lastRun:Expand", "updateButton"])
+            + pins() + [*LASTRUN, "updateButton"])
 p.check("...and its Restart button and its close button are both in the tab order, in the "
         "message stack's own place: after the header, before the list",
         walk(len(expected)), expected)
+lev("popup.focusPrimary()")
+p.pump(20)
+p.check("...and Shift+Tab walks that ring backwards, message buttons included",
+        walk(len(expected), back=True), reverse_of(expected))
 
 state(fixture("state-risky-heavy.json"))
 ev('root.postRunLine = ""')
@@ -356,9 +395,24 @@ p.check("a session-critical transaction is pending, so that message is up instea
 lev("popup.focusPrimary()")
 p.pump(50)
 expected = (["refreshButton", "configureButton", "riskyMessage:Install on Next Restart"]
-            + pins() + ["lastRun:Expand", "updateButton"])
+            + pins() + [*LASTRUN, "updateButton"])
 p.check("...so its action is the stop after the header, and the restart message's two are gone",
         walk(len(expected)), expected)
+# As the question after Update Now, the popup opens on Install on Next Restart with Update Now
+# hidden, so that button says the heading's count as well.
+ev("root.riskyChoiceOpen = true")
+p.pump(150)
+_stage = "popup.buttonFor(riskyMessage, riskyStageAction)"
+p.check("asking, Install on Next Restart's description starts with the heading's count",
+        [lev("updateButton.visible"), str(lev(_stage + ".Accessible.description")).split("\n")],
+        [False, [lev("popup.vm.headerText"), lev("popup.stageTooltip")]])
+ev("root.riskyChoiceOpen = false")
+p.pump(150)
+p.check("...and only its tooltip once the question has closed",
+        lev(_stage + ".Accessible.description"), lev("popup.stageTooltip"))
+lev("popup.focusPrimary()")
+p.pump(20)
+p.check("...and backwards the same way", walk(len(expected), back=True), reverse_of(expected))
 
 # The state this widget is actually FOR. A weekly Fedora update is fifty to two hundred packages,
 # and a ListView only builds the delegates near its viewport - so before the scroll-into-view,
@@ -373,8 +427,8 @@ lev("popup.focusPrimary()")
 p.pump(50)
 _rows = pins()
 p.check("eighty packages pending, which is an ordinary Tuesday", len(_rows), 80)
-# Two for the header, one for the last-run row, one to land back on Update Now: a complete ring.
-_seq = walk(len(_rows) + 4)
+# Two for the header, two for the last-run row, one to land back on Update Now: a complete ring.
+_seq = walk(len(_rows) + 5)
 _stops = [x for x in _seq if x.startswith("row:")]
 p.check("...and Tab reaches every one of their pins", len(_stops), len(_rows))
 p.check("...each exactly once", len(set(_stops)), len(_rows))
@@ -386,7 +440,55 @@ p.check("...in the list's own order", _stops == _rows, True)
 # chain leaves the list at the end of the pool, goes round the header, and comes back in.
 p.check("...and the header is passed once on the way round, not once per screenful of list",
         [x for x in _seq if not x.startswith("row:")],
-        ["refreshButton", "configureButton", "lastRun:Expand", "updateButton"])
+        ["refreshButton", "configureButton", *LASTRUN, "updateButton"])
+
+# ...and backwards, which is the harder half: going up, the view builds each row ABOVE the ones it
+# already has, and a delegate the view adds is the last child of the list whatever row it is. Qt
+# walks Shift+Tab by child order, so before the rows were put back in order the walk left the list
+# at the first row it had to build and went to the header. Measured on a 29-package list: the top
+# eleven pins unreachable backwards.
+lev("popup.focusPrimary()")
+p.pump(50)
+_back = walk(len(_rows) + 5, back=True)
+p.check("...and Shift+Tab reaches every pin too, bottom to top, in reverse list order",
+        [x for x in _back if x.startswith("row:")], list(reversed(_rows)))
+p.check("...with the rest of the ring in reverse as well",
+        [x for x in _back if not x.startswith("row:")],
+        [*reversed(LASTRUN), "configureButton", "refreshButton", "updateButton"])
+# ...and forward once more over the list that walk scrolled up and down, whose rows the view has
+# now built in no particular order.
+_again = walk(len(_rows) + 5)
+p.check("...after which Tab still visits every pin top to bottom",
+        [x for x in _again if x.startswith("row:")], _rows)
+
+# While a hold is in flight every other padlock is disabled, so a step from the working row has
+# nowhere to go in the list. It leaves the list without scrolling it: looking for a live padlock
+# used to scroll to each later row in turn, taking the working row off screen.
+_mid = lev("""(function () {
+  var rows = popup.vm.rows, n = 0;
+  for (var i = 0; i < rows.length; i++) if (rows[i].kind === "item" && ++n === 40) return i;
+  return -1; })()""")
+ev("root.pendingHold = {name: %s, backend: %s}"
+   % (json.dumps(lev("popup.vm.rows[%d].name" % _mid)), json.dumps(lev("popup.vm.rows[%d].backend" % _mid))))
+p.pump(50)
+lev("rowsView.positionViewAtIndex(%d, ListView.Center)" % _mid)
+p.pump(30)
+lev("rowsView.itemAtIndex(%d).item.focusPin()" % _mid)
+p.pump(30)
+_y = lev("rowsView.contentY")
+p.check("with a hold in flight, Tab from its row leaves the list for the last-update row",
+        walk(1), ["lastRun:row"])
+p.check("...without scrolling the list away from the working row",
+        abs(lev("rowsView.contentY") - _y) < 1, True)
+lev("rowsView.positionViewAtIndex(%d, ListView.Center)" % _mid)
+p.pump(30)
+lev("rowsView.itemAtIndex(%d).item.focusPin()" % _mid)
+p.pump(30)
+_y = lev("rowsView.contentY")
+p.check("...and Shift+Tab leaves it upwards, the list still where it was",
+        [walk(1, back=True), abs(lev("rowsView.contentY") - _y) < 1], [["configureButton"], True])
+ev("root.pendingHold = null")
+p.pump(50)
 
 # The quietest state, where most of the popup is not there: the ring still closes, and it still
 # never stops on the hidden Update Now.
@@ -396,7 +498,39 @@ p.pump(120)
 lev("popup.focusPrimary()")
 p.pump(50)
 p.check("up to date: Tab still has somewhere to go and comes back",
-        walk(3), ["configureButton", "lastRun:Expand", "refreshButton"])
+        walk(4), ["configureButton", *LASTRUN, "refreshButton"])
+lev("popup.focusPrimary()")
+p.pump(20)
+p.check("...and Shift+Tab goes round it the other way",
+        walk(4, back=True), [*reversed(LASTRUN), "configureButton", "refreshButton"])
+
+# The expander, opened from the keyboard: its name is the only place the open state reaches a
+# screen reader, so it has to change with it.
+lev("popup.focusPrimary()")
+p.pump(20)
+walk(3)
+p.check("on the expander", focused(), LASTRUN[1])
+press(Qt.Key_Space)
+p.pump(150)
+p.check("...Space opens the row, and the expander now says it hides the details",
+        [lev("lastRunView.currentItem.expanded"), focused()],
+        [True, "lastRun:Hide details of the last update"])
+press(Qt.Key_Space)
+p.pump(150)
+p.check("...and Space again closes it and says so",
+        [lev("lastRunView.currentItem.expanded"), focused()], [False, LASTRUN[1]])
+
+# The row's focus is drawn by its view's highlight, which follows the view's current row, and
+# the component clears that whenever the pointer leaves the row. The row keeps its frame anyway.
+lev("lastRunView.currentIndex = -1")          # the pointer left the row before Tab reached it
+walk(1, back=True)
+p.check("the last-update row shows its focus when Tab lands on it, whatever the pointer did",
+        [focused(), lev("lastRunView.highlightItem !== null && lastRunView.highlightItem.visible")],
+        ["lastRun:row", True])
+lev("lastRunView.currentIndex = -1")          # ...and the pointer leaves while it has focus
+p.pump(20)
+p.check("...and keeps it when the pointer leaves the row",
+        lev("lastRunView.highlightItem !== null && lastRunView.highlightItem.visible"), True)
 
 # ==================================================================================================
 # Escape.
@@ -624,7 +758,7 @@ p.pump(120)
 lev("popup.focusPrimary()")
 p.pump(50)
 
-_ring = ["refreshButton", "configureButton"] + pins() + ["lastRun:Expand", "updateButton"]
+_ring = ["refreshButton", "configureButton"] + pins() + [*LASTRUN, "updateButton"]
 _unnamed, _mis_roled = [], []
 for _stop in _ring:
     press(Qt.Key_Tab)
@@ -737,13 +871,16 @@ def _code(name):
 #
 # The sixth and seventh are the startup banner's Copy Command and Mute Until It Starts: one pair
 # per service, so the description (the command, and what muting does) tells them apart by ear.
+# The eighth is popup.speakActionsAs binding those two actions' spoken descriptions onto the
+# buttons Kirigami draws for them, since an action cannot reach its own button's.
 #
 # configGeneral.qml has one: Undo beside a service just unmuted names the service it mutes again.
 #
 # StartupPage.qml has three: Back says where it goes, each Copy Command carries the command it
 # copies, so one service's button is told from the next by ear, and Refresh's tooltip reads its
-# description back rather than repeating the literal.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 7, "configGeneral.qml": 1, "StartupPage.qml": 3}
+# description back rather than repeating the literal. The fourth is Show All and Hide, which carry
+# the folded list's count, and the whole list once it is open.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 8, "configGeneral.qml": 1, "StartupPage.qml": 4}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)

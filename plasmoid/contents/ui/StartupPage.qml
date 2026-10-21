@@ -21,6 +21,8 @@ ColumnLayout {
 
     signal backRequested()
     signal copyRequested(string text)
+    // A sentence for a screen reader to say now (FullRepresentation's announce).
+    signal announceRequested(string sentence)
 
     // null until the first gather answers; then the page, or {ok: false, problem}.
     readonly property var sp: plasmoidItem.startupPage
@@ -31,6 +33,44 @@ ColumnLayout {
     property bool scheduleOpen: false
 
     spacing: Kirigami.Units.smallSpacing
+
+    // What the page says, in reading order, for a screen reader: only its buttons are tab stops,
+    // so this is Back's description (the keyboard lands on Back) and is said once when a gather
+    // lands, since that happens after the page has opened. The long lists are their counts here,
+    // as they are on screen; each toggle's description carries its list.
+    readonly property string summary: {
+        if (sp === null) return "";
+        if (sp.ok !== true) return sp.problem;
+        const out = [];
+        if (sp.empty) out.push(emptyLabel.text);
+        for (const note of sp.notes) out.push(note);
+        if (sp.bootLine.length > 0) out.push(sp.bootLine);
+        if (sp.failed.length > 0)
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2.", failedHeading.label,
+                           sp.failed.map(f => f.title).join(i18nc("@info:accessible list separator", ", "))));
+        if (sp.failedNote.length > 0) out.push(sp.failedNote);
+        if (sp.changed.length > 0)
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2", sp.changedTitle, sp.changed.join(" ")));
+        if (sp.timerFailures.length > 0)
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2", timerFailHeading.label, sp.timerFailures.join(" ")));
+        if (sp.startsLines.length > 0)
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2.", startsHeading.label, sp.startsSummary));
+        if (sp.skippedLine.length > 0) out.push(sp.skippedLine);
+        if (sp.scheduleLines.length > 0)
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2.", scheduleHeading.label, sp.scheduleSummary));
+        return out.join("\n");
+    }
+
+    // Said once per gather that lands while the page is open. Later than the change itself, so the
+    // summary has caught up with the new page. Not when Back has already said it since the
+    // gather started: a fast gather lands before the keyboard reaches Back.
+    property string saidByBack: ""
+    onBusyChanged: if (busy) saidByBack = ""
+    function sayWhatLanded() {
+        if (page.visible && page.sp !== null && page.summary !== page.saidByBack)
+            page.announceRequested(page.summary);
+    }
+    onSpChanged: Qt.callLater(page.sayWhatLanded)
 
     // Where the keyboard lands when the page opens.
     function focusFirst() {
@@ -62,7 +102,13 @@ ColumnLayout {
         signal toggled()
         text: open ? i18n("Hide") : i18n("Show All")
         icon.name: open ? "go-up" : "go-down"
-        Accessible.name: text + ": " + section
+        Accessible.name: i18nc("@action:button Show All or Hide, then the list it opens", "%1: %2", text, section)
+        // What the list holds: its count and notes while folded, and every line once open, since
+        // the lines themselves are not tab stops.
+        property var lines: []
+        property var notes: []
+        Accessible.description: notes.concat(open ? lines.map(l => l.text) : [])
+            .filter(t => t.length > 0).join("\n")
         Keys.onReturnPressed: animateClick()
         Keys.onEnterPressed: animateClick()
         onClicked: toggled()
@@ -78,7 +124,10 @@ ColumnLayout {
             icon.name: "go-previous"
             text: i18n("Back")
             Accessible.name: text
-            Accessible.description: i18n("Returns to the list of updates.")
+            Accessible.description: page.summary.length > 0
+                ? i18n("Returns to the list of updates.") + "\n" + page.summary
+                : i18n("Returns to the list of updates.")
+            onActiveFocusChanged: if (activeFocus) page.saidByBack = page.summary
             Keys.onReturnPressed: animateClick()
             Keys.onEnterPressed: animateClick()
             onClicked: page.backRequested()
@@ -186,8 +235,12 @@ ColumnLayout {
                         visible: failedEntry.modelData.command.length > 0
                         icon.name: "edit-copy"
                         text: i18n("Copy Command")
-                        Accessible.name: text + ": " + failedEntry.modelData.title
-                        Accessible.description: failedEntry.modelData.command
+                        Accessible.name: i18nc("@action:button Copy Command, then the service it is for",
+                                               "%1: %2", text, failedEntry.modelData.title)
+                        // What its log says as well: the line above is not a tab stop.
+                        Accessible.description: failedEntry.modelData.log.length > 0
+                            ? failedEntry.modelData.log + "\n" + failedEntry.modelData.command
+                            : failedEntry.modelData.command
                         PlasmaComponents.ToolTip.text: failedEntry.modelData.command
                         PlasmaComponents.ToolTip.visible: hovered || visualFocus
                         PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
@@ -223,6 +276,7 @@ ColumnLayout {
 
             // --- scheduled jobs whose last run failed ----------------------------------------------
             SectionHeading {
+                id: timerFailHeading
                 visible: page.showsPage && page.sp.timerFailures.length > 0
                 label: i18n("Last run failed")
             }
@@ -255,6 +309,8 @@ ColumnLayout {
                     id: startsToggle
                     open: page.startsOpen
                     section: startsHeading.label
+                    notes: page.showsPage ? [page.sp.startsSummary, page.sp.skippedLine] : []
+                    lines: page.showsPage ? page.sp.startsLines : []
                     onToggled: page.startsOpen = !page.startsOpen
                 }
             }
@@ -295,6 +351,8 @@ ColumnLayout {
                     id: scheduleToggle
                     open: page.scheduleOpen
                     section: scheduleHeading.label
+                    notes: page.showsPage ? [page.sp.scheduleSummary].concat(page.sp.scheduleNotes) : []
+                    lines: page.showsPage ? page.sp.scheduleLines : []
                     onToggled: page.scheduleOpen = !page.scheduleOpen
                 }
             }

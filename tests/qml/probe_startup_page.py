@@ -122,10 +122,17 @@ win.show()
 p.pump(200)
 spy, sev = p.create_inline("""
 import QtQuick
-QtObject { id: spy; property int closes: 0; function bump() { spy.closes++; } }
+QtObject {
+    id: spy
+    property int closes: 0
+    property var said: []
+    function bump() { spy.closes++; }
+    function hear(sentence) { var a = spy.said.slice(); a.push(sentence); spy.said = a; }
+}
 """, "close-spy.qml")
 p.engine.rootContext().setContextProperty("closeSpy", spy)
 lev("popup.closeRequested.connect(closeSpy.bump)")
+lev("popup.announced.connect(closeSpy.hear)")
 # Evaluated in StartupPage.qml's own context, where its ids live: the context of the page's root
 # object is the file that instantiated it, so go through a child.
 pev = p.evaluator(lev("startupPage.children[0]"))
@@ -177,6 +184,32 @@ settle()
 p.check("...so a second press while it runs gathers nothing more", p.call_count("startup --all"), 1)
 p.wait_for(pev, "page.Window.activeFocusItem === backButton", True)
 p.check("the keyboard lands on Back", pev("page.Window.activeFocusItem === backButton"), True)
+# Nothing on the page but its buttons is a tab stop, so what it found reaches a listener as Back's
+# description (Back is where the keyboard is) and, since the gather lands after the page opened,
+# said once out loud when it does.
+p.check("Back says where it goes, then what the page found, section by section",
+        [str(pev("backButton.Accessible.description")).split("\n")[0],
+         all(t in str(pev("backButton.Accessible.description")).split("\n") for t in [
+             pev("bootLabel.text"),
+             "Didn't start this boot: imsettings-start (when you log in), "
+             + pev("failedRepeater.itemAt(1).children[0].text") + ".",
+             pev("startsHeading.label") + ": 2 services.",
+             pev("scheduleHeading.label") + ": 1 timer."])],
+        ["Returns to the list of updates.", True])
+p.check("...and lists what changed and which scheduled job failed, word for word",
+        [pev("changedRepeater.itemAt(0).text") in str(pev("backButton.Accessible.description")),
+         pev("timerFailRepeater.itemAt(0).text") in str(pev("backButton.Accessible.description"))],
+        [True, True])
+p.check("...and the same summary is said once when the gather lands",
+        json.loads(str(sev("JSON.stringify(said)"))).count(pev("page.summary")), 1)
+# ...but not when Back already said it: a gather that answers before the keyboard reaches Back
+# is heard in Back's description, and the same words again straight after are noise.
+_heard = len(json.loads(str(sev("JSON.stringify(said)"))))
+pev("refreshButton.forceActiveFocus()")
+pev("backButton.forceActiveFocus(Qt.TabFocusReason)")
+pev("page.sayWhatLanded()")
+p.check("...and not again when Back has already said it",
+        len(json.loads(str(sev("JSON.stringify(said)")))), _heard)
 p.check("the updates are out of the way", lev("startupPage.visible && !updatingPane.visible"), True)
 
 p.check("what failed is listed in full, (when you log in) for a login item",
@@ -186,7 +219,8 @@ p.check("what failed is listed in full, (when you log in) for a login item",
 copy = "failedRepeater.itemAt(0).children[2]"
 p.check("...with Copy Command, named for its service and describing the command",
         [pev(copy + ".text"), pev(copy + ".Accessible.name"), pev(copy + ".Accessible.description")],
-        ["Copy Command", "Copy Command: imsettings-start (when you log in)", CMD])
+        ["Copy Command", "Copy Command: imsettings-start (when you log in)",
+         "Its log says: Current desktop isn't supported.\n" + CMD])
 lev("engineCopyClip.text = ''")
 pev(copy + ".clicked()")
 p.check("Copy Command copies the CLI's command, quotes intact", lev("engineCopyClip.text"), CMD)
@@ -201,12 +235,21 @@ p.check("the long lists are counts until asked for",
 p.check("...with a toggle each, named for its list",
         [pev("startsToggle.Accessible.name"), pev("scheduleToggle.Accessible.name")],
         ["Show All: Starts with the computer", "Show All: Runs on a schedule"])
+p.check("...and describing what the folded list holds: its count and the line under it",
+        [pev("startsToggle.Accessible.description"), pev("scheduleToggle.Accessible.description").split("\n")[0]],
+        ["2 services\n1 more is set to start but is skipped on this computer.", "1 timer"])
 pev("startsToggle.clicked()")
 pev("scheduleToggle.clicked()")
 p.pump(50)
 p.check("Show All lists them, and says Hide",
         [pev("startsRepeater.count"), pev("startsToggle.text"), pev("scheduleRepeater.count")],
         [3, "Hide", 2])
+p.check("...and the open list is in the toggle's description, one line each, so a listener hears it",
+        [all(pev("startsRepeater.itemAt(%d).text" % i) in str(pev("startsToggle.Accessible.description")).split("\n")
+             for i in range(3)),
+         all(pev("scheduleRepeater.itemAt(%d).text" % i) in str(pev("scheduleToggle.Accessible.description")).split("\n")
+             for i in range(2))],
+        [True, True])
 p.check("the startup time is one line", pev("bootLabel.text"), "Ready in 6 s; all services by 41 s.")
 BUTTONS = """(function () { var out = [];
   (function walk(o) {
@@ -239,6 +282,8 @@ settle()
 p.check("Refresh gathers again with the same command", p.calls_matching("startup"), ["startup --all --json"])
 p.check("...and the page follows: an empty section is not drawn",
         [pev("failedHeading.visible"), pev("failedRepeater.count")], [False, 0])
+p.check("...and says the new page out loud, though Back said the last one",
+        json.loads(str(sev("JSON.stringify(said)")))[-1], pev("page.summary"))
 
 # --- problems, said calmly --------------------------------------------------------------------------
 serve("this is not json {")

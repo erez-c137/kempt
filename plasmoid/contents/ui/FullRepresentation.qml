@@ -166,6 +166,73 @@ PlasmaExtras.Representation {
         return null;
     }
 
+    // ...and every button it drew for one action, shown or not: Kirigami draws each action twice,
+    // a full button and an icon-only one, and shows whichever fits.
+    function buttonsFor(item, action, into) {
+        const found = into || [];
+        const kids = item ? (item.children || []) : [];
+        for (let i = 0; i < kids.length; i++) {
+            if (kids[i].action === action) found.push(kids[i]);
+            else popup.buttonsFor(kids[i], action, found);
+        }
+        return found;
+    }
+
+    // What a screen reader hears from a message's buttons. Kirigami names each button by its
+    // action's text and gives the action no say, so three services' banners read as three
+    // identical "Mute Until It Starts". An action that declares `spokenName` (and
+    // `spokenDescription`) has them bound onto its buttons and its More Actions menu entries
+    // here; the drawn words stay the action's text. Harmless to run again.
+    //
+    // Kirigami builds all of these in its own time: the full and icon-only buttons as its toolbar
+    // lays out, the More Actions menu in the background, and the menu's entries only while it is
+    // open. So the first run also hooks each of those to run this again (message.spokenHooks
+    // remembers what is hooked, so nothing is hooked twice).
+    function speakActionsAs(message) {
+        if (!message) return;
+        const actions = message.actions;
+        const named = [];
+        for (let i = 0; i < actions.length; i++)
+            if (actions[i].spokenName !== undefined) named.push(actions[i]);
+        if (named.length === 0) return;
+        const rerun = message.speakButtons;
+        const hooks = message.spokenHooks;
+        const hook = (obj, signal, later) => {
+            if (hooks.indexOf(obj) >= 0) return;
+            hooks.push(obj);
+            obj[signal].connect(later ? () => Qt.callLater(rerun) : rerun);
+        };
+        const speak = (item, a) => {
+            item.Accessible.name = Qt.binding(() => a.spokenName);
+            item.Accessible.description = Qt.binding(() => a.spokenDescription);
+        };
+        (function walk(o) {
+            const kids = o.children || [];
+            for (let k = 0; k < kids.length; k++) {
+                const kid = kids[k];
+                // The toolbar layout: it adds a button whenever it decides to draw one.
+                if (kid.hiddenActions !== undefined) hook(kid, "childrenChanged", true);
+                const a = named.find(x => x === kid.action);
+                if (a) speak(kid, a);
+                // The More Actions button: its menu arrives late, and fills only while open.
+                if (kid.menu !== undefined) {
+                    hook(kid, "menuChanged", true);
+                    const menu = kid.menu;
+                    if (menu) {
+                        // At once, not later: the entry takes focus as the menu opens.
+                        hook(menu, "countChanged", false);
+                        for (let m = 0; m < menu.count; m++) {
+                            const entry = menu.itemAt(m);
+                            const ea = entry ? named.find(x => x === entry.action) : undefined;
+                            if (ea) speak(entry, ea);
+                        }
+                    }
+                }
+                walk(kid);
+            }
+        })(message);
+    }
+
     // The risky choice opens on the recommended answer, so Enter stages rather than installs.
     // Later, not now: the message's buttons are laid out after the visibility change that shows them.
     // `then` runs after the focus move, in the same turn, so what it says is queued behind the
@@ -407,6 +474,53 @@ PlasmaExtras.Representation {
         }
     }
 
+    // --- Tab and Shift+Tab through the padlocks --------------------------------------------------
+    // Qt walks the focus chain in the order items are children of their parent, and a ListView
+    // makes every delegate it builds its LAST child: right for a row built below the others, wrong
+    // for one built above them as the list scrolls back up, and a long list only has the rows near
+    // its viewport at all. Measured before this: Shift+Tab into an 80-row list landed on row
+    // eighteen, and Shift+Tab up a list that had been scrolled left it for the header after the
+    // first row the view had to rebuild. So inside the list the padlocks step by ROW NUMBER, and
+    // focus arriving from outside is sent to the right end. The rows that can be focused are the
+    // ones with a live padlock: runtime rows have none, and while one hold runs the others stand
+    // down (UpdateItemDelegate's otherPending).
+
+    function pinAt(i) {
+        const rows = popup.vm.rows;
+        if (i < 0 || i >= rows.length || rows[i].kind !== "item" || rows[i].holdable === false) return null;
+        // While a hold is in flight only its own row's padlock is live (otherPending, below). Said
+        // before positioning: finding that out by building each row scrolled through all of them.
+        const pending = popup.plasmoidItem.pendingHold;
+        if (pending !== null && (pending.name !== rows[i].name || pending.backend !== rows[i].backend))
+            return null;
+        // Contain, so a row already on screen does not move. It also BUILDS the delegate.
+        rowsView.positionViewAtIndex(i, ListView.Contain);
+        const loader = rowsView.itemAtIndex(i);
+        return loader && loader.item && loader.item.pinFocusable() ? loader.item : null;
+    }
+
+    function focusPinFrom(start, forward) {
+        const rows = popup.vm.rows;
+        for (let i = start; i >= 0 && i < rows.length; i += forward ? 1 : -1) {
+            const row = popup.pinAt(i);
+            if (row) {
+                row.focusPin(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // One Tab or Shift+Tab from the padlock on row `index`. Past either end, focus leaves to the
+    // control the focus chain has on that side of the whole list: the last-run row or the footer
+    // below it, the header or a message's button above it.
+    function stepPin(index, forward) {
+        if (popup.focusPinFrom(index + (forward ? 1 : -1), forward)) return;
+        const out = forward ? lastRunView.nextItemInFocusChain(true)
+                            : listArea.nextItemInFocusChain(false);
+        if (out) out.forceActiveFocus(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason);
+    }
+
     Connections {
         target: popup.plasmoidItem
         function onHoldOutcome(name, hold, ok, message) {
@@ -539,10 +653,13 @@ PlasmaExtras.Representation {
                 // as the name. It also carries the CLI's own reason when the last check failed:
                 // that reason belongs on the button that tries again, and the footer beside it says
                 // that a check failed at all.
-                Accessible.description: popup.vm.stale && popup.vm.staleReason.length > 0
-                    ? i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
-                      + "\n" + popup.vm.staleReason
-                    : i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+                // With Update Now hidden this is where the popup opens, so it says the heading
+                // first: the heading is never a tab stop, and Update Now says it when it is there.
+                Accessible.description: [
+                    updateButton.visible ? "" : popup.vm.headerText,
+                    i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer."),
+                    popup.vm.stale ? popup.vm.staleReason : ""
+                ].filter(s => s.length > 0).join("\n")
                 PlasmaComponents.ToolTip.text: popup.vm.stale && popup.vm.staleReason.length > 0
                                                ? text + "\n" + popup.vm.staleReason : text
                 PlasmaComponents.ToolTip.visible: hovered || visualFocus
@@ -910,6 +1027,11 @@ PlasmaExtras.Representation {
                          : popup.vm.riskyMessage
             Accessible.name: text
             readonly property bool asking: popup.shows("riskyChoice")
+            // Its buttons' words for a screen reader (speakActionsAs), hooked as the banner's are.
+            function speakButtons() { popup.speakActionsAs(riskyMessage); }
+            property var spokenHooks: []
+            Component.onCompleted: Qt.callLater(speakButtons)
+            onVisibleChanged: Qt.callLater(speakButtons)
             visible: popup.shows("kernel") || asking
             // Polite: it answers the click. Said after the focus lands on Install on Next Restart,
             // so it follows the button's name instead of being cut off by it, and it ends on the
@@ -932,6 +1054,11 @@ PlasmaExtras.Representation {
                     // one staging a transaction, is not a distinction anybody can make.
                     icon.name: "system-software-update"
                     tooltip: popup.stageTooltip
+                    // As the question after Update Now the popup opens here, with Update Now gone,
+                    // so this is where a listener hears the heading's count.
+                    readonly property string spokenName: text
+                    readonly property string spokenDescription: riskyMessage.asking
+                        ? popup.vm.headerText + "\n" + tooltip : tooltip
                     // Gone, not greyed, while a Fedora release upgrade is stored: the message that
                     // replaces this one says why, and a disabled button with its explanation in a
                     // different message is a puzzle rather than an answer.
@@ -1163,7 +1290,25 @@ PlasmaExtras.Representation {
                     required property int index
                     readonly property var modelData: popup.vm.startupEntries[index]
                         || ({ unit: "", scope: "", name: "", command: "", text: "" })
-                    Component.onCompleted: popup.plainTextMessage(startupEntry)
+                    Component.onCompleted: {
+                        popup.plainTextMessage(startupEntry);
+                        Qt.callLater(speakButtons);
+                    }
+                    // Names the buttons for a screen reader (speakActionsAs), which hooks what
+                    // Kirigami builds later. A function of each message's own, since
+                    // Qt.callLater runs one call per function: handed popup.speakActionsAs,
+                    // three messages got one call.
+                    function speakButtons() { popup.speakActionsAs(startupEntry); }
+                    property var spokenHooks: []
+                    onVisibleChanged: Qt.callLater(speakButtons)
+                    // What happened to the service, without the line that only names it: the
+                    // buttons already say the name. One service's message has no such line,
+                    // since its first line is a sentence.
+                    readonly property string whatHappened: {
+                        const lines = text.split("\n");
+                        if (lines.length > 1 && lines[0] === modelData.name) lines.shift();
+                        return lines.join(" ");
+                    }
                     Layout.fillWidth: true
                     type: Kirigami.MessageType.Warning
                     // Kirigami starts every InlineMessage hidden; the banner around it decides.
@@ -1174,7 +1319,18 @@ PlasmaExtras.Representation {
                                                              : modelData.text
                     Accessible.name: text
                     actions: [
+                        // Each button names its service to a screen reader (speakActionsAs):
+                        // with three services up, the drawn words are the same three times.
+                        // Copy is the first stop in each message, so its description is the
+                        // message's own news as well as the command it copies.
                         Kirigami.Action {
+                            // The drawn words first, so voice control finds the button by
+                            // what it shows, as the Startup page's Copy Command does.
+                            readonly property string spokenName:
+                                i18nc("@action:button a service's name follows",
+                                      "Copy Command: %1", startupEntry.modelData.name)
+                            readonly property string spokenDescription:
+                                startupEntry.whatHappened + "\n" + startupEntry.modelData.command
                             text: i18n("Copy Command")
                             icon.name: "edit-copy"
                             tooltip: startupEntry.modelData.command
@@ -1182,9 +1338,16 @@ PlasmaExtras.Representation {
                             onTriggered: source => popup.copyToClipboard(startupEntry.modelData.command)
                         },
                         Kirigami.Action {
+                            readonly property bool muting:
+                                popup.plasmoidItem.startupMutePending === startupEntry.key
+                            readonly property string spokenName: muting
+                                ? i18nc("@action:button a service's name follows",
+                                        "Muting…: %1", startupEntry.modelData.name)
+                                : i18nc("@action:button a service's name follows",
+                                        "Mute Until It Starts: %1", startupEntry.modelData.name)
+                            readonly property string spokenDescription: tooltip
                             // The label is what a screen reader reads, so the running state is words.
-                            text: popup.plasmoidItem.startupMutePending === startupEntry.key
-                                  ? i18n("Muting…") : i18n("Mute Until It Starts")
+                            text: muting ? i18n("Muting…") : i18n("Mute Until It Starts")
                             icon.name: "notifications-disabled"
                             tooltip: i18n("Kempt stops mentioning it until it starts cleanly again.")
                             Accessible.description: tooltip
@@ -1350,12 +1513,25 @@ PlasmaExtras.Representation {
                     // a button, so building them the ordinary way costs nothing worth having.
                     reuseItems: false
 
+                    // Focus arriving from outside the list by Tab starts at the first padlock,
+                    // and by Shift+Tab at the last, wherever the view's children happen to be.
+                    // The reason says which: nothing in this widget focuses a padlock with either
+                    // one in code (UpdateItemDelegate's focusPin uses the Shortcut reason).
+                    onActiveFocusChanged: {
+                        if (!activeFocus) return;
+                        const it = Window.activeFocusItem;
+                        if (!it) return;
+                        if (it.focusReason === Qt.TabFocusReason) popup.focusPinFrom(0, true);
+                        else if (it.focusReason === Qt.BacktabFocusReason)
+                            popup.focusPinFrom(popup.vm.rows.length - 1, false);
+                    }
+
                     delegate: Loader {
                         width: rowsView.width
                         required property var modelData
-                        // Only the scroll-into-view below needs this; a Loader gets `index` from
-                        // the view the same way it gets `modelData`, and required is how this
-                        // file asks for either.
+                        // The scroll-into-view and the Tab steps below need this; a Loader gets
+                        // `index` from the view the same way it gets `modelData`, and required is
+                        // how this file asks for either.
                         required property int index
                         sourceComponent: modelData.kind === "header" ? headerComponent : itemComponent
 
@@ -1447,6 +1623,8 @@ PlasmaExtras.Representation {
                                 // Component.onCompleted the item is not in the window's scene yet
                                 // and forceActiveFocus there does nothing at all.
                                 Component.onCompleted: if (popup.claimRefocus(modelData.name)) Qt.callLater(focusPin)
+                                // Tab and Shift+Tab on its padlock: by row number (see stepPin).
+                                onTabbed: forward => popup.stepPin(index, forward)
                             }
                         }
                     }
@@ -1574,11 +1752,63 @@ PlasmaExtras.Representation {
             visible: popup.plasmoidItem.lastRun !== null && !popup.shows("report")
             model: 1
 
+            // The row's own focus, drawn. The row is a tab stop (below) and Plasma's list items show
+            // keyboard focus through their view's highlight; without one, Tab would land on a row
+            // that looks exactly as it did. Only while the row itself holds focus: its expander and
+            // its actions draw their own rings.
+            highlight: PlasmaExtras.Highlight {
+                visible: lastRunView.currentItem !== null && lastRunView.currentItem.activeFocus
+            }
+            // The highlight follows the current row, and the component clears it whenever the
+            // pointer leaves the row (ExpandableListItem's hover handling). While the row has the
+            // keyboard it stays current, so its frame stays drawn.
+            onCurrentIndexChanged: {
+                const row = itemAtIndex(0);
+                if (currentIndex < 0 && row !== null && row.activeFocus) currentIndex = 0;
+            }
+
             delegate: PlasmaExtras.ExpandableListItem {
+                id: lastRunItem
                 // Stated rather than injected. The component declares `index` as a property of its
                 // own, which shadows the one a view hands its delegates, and its click handling
                 // writes that value into the view's currentIndex. One item, so it is 0.
                 index: 0
+                // A tab stop of its own, and the reason is Shift+Tab. The component wires
+                // KeyNavigation.tab from the row to its expander, and Qt makes that link two-way,
+                // so Shift+Tab from the expander always landed on this row; and from a row that is
+                // not in the focus chain, Qt's backward walk lost the whole update list and went
+                // straight to the gear. Measured: every padlock unreachable backwards. As a stop,
+                // the row sits between the last padlock and its expander in both directions, and
+                // what it says is the title as its name and the subtitle as its description.
+                activeFocusOnTab: true
+                onActiveFocusChanged: if (activeFocus) lastRunView.currentIndex = 0
+
+                // The expander says only "Expand" and never whether the row is open: libplasma
+                // names it, and Qt 6.11 has no accessible expanded state to report. So it is named
+                // here, with the state in the words, the way the padlocks carry theirs. The
+                // component keeps the button private, so it is found by its icon, which is the one
+                // thing the component sets on it and on nothing else.
+                property Item expandButton: null
+                readonly property string expandName: expanded ? i18n("Hide details of the last update")
+                                                              : i18n("Show details of the last update")
+                function findExpander(item) {
+                    const kids = item ? item.children : [];
+                    for (let i = 0; i < kids.length; i++) {
+                        const k = kids[i];
+                        if (k.icon !== undefined && k.display !== undefined && k.icon !== null
+                                && (k.icon.name === "expand" || k.icon.name === "collapse")) return k;
+                        const found = findExpander(k);
+                        if (found) return found;
+                    }
+                    return null;
+                }
+                Component.onCompleted: expandButton = findExpander(lastRunItem)
+                Binding {
+                    target: lastRunItem.expandButton
+                    when: lastRunItem.expandButton !== null
+                    property: "Accessible.name"
+                    value: lastRunItem.expandName
+                }
                 icon: "documentinfo"
                 title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs)
                 // Only a failure earns a second line here, or extensions the run's automatic removal
@@ -1714,7 +1944,10 @@ PlasmaExtras.Representation {
                 icon.name: "system-software-update"
                 readonly property string stagesTooltip: popup.vm.updateStages ? popup.stageTooltip : ""
                 Accessible.name: text
-                Accessible.description: stagesTooltip
+                // The popup opens here, so this is where a listener hears the heading's count,
+                // which is never a tab stop of its own.
+                Accessible.description: [popup.vm.headerText, stagesTooltip]
+                    .filter(s => s.length > 0).join("\n")
                 PlasmaComponents.ToolTip.text: stagesTooltip
                 PlasmaComponents.ToolTip.visible: (hovered || visualFocus) && stagesTooltip.length > 0
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
@@ -1786,6 +2019,7 @@ PlasmaExtras.Representation {
         visible: popup.startupOpen && !popup.plasmoidItem.updating
         onBackRequested: popup.closeStartup()
         onCopyRequested: text => popup.copyToClipboard(text)
+        onAnnounceRequested: sentence => popup.announce(sentence)
     }
 
     // --- the updating state ----------------------------------------------------------------------
