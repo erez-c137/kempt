@@ -37,6 +37,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **Screen readers now hear the whole widget.** Shift+Tab visits every control in reverse.
+  Opening the list says how many updates are waiting, and each padlock says its version change.
+  Banner buttons name their service, settings radios name their setting, and the Startup page
+  reads out what it found.
 - **A staged update now says how many updates it holds.** When the check before staging found
   nothing new, but staging then found updates, the summary and `kempt log` said "Staged 0
   updates". The count now comes from the staged update itself.
