@@ -62,9 +62,13 @@ ColumnLayout {
     }
 
     // Said once per gather that lands while the page is open. Later than the change itself, so the
-    // summary has caught up with the new page.
+    // summary has caught up with the new page. Not when Back has already said it since the
+    // gather started: a fast gather lands before the keyboard reaches Back.
+    property string saidByBack: ""
+    onBusyChanged: if (busy) saidByBack = ""
     function sayWhatLanded() {
-        if (page.visible && page.sp !== null) page.announceRequested(page.summary);
+        if (page.visible && page.sp !== null && page.summary !== page.saidByBack)
+            page.announceRequested(page.summary);
     }
     onSpChanged: Qt.callLater(page.sayWhatLanded)
 
@@ -123,6 +127,7 @@ ColumnLayout {
             Accessible.description: page.summary.length > 0
                 ? i18n("Returns to the list of updates.") + "\n" + page.summary
                 : i18n("Returns to the list of updates.")
+            onActiveFocusChanged: if (activeFocus) page.saidByBack = page.summary
             Keys.onReturnPressed: animateClick()
             Keys.onEnterPressed: animateClick()
             onClicked: page.backRequested()

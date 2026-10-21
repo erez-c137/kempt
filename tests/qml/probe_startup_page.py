@@ -202,6 +202,14 @@ p.check("...and lists what changed and which scheduled job failed, word for word
         [True, True])
 p.check("...and the same summary is said once when the gather lands",
         json.loads(str(sev("JSON.stringify(said)"))).count(pev("page.summary")), 1)
+# ...but not when Back already said it: a gather that answers before the keyboard reaches Back
+# is heard in Back's description, and the same words again straight after are noise.
+_heard = len(json.loads(str(sev("JSON.stringify(said)"))))
+pev("refreshButton.forceActiveFocus()")
+pev("backButton.forceActiveFocus(Qt.TabFocusReason)")
+pev("page.sayWhatLanded()")
+p.check("...and not again when Back has already said it",
+        len(json.loads(str(sev("JSON.stringify(said)")))), _heard)
 p.check("the updates are out of the way", lev("startupPage.visible && !updatingPane.visible"), True)
 
 p.check("what failed is listed in full, (when you log in) for a login item",
@@ -274,6 +282,8 @@ settle()
 p.check("Refresh gathers again with the same command", p.calls_matching("startup"), ["startup --all --json"])
 p.check("...and the page follows: an empty section is not drawn",
         [pev("failedHeading.visible"), pev("failedRepeater.count")], [False, 0])
+p.check("...and says the new page out loud, though Back said the last one",
+        json.loads(str(sev("JSON.stringify(said)")))[-1], pev("page.summary"))
 
 # --- problems, said calmly --------------------------------------------------------------------------
 serve("this is not json {")
