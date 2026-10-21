@@ -612,10 +612,13 @@ PlasmaExtras.Representation {
                 // as the name. It also carries the CLI's own reason when the last check failed:
                 // that reason belongs on the button that tries again, and the footer beside it says
                 // that a check failed at all.
-                Accessible.description: popup.vm.stale && popup.vm.staleReason.length > 0
-                    ? i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
-                      + "\n" + popup.vm.staleReason
-                    : i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+                // With Update Now hidden this is where the popup opens, so it says the heading
+                // first: the heading is never a tab stop, and Update Now says it when it is there.
+                Accessible.description: [
+                    updateButton.visible ? "" : popup.vm.headerText,
+                    i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer."),
+                    popup.vm.stale ? popup.vm.staleReason : ""
+                ].filter(s => s.length > 0).join("\n")
                 PlasmaComponents.ToolTip.text: popup.vm.stale && popup.vm.staleReason.length > 0
                                                ? text + "\n" + popup.vm.staleReason : text
                 PlasmaComponents.ToolTip.visible: hovered || visualFocus
@@ -1877,7 +1880,10 @@ PlasmaExtras.Representation {
                 icon.name: "system-software-update"
                 readonly property string stagesTooltip: popup.vm.updateStages ? popup.stageTooltip : ""
                 Accessible.name: text
-                Accessible.description: stagesTooltip
+                // The popup opens here, so this is where a listener hears the heading's count,
+                // which is never a tab stop of its own.
+                Accessible.description: [popup.vm.headerText, stagesTooltip]
+                    .filter(s => s.length > 0).join("\n")
                 PlasmaComponents.ToolTip.text: stagesTooltip
                 PlasmaComponents.ToolTip.visible: (hovered || visualFocus) && stagesTooltip.length > 0
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay

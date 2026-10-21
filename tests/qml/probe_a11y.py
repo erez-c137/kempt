@@ -273,6 +273,11 @@ p.check("...with real focus in a real scene, not just a flag on the item",
 p.check("...and visibly so: a focus ring is drawn from visualFocus, which only the keyboard "
         "focus reasons set, so Qt.PopupFocusReason here would be focus nobody can see",
         lev("updateButton.visualFocus"), True)
+# The count in the heading is never a tab stop, so the first stop says it: opening the popup
+# reads "Update Now, button" and then how many updates it would install.
+p.check("...and Update Now's description is the heading's count, so opening says how many",
+        [lev("updateButton.Accessible.description"), lev("popup.vm.headerText")],
+        [lev("popup.vm.headerText"), "10 updates available"])
 settle()
 
 # ...and the state where that button is not on screen at all. It is HIDDEN rather than disabled,
@@ -290,6 +295,8 @@ ev("root.popupOpened()")
 p.pump(50)
 p.check("...so opening the popup puts the keyboard on Refresh instead", focused(), "refreshButton")
 p.check("...and nothing is focusing the hidden button", lev("updateButton.activeFocus"), False)
+p.check("...and Refresh, the first stop now, starts its description with the heading",
+        str(lev("refreshButton.Accessible.description")).split("\n")[0], lev("popup.vm.headerText"))
 settle()
 
 # ==================================================================================================
