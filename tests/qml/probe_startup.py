@@ -188,6 +188,29 @@ settle()
 p.check("a unit name the CLI would refuse gets no message, so three services: a heading with the count, one message each",
         [lev("startupHeading.text"), lev("startupRepeater.count")],
         ["3 services didn't start after the update.", 3])
+# Three of each button, and the words on them are the same three times. What a screen reader is
+# told is not: each button's accessible name carries its service, and the Copy button, the first
+# stop in each message, carries what happened as its description.
+p.pump(100)
+BTN = "popup.buttonFor(startupRepeater.itemAt(%d), startupRepeater.itemAt(%d).actions[%d])"
+_names = [lev("startupRepeater.itemAt(%d).modelData.name" % i) for i in range(3)]
+p.check("each Mute button names its own service to a screen reader",
+        [lev(BTN % (i, i, 1) + ".Accessible.name") for i in range(3)],
+        ["Mute %s until it starts" % n for n in _names])
+p.check("...and so does each Copy Command button",
+        [lev(BTN % (i, i, 0) + ".Accessible.name") for i in range(3)],
+        ["Copy command for %s" % n for n in _names])
+p.check("...while the words drawn on them stay as they were",
+        [lev(BTN % (0, 0, 0) + ".text"), lev(BTN % (0, 0, 1) + ".text")],
+        ["Copy Command", "Mute Until It Starts"])
+p.check("...Copy Command says what happened to the service, and the command it copies",
+        lev(BTN % (0, 0, 0) + ".Accessible.description"),
+        "It stopped with an error. A system service (bluetooth.service).\n"
+        "systemctl status bluetooth.service")
+p.check("...and Mute says what muting does",
+        lev(BTN % (0, 0, 1) + ".Accessible.description"),
+        "Kempt stops mentioning it until it starts cleanly again.")
+
 lev("engineCopyClip.text = ''")
 lev("startupRepeater.itemAt(1).actions[0].trigger()")
 p.check("a session service's command has --user", lev("engineCopyClip.text"),

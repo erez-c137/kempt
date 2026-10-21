@@ -166,6 +166,37 @@ PlasmaExtras.Representation {
         return null;
     }
 
+    // ...and every button it drew for one action, shown or not: Kirigami draws each action twice,
+    // a full button and an icon-only one, and shows whichever fits.
+    function buttonsFor(item, action, into) {
+        const found = into || [];
+        const kids = item ? (item.children || []) : [];
+        for (let i = 0; i < kids.length; i++) {
+            if (kids[i].action === action) found.push(kids[i]);
+            else popup.buttonsFor(kids[i], action, found);
+        }
+        return found;
+    }
+
+    // What a screen reader hears from a message's buttons. Kirigami names each button by its
+    // action's text and gives the action no say, so three services' banners read as three
+    // identical "Mute Until It Starts". An action that declares `spokenName` (and
+    // `spokenDescription`) has them bound onto its buttons here; the drawn words stay the
+    // action's text. Run whenever the message may have built its buttons, which Kirigami does in
+    // its own time, and harmless to run again.
+    function speakActionsAs(message) {
+        const actions = message ? message.actions : [];
+        for (let i = 0; i < actions.length; i++) {
+            const a = actions[i];
+            if (a.spokenName === undefined) continue;
+            const buttons = popup.buttonsFor(message, a);
+            for (let j = 0; j < buttons.length; j++) {
+                buttons[j].Accessible.name = Qt.binding(() => a.spokenName);
+                buttons[j].Accessible.description = Qt.binding(() => a.spokenDescription);
+            }
+        }
+    }
+
     // The risky choice opens on the recommended answer, so Enter stages rather than installs.
     // Later, not now: the message's buttons are laid out after the visibility change that shows them.
     // `then` runs after the focus move, in the same turn, so what it says is queued behind the
@@ -1205,7 +1236,25 @@ PlasmaExtras.Representation {
                     required property int index
                     readonly property var modelData: popup.vm.startupEntries[index]
                         || ({ unit: "", scope: "", name: "", command: "", text: "" })
-                    Component.onCompleted: popup.plainTextMessage(startupEntry)
+                    Component.onCompleted: {
+                        popup.plainTextMessage(startupEntry);
+                        Qt.callLater(speakButtons);
+                    }
+                    // Kirigami builds the buttons when it lays the message out, and builds the
+                    // icon-only ones only when the row gets too narrow for the full ones. A
+                    // function of each message's own, since Qt.callLater runs one call per
+                    // function: handed popup.speakActionsAs, three messages got one call.
+                    function speakButtons() { popup.speakActionsAs(startupEntry); }
+                    onWidthChanged: Qt.callLater(speakButtons)
+                    onVisibleChanged: Qt.callLater(speakButtons)
+                    // What happened to the service, without the line that only names it: the
+                    // buttons already say the name. One service's message has no such line,
+                    // since its first line is a sentence.
+                    readonly property string whatHappened: {
+                        const lines = text.split("\n");
+                        if (lines.length > 1 && lines[0] === modelData.name) lines.shift();
+                        return lines.join(" ");
+                    }
                     Layout.fillWidth: true
                     type: Kirigami.MessageType.Warning
                     // Kirigami starts every InlineMessage hidden; the banner around it decides.
@@ -1216,7 +1265,15 @@ PlasmaExtras.Representation {
                                                              : modelData.text
                     Accessible.name: text
                     actions: [
+                        // Each button names its service to a screen reader (speakActionsAs):
+                        // with three services up, the drawn words are the same three times.
+                        // Copy is the first stop in each message, so its description is the
+                        // message's own news as well as the command it copies.
                         Kirigami.Action {
+                            readonly property string spokenName:
+                                i18n("Copy command for %1", startupEntry.modelData.name)
+                            readonly property string spokenDescription:
+                                startupEntry.whatHappened + "\n" + startupEntry.modelData.command
                             text: i18n("Copy Command")
                             icon.name: "edit-copy"
                             tooltip: startupEntry.modelData.command
@@ -1224,9 +1281,14 @@ PlasmaExtras.Representation {
                             onTriggered: source => popup.copyToClipboard(startupEntry.modelData.command)
                         },
                         Kirigami.Action {
+                            readonly property bool muting:
+                                popup.plasmoidItem.startupMutePending === startupEntry.key
+                            readonly property string spokenName: muting
+                                ? i18n("Muting %1…", startupEntry.modelData.name)
+                                : i18n("Mute %1 until it starts", startupEntry.modelData.name)
+                            readonly property string spokenDescription: tooltip
                             // The label is what a screen reader reads, so the running state is words.
-                            text: popup.plasmoidItem.startupMutePending === startupEntry.key
-                                  ? i18n("Muting…") : i18n("Mute Until It Starts")
+                            text: muting ? i18n("Muting…") : i18n("Mute Until It Starts")
                             icon.name: "notifications-disabled"
                             tooltip: i18n("Kempt stops mentioning it until it starts cleanly again.")
                             Accessible.description: tooltip
