@@ -214,11 +214,12 @@ PlasmaExtras.Representation {
     property bool startupOpen: false
 
     // The menu's request, taken once: from a popup already built, or by this one as it is built
-    // for the open the request asked for.
+    // for the open the request asked for. Only while the widget is on screen: a request it finds
+    // closed is dropped, so nothing gathers out of sight and the next open shows the updates.
     function takeStartupRequest() {
         if (!popup.plasmoidItem.startupPageWanted) return;
         popup.plasmoidItem.startupPageWanted = false;
-        popup.openStartup();
+        if (popup.plasmoidItem.expanded || popup.plasmoidItem.popupOnScreen) popup.openStartup();
     }
 
     function openStartup() {

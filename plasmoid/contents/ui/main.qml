@@ -1386,6 +1386,8 @@ PlasmoidItem {
     // seen, so the persistent Last update row takes over.
     function popupClosed() {
         popupOnScreen = false;
+        startupPageWanted = false;
+        // A Startup page request belongs to the open it asked for, never to the next one.
         // An acknowledgement that did not land is tried again at the next open.
         securityAckSent = "";
         startupAckSent = "";
@@ -1705,12 +1707,14 @@ PlasmoidItem {
     // for and may not exist yet. The popup takes it (sets it back to false) when it opens the page,
     // whether it was already there or is built by this open. Only a closed widget is opened:
     // writing `expanded` outside plasmashell segfaults, so a probe drives the open widget, and
-    // popupOnScreen is what says it is open.
+    // popupOnScreen is what says it is open. The expandedChanged that the write emits has run
+    // popupOpened by the next line, so an open that did not happen leaves no request behind for
+    // the next ordinary open to find; popupClosed drops one that was not taken.
     property bool startupPageWanted: false
 
     function showStartupPage() {
         if (!root.popupOnScreen) root.expanded = true;
-        root.startupPageWanted = true;
+        if (root.popupOnScreen) root.startupPageWanted = true;
     }
 
     // Assigned imperatively, in a try, with a witness - same shape and reason as claimTrayPresence.

@@ -149,6 +149,11 @@ p.check("...beside it, in that order", "Plasmoid.contextualActions = [checkActio
 # the request it leaves is driven at the end of this file.
 p.check("...and a closed widget opens first, through the property only main.qml writes",
         "if (!root.popupOnScreen) root.expanded = true;" in _MAIN, True)
+p.check("...and asks for the page only if that open happened, so a failed one leaves no request behind",
+        "if (!root.popupOnScreen) root.expanded = true; if (root.popupOnScreen) root.startupPageWanted = true;" in _MAIN,
+        True)
+p.check("...and a request left when the widget closes goes with it",
+        "function popupClosed() { popupOnScreen = false; startupPageWanted = false;" in _MAIN, True)
 
 # --- never by the background check ----------------------------------------------------------------
 ev("root.doCheck()")
@@ -319,20 +324,43 @@ ev("root.doCheck()")
 settle()
 p.check("...and nothing gathers in the background after all that", p.call_count("startup"), 0)
 
-# --- chosen while the widget was closed ----------------------------------------------------------------
-# Plasma builds the full view lazily, on the open the menu entry asks for, so the request waits on
-# main.qml until a view takes it. The view above goes first, as there is only ever one, and a
-# second one built now stands in for that first build.
+# --- a request while the widget is not on screen ----------------------------------------------------
+# The open it asked for did not happen. Nothing gathers out of sight, and the next ordinary open
+# shows the updates.
 ev("root.popupClosed()")
+p.pump(50)
+p.clear_calls()
+ev("root.startupPageWanted = true")
+p.pump(100)
+p.check("a request while the widget is not on screen gathers nothing and opens no page",
+        [p.call_count("startup --all"), lev("popup.startupOpen"), ev("root.startupPageWanted")], [0, False, False])
+ev("root.popupOpened()")
+settle()
+p.check("...so the next ordinary open shows the updates, and still gathers nothing",
+        [lev("popup.startupOpen"), lev("startupPage.visible"), p.call_count("startup --all")], [False, False, 0])
+ev("startupAction.trigger()")
+settle()
+p.check("...and the menu entry still opens the page after that", [lev("popup.startupOpen"), p.call_count("startup --all")],
+        [True, 1])
+ev("root.popupClosed()")
+p.check("a request is gone once the widget closes", ev("root.startupPageWanted"), False)
+
+# --- chosen while the widget was closed ----------------------------------------------------------------
+# Plasma builds the full view lazily, on the open the menu entry asks for: the open comes first,
+# then the request, which waits on main.qml until the view being built takes it. The view above
+# goes first, as there is only ever one, and a second one built now stands in for that first build.
 pop.setParentItem(None)
 pop.deleteLater()
 p.pump(50)
+p.clear_calls()
+ev("root.popupOpened()")
+settle()
+p.clear_calls()
 ev("root.startupPageWanted = true")
 pop2 = full.createWithInitialProperties({"plasmoidItem": root, "vm": root.property("vm")})
 QQmlEngine.setObjectOwnership(pop2, QQmlEngine.CppOwnership)
 p.keep.append(pop2)
 lev2 = p.evaluator(pop2)
-ev("root.popupOpened()")
 settle()
 p.check("a view built after the request opens on the Startup page, and takes the request",
         [lev2("popup.startupOpen"), ev("root.startupPageWanted")], [True, False])
