@@ -467,6 +467,48 @@ assert_eq "$(calls analyze | wc -l | tr -d ' '):$(jq -r '.[-1].boot_id' "$KEMPT_
   "the next boot is asked once and recorded"
 jq '[.[] | select(.boot_id != "boot-next")]' "$KEMPT_STATE_DIR/boot-times.json" > "$TESTTMP/bt" \
   && mv "$TESTTMP/bt" "$KEMPT_STATE_DIR/boot-times.json"
+
+# Until startup has finished, systemd-analyze says "Bootup is not yet finished." and exits 1. Each
+# check asks again (a few milliseconds), records nothing, and still succeeds.
+reset_calls
+mv "$SD/analyze" "$SD/analyze.later"
+KEMPT_BOOT_ID=boot-early startup_boot_record_quietly; rc1=$?
+KEMPT_BOOT_ID=boot-early startup_boot_record_quietly; rc2=$?
+mv "$SD/analyze.later" "$SD/analyze"
+assert_eq "$rc1:$rc2:$(jq '[.[] | select(.boot_id == "boot-early")] | length' "$KEMPT_STATE_DIR/boot-times.json")" "0:0:0" \
+  "while startup is not yet finished, a check records nothing and succeeds"
+assert_eq "$(calls analyze | tr '\n' ' ')" "time time " "...and each check asks systemd-analyze once more"
+
+# A systemd-analyze that hangs costs the check no more than its deadline.
+cat > "$TESTTMP/analyze-hang" <<'STUB'
+#!/usr/bin/env bash
+sleep 30
+STUB
+chmod +x "$TESTTMP/analyze-hang"
+t0=$SECONDS
+STARTUP_DEADLINE=$(( SECONDS + 1 )) KEMPT_SYSTEMD_ANALYZE_CMD="$TESTTMP/analyze-hang" KEMPT_BOOT_ID=boot-hang \
+  startup_boot_record_quietly; rc=$?
+took=$(( SECONDS - t0 ))
+assert_eq "$rc:$(( took <= 3 )):$(jq '[.[] | select(.boot_id == "boot-hang")] | length' "$KEMPT_STATE_DIR/boot-times.json")" "0:1:0" \
+  "a hanging systemd-analyze is cut off at the deadline, records nothing, and the check succeeds"
+
+# The page and a check can record the same boot at once. Whichever writes last, the page's slowest
+# unit stays: a check that read no entry for this boot, then finds the page's entry under the lock,
+# merges into it.
+cat > "$TESTTMP/analyze-race" <<'STUB'
+#!/usr/bin/env bash
+jq -c '. + [{boot_id: "boot-race", at: "2026-10-21T08:00:00Z", ready_sec: 6.117, userspace_sec: 180.996,
+             total_sec: 199.596, slowest: {unit: "x.service", description: "X", sec: 9}}]' \
+  "$KEMPT_STATE_DIR/boot-times.json" > "$KEMPT_STATE_DIR/bt.race" && mv "$KEMPT_STATE_DIR/bt.race" "$KEMPT_STATE_DIR/boot-times.json"
+cat "$SD_DIR/analyze"
+STUB
+chmod +x "$TESTTMP/analyze-race"
+KEMPT_SYSTEMD_ANALYZE_CMD="$TESTTMP/analyze-race" KEMPT_BOOT_ID=boot-race startup_boot_record_quietly
+assert_json_eq "$(jq -c '[.[] | select(.boot_id == "boot-race") | [.ready_sec, .slowest.unit]]' "$KEMPT_STATE_DIR/boot-times.json")" \
+  '[[6.117,"x.service"]]' "a check recording a boot the page has just recorded keeps its slowest unit, once"
+assert_eq "$(jq -r '.[-1].boot_id' "$KEMPT_STATE_DIR/boot-times.json")" "boot-race" "...as the newest entry"
+jq '[.[] | select(.boot_id != "boot-race")]' "$KEMPT_STATE_DIR/boot-times.json" > "$TESTTMP/bt" \
+  && mv "$TESTTMP/bt" "$KEMPT_STATE_DIR/boot-times.json"
 assert_contains "$(sed -n '/^cmd_check()/,/^}/p' "$KEMPT")" "startup_boot_record_quietly" "cmd_check calls it"
 assert_eq "$(page | jq -r '.boot_time.slowest.unit')" 'systemd-fsck@dev-disk-by\x2duuid-655f.service' \
   "the page fills in the slowest unit later"

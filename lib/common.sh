@@ -2410,8 +2410,9 @@ startup_page_schedule() {
     '{timers: $t[0], cron: $c[0], at: $a[0], notes: $n}'
 }
 
-# Startup time. systemd-analyze answers only once startup has finished, so a boot is recorded the
-# first time it answers: by a check, or by the page. The slowest unit costs half a second, so only
+# Startup time. systemd-analyze answers only once startup has finished ("Bootup is not yet
+# finished.", rc 1, until then), so a boot is recorded the first time it answers: by a check, or by
+# the page. Until then each check asks again, which costs a few milliseconds. The slowest unit costs half a second, so only
 # the page asks for it, once per boot. The file keeps the newest 11 boots.
 startup_analyze_times() {  # → "ready userspace total" in seconds, "-" for what systemd did not say
   startup_run "$KEMPT_SYSTEMD_ANALYZE_CMD" time | awk "$STARTUP_DUR_AWK"'
@@ -2450,9 +2451,12 @@ startup_boot_record() {  # [slowest]
     slow="$(startup_slowest)"
     entry="$(jq -c --argjson s "${slow:-null}" '. + {slowest: $s}' <<<"$entry")"
   fi
+  # Merged into what is there for this boot, read again under the lock: the page and a check can
+  # record the same boot at once, and the one that writes last must not drop the other's slowest.
   writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 1
   all="$(jq -c 'if type == "array" then . else [] end' "$BOOT_TIMES_FILE" 2>/dev/null)" || all='[]'
-  jq -c --argjson e "$entry" 'map(select(.boot_id != $e.boot_id)) + [$e] | .[-11:]' <<<"${all:-[]}" \
+  jq -c --argjson e "$entry" '((map(select(.boot_id == $e.boot_id)) | last // {}) + $e) as $m
+    | map(select(.boot_id != $e.boot_id)) + [$m] | .[-11:]' <<<"${all:-[]}" \
     | atomic_write "$BOOT_TIMES_FILE" 2>/dev/null || true
   writer_unlock
 }

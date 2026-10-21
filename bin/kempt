@@ -537,7 +537,8 @@ cmd_check() {
   # Right after the harvest, so the first check of a new boot compares against the stage it just
   # recorded. Never fails the check.
   startup_observe || true
-  # Once per boot: how long this boot took, for the Startup page's usual.
+  # How long this boot took, for the Startup page's usual: recorded once per boot, and until startup
+  # has finished each check asks again (a few milliseconds).
   startup_boot_record_quietly
   maybe_refresh_metadata "$force_refresh" "$anyway"
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
