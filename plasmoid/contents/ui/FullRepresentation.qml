@@ -1955,6 +1955,7 @@ PlasmaExtras.Representation {
         visible: popup.startupOpen && !popup.plasmoidItem.updating
         onBackRequested: popup.closeStartup()
         onCopyRequested: text => popup.copyToClipboard(text)
+        onAnnounceRequested: sentence => popup.announce(sentence)
     }
 
     // --- the updating state ----------------------------------------------------------------------

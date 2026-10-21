@@ -825,8 +825,9 @@ def _code(name):
 #
 # StartupPage.qml has three: Back says where it goes, each Copy Command carries the command it
 # copies, so one service's button is told from the next by ear, and Refresh's tooltip reads its
-# description back rather than repeating the literal.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 8, "configGeneral.qml": 1, "StartupPage.qml": 3}
+# description back rather than repeating the literal. The fourth is Show All and Hide, which carry
+# the folded list's count, and the whole list once it is open.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 8, "configGeneral.qml": 1, "StartupPage.qml": 4}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)
