@@ -126,7 +126,7 @@ zero updates.
 
 | Exit | When |
 | --- | --- |
-| 0 | The state was printed. Without `--strict`, this includes a failed backend, and the previous state printed because another check held the lock for 60 seconds. |
+| 0 | The state was printed. Without `--strict`, this includes a failed backend, and the previous state printed because another check held the lock for 60 seconds or a Kempt update was running. |
 | 1 | The new state could not be saved. With `--strict`, also a failed backend (`status` `"stale"`), Flatpak apps installed for you only that could not be listed (`status` `"ok"`, `.backends.flatpak.scopes.user` `"failed"`), or a served previous state. The state is printed first either way. |
 | 2 | Unknown option. |
 
@@ -217,7 +217,7 @@ doctor` checks it.
 | 0 | Every backend succeeded, or you aborted at the prompt. |
 | 1 | A backend failed. |
 | 2 | Unknown option. |
-| 3 | Another update is running. |
+| 3 | Another update is running, including another user's. Kempt says so before it checks anything. |
 | 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, or `--surface=offline` while a Fedora release upgrade is stored. |
 | 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. A busy lock while rebuilding a staged update exits 1. |
 
@@ -636,6 +636,7 @@ Its wording is fixed, so you can search it:
 | `startup muted <scope>:<unit>` / `startup unmuted <scope>:<unit>` | `kempt startup mute` or `unmute` ran. |
 | `security check failed` | dnf could not list the security advisories. The check itself still worked. At most once a day. |
 | `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |
+| `check skipped (a Kempt update is running)` | The root helper would not query dnf while a Kempt update or check ran, so the check printed the previous state. A refresh refused the same way is not recorded as failed. |
 | `check shared last_check=<time>` | A `--coalesce` check took the answer of the check stamped `<time>`. It changes no counts. |
 | `refresh ok` / `refresh failed` | The dnf metadata refresh ran. |
 | `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak refresh ran in the same step, while `include_flatpak` is on. Either can fail alone. |
@@ -645,6 +646,7 @@ Its wording is fixed, so you can search it:
 | `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |
 | `run failed rc=<n>: <reason>` | A run failed. The reason is the first log line that names the failure. |
+| `dnf outcome read from history (transaction <id> <status>, helper rc=<n>)` | The root helper and dnf5's history disagreed about the run's transaction. The history's status decides. |
 | `offline staged <n>` | An update was staged for the next restart. |
 | `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |

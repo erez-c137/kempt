@@ -321,6 +321,7 @@ event_plain() {  # event text → EVENT_PLAIN
     "startup recovered: "*) EVENT_PLAIN="Running again: ${t#startup recovered: }" ;;
     "startup muted "*:*) EVENT_PLAIN="Stopped mentioning ${t#startup muted *:} until it starts" ;;
     "startup unmuted "*:*) EVENT_PLAIN="Mentioning ${t#startup unmuted *:} again" ;;
+    "check skipped "*) EVENT_PLAIN="Not checked ${t#check skipped }" ;;
     "check shared last_check="*) EVENT_PLAIN="Check used the answer of the check at ${t#check shared last_check=}" ;;
     "refresh ok") EVENT_PLAIN="Package lists downloaded" ;;
     "refresh failed") EVENT_PLAIN="Package lists could not be downloaded" ;;
@@ -361,6 +362,12 @@ event_plain() {  # event text → EVENT_PLAIN
       EVENT_PLAIN="Staged update recorded, but its result after the restart will not be reported" ;;
     "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
     "live update refused by the root helper") EVENT_PLAIN="The update was refused: other users can change dnf's folders" ;;
+    "offline stage not started (another Kempt run is still in progress)")
+      EVENT_PLAIN="Nothing was staged: another Kempt update is still in progress" ;;
+    "offline stage not armed (another Kempt run is still in progress)")
+      EVENT_PLAIN="The update was staged, but not set to install: another Kempt update is still in progress" ;;
+    "dnf outcome read from history ("*" ok, "*) EVENT_PLAIN="The update succeeded, as dnf's history records" ;;
+    "dnf outcome read from history"*) EVENT_PLAIN="The update failed, as dnf's history records" ;;
     "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
     "offline marker "*) EVENT_PLAIN="Record of the staged update ${t#offline marker }" ;;
     "harvest applied"*) EVENT_PLAIN="Staged update installed on restart${t#harvest applied}" ;;
@@ -1398,6 +1405,30 @@ priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-;
 # `dnf5 offline clean`, which would delete exactly what the refusal protected.
 # shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
 KEMPT_APPLY_REFUSED=3
+# The helper's exit status when the dnf5 it started earlier for the same verb is still running: it
+# starts nothing, so a second run never lands beside a transaction still in flight. That earlier run
+# may finish while this one waits, so its history entry is never this run's evidence.
+# shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
+KEMPT_APPLY_BUSY=5
+# kempt-refresh answers the same way, with the same status, and both helpers print this sentence
+# after their own name. dnf_check says it in place of the helper's line, so a check that found an
+# earlier one still going reads as that and not as a broken check.
+# shellcheck disable=SC2034 # read by backends/dnf.sh, which is sourced beside this file
+KEMPT_HELPER_BUSY_TEXT="dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed."
+# kempt-refresh's sentence when the busy unit is one of kempt-apply's: a Kempt update is running,
+# perhaps another user's or the widget's. `kempt update`'s pre-flight stops on it with the plain
+# "another kempt update is running" (exit 3); a check reports it in place of the helper's line.
+# shellcheck disable=SC2034 # read by backends/dnf.sh and bin/kempt
+KEMPT_HELPER_UPDATE_BUSY_TEXT="dnf5 was not started, because a Kempt update is running. Nothing changed."
+# Whether a captured stderr holds either busy sentence (a helper's refusal with exit 5, with or
+# without its name in front): a Kempt run is under way, so a check or refresh skips rather than fails.
+helper_busy_in() {  # file
+  grep -qF -e "$KEMPT_HELPER_BUSY_TEXT" -e "$KEMPT_HELPER_UPDATE_BUSY_TEXT" -- "$1" 2>/dev/null
+}
+# The line both helpers print once when dnf5 has run for 15 minutes. Information for the run log,
+# never why something failed: dnf_check drops it from what it passes on, and run_failure_reason
+# never falls back to it.
+KEMPT_HELPER_LONG_RUN_TEXT="dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on."
 apply_refusal_reason() {  # → why the helper refused, as the user's side of the boundary sees it
   local relup
   if relup="$(offline_release_upgrade)"; then
@@ -1580,12 +1611,20 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
 # repositories" as the reason is worse than silence. Nothing matched → the last non-empty line,
 # where a terse failure lands, skipping the `== ... ==` section headings Kempt writes itself (a
 # heading is never the reason). Redacted, and capped at 120 characters, because this ends up in a
-# notification body.
+# notification body. A line that opens with `>>> ` is a package's setup step talking through dnf5,
+# so it comes after every other line that names a failure, and is never the last-line fallback.
+# Only when no other line names one does the first `>>> ` line saying "error" or "failed" stand in,
+# before the last line. "Remote peer disconnected" is never chosen: a step that restarted a service
+# prints it, and it reads as the update failing when dnf5 itself may have finished fine. Nor is
+# the helpers' 15-minute line (KEMPT_HELPER_LONG_RUN_TEXT), which says only that dnf5 is still going.
 run_failure_reason() {  # log-file → one line, possibly empty
   local line=""
   [[ -r "$1" ]] || { printf '\n'; return 0; }
-  line="$(grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' "$1" || true)"
-  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$' "$1" | tail -1 || true)"
+  line="$(grep -vE '^[[:space:]]*>>> ' "$1" | grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' || true)"
+  [[ -n "$line" ]] || line="$(grep -E '^[[:space:]]*>>> ' "$1" | grep -viF 'remote peer disconnected' \
+                              | grep -m1 -iE 'error|failed' || true)"
+  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$|^[[:space:]]*>>> ' "$1" \
+                              | grep -vF -- "$KEMPT_HELPER_LONG_RUN_TEXT" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
   line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"
@@ -2984,6 +3023,10 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
       touch "$LAST_REFRESH_DNF_FILE" || true
       rm -f "$REFRESH_DNF_FAILED_FILE" || true
       log_event "refresh ok"
+    elif (( rc == KEMPT_APPLY_BUSY )) && helper_busy_in "$errf"; then
+      # A Kempt run is under way (helper_busy_in): not a failed refresh. The marker and the 3h
+      # stamp stay as they are, so the next check fetches; the check below logs the one line.
+      :
     else
       refresh_error_line "$errf" "$rc" > "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || true
       log_event "refresh failed"
@@ -3707,8 +3750,12 @@ dnf_history_duration() {  # id → seconds; rc 1 = unknown
 # is Kempt's - unless there are TWO of them, which is what an apply that was retried leaves behind.
 # Then either answer is a guess about which attempt the report describes, and a guess is exactly
 # what this is for avoiding. Same rule as the stage's: more than one candidate is cannot tell.
-live_history_attribution() {  # before-id command-line → id, then names; rc 1 = cannot tell
-  local before="$1" cmd="$2" list out n id res touched
+#
+# The second line is the status dnf5 recorded for that entry (Ok, Error, ...), or `unknown` when it
+# recorded none Kempt can read. The CLI trusts an Ok over a helper that exited non-zero after dnf5
+# finished: systemd-run can lose its line to PID 1 while a package's setup step restarts it.
+live_history_attribution() {  # before-id command-line → id, status, then names; rc 1 = cannot tell
+  local before="$1" cmd="$2" list out n id st res touched
   [[ "$before" =~ ^[0-9]+$ && -n "$cmd" ]] || return 1
   list="$(dnf_history_json list)" || return 1
   # Every entry shape-checked, not only the candidates, and the command compared in here: a list
@@ -3725,15 +3772,18 @@ live_history_attribution() {  # before-id command-line → id, then names; rc 1 
                or ((.command_line | type) as $c | $c != "string" and $c != "null")
             then error("fields") else . end
           | select(.id > $before and .command_line == $cmd) ]
-      | (length | tostring), (.[] | .id | tostring)' <<<"$list" 2>/dev/null)" || return 1
+      | (length | tostring),
+        (.[] | (.id | tostring), (.status | if type == "string" then . else "" end))' <<<"$list" 2>/dev/null)" || return 1
   n="${out%%$'\n'*}"
   [[ "$n" =~ ^[0-9]+$ ]] || return 1
   (( n == 1 )) || return 1
-  id="${out#*$'\n'}"; id="${id%%$'\n'*}"
+  out="${out#*$'\n'}"; id="${out%%$'\n'*}"
   [[ "$id" =~ ^[0-9]+$ ]] || return 1
+  st=""; [[ "$out" == *$'\n'* ]] && st="${out#*$'\n'}"
+  [[ "$st" =~ ^[A-Za-z]{1,20}$ ]] || st="unknown"
   res="$(history_entry_lists "$id")" || return 1
   touched="$(sed -n '/^--touched$/,$p' <<<"$res" | sed '1d')"
-  printf '%s\n%s\n' "$id" "$touched"
+  printf '%s\n%s\n%s\n' "$id" "$st" "$touched"
 }
 
 # After the restart: did the stage this marker records run, and which history entry is it?

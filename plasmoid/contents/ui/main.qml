@@ -1519,7 +1519,9 @@ PlasmoidItem {
 
     // The safety net on `updating`. A run ends when the CLI writes state.json - but a user who
     // closes the terminal window, or an update that dies, never writes it. Three hours is far
-    // longer than any real transaction and far shorter than forever.
+    // longer than any real transaction and far shorter than forever. Stopping the wait stops
+    // nothing else: the root helper never interrupts a package's setup step, however long it runs,
+    // so the message says the update may still be going.
     Timer {
         id: updateGuard
         interval: 3 * 60 * 60 * 1000
@@ -1527,7 +1529,7 @@ PlasmoidItem {
         onTriggered: {
             root.updating = false;
             root.runningSurface = "";
-            root.actionMessage = i18n("Kempt stopped waiting for the update to report back. The list shows what is pending now.");
+            root.actionMessage = i18n("Kempt stopped waiting for the update to report back. It may still be running, so keep the computer on.");
             root.doCheck();
         }
     }

@@ -136,6 +136,42 @@ STUB
 state_red="$("$KEMPT" check)"
 assert_contains "$(jq -r .error <<<"$state_red")" "dnf check failed: Failed to download https://repohost:8080/***/x for ~/.cache/x" \
   "the dnf check error loses credentials, path tokens, the query and the home path"
+
+# The helper's busy answer (exit 5): the check it started earlier is still running, or a Kempt update
+# is running. Either way the person's own update is under way, so the check is not a failure: it
+# serves the previous state.json unchanged and exits 0, as when another check holds the lock, and
+# says so in one event line.
+cat > "$TESTTMP/refresh-stub" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
+exit 0
+STUB
+BUSY_EV="$KEMPT_STATE_DIR/events.log"
+"$KEMPT" check >/dev/null
+for sentence in "dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." \
+                "dnf5 was not started, because a Kempt update is running. Nothing changed."; do
+  printf '#!/usr/bin/env bash\necho "kempt-refresh: %s" >&2\nexit 5\n' "$sentence" > "$TESTTMP/refresh-stub"
+  cp "$KEMPT_STATE_DIR/state.json" "$TESTTMP/state-before-busy.json"
+  ev_before="$(wc -l < "$BUSY_EV")"
+  busy_rc=0; busy_out="$("$KEMPT" check 2>"$TESTTMP/busy-err")" || busy_rc=$?
+  assert_eq "$busy_rc" 0 "busy helper ($sentence): the check exits 0"
+  assert_eq "$(jq -c . <<<"$busy_out")" "$(jq -c . "$TESTTMP/state-before-busy.json")" "...printing the previous state"
+  assert_exit 0 "...and leaving state.json as it was" -- cmp -s "$KEMPT_STATE_DIR/state.json" "$TESTTMP/state-before-busy.json"
+  assert_eq "$(tail -n +$(( ev_before + 1 )) "$BUSY_EV" | cut -d' ' -f3-)" "check skipped (a Kempt update is running)" \
+    "...with one event line saying why"
+  assert_eq "$(grep -c 'dnf check failed' "$TESTTMP/busy-err")" 0 "...and no error on stderr"
+  assert_exit 1 "...but --strict says the answer is not a current one" -- "$KEMPT" check --strict
+done
+# The helper's 15-minute line is information: a failed check is reported by its real failure.
+cat > "$TESTTMP/refresh-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "Failed to download metadata for repo 'fedora'" >&2
+echo "kempt-refresh: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
+exit 1
+STUB
+state_lr="$("$KEMPT" check)"
+assert_eq "$(jq -r .error <<<"$state_lr")" "dnf check failed: Failed to download metadata for repo 'fedora'" \
+  "a failed check is never reported as the helper's 15-minute line"
 printf '#!/usr/bin/env bash\necho "error: While fetching https://u:pw@dlhost/repo/summary#t0ken: refused" >&2\nexit 1\n' \
   > "$TESTTMP/fp-fail-red"; chmod +x "$TESTTMP/fp-fail-red"
 "$KEMPT" config set include_flatpak true

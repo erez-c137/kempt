@@ -563,6 +563,17 @@ cmd_check() {
       sec_asked=1
       if sec_raw="$(dnf_security_query)"; then sec_rc=0; else sec_rc=1; fi
     fi
+  elif helper_busy_in "$errf"; then
+    # The helper refused because a Kempt run is under way: an update (the person's own, perhaps)
+    # or the check it started earlier. That is not a failed check, and the widget must not flash
+    # one: serve the previous state unchanged, as when another check holds the lock above, and
+    # say why in one event line.
+    rm -f "$errf" "$dnf_sz" "$fp_sz" "$fp_scopes_f"
+    echo "warning: a Kempt update is running; serving previous state" >&2
+    log_event "check skipped (a Kempt update is running)"
+    jq -e -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null || true
+    [[ -z "$strict" ]] || return 1
+    return 0
   else
     # explain_helper_error rewrites the one case the raw text gets WRONG: a missing root helper,
     # which `timeout` reports as a failure to run a command and reads as a timeout. dnf only -
@@ -966,8 +977,18 @@ recommend_offline_if_risky() {
     # must never stop the user updating.
     risky_list="$(dnf_check 2>"$rerr" | mark_held dnf | risky_names)" || {
       risky_list=""
+      # The helper refused because a Kempt update is running, perhaps another user's or the
+      # widget's, whose lock this run cannot see. That is the busy answer, not a check that failed:
+      # stop here, before the lock, exactly as a held lock would.
+      if grep -qxF -- "$KEMPT_HELPER_UPDATE_BUSY_TEXT" "$rerr"; then
+        rm -f "$rerr"
+        echo "another kempt update is running" >&2
+        exit 3
+      fi
       # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
-      echo "warning: could not check for session-critical updates: $(explain_helper_error "$(stderr_tail "$rerr")")" >&2
+      local why
+      why="$(explain_helper_error "$(stderr_tail "$rerr")")"
+      echo "warning: could not check for session-critical updates${why:+: $why}" >&2
     }
     rm -f "$rerr"
     if [[ -n "$risky_list" ]]; then
@@ -1479,6 +1500,14 @@ cmd_update() {
   # Only the OFFLINE surface. A live run does not replace the stored transaction, and refusing
   # ordinary updates because a release upgrade is waiting would be a bigger imposition than the one
   # this avoids - which is also why this sits after the surface is resolved rather than before.
+  # Another run of this user's holding the update lock is refused HERE, before the pre-flight check:
+  # that check goes through the root helper, which would wait on dnf5's lock until the other run's
+  # transaction ends, and only then reach acquire_lock below. Non-blocking, and only a probe: the
+  # lock itself is still taken by acquire_lock, so a run that starts between the two is refused there.
+  if update_running_elsewhere; then
+    echo "another kempt update is running" >&2
+    exit 3
+  fi
   local risky_advice=""
   recommend_offline_if_risky
   # AFTER the recommendation, and that ordering is the whole point: `[s]tage offline` at that prompt
@@ -1609,7 +1638,8 @@ cmd_update() {
     # The three statuses below are read with `|| rc=$?` rather than inside an `if`, because exit 3
     # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, a
     # file it could not read, or a dnf5 folder other users can change, and changed nothing. Every
-    # path that sees it skips the unwind.
+    # path that sees it skips the unwind. So does exit 5 (KEMPT_APPLY_BUSY): the same step from an
+    # earlier run is still going, and this one started nothing.
     local stage_rc=0 arm_rc=0 clean_rc=0 unsafe_dir=""
     # From here until write_stage_marker, dnf5's record is this run's and the marker is still the
     # previous stage's. A check comparing the two in that window must not call this rebuild
@@ -1630,6 +1660,12 @@ cmd_update() {
         reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
       fi
       log_event "offline stage refused by the root helper"
+    elif [[ $stage_rc -eq $KEMPT_APPLY_BUSY ]]; then
+      # The stage Kempt started earlier is still running, so this one changed nothing. No unwind,
+      # for the arm's reason below: a clean now would discard what that run is building.
+      dnf_status="failed"; status="failed"
+      reason_override="nothing was staged, because another Kempt update is still in progress. Try again when it has finished"
+      log_event "offline stage not started (another Kempt run is still in progress)"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
       # every pending update held, or nothing pending at all. Arming then fails with "No offline
@@ -1699,6 +1735,12 @@ cmd_update() {
         else
           reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
         fi
+      elif [[ $arm_rc -eq $KEMPT_APPLY_BUSY ]]; then
+        # The arm Kempt started earlier is still running, so this one started nothing. No unwind:
+        # the clean would land beside that run and could take away what it is setting up.
+        dnf_status="failed"; status="failed"
+        reason_override="the updates were staged, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished"
+        log_event "offline stage not armed (another Kempt run is still in progress)"
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
         reason_override="the updates were staged, but could not be set to install on the next restart"
@@ -1795,7 +1837,7 @@ cmd_update() {
     live_before="$(dnf_history_max_id)" || live_before=""
     local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
-    local live_rc=0 unsafe_dir=""
+    local live_rc=0 unsafe_dir="" live_status live_was_status="$status" live_was_failed="$run_failed_otherwise"
     apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || live_rc=$?
     if [[ $live_rc -eq 0 ]]; then
       dnf_status="ok"
@@ -1813,7 +1855,28 @@ cmd_update() {
     # this run was, and its packages are still the honest report of what moved.
     if [[ -n "$live_before" ]] && live_att="$(live_history_attribution "$live_before" "$live_cmd")"; then
       live_txid="${live_att%%$'\n'*}"
+      live_att="${live_att#*$'\n'}"; live_status="${live_att%%$'\n'*}"
       if [[ "$live_att" == *$'\n'* ]]; then live_keep="${live_att#*$'\n'}"; fi
+      # dnf5's history names this run's transaction, and its status is the tiebreaker both ways.
+      # The transaction is the evidence: systemd-run can lose its line to PID 1 when a package's
+      # setup step restarts it, and the helper then reports what it could not see.
+      # Ok over a helper that failed: the run's earlier state comes back. Only for an exit that can
+      # follow a dnf5 that ran: 1 (dnf5's own failure, or the helper's when systemd lost the
+      # result), 255 (dnf5 killed) and 128 and up (systemd-run stopped by a signal). Never 2 to 5,
+      # the helper turning the run away, nor pkexec's 126 and 127: nothing ran, so the entry
+      # would be another run's.
+      # Anything but Ok under a helper that said 0: the helper read a unit that was gone as a
+      # success, and another run's reset can make a failed unit go. A status Kempt cannot read
+      # (`unknown`) leaves the helper's answer as it is.
+      # Either way the log says where the answer came from.
+      if [[ "$live_status" == Ok ]] && (( live_rc == 1 || live_rc >= 128 )); then
+        dnf_status="ok"; status="$live_was_status"; run_failed_otherwise="$live_was_failed"
+        log_event "dnf outcome read from history (transaction $live_txid ok, helper rc=$live_rc)"
+      elif [[ $live_rc -eq 0 && "$live_status" != Ok && "$live_status" != unknown ]]; then
+        dnf_status="failed"; status="failed"
+        [[ -n "$reason_override" ]] || reason_override="dnf5 recorded this update as failed in its history, though the update seemed to finish"
+        log_event "dnf outcome read from history (transaction $live_txid $live_status, helper rc=$live_rc)"
+      fi
     fi
   fi
 

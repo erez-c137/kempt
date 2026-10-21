@@ -8,8 +8,21 @@ AH="$REPO_ROOT/libexec/kempt-apply"
 # What every dnf5 command is wrapped in: systemd starts it as a fresh service with these properties
 # and this environment, and every dnf5 argument comes after `--`. sd [properties] dnf5-args... prints
 # the command line the ECHO seams print. KEMPT_SYSTEMD_RUN is the stand-in tests/lib.sh writes.
-SD_BASE="--pipe --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root"
-sd() { local props="$1"; shift; echo "$KEMPT_SYSTEMD_RUN $SD_BASE${props:+ $props} -- /usr/bin/dnf5 $*"; }
+# Each verb runs under one fixed unit name, so a second run cannot start while the first is going
+# and the helper can ask systemd about its own run. unit_for reads the verb from dnf5's arguments.
+SD_BASE="--pipe --wait --quiet --unit=@UNIT@ --expand-environment=no -p UMask=0022 -p LimitCORE=0 --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root"
+unit_for() {  # dnf5-args... → the unit the helper runs them under
+  case "$*" in
+    "--cacheonly check-update"*) echo kempt-refresh-check.service ;;
+    "makecache --refresh")       echo kempt-refresh-refresh.service ;;
+    "upgrade --offline"*)        echo kempt-apply-dnf-offline-stage.service ;;
+    upgrade*)                    echo kempt-apply-dnf-upgrade.service ;;
+    "offline reboot -y")         echo kempt-apply-dnf-offline-arm.service ;;
+    "offline clean -y")          echo kempt-apply-dnf-offline-clean.service ;;
+    *)                           echo "no-unit-for-$*" ;;
+  esac
+}
+sd() { local props="$1"; shift; echo "$KEMPT_SYSTEMD_RUN ${SD_BASE/@UNIT@/$(unit_for "$@")}${props:+ $props} -- /usr/bin/dnf5 $*"; }
 
 # ECHO=1 on the rejection cases too (belt and braces): if an arg guard is ever removed, the
 # assertion fails loudly instead of the test reaching a real dnf5 invocation.
@@ -406,7 +419,7 @@ fi
 # pkexec hands the helper far more of the caller than its environment: umask, limits, ignored
 # signals, the working directory, nice, CPU affinity, the cgroup. Bash cannot undo all of that
 # (an ignored signal stays ignored across exec), so the helper does not try. It validates, reads,
-# and starts systemd-run (exec'd for a terminal, else a child whose pipes it copies: run_piped),
+# and starts systemd-run as a child it watches (run_watched),
 # and systemd starts dnf5 as a fresh service that inherits none of it.
 # That only holds while the helper's own shell runs nothing else and writes nothing. This reads the
 # helper's code (comments out, continued lines joined) and prints each line that breaks the shape:
@@ -414,56 +427,181 @@ fi
 #   - more than one exec, or one that is not the ECHO seam's `exec "$@"`
 #   - run called anywhere but on the one systemd-run line, with its fixed properties
 #   - a redirection other than to stderr or /dev/null, or a command that writes or starts another
-#   - run_piped other than exactly the text below. It is the one place the shell makes pipes, starts
-#     cats and sends signals, so it is read as a whole and then set aside for the checks above.
-# run_piped as the check reads it: comments out, word for word. A change to the helpers' run_piped
+#   - run_watched, claim_unit or watch_unit other than exactly the text below. They are the one
+#     place the shell makes pipes, starts cats, asks systemctl and sends signals, so they are read
+#     as a whole and then set aside for the checks above.
+#   - a unit name other than a literal from the fixed table
+# The three as the check reads them: comments out, word for word. A change to them in the helpers
 # must be made here too, on purpose.
-RUN_PIPED="$(cat <<'EOF'
-run_piped() {
-  local out err out_pid err_pid sd_pid rc=0 woke=0 stopped=0 sig=0
-  exec {out}> >(cat)
-  out_pid=$!
-  exec {err}> >(cat >&2 {out}>&-)
-  err_pid=$!
-  { trap - INT QUIT; exec "$@"; } </dev/null >&"$out" 2>&"$err" {out}>&- {err}>&- &
-  sd_pid=$!
-  exec {out}>&- {err}>&-
+VETTED="$(cat <<'EOF'
+run_watched() {
+  local out err out_pid="" err_pid="" sd_pid wd wd_pid wd_live=1 who r rc=0 woke=0 stopped=0 sig=0 verdict="" pause
+  local -a ids
+  claim_unit
+  if [[ "$2" == --pipe ]]; then
+    exec {out}> >(cat)
+    out_pid=$!
+    exec {err}> >(cat >&2 {out}>&-)
+    err_pid=$!
+    { trap - INT QUIT; exec "$@"; } </dev/null >&"$out" 2>&"$err" {out}>&- {err}>&- &
+    sd_pid=$!
+    exec {out}>&- {err}>&-
+  else
+    { trap - INT QUIT; exec "$@"; } <&0 &
+    sd_pid=$!
+  fi
+  exec {wd}< <(watch_unit </dev/null)
+  wd_pid=$!
+  ids=("$sd_pid" "$wd_pid")
   trap 'woke=1 stopped=1 sig=15; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
   trap 'woke=1 stopped=1 sig=2; kill -s INT "$sd_pid" 2>/dev/null || :' INT
   trap 'woke=1 stopped=1 sig=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
   while :; do
-    woke=0 rc=0
-    wait "$sd_pid" || rc=$?
-    (( woke )) || break
+    woke=0 r=0 who=""
+    wait -n -p who "${ids[@]}" || r=$?
+    if [[ "${who:-}" == "$sd_pid" ]]; then rc=$r; break; fi
+    if [[ -n "${who:-}" ]]; then
+      wd_live=0
+      ids=("$sd_pid")
+      read -r -u "$wd" verdict || verdict=""
+      if (( stopped )); then verdict=""; fi
+      if [[ "$verdict" == "rc "* || "$verdict" == unknown ]]; then break; fi
+      verdict=""
+      continue
+    fi
+    (( woke )) || { rc=$r; break; }
   done
   if (( rc == 127 && stopped )); then rc=$(( 128 + sig )); fi
   trap - TERM INT HUP
-  if (( stopped )); then kill "$out_pid" "$err_pid" 2>/dev/null || :; fi
-  wait "$out_pid" "$err_pid" || :
+  if [[ -n "$verdict" ]]; then
+    kill -s TERM "$sd_pid" 2>/dev/null || :
+    exec {pause}<> <(:)
+    { read -r -t "$POLL" -u "$pause" _ || :; } &
+    ids=("$sd_pid" "$!")
+    exec {pause}<&-
+    who=""
+    wait -n -p who "${ids[@]}" || :
+    if [[ "${who:-}" == "$sd_pid" ]]; then kill "${ids[1]}" 2>/dev/null || :
+    else kill -s KILL "$sd_pid" 2>/dev/null || :; fi
+    wait "${ids[@]}" 2>/dev/null || :
+    if [[ "$verdict" =~ ^rc\ ([0-9]{1,3})$ ]]; then
+      rc="${BASH_REMATCH[1]}"
+      echo "$ME: systemd-run stopped reporting after dnf5 finished, so its exit status ($rc) was read from systemd." >&2
+    else
+      rc=1
+      echo "$ME: systemd-run stopped reporting after dnf5 finished, and systemd no longer has its result." >&2
+    fi
+    if [[ -n "$out_pid" ]]; then
+      exec {pause}<> <(:)
+      read -r -t "$POLL" -u "$pause" _ || :
+      exec {pause}<&-
+      stopped=1
+    fi
+  elif (( wd_live )); then
+    kill -s TERM "$wd_pid" 2>/dev/null || :
+    wait "$wd_pid" || :
+  fi
+  exec {wd}<&-
+  if [[ -n "$out_pid" ]]; then
+    if (( stopped )); then kill "$out_pid" "$err_pid" 2>/dev/null || :; fi
+    wait "$out_pid" "$err_pid" || :
+  fi
   return "$rc"
+}
+claim_unit() {
+  local u
+  for u in "$UNIT" "${UPDATE_UNITS[@]}"; do
+    case "$("$SYSTEMCTL" show --no-pager -p ActiveState --value -- "$u" 2>/dev/null || :)" in
+      active|activating|deactivating|reloading|refreshing)
+        if [[ "$u" == "$UNIT" ]]; then
+          echo "$ME: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." >&2
+        else
+          echo "$ME: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
+        fi
+        exit "$BUSY" ;;
+    esac
+  done
+  "$SYSTEMCTL" reset-failed --no-pager -- "$UNIT" 2>/dev/null || :
+}
+watch_unit() {
+  local pause k v load active result code status inv mine="" seen=0 ended=0 polls=0 early=0
+  exec {pause}<> <(:)
+  while :; do
+    if (( ! seen && early < FIRST_READS )); then
+      early=$(( early + 1 ))
+      read -r -t "$FIRST" -u "$pause" _ || :
+    else
+      read -r -t "$POLL" -u "$pause" _ || :
+    fi
+    load="" active="" result="" code="" status="" inv=""
+    while IFS='=' read -r k v; do
+      case "$k" in
+        LoadState) load="$v" ;;
+        ActiveState) active="$v" ;;
+        Result) result="$v" ;;
+        ExecMainCode) code="$v" ;;
+        ExecMainStatus) status="$v" ;;
+        InvocationID) inv="$v" ;;
+      esac
+    done < <("$SYSTEMCTL" show --no-pager -p LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus,InvocationID -- "$UNIT" 2>/dev/null || :)
+    [[ -n "$load" && -n "$active" ]] || continue
+    case "$active" in
+      active|activating|deactivating|reloading|refreshing)
+        if [[ -z "$inv" ]]; then :
+        elif (( ! seen )); then seen=1 mine="$inv"
+        elif [[ "$inv" != "$mine" ]]; then echo unknown; return 0; fi
+        ended=0 polls=$(( polls + 1 ))
+        if (( polls == LONG_RUN )); then
+          echo "$ME: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
+        fi
+        continue ;;
+    esac
+    (( seen )) || continue
+    [[ -n "$inv" || "$load" == not-found ]] || continue
+    ended=$(( ended + 1 ))
+    (( ended >= GRACE )) || continue
+    if [[ "$load" == not-found ]]; then echo "rc 0"
+    elif [[ "$inv" != "$mine" ]]; then echo unknown
+    elif [[ "$code" == 1 && "$status" =~ ^(0|[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$ ]]; then echo "rc $status"
+    elif [[ "$code" == 2 || "$code" == 3 ]]; then echo "rc 255"
+    elif [[ "$result" == success ]]; then echo "rc 0"
+    else echo unknown; fi
+    return 0
+  done
 }
 EOF
 )"
 root_shape_violations() {  # helper file → one line per violation, then "read to the end"
   local code
   code="$(grep -vE '^[[:space:]]*#' "$1" | sed -E 's/[[:space:]]+#.*$//' | sed -e ':a' -e '/\\$/N; s/\\\n[[:space:]]*/ /; ta')"
-  [[ "$(sed -n '/^run_piped() {$/,/^}$/p' <<<"$code")" == "$RUN_PIPED" ]] \
-    || echo "run_piped other than the vetted text: the pipes, cats and signals are not the ones checked"
-  code="$(sed '/^run_piped() {$/,/^}$/d' <<<"$code")"
-  local sdline='^[[:space:]]*run "\$SYSTEMD_RUN" (--pipe|"\$io") --wait --quiet --collect --expand-environment=no -p UMask=0022 -p LimitCORE=0 .*-- /usr/bin/dnf5 "\$@"$'
+  local f vetted=""
+  for f in run_watched claim_unit watch_unit; do
+    vetted+="$(sed -n "/^$f() {\$/,/^}\$/p" <<<"$code")"$'\n'
+    code="$(sed "/^$f() {\$/,/^}\$/d" <<<"$code")"
+  done
+  [[ "${vetted%$'\n'}" == "$VETTED" ]] \
+    || echo "vetted function other than the vetted text: the pipes, cats, systemctl calls and signals are not the ones checked"
+  local sdline='^[[:space:]]*run "\$SYSTEMD_RUN" (--pipe|"\$io") --wait --quiet --unit="\$UNIT" --expand-environment=no -p UMask=0022 -p LimitCORE=0 .*-- /usr/bin/dnf5 "\$@"$'
   grep -wE 'dnf5' <<<"$code" \
     | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*echo "kempt-(apply|refresh): [^"]*" >&2$' \
     | sed 's/^/dnf5 outside systemd-run: /' || true
   local execs; execs="$(grep -wE 'exec' <<<"$code" || true)"
-  [[ "$(grep -c . <<<"$execs")" == 1 && "$execs" =~ else\ exec\ \"\$@\"\;\ fi$ ]] \
-    || printf 'exec other than the seam'"'"'s: %s\n' "${execs//$'\n'/ | }"
+  [[ -z "$execs" ]] || printf 'exec outside the vetted functions: %s\n' "${execs//$'\n'/ | }"
   local runs; runs="$(grep -E '(^|[;&|)]|then|else|do)[[:space:]]*run[[:space:]]' <<<"$code" || true)"
   [[ "$(grep -c . <<<"$runs")" == 1 ]] && grep -qE "$sdline" <<<"$runs" \
     || printf 'run called other than on the systemd-run line: %s\n' "${runs//$'\n'/ | }"
   sed -E 's/[0-9]*>&[0-9]//g; s/[0-9]*>[[:space:]]*\/dev\/null//g; s/ -> / /g' <<<"$code" | grep -E '>' \
     | sed 's/^/writes a file: /' || true
   grep -E '(^|[^A-Za-z0-9_-])(touch|mkdir|cp|mv|rm|ln|install|chmod|chown|chgrp|truncate|dd|tee|mktemp|mkfifo|timeout|env|nohup|setsid|nice|systemctl|pkexec|sudo|runuser|flatpak)([[:space:]]|$)|sed -i|[^&>]&([^&>]|$)' <<<"$code" \
-    | sed 's/^/writes or starts another command: /' || true
+    | grep -vxE '[[:space:]]*SYSTEMCTL=/usr/bin/systemctl' | sed 's/^/writes or starts another command: /' || true
+  # The unit name: UNIT is empty, or one literal per verb from the table, never built from input.
+  grep -E '(^|[^A-Za-z0-9_])UNIT=' <<<"$code" \
+    | grep -vxE '[[:space:]]*UNIT=""|[[:space:]]*([a-z-]+)\) UNIT=kempt-(apply|refresh)-\1\.service ;;' \
+    | sed 's/^/unit name other than the fixed table: /' || true
+  # The units whose run makes this helper busy: literal names from kempt-apply's table, never built.
+  grep -E 'UPDATE_UNITS' <<<"$code" \
+    | grep -vxE 'UPDATE_UNITS=\(( ?kempt-apply-dnf-(upgrade|offline-stage|offline-arm|offline-clean)\.service)*\)' \
+    | sed 's/^/busy units other than the fixed list: /' || true
   # Allowlist, not denylist: every call of run_dnf5 hands systemd-run only literal unit settings
   # from a fixed list. A caller-chosen -p or --setenv is a root command (ExecStartPre=, LD_PRELOAD=).
   grep -oE '(^|[^A-Za-z0-9_])run_dnf5[[:space:]][^;]*' <<<"$code" | sed -E 's/^.*run_dnf5[[:space:]]+//' \
@@ -486,8 +624,8 @@ done
 mutant() { sed "$1" "$AH" > "$TESTTMP/mutant"; root_shape_violations "$TESTTMP/mutant"; }
 assert_exit 0 "...it catches dnf5 run straight from the shell" -- \
   grep -q 'dnf5 outside systemd-run' <(mutant 's|^    run_dnf5 -- offline clean -y$|    run dnf5 offline clean -y|')
-assert_exit 0 "...it catches a second exec" -- \
-  grep -q 'exec other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; exec 3>/dev/null|')
+assert_exit 0 "...it catches an exec" -- \
+  grep -q 'exec outside' <(mutant 's|^set -euo pipefail$|set -euo pipefail; exec 3>/dev/null|')
 assert_exit 0 "...it catches a write before the exec" -- \
   grep -q 'writes a file' <(mutant 's|^set -euo pipefail$|set -euo pipefail; echo x > /var/tmp/x|')
 assert_exit 0 "...it catches another command started as root" -- \
@@ -514,15 +652,37 @@ assert_exit 0 "...it catches a sourced file" -- \
 assert_exit 0 "...it catches rpm run straight from the shell" -- \
   grep -q 'runs code other than' <(mutant 's|^set -euo pipefail$|set -euo pipefail; rpm --rebuilddb 2>/dev/null|')
 
-assert_exit 0 "...it catches run_piped handing systemd-run this shell's own stdout again" -- \
-  grep -q 'run_piped other than' <(mutant 's|exec "\$@"; } </dev/null >&"\$out" 2>&"\$err"|exec "$@"; } </dev/null 2>\&"$err"|')
-assert_exit 0 "...it catches a write smuggled into run_piped" -- \
-  grep -q 'run_piped other than' <(mutant 's|^  out_pid=\$!$|  out_pid=$!; echo "$out_pid" > /run/x|')
+assert_exit 0 "...it catches run_watched handing systemd-run this shell's own stdout again" -- \
+  grep -q 'vetted function other than' <(mutant 's|exec "\$@"; } </dev/null >&"\$out" 2>&"\$err"|exec "$@"; } </dev/null 2>\&"$err"|')
+assert_exit 0 "...it catches a write smuggled into run_watched" -- \
+  grep -q 'vetted function other than' <(mutant 's|^    out_pid=\$!$|    out_pid=$!; echo "$out_pid" > /run/x|')
 assert_exit 0 "...and still catches a write anywhere else" -- \
   grep -q 'writes a file' <(mutant 's|^set -euo pipefail$|set -euo pipefail; exec {o}> /var/tmp/x|')
+assert_exit 0 "...it catches the caller's argument in a unit name" -- \
+  grep -q 'unit name other than' <(mutant 's|^  dnf-upgrade) UNIT=kempt-apply-dnf-upgrade.service ;;$|  dnf-upgrade) UNIT="kempt-apply-$1.service" ;;|')
+assert_exit 0 "...it catches a systemctl stop smuggled into the watch" -- \
+  grep -q 'vetted function other than' <(mutant 's|^    (( seen )) \|\| continue$|    (( seen )) \|\| "$SYSTEMCTL" stop -- "$UNIT"|')
+assert_exit 0 "...it catches the watch's last resort aimed at something other than systemd-run" -- \
+  grep -q 'vetted function other than' <(mutant 's|kill -s KILL "\$sd_pid"|kill -s KILL -1|')
+assert_exit 0 "...it catches systemctl run outside the vetted functions" -- \
+  grep -q 'starts another' <(mutant 's|^set -euo pipefail$|set -euo pipefail; systemctl stop kempt-apply-dnf-upgrade.service|')
+rmutant() { sed "$1" "$RH" > "$TESTTMP/mutant-r"; root_shape_violations "$TESTTMP/mutant-r"; }
+assert_exit 0 "...it catches the caller's argument in the busy units" -- \
+  grep -q 'busy units other than' <(rmutant 's|^UPDATE_UNITS=(kempt-apply-dnf-upgrade.service |UPDATE_UNITS=("$1" kempt-apply-dnf-upgrade.service |')
+assert_exit 0 "...it catches a unit added to the busy units later" -- \
+  grep -q 'busy units other than' <(rmutant 's|^set -euo pipefail$|set -euo pipefail; UPDATE_UNITS+=(sshd.service)|')
+assert_exit 0 "...it catches a unit that is not Kempt's in the busy units" -- \
+  grep -q 'busy units other than' <(rmutant 's|kempt-apply-dnf-offline-clean.service)$|kempt-apply-dnf-offline-clean.service sshd.service)|')
+# The busy units in kempt-refresh are exactly the units in kempt-apply's table, and kempt-apply has none.
+assert_eq "$(grep -E '^UPDATE_UNITS=' "$RH" | tr -d '()' | sed 's/^UPDATE_UNITS=//' | tr ' ' '\n' | sort)" \
+  "$(grep -oE 'UNIT=kempt-apply-[a-z-]+\.service' "$AH" | sed 's/^UNIT=//' | sort)" \
+  "kempt-refresh's busy units are kempt-apply's four units, word for word"
+assert_eq "$(grep -E '^UPDATE_UNITS=' "$AH")" "UPDATE_UNITS=()" "kempt-apply waits on no other unit"
 for h in "$RH" "$AH"; do
-  assert_eq "$(sed -n '/^run_piped() {/,/^}/p' "$h" | grep -vE '^[[:space:]]*#')" \
-    "$(sed -n '/^run_piped() {/,/^}/p' "$AH" | grep -vE '^[[:space:]]*#')" "$(basename "$h"): run_piped is the same in both helpers"
+  for f in run_watched claim_unit watch_unit; do
+    assert_eq "$(sed -n "/^$f() {/,/^}/p" "$h" | grep -vE '^[[:space:]]*#')" \
+      "$(sed -n "/^$f() {/,/^}/p" "$AH" | grep -vE '^[[:space:]]*#')" "$(basename "$h"): $f is the same in both helpers"
+  done
 done
 
 # A terminal on stdin gets --pty, so Ctrl-C reaches dnf5 instead of detaching it (see run_dnf5).
@@ -538,7 +698,7 @@ fi
 # What systemd-run is handed, one argument per line, from the stand-in tests/lib.sh writes. No ECHO
 # here: the helper really runs it.
 # shellcheck disable=SC2086 # SD_BASE and the properties are split into words on purpose
-want_argv() { local props="$1"; shift; printf '%s\n' $SD_BASE $props -- /usr/bin/dnf5 "$@"; }
+want_argv() { local props="$1"; shift; printf '%s\n' ${SD_BASE/@UNIT@/$(unit_for "$@")} $props -- /usr/bin/dnf5 "$@"; }
 SDARGV="$TESTTMP/systemd-run.argv"
 assert_exit 0 "refresh check runs systemd-run" -- env KEMPT_DNF5_VERSION=5.2.18.0 bash "$RH" check
 assert_eq "$(cat "$SDARGV")" "$(want_argv '' --cacheonly check-update --quiet)" "...with the fixed properties, then -- and dnf5's arguments"
@@ -559,7 +719,7 @@ for v in dnf-offline-stage dnf-offline-arm dnf-offline-clean; do
   esac
   assert_eq "$(cat "$SDARGV")" "$want" "...$v hands it exactly this"
 done
-# In pipe mode systemd-run is the shell's child (run_piped), and the shell's exit status is
+# In pipe mode systemd-run is the shell's child (run_watched), and the shell's exit status is
 # systemd-run's, which is dnf5's.
 # shellcheck disable=SC2016 # expanded by the inner bash
 bash -c 'echo "$$" > "$2"; exec bash "$1" refresh' _ "$RH" "$TESTTMP/helper.pid"
@@ -633,11 +793,210 @@ if [[ -r /proc/self/task/$$/children ]] && env --default-signal=INT true 2>/dev/
     assert_contains "$(cat "$FDREP")" "got $sig" "...because systemd-run got the $sig"
     assert_eq "$(( SECONDS - t0 < 3 ))" 1 "...and the helper did not wait for what still holds the pipes"
     left=""; for k in $kids; do [[ -e "/proc/$k" ]] && left+=" $k:$(cat "/proc/$k/comm" 2>/dev/null)"; done
-    assert_eq "$(wc -w <<<"$kids") ${left:-none}" "3 none" "...and none of its three children (two cats, systemd-run) is left"
+    assert_eq "$(wc -w <<<"$kids") ${left:-none}" "4 none" "...and none of its four children (two cats, systemd-run, the watch on its unit) is left"
   done
 else
   skip "helper signal test - needs /proc/PID/task/PID/children and env --default-signal"
 fi
+
+# A terminal on stdin goes to systemd-run itself, though it now runs as a child: a background
+# command would otherwise get /dev/null, and dnf5's prompt could not read the answer.
+if command -v python3 >/dev/null; then
+  rm -f "$FDREP"
+  env KEMPT_SYSTEMD_RUN="$FDSD" KEMPT_TEST_FD_REPORT="$FDREP" \
+    python3 -c 'import pty,sys; pty.spawn(sys.argv[1:])' bash "$AH" dnf-offline-clean >/dev/null 2>&1 || true
+  assert_contains "$(grep '^fd0 ' "$FDREP" 2>/dev/null)" "fd0 /dev/pts/" "with a terminal, systemd-run reads the terminal"
+else
+  skip "pty stdin test - needs python3"
+fi
+
+# --- systemd-run that stops reporting --------------------------------------------------------------
+# systemd-run --wait learns that dnf5 finished from PID 1. When PID 1 drops its API bus connection
+# (a package's setup step can make it do that), systemd-run keeps waiting with nothing left to tell
+# it. So the helper asks systemctl about its own unit every few seconds. Once the unit has been seen
+# running and then has ended while systemd-run still waits, the helper stops systemd-run (only the
+# client), takes dnf5's result from systemd and says so. A unit that is still running is never
+# stopped, however long it takes. The stand-in systemd-run below never returns on its own.
+HANGSD="$TESTTMP/hang-systemd-run"; HANGREP="$TESTTMP/hang-report"
+cat > "$HANGSD" <<'EOF'
+#!/usr/bin/env bash
+echo "$$" > "$KEMPT_TEST_HANG_REPORT.pid"
+echo "dnf5 output"
+echo ">>> Running %post scriptlet: demo-1.0"
+sleep 60 & s=$!
+trap 'kill "$s" 2>/dev/null; echo "got TERM" >> "$KEMPT_TEST_HANG_REPORT"; exit 143' TERM
+wait
+EOF
+chmod +x "$HANGSD"
+SDCALLS="$TESTTMP/systemd.calls"; SDSTATES="$TESTTMP/systemctl.states"
+hang_run() {  # states... → runs dnf-upgrade over them; HRC, HOUT, HERR, HSECS
+  rm -f "$HANGREP" "$HANGREP.pid" "$SDCALLS"
+  printf '%s\n' "$@" > "$SDSTATES"
+  local t0=$SECONDS
+  HRC=0
+  env KEMPT_SYSTEMD_RUN="$HANGSD" KEMPT_TEST_HANG_REPORT="$HANGREP" KEMPT_SYSTEMD_POLL=0.05 KEMPT_SYSTEMD_GRACE=2 \
+    timeout 30 bash "$AH" dnf-upgrade -y >"$TESTTMP/hang-out" 2>"$TESTTMP/hang-err" || HRC=$?
+  HSECS=$(( SECONDS - t0 )); HOUT="$(cat "$TESTTMP/hang-out")"; HERR="$(cat "$TESTTMP/hang-err")"
+}
+hang_run "loaded active 0 0 inv1" "loaded active 0 0 inv1" "not-found inactive 0 0 -"
+assert_eq "$HRC" 0 "systemd-run never returns, the unit ran and is gone: the helper exits 0, dnf5's success"
+assert_contains "$HERR" "so its exit status (0) was read from systemd" "...and says where the result came from"
+assert_contains "$(cat "$HANGREP" 2>/dev/null)" "got TERM" "...after stopping systemd-run, the client"
+assert_contains "$HOUT" "dnf5 output" "...with dnf5's output copied through"
+assert_eq "$(( HSECS < 15 ))" 1 "...within seconds"
+assert_eq "$(grep -cvE '^(systemctl (show|reset-failed) .*kempt-apply-dnf-upgrade\.service)$' "$SDCALLS")" 0 \
+  "...and systemctl was only asked about its own unit, never told to stop anything"
+
+hang_run "loaded active 0 0 inv1" "loaded failed 1 1 inv1 exit-code"
+assert_eq "$HRC" 1 "the unit failed with dnf5's exit status 1: the helper exits 1"
+assert_contains "$HERR" "so its exit status (1) was read from systemd" "...read from systemd"
+hang_run "loaded active 0 0 inv1" "loaded failed 1 100 inv1 exit-code"
+assert_eq "$HRC" 100 "...and any other exit status as it is"
+hang_run "loaded active 0 0 inv1" "loaded failed 2 9 inv1 signal"
+assert_eq "$HRC" 255 "dnf5 killed by a signal: 255, as systemd-run reports it"
+hang_run "loaded active 0 0 inv1" "loaded active 0 0 inv2"
+assert_eq "$HRC" 1 "another run under the same name: this run's result is gone, so the helper exits 1"
+assert_contains "$HERR" "systemd no longer has its result" "...and says it could not read it"
+hang_run "loaded active 0 0 inv1" "loaded inactive 0 0 inv2"
+assert_eq "$HRC" 1 "...the same when the unit systemd shows is another run that has ended too"
+# systemd can answer with no InvocationID while it re-executes itself. A read like that names no
+# run, so it is never taken as this run's, nor as another one.
+hang_run "loaded active 0 0 -" "loaded active 0 0 inv1" "loaded active 0 0 inv1" "not-found inactive 0 0 -"
+assert_eq "$HRC" 0 "a first read with no InvocationID is not this run's: the run is still judged by its own"
+hang_run "loaded active 0 0 inv1" "loaded active 0 0 -" "loaded active 0 0 inv1" "not-found inactive 0 0 -"
+assert_eq "$HRC" 0 "...and a later one is not another run's"
+# ...nor an ended read: it is not counted towards the verdict, so it cannot turn this run's recorded
+# result into "systemd no longer has it". A unit that is gone (not-found) has no InvocationID and
+# still counts, or a successful run would never be judged.
+hang_run "loaded active 0 0 inv1" "loaded inactive 0 0 -" "loaded inactive 0 0 -" "loaded failed 1 100 inv1 exit-code"
+assert_eq "$HRC" 100 "an ended read with no InvocationID is skipped: the run's own result (100) is read once systemd names it"
+assert_contains "$HERR" "so its exit status (100) was read from systemd" "...and the helper says it read it from systemd"
+
+# A unit that ends a couple of seconds after it starts, before the first read at the usual interval,
+# must still be seen running: the watch reads every second at first. And a systemd-run that ignores
+# the TERM after the verdict is killed a poll interval later, the client only, so the helper returns.
+# KEMPT_SYSTEMD_POLL=3 puts the usual first read after the unit has gone.
+QUICKSC="$TESTTMP/quick-systemctl"; QUICKSD="$TESTTMP/quick-systemd-run"
+cat > "$QUICKSC" <<EOF
+#!/usr/bin/env bash
+echo "systemctl \$*" >> "$TESTTMP/systemd.calls"
+[[ "\$1" == show ]] || exit 0
+[[ " \$* " == *" --value "* ]] && { echo inactive; exit 0; }
+t0="\$(cat "$TESTTMP/quick.start" 2>/dev/null || echo 0)"
+if (( \$(date +%s%N) - t0 < 2000000000 )); then
+  printf 'LoadState=loaded\nActiveState=active\nResult=success\nExecMainCode=0\nExecMainStatus=0\nInvocationID=inv1\n'
+else
+  printf 'LoadState=not-found\nActiveState=inactive\nResult=success\nExecMainCode=0\nExecMainStatus=0\nInvocationID=\n'
+fi
+EOF
+cat > "$QUICKSD" <<EOF
+#!/usr/bin/env bash
+date +%s%N > "$TESTTMP/quick.start"
+echo "\$\$" > "$TESTTMP/quick.pid"
+trap '' TERM
+sleep 60 >/dev/null 2>&1 </dev/null & echo "\$!" > "$TESTTMP/quick.sleep"
+wait
+EOF
+chmod +x "$QUICKSC" "$QUICKSD"
+rm -f "$SDCALLS" "$TESTTMP/quick.start"
+t0=$SECONDS; HRC=0
+env KEMPT_SYSTEMD_RUN="$QUICKSD" KEMPT_SYSTEMD_SYSTEMCTL="$QUICKSC" KEMPT_SYSTEMD_POLL=3 \
+  timeout 40 bash "$AH" dnf-upgrade -y >"$TESTTMP/hang-out" 2>"$TESTTMP/hang-err" || HRC=$?
+HSECS=$(( SECONDS - t0 ))
+assert_eq "$HRC" 0 "a unit that ends 2 s in, with systemd-run hung: judged from systemd, and the helper exits 0"
+assert_eq "$(( HSECS < 25 ))" 1 "...returning on its own"
+assert_exit 1 "...after killing the systemd-run that ignored TERM" -- kill -0 "$(cat "$TESTTMP/quick.pid" 2>/dev/null || echo 0)"
+assert_eq "$(grep -cvE '^(systemctl (show|reset-failed) .*kempt-apply-dnf-upgrade\.service)$' "$SDCALLS")" 0 \
+  "...and systemctl was never told to stop or kill anything"
+kill -s KILL "$(cat "$TESTTMP/quick.sleep" 2>/dev/null || echo 0)" 2>/dev/null || true   # it ignores TERM, as its parent did
+
+# Still running: the helper waits as long as it takes, says once after the long-run mark that it
+# will not interrupt, and stops nothing. A unit never seen running is not judged either, since
+# systemd-run may still be starting it. A TERM to the helper ends each case, as a closed terminal does.
+for case in "loaded active 0 0 inv1|still running" "not-found inactive 0 0 -|never seen running"; do
+  rm -f "$HANGREP" "$HANGREP.pid" "$SDCALLS"
+  printf '%s\n' "${case%%|*}" > "$SDSTATES"
+  env KEMPT_SYSTEMD_RUN="$HANGSD" KEMPT_TEST_HANG_REPORT="$HANGREP" KEMPT_SYSTEMD_POLL=0.05 KEMPT_SYSTEMD_GRACE=2 \
+    KEMPT_SYSTEMD_LONG_RUN=3 bash "$AH" dnf-upgrade -y >"$TESTTMP/hang-out" 2>"$TESTTMP/hang-err" &
+  hp=$!
+  for _ in $(seq 100); do [[ "$(grep -c 'show --no-pager -p' "$SDCALLS" 2>/dev/null)" -ge 12 ]] && break; sleep 0.05; done
+  assert_eq "$(( $(grep -c 'show --no-pager -p' "$SDCALLS" 2>/dev/null || echo 0) >= 12 ))" 1 \
+    "${case#*|}: premise: the helper kept asking about its unit"
+  assert_exit 0 "${case#*|}: systemd-run is still waiting, untouched" -- kill -0 "$(cat "$HANGREP.pid" 2>/dev/null || echo 0)"
+  assert_eq "$(cat "$HANGREP" 2>/dev/null)" "" "${case#*|}: ...and was sent nothing"
+  kill -s TERM "$hp"; wait "$hp" || true
+  assert_eq "$(grep -cvE '^(systemctl (show|reset-failed) .*kempt-apply-dnf-upgrade\.service|systemd-run)$' "$SDCALLS")" 0 \
+    "${case#*|}: ...and systemctl was never told to stop or kill anything"
+done
+assert_eq "$(grep -c 'dnf5 has been running for 15 minutes. Kempt will not interrupt it' "$TESTTMP/hang-err")" 0 \
+  "never seen running: no long-run line"
+printf '%s\n' "loaded active 0 0 inv1" > "$SDSTATES"; rm -f "$HANGREP" "$HANGREP.pid" "$SDCALLS"
+env KEMPT_SYSTEMD_RUN="$HANGSD" KEMPT_TEST_HANG_REPORT="$HANGREP" KEMPT_SYSTEMD_POLL=0.05 KEMPT_SYSTEMD_LONG_RUN=3 \
+  bash "$AH" dnf-upgrade -y >"$TESTTMP/hang-out" 2>"$TESTTMP/hang-err" &
+hp=$!
+for _ in $(seq 100); do [[ "$(grep -c 'show --no-pager -p' "$SDCALLS" 2>/dev/null)" -ge 12 ]] && break; sleep 0.05; done
+kill -s TERM "$hp"; wait "$hp" || true
+assert_eq "$(grep -c 'dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on.' "$TESTTMP/hang-err")" 1 \
+  "a unit still running past the long-run mark: the run log says once that Kempt will not interrupt it"
+
+# One run at a time per verb: a unit already running under the fixed name refuses the second run,
+# which starts nothing and resets nothing. Otherwise reset-failed comes first, so a failed unit
+# left by an earlier run cannot block the name, and then systemd-run.
+rm -f "$SDCALLS"; echo active > "$TESTTMP/systemctl.claim"
+assert_exit 5 "a run whose unit is still active refuses a second one, with exit 5" -- bash "$AH" dnf-upgrade -y
+assert_contains "$(cat "$TESTTMP/last_output")" "kempt-apply: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." "...and says why"
+assert_eq "$(grep -cE 'systemd-run|reset-failed' "$SDCALLS")" 0 "...starting nothing and resetting nothing"
+echo activating > "$TESTTMP/systemctl.claim"
+assert_exit 5 "...the same while it is starting" -- bash "$RH" refresh
+rm -f "$TESTTMP/systemctl.claim" "$SDSTATES"
+# The refresh helper also refuses while any kempt-apply unit runs, whoever started it (another user,
+# the widget): a check or refresh would only wait on dnf5's lock until that update ends. It asks
+# about the four fixed names, starts nothing and resets nothing. kempt-apply asks about no other unit.
+for u in kempt-apply-dnf-upgrade.service kempt-apply-dnf-offline-stage.service \
+         kempt-apply-dnf-offline-arm.service kempt-apply-dnf-offline-clean.service; do
+  for v in check refresh; do
+    rm -f "$SDCALLS" "$TESTTMP"/systemctl.claim.*; echo active > "$TESTTMP/systemctl.claim.$u"
+    assert_exit 5 "refresh $v while $u is active: exit 5" -- bash "$RH" "$v"
+    assert_eq "$(cat "$TESTTMP/last_output")" \
+      "kempt-refresh: dnf5 was not started, because a Kempt update is running. Nothing changed." "...and says a Kempt update is running"
+    assert_eq "$(grep -cE 'systemd-run|reset-failed' "$SDCALLS")" 0 "...starting nothing and resetting nothing"
+  done
+done
+rm -f "$SDCALLS"; echo deactivating > "$TESTTMP/systemctl.claim.kempt-apply-dnf-offline-arm.service"
+assert_exit 5 "...the same while an update unit is stopping" -- bash "$RH" check
+rm -f "$TESTTMP"/systemctl.claim.*
+rm -f "$SDCALLS"; echo active > "$TESTTMP/systemctl.claim.kempt-refresh-check.service"
+env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$AH" dnf-offline-clean >/dev/null 2>&1 || true
+assert_eq "$(grep -c 'kempt-refresh' "$SDCALLS")" 0 "kempt-apply never asks about the refresh helper's units"
+rm -f "$TESTTMP"/systemctl.claim.*
+for v in dnf-upgrade dnf-offline-stage dnf-offline-arm dnf-offline-clean check refresh; do
+  rm -f "$SDCALLS"
+  h="$AH"; case "$v" in check|refresh) h="$RH" ;; esac
+  u="kempt-apply-$v.service"; case "$v" in check|refresh) u="kempt-refresh-$v.service" ;; esac
+  # shellcheck disable=SC2046
+  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$h" "$v" $(offline_args "$v") >/dev/null 2>&1 || true
+  busy=""
+  case "$v" in check|refresh)
+    for b in kempt-apply-dnf-upgrade.service kempt-apply-dnf-offline-stage.service \
+             kempt-apply-dnf-offline-arm.service kempt-apply-dnf-offline-clean.service; do
+      busy+="systemctl show --no-pager -p ActiveState --value -- $b"$'\n'
+    done ;;
+  esac
+  assert_eq "$(grep -v 'show --no-pager -p LoadState' "$SDCALLS")" \
+    "$(printf 'systemctl show --no-pager -p ActiveState --value -- %s\n%ssystemctl reset-failed --no-pager -- %s\nsystemd-run' "$u" "$busy" "$u")" \
+    "$v: asks whether $u${busy:+ and the four update units} is running, resets it, then starts systemd-run"
+done
+
+# The new settings, like the old ones, are read only inside the helpers' not-root block.
+for h in "$RH" "$AH"; do
+  assert_eq "$(awk '/^if \[\[ \$EUID -ne 0 \]\]; then$/ { inb = 1; next } inb && /^fi$/ { inb = 0; next }
+                    !inb && /KEMPT_SYSTEMD_/ && !/^[[:space:]]*#/' "$h")" "" \
+    "$(basename "$h"): every KEMPT_SYSTEMD_ setting is honoured only when not root"
+  assert_eq "$(awk '/^if \[\[ \$EUID -ne 0 \]\]; then$/ { inb = 1; next } inb && /^fi$/ { inb = 0; next }
+                    !inb && /(^|[^A-Za-z_])(POLL|FIRST|FIRST_READS|GRACE|LONG_RUN)=/' "$h")" \
+    "$(printf 'POLL=5\nFIRST=1\nFIRST_READS=10\nGRACE=2\nLONG_RUN=180')" \
+    "$(basename "$h"): as root the watch's timing is the fixed one"
+done
 
 # Fail closed. Without systemd as PID 1 (a container, say) or without systemd-run, nothing runs and
 # the helper exits 4, apart from 2 (bad arguments), 3 (refused) and dnf5's own statuses. It never

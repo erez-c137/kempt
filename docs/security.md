@@ -130,6 +130,17 @@ systemd as PID 1, or without `systemd-run`, a helper exits 4 and runs nothing. W
 `systemd-run` gets `/dev/null` and the helper's pipes, never the caller's files, which SELinux
 keeps PID 1 from writing.
 
+Each verb runs as a service with a fixed name from a table, such as
+`kempt-apply-dnf-upgrade.service`. No argument or environment variable reaches the name or any
+`-p` property. If that service is still running, the helper exits 5. The refresh helper also exits
+5 while a `kempt-apply` service runs. Otherwise it clears the service's last failure and starts it.
+
+`systemd-run` can lose track of the service when PID 1 restarts during a package's setup step.
+So the helper polls the service, each second until it sees it running (up to 10 seconds), then
+every 5 seconds. A poll with no invocation ID is ignored. Once the service has ended for 10
+seconds, the helper stops its own `systemd-run` and output copiers, kills that `systemd-run` if it
+lingers 5 seconds more, and exits with dnf5's status as systemd recorded it. It never signals the service, and never interrupts a long one.
+
 Up to 0.1.7 the helpers kept the caller's umask. `kempt doctor` checks dnf's cache, state and
 staged packages for files another user could change. A changed staged package installs as root
 without a second signature check, so the state and staged rows are failures.
@@ -323,7 +334,7 @@ The helpers also protect themselves. Both start with `#!/usr/bin/bash -p`. In pr
 skips `BASH_ENV` and `ENV`, and ignores `SHELLOPTS`, `BASHOPTS`, `CDPATH`, `GLOBIGNORE` and
 exported functions. A helper started another way, such as `sudo -E`, still runs none of the
 caller's code before its first line. The settings that could change a decision,
-`KEMPT_OFFLINE_TOML` and the two `KEMPT_SYSTEMD_*` ones, are ignored whenever a helper runs as
+`KEMPT_OFFLINE_TOML` and the `KEMPT_SYSTEMD_*` ones, are ignored whenever a helper runs as
 root.
 
 ## Passwordless mode
