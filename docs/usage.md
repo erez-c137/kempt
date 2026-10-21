@@ -444,8 +444,8 @@ runs. `--user` means a session service. `--json` prints the `startup` block of `
 
 `--all` shows everything that starts or runs on its own: what didn't start this boot, what
 changed since the last update, what starts with the computer, what runs on a schedule, and
-startup time. Empty parts are left out. Log lines of system services need membership of `wheel`,
-`adm` or `systemd-journal`. `--json` prints [this shape](architecture.md#startup-report-json).
+startup time. Empty parts and removed services are left out. Log lines of system services need
+membership of `wheel`, `adm` or `systemd-journal`. `--json` prints [this shape](architecture.md#startup-report-json).
 The widget shows the same list on its Startup report.
 
 ```

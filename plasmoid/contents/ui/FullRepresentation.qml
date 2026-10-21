@@ -278,6 +278,8 @@ PlasmaExtras.Representation {
     // A second page in place of the update list, opened from the widget's menu (main.qml,
     // startupAction). Opening it gathers (main.qml, gatherStartupPage); nothing else does. It
     // closes with Back, Escape, or the popup closing, so the next open starts on the updates.
+    // It opens during a run of ours too, in place of the run's log: it only reads, on its own
+    // executor. A run that starts or ends while it is open leaves it, and the keyboard, alone.
     property bool startupOpen: false
 
     // The menu's request, taken once: from a popup already built, or by this one as it is built
@@ -302,12 +304,15 @@ PlasmaExtras.Representation {
 
     // Back to the updates with the keyboard on the header's first control, Check for Updates,
     // where Tab order starts. It refuses while a check runs, and then the keyboard goes wherever
-    // the popup's own open would put it.
+    // the popup's own open would put it. During a run, back to its log, with the keyboard on the
+    // log's own control, as the run's start put it there.
     function closeStartup() {
         if (!popup.startupOpen) return;
         popup.startupOpen = false;
         Qt.callLater(function () {
-            if (popup.canTakeFocus(refreshButton)) refreshButton.forceActiveFocus(Qt.TabFocusReason);
+            if (popup.plasmoidItem.updating && popup.canTakeFocus(checkAgainButton))
+                checkAgainButton.forceActiveFocus(Qt.TabFocusReason);
+            else if (popup.canTakeFocus(refreshButton)) refreshButton.forceActiveFocus(Qt.TabFocusReason);
             else popup.focusPrimary();
         });
     }
@@ -1893,6 +1898,9 @@ PlasmaExtras.Representation {
     footer: PlasmaExtras.PlasmoidHeading {
         leftPadding: popup.edgeInset
         rightPadding: popup.edgeInset
+        // Not under the Startup page, which only reads: Update Now there would start a run, or
+        // open the risky question, behind the page, out of sight. Back brings it back.
+        visible: !popup.startupOpen
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
@@ -2016,7 +2024,7 @@ PlasmaExtras.Representation {
         anchors.leftMargin: popup.edgeInset
         anchors.rightMargin: popup.edgeInset
         plasmoidItem: popup.plasmoidItem
-        visible: popup.startupOpen && !popup.plasmoidItem.updating
+        visible: popup.startupOpen
         onBackRequested: popup.closeStartup()
         onCopyRequested: text => popup.copyToClipboard(text)
         onAnnounceRequested: sentence => popup.announce(sentence)
@@ -2024,14 +2032,15 @@ PlasmaExtras.Representation {
 
     // --- the updating state ----------------------------------------------------------------------
     // Only reached for a run WE started. The log pane appears only on the in-popup surface, since
-    // that is the surface whose whole point is that the output comes here.
+    // that is the surface whose whole point is that the output comes here. The Startup page,
+    // while open, takes its place.
     ColumnLayout {
         id: updatingPane
         anchors.fill: parent
         anchors.margins: Kirigami.Units.smallSpacing
         anchors.leftMargin: popup.edgeInset
         anchors.rightMargin: popup.edgeInset
-        visible: popup.plasmoidItem.updating
+        visible: popup.plasmoidItem.updating && !popup.startupOpen
         spacing: Kirigami.Units.smallSpacing
 
         // The pane replaces the whole content area, so every control the keyboard was standing on
@@ -2039,7 +2048,9 @@ PlasmaExtras.Representation {
         // a stuck pane was "Update Now push button" for a control nobody was drawing; Tab from
         // there landed on a nameless RowLayout. Both directions, because both are a swap: in, to
         // the one control this pane has; out, to whatever the popup's rule says is primary now.
+        // Not out to the Startup page: openStartup puts the keyboard there itself.
         onVisibleChanged: {
+            if (popup.startupOpen) return;
             if (visible) {
                 if (popup.canTakeFocus(checkAgainButton)) {
                     checkAgainButton.forceActiveFocus(Qt.TabFocusReason);

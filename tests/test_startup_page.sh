@@ -149,6 +149,14 @@ assert_contains "$t" "Didn't start this boot:" "the text names the section"
 assert_contains "$t" "Didn't start this boot:"$'\n'"  Bluetooth service"$'\n'"    Its log says: No Bluetooth adapter found"$'\n'"    To see why: systemctl status bluetooth.service" \
   "...names the unit by its description, then its log line, then the command on a line of its own"
 assert_contains "$t" "  IMSettings (when you log in)" "...and says which units are your session's"
+# Its package removed after it failed: systemd lists it as failed and not-found until the next
+# restart. Nothing is left to fix, so the page leaves it out.
+jq -cn --arg u "$AUTOSTART" '[{unit: $u, load: "not-found", active: "failed", sub: "failed", description: "IMSettings"}]' > "$SD/failed-user.json"
+out="$(page)"
+assert_eq "$(jq -r '[.failed.units[].unit] | join(",")' <<<"$out")" "bluetooth.service,cups.service" \
+  "a failed unit whose file is gone is not listed"
+assert_not_contains "$(text)" "IMSettings" "...in the text either"
+jq -cn --arg u "$AUTOSTART" '[{unit: $u, load: "loaded", active: "failed", sub: "failed", description: "IMSettings"}]' > "$SD/failed-user.json"
 
 # --- an autostart unit systemd names only by its unit: the entry's Name=, else its decoded name ---
 mkdir -p "$TESTTMP/xdg/autostart"

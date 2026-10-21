@@ -170,6 +170,8 @@ settle()
 p.check("a check, and opening the widget, gather nothing", p.call_count("startup"), 0)
 
 # --- opening ---------------------------------------------------------------------------------------
+p.check("premise: the footer offers Update Now", [lev("popup.footer.visible"), lev("updateButton.visible")],
+        [True, True])
 serve(FULL, delay=1)
 ev("startupAction.trigger()")
 p.pump(100)
@@ -211,6 +213,12 @@ pev("page.sayWhatLanded()")
 p.check("...and not again when Back has already said it",
         len(json.loads(str(sev("JSON.stringify(said)")))), _heard)
 p.check("the updates are out of the way", lev("startupPage.visible && !updatingPane.visible"), True)
+# The page only reads: Update Now there would start a run, or open the risky question, behind it.
+p.check("...the footer too, Update Now with it, while the header's Check for Updates stays",
+        [lev("popup.footer.visible"), lev("updateButton.visible"), lev("refreshButton.visible")],
+        [False, False, True])
+p.check("...and the keyboard is on a control that is drawn",
+        lev("popup.Window.activeFocusItem.visible && popup.Window.activeFocusItem.enabled"), True)
 
 p.check("what failed is listed in full, (when you log in) for a login item",
         [pev("failedHeading.visible"), pev("failedRepeater.count"),
@@ -316,6 +324,8 @@ pev("page.startsOpen = true")
 pev("backButton.clicked()")
 p.pump(80)
 p.check("Back returns to the updates", [lev("popup.startupOpen"), lev("startupPage.visible")], [False, False])
+p.check("...and the footer with Update Now comes back", [lev("popup.footer.visible"), lev("updateButton.visible")],
+        [True, True])
 p.wait_for(lev, "popup.Window.activeFocusItem === refreshButton", True)
 p.check("...with the keyboard on the header's Check for Updates, the first control there",
         lev("popup.Window.activeFocusItem === refreshButton"), True)
@@ -368,6 +378,57 @@ p.clear_calls()
 ev("root.doCheck()")
 settle()
 p.check("...and nothing gathers in the background after all that", p.call_count("startup"), 0)
+
+# --- during a run of ours --------------------------------------------------------------------------
+# The page only reads, on its own queue, so a run does not keep it shut: it shows in place of the
+# run's log, and Back or Escape brings the log back with the keyboard on the run's own control.
+FOCUS = "popup.Window.activeFocusItem === "
+p.check("the page gathers on its own queue, never the run's or its log's",
+        "startupExecutor.run(kemptCmd + Logic.STARTUP_PAGE_ARGS," in _MAIN, True)
+ev('root.enterUpdating("popup")')
+p.pump(120)
+p.check("premise: a run shows its log, the keyboard on its own control",
+        [lev("updatingPane.visible"), lev(FOCUS + "checkAgainButton")], [True, True])
+serve(FULL)
+p.clear_calls()
+ev("startupAction.trigger()")
+settle()
+p.check("the menu entry opens the page during a run, in place of the log",
+        [lev("popup.startupOpen"), lev("startupPage.visible"), lev("updatingPane.visible"),
+         p.call_count("startup --all")], [True, True, False, 1])
+p.check("...with no footer under it", lev("popup.footer.visible"), False)
+p.wait_for(pev, "page.Window.activeFocusItem === backButton", True)
+p.check("...with the keyboard on Back", pev("page.Window.activeFocusItem === backButton"), True)
+pev("backButton.clicked()")
+p.pump(80)
+p.check("Back returns to the run's log", [lev("popup.startupOpen"), lev("startupPage.visible"),
+                                          lev("updatingPane.visible")], [False, False, True])
+p.wait_for(lev, FOCUS + "checkAgainButton", True)
+p.check("...with the keyboard on the run's own control", lev(FOCUS + "checkAgainButton"), True)
+p.check("...and the footer back under the log", lev("popup.footer.visible"), True)
+ev("startupAction.trigger()")
+settle()
+press(Qt.Key_Escape)
+p.wait_for(lev, FOCUS + "checkAgainButton", True)
+p.check("Escape does the same, and does not close the widget",
+        [lev("popup.startupOpen"), lev("updatingPane.visible"), lev(FOCUS + "checkAgainButton")],
+        [False, True, True])
+ev("startupAction.trigger()")
+settle()
+pev("startsToggle.clicked()")
+p.pump(50)
+p.check("premise: the keyboard is on Back", pev("page.Window.activeFocusItem === backButton"), True)
+ev("root.leaveUpdating()")
+settle()
+p.pump(120)
+p.check("the run ending while the page is open leaves the page as it was",
+        [lev("popup.startupOpen"), lev("startupPage.visible"), lev("updatingPane.visible"),
+         pev("page.startsOpen"), pev("page.showsPage")], [True, True, False, True, True])
+p.check("...the keyboard where it was", pev("page.Window.activeFocusItem === backButton"), True)
+pev("backButton.clicked()")
+p.wait_for(lev, FOCUS + "refreshButton", True)
+p.check("...then Back returns to the updates, the run over", [lev("popup.startupOpen"), lev("updatingPane.visible"),
+                                                             lev(FOCUS + "refreshButton")], [False, False, True])
 
 # --- a request while the widget is not on screen ----------------------------------------------------
 # The open it asked for did not happen. Nothing gathers out of sight, and the next ordinary open

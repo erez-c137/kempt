@@ -342,12 +342,12 @@ for good.
 The Startup report shows `kempt startup --all`: what starts with the computer and what runs on a
 schedule. Open it with **Startup Report** in the widget's right-click menu, or in **More actions**
 inside the system tray. It reads when it opens and when you press its arrow, never in the
-background, and it changes nothing.
+background, and changes nothing.
 
 It lists in full what didn't start this boot, with its log line and **Copy Command**, what changed
 since the last update, and timers whose last run failed. What starts and what runs on a schedule
-are counts, with **Show All**. One line gives startup time against the usual. Empty sections are
-left out. **Back** or Escape returns to the updates.
+are counts, with **Show All**. One line gives startup time against the usual. Empty sections and
+removed services are left out. **Back** or Escape returns to the updates, or to a running update.
 
 ## Settings
 
