@@ -1370,13 +1370,13 @@ assert_eq "$(js "L.startupPageOutcomeOf('', 'kempt: could not gather the startup
   "Kempt could not gather the startup list: kempt: could not gather the startup page" "...and one that failed gives the CLI's reason"
 assert_eq "$(js "L.startupPageOutcomeOf('', '', 1, 0).problem")" "Kempt could not gather the startup list (exit 1)." "...or its exit code"
 assert_eq "$(js 'L.STARTUP_PAGE_ARGS')" " startup --all --json" "the page gathers with kempt startup --all --json"
-for _lit in startupPageButton startupPageButtonTip startupPageBack startupPageRefresh startupPageRefreshTip startupPageShowAll startupPageHide startupPageSetting startupPageSettingNote; do
+for _lit in startupPageAction startupPageBack startupPageRefresh startupPageRefreshTip startupPageShowAll startupPageHide; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" "1" \
     "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
-assert_eq "$(js '[L.COPY.startupPageSetting, L.COPY.startupPageSettingNote].join("|")')" \
-  "Show a Startup page|Lists what starts with the computer and what runs on a schedule. It reads the system journal when you are allowed to." \
-  "the setting and its note"
+assert_eq "$(js 'L.COPY.startupPageAction')" "Startup Page" "the widget's menu entry"
+assert_eq "$(js '[typeof L.COPY.startupPageSetting, typeof L.COPY.startupPageButton].join("|")')" "undefined|undefined" \
+  "...and no setting or header button left to word"
 
 # --- per-user Flatpak apps: the same id installed both ways is two rows, one marked ------------------
 UFP='{schema:1,status:"ok",actionable:2,held_total:0,backends:{flatpak:{enabled:true,items:[

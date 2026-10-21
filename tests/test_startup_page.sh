@@ -110,7 +110,6 @@ assert_eq "$(jq -c '[keys[] | select(IN("failed", "changed", "starts", "schedule
 assert_eq "$(calls journalctl)" "" "nothing failed, so the journal is never read"
 assert_eq "$(calls rpm)" "" "nothing to group, so rpm is never asked"
 assert_contains "$(text)" "Kempt found nothing to list." "the text says so in one line"
-assert_eq "$(config_get startup_page)" "false" "the setting is off by default, and --all works anyway"
 assert_exit 2 "an unknown option is refused" -- "$KEMPT" startup --all --bogus
 
 # --- didn't start this boot, with the line that explains it --------------------------------------
@@ -445,17 +444,30 @@ page >/dev/null
 assert_eq "$(calls analyze)" "" "a boot already recorded is not asked again"
 assert_eq "$(jq '[.[] | select(.boot_id == "boot-now")] | length' "$KEMPT_STATE_DIR/boot-times.json")" "1" "...and recorded once"
 
-# The check records the time once per boot, without the slow blame, when the page is on.
+# The check records the time once per boot, without the slow blame, for everyone: the page opens
+# from the widget's menu whenever someone wants it, and "usual" needs the boots before that.
 reset_calls
 rm -f "$KEMPT_STATE_DIR/boot-times.json"
-startup_boot_record_if_on
-assert_eq "$([[ -e "$KEMPT_STATE_DIR/boot-times.json" ]] && echo yes || echo no)" "no" "the check records nothing with the page off"
-config_set startup_page true
-startup_boot_record_if_on
+mv "$SD/analyze" "$SD/analyze.later"
+startup_boot_record_quietly; rc=$?
+assert_eq "$rc:$([[ -e "$KEMPT_STATE_DIR/boot-times.json" ]] && echo yes || echo no)" "0:no" \
+  "a check while startup is still running records nothing, and does not fail"
+mv "$SD/analyze.later" "$SD/analyze"
+reset_calls
+startup_boot_record_quietly
 assert_eq "$(jq -c '.[0] | [.boot_id, .ready_sec, has("slowest")]' "$KEMPT_STATE_DIR/boot-times.json")" '["boot-now",6.117,false]' \
-  "with the page on, the check records this boot's times"
-assert_not_contains "$(calls analyze)" "blame" "...and leaves the slowest unit to the page"
-assert_contains "$(sed -n '/^cmd_check()/,/^}/p' "$KEMPT")" "startup_boot_record_if_on" "cmd_check calls it"
+  "a check records this boot's times, with no setting to turn on"
+assert_eq "$(calls analyze)" "time" "...with one systemd-analyze call, leaving the slowest unit to the page"
+startup_boot_record_quietly
+startup_boot_record_quietly
+assert_eq "$(calls analyze)" "time" "later checks in the same boot ask systemd-analyze nothing"
+assert_eq "$(jq '[.[] | select(.boot_id == "boot-now")] | length' "$KEMPT_STATE_DIR/boot-times.json")" "1" "...and add nothing"
+KEMPT_BOOT_ID=boot-next startup_boot_record_quietly
+assert_eq "$(calls analyze | wc -l | tr -d ' '):$(jq -r '.[-1].boot_id' "$KEMPT_STATE_DIR/boot-times.json")" "2:boot-next" \
+  "the next boot is asked once and recorded"
+jq '[.[] | select(.boot_id != "boot-next")]' "$KEMPT_STATE_DIR/boot-times.json" > "$TESTTMP/bt" \
+  && mv "$TESTTMP/bt" "$KEMPT_STATE_DIR/boot-times.json"
+assert_contains "$(sed -n '/^cmd_check()/,/^}/p' "$KEMPT")" "startup_boot_record_quietly" "cmd_check calls it"
 assert_eq "$(page | jq -r '.boot_time.slowest.unit')" 'systemd-fsck@dev-disk-by\x2duuid-655f.service' \
   "the page fills in the slowest unit later"
 

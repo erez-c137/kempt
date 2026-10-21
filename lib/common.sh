@@ -542,7 +542,7 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security notify_startup startup_page"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security notify_startup"
 
 # The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
@@ -627,8 +627,6 @@ kempt_default() {  # key → default ("" if unknown)
     # a check asks systemd only for the failed units (and, while something is announced or muted,
     # whether those run), and Kempt only looks.
     notify_startup) echo true ;;
-    # The widget's Startup button. `kempt startup --all` works either way.
-    startup_page) echo false ;;
     *) echo "" ;;
   esac
 }
@@ -2114,7 +2112,6 @@ startup_patch_state() {
 # unit name reaches a command only as an argument of its own. What a command printed reaches jq on
 # stdin or as a file, never as an argument: one argument holds 128 KB, and a long journal would
 # lose the whole section. A section with nothing in it is left out.
-startup_page_on() { is_true "$(config_get startup_page 2>/dev/null)"; }
 
 startup_run() { startup_timed system "$@"; }  # seam args... → its output, stderr dropped
 
@@ -2414,8 +2411,8 @@ startup_page_schedule() {
 }
 
 # Startup time. systemd-analyze answers only once startup has finished, so a boot is recorded the
-# first time it answers: by the check while the page is on, or by the page. The slowest unit costs
-# half a second, so only the page asks for it, once per boot. The file keeps the newest 11 boots.
+# first time it answers: by a check, or by the page. The slowest unit costs half a second, so only
+# the page asks for it, once per boot. The file keeps the newest 11 boots.
 startup_analyze_times() {  # → "ready userspace total" in seconds, "-" for what systemd did not say
   startup_run "$KEMPT_SYSTEMD_ANALYZE_CMD" time | awk "$STARTUP_DUR_AWK"'
     /\(userspace\)/ { s = $0; sub(/ \(userspace\).*/, "", s); sub(/.*(\+ | in )/, "", s); user = dur(s) }
@@ -2460,7 +2457,11 @@ startup_boot_record() {  # [slowest]
   writer_unlock
 }
 
-startup_boot_record_if_on() { startup_page_on || return 0; startup_boot_record >/dev/null 2>&1 || true; }
+# The check's half, for everyone and with no setting: the page opens from the widget's menu
+# whenever someone wants it, and its "usual" needs the boots recorded before that. Once a boot is
+# in the file this reads it and asks systemd-analyze nothing; until startup has finished, each
+# check asks once more (`systemd-analyze time`, a few milliseconds). Never fails the check.
+startup_boot_record_quietly() { startup_boot_record >/dev/null 2>&1 || true; }
 
 startup_page_boot() {  # → {ready_sec, userspace_sec, total_sec, usual, slowest, recent}, or nothing
   startup_boot_record slowest >/dev/null 2>&1 || true

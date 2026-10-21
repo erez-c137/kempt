@@ -789,7 +789,8 @@ p.check("...and the popup is listening to that signal on the widget it was hande
         "Connections { target: popup.plasmoidItem"
         " function onPopupShown() { popup.focusPrimary(); } }" in _popup, True)
 p.check("...with the first open, where the popup is built too late to hear it, covered separately",
-        "Component.onCompleted: if (popup.plasmoidItem.expanded) popup.focusPrimary()" in _popup,
+        "Component.onCompleted: { popup.takeStartupRequest();"
+        " if (popup.plasmoidItem.expanded) popup.focusPrimary(); }" in _popup,
         True)
 
 p.check("Escape asks and nothing more - the popup emits, and does not act (on the Startup page, it goes back)",
@@ -800,10 +801,13 @@ p.check("...and main.qml is what answers it, next to the property it owns",
         "onCloseRequested: root.expanded = false" in _MAIN, True)
 
 # The rule that makes all of the above necessary, stated as a count. `expanded` is the property
-# whose setter segfaults outside plasmashell: one assignment in the whole widget, in the file that
-# owns it, and none at all in a popup that a test has to be able to press keys in.
+# whose setter segfaults outside plasmashell: two assignments in the whole widget, both in the file
+# that owns it (Escape's close, and the menu's Startup Page opening a closed widget), and none at
+# all in a popup that a test has to be able to press keys in.
 p.check("the popup never writes the property that would take a test down with it",
         "expanded =" in _popup, False)
-p.check("...and main.qml writes it exactly once", _MAIN.count("expanded = "), 1)
+p.check("...and main.qml writes it exactly twice: the close and the Startup Page open",
+        [_MAIN.count("expanded = "), "onCloseRequested: root.expanded = false" in _MAIN,
+         "if (!root.popupOnScreen) root.expanded = true;" in _MAIN], [2, True, True])
 
 sys.exit(p.done())

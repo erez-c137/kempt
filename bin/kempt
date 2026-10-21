@@ -537,8 +537,8 @@ cmd_check() {
   # Right after the harvest, so the first check of a new boot compares against the stage it just
   # recorded. Never fails the check.
   startup_observe || true
-  # Once per boot, and only while the Startup page is on: how long this boot took.
-  startup_boot_record_if_on
+  # Once per boot: how long this boot took, for the Startup page's usual.
+  startup_boot_record_quietly
   maybe_refresh_metadata "$force_refresh" "$anyway"
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
@@ -3439,8 +3439,7 @@ startup_list() {
 }
 
 # `kempt startup --all` - the Startup page: everything startup_page_gather finds, as JSON for the
-# widget or as text grouped the way a person would say it. Works whatever startup_page says; the
-# setting only shows the widget's button.
+# widget (its menu's Startup Page) or as text grouped the way a person would say it.
 startup_page_cmd() {
   local json="" a page now today
   for a in "$@"; do case "$a" in
