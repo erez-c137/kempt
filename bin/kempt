@@ -1608,7 +1608,8 @@ cmd_update() {
     # The three statuses below are read with `|| rc=$?` rather than inside an `if`, because exit 3
     # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, a
     # file it could not read, or a dnf5 folder other users can change, and changed nothing. Every
-    # path that sees it skips the unwind.
+    # path that sees it skips the unwind. So does exit 5 (KEMPT_APPLY_BUSY): the same step from an
+    # earlier run is still going, and this one started nothing.
     local stage_rc=0 arm_rc=0 clean_rc=0 unsafe_dir=""
     # From here until write_stage_marker, dnf5's record is this run's and the marker is still the
     # previous stage's. A check comparing the two in that window must not call this rebuild
@@ -1629,6 +1630,12 @@ cmd_update() {
         reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
       fi
       log_event "offline stage refused by the root helper"
+    elif [[ $stage_rc -eq $KEMPT_APPLY_BUSY ]]; then
+      # The stage Kempt started earlier is still running, so this one changed nothing. No unwind,
+      # for the arm's reason below: a clean now would discard what that run is building.
+      dnf_status="failed"; status="failed"
+      reason_override="nothing was staged, because another Kempt update is still in progress. Try again when it has finished"
+      log_event "offline stage not started (another Kempt run is still in progress)"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
       # every pending update held, or nothing pending at all. Arming then fails with "No offline
@@ -1698,6 +1705,12 @@ cmd_update() {
         else
           reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
         fi
+      elif [[ $arm_rc -eq $KEMPT_APPLY_BUSY ]]; then
+        # The arm Kempt started earlier is still running, so this one started nothing. No unwind:
+        # the clean would land beside that run and could take away what it is setting up.
+        dnf_status="failed"; status="failed"
+        reason_override="the updates were staged, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished"
+        log_event "offline stage not armed (another Kempt run is still in progress)"
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
         reason_override="the updates were staged, but could not be set to install on the next restart"
@@ -1814,15 +1827,25 @@ cmd_update() {
       live_txid="${live_att%%$'\n'*}"
       live_att="${live_att#*$'\n'}"; live_status="${live_att%%$'\n'*}"
       if [[ "$live_att" == *$'\n'* ]]; then live_keep="${live_att#*$'\n'}"; fi
-      # The helper exited non-zero, yet dnf5's history names this run's transaction and records it
-      # as Ok. The transaction is the evidence: systemd-run can lose its line to PID 1 when a
-      # package's setup step restarts it, and the helper then reports what it could not see. The
-      # run's earlier state comes back, and the log says where the answer came from. Never for a
-      # refusal or a busy answer, which ran nothing: the entry would be another run's.
-      if [[ $live_rc -ne 0 && $live_rc -ne $KEMPT_APPLY_REFUSED && $live_rc -ne $KEMPT_APPLY_BUSY \
-            && "$live_status" == Ok ]]; then
+      # dnf5's history names this run's transaction, and its status is the tiebreaker both ways.
+      # The transaction is the evidence: systemd-run can lose its line to PID 1 when a package's
+      # setup step restarts it, and the helper then reports what it could not see.
+      # Ok over a helper that failed: the run's earlier state comes back. Only for an exit that can
+      # follow a dnf5 that ran: 1 (dnf5's own failure, or the helper's when systemd lost the
+      # result), 255 (dnf5 killed) and 128 and up (systemd-run stopped by a signal). Never 2 to 5,
+      # the helper turning the run away, nor pkexec's 126 and 127: nothing ran, so the entry
+      # would be another run's.
+      # Anything but Ok under a helper that said 0: the helper read a unit that was gone as a
+      # success, and another run's reset can make a failed unit go. A status Kempt cannot read
+      # (`unknown`) leaves the helper's answer as it is.
+      # Either way the log says where the answer came from.
+      if [[ "$live_status" == Ok ]] && (( live_rc == 1 || live_rc >= 128 )); then
         dnf_status="ok"; status="$live_was_status"; run_failed_otherwise="$live_was_failed"
         log_event "dnf outcome read from history (transaction $live_txid ok, helper rc=$live_rc)"
+      elif [[ $live_rc -eq 0 && "$live_status" != Ok && "$live_status" != unknown ]]; then
+        dnf_status="failed"; status="failed"
+        [[ -n "$reason_override" ]] || reason_override="dnf5 recorded this update as failed in its history, though the update seemed to finish"
+        log_event "dnf outcome read from history (transaction $live_txid $live_status, helper rc=$live_rc)"
       fi
     fi
   fi

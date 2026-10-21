@@ -645,7 +645,7 @@ Its wording is fixed, so you can search it:
 | `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |
 | `run failed rc=<n>: <reason>` | A run failed. The reason is the first log line that names the failure. |
-| `dnf outcome read from history (transaction <id> ok, helper rc=<n>)` | The root helper lost track of dnf5 and exited with an error. dnf5's history records the run's transaction as a success, so the run counts as one. |
+| `dnf outcome read from history (transaction <id> <status>, helper rc=<n>)` | The root helper and dnf5's history disagreed about the run's transaction. The history's status decides. |
 | `offline staged <n>` | An update was staged for the next restart. |
 | `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |

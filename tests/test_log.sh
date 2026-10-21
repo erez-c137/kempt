@@ -428,7 +428,11 @@ plain_in=(
   "offline marker dropped (a release upgrade (44) replaced our stage)"
   "offline marker kept (a new stage arrived while the check ran)"
   "offline marker cleared (rebuild failed, stage discarded)" "harvest applied (the result could not be recorded)"
-  "unstage refused (a Fedora release upgrade (44) is stored)" "passwordless enable rc=2")
+  "unstage refused (a Fedora release upgrade (44) is stored)" "passwordless enable rc=2"
+  "dnf outcome read from history (transaction 10 ok, helper rc=1)"
+  "dnf outcome read from history (transaction 10 Error, helper rc=0)"
+  "offline stage not started (another Kempt run is still in progress)"
+  "offline stage not armed (another Kempt run is still in progress)")
 for t in "${plain_in[@]}"; do printf '2026-01-01T00:00:00+00:00 cli %s\n' "$t" >> "$EV"; done
 cp "$EV" "$TESTTMP/ev.before"
 plain_out="$("$KEMPT" log -n 500)"

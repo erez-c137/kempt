@@ -361,6 +361,12 @@ event_plain() {  # event text → EVENT_PLAIN
       EVENT_PLAIN="Staged update recorded, but its result after the restart will not be reported" ;;
     "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
     "live update refused by the root helper") EVENT_PLAIN="The update was refused: other users can change dnf's folders" ;;
+    "offline stage not started (another Kempt run is still in progress)")
+      EVENT_PLAIN="Nothing was staged: another Kempt update is still in progress" ;;
+    "offline stage not armed (another Kempt run is still in progress)")
+      EVENT_PLAIN="The update was staged, but not set to install: another Kempt update is still in progress" ;;
+    "dnf outcome read from history ("*" ok, "*) EVENT_PLAIN="The update succeeded, as dnf's history records" ;;
+    "dnf outcome read from history"*) EVENT_PLAIN="The update failed, as dnf's history records" ;;
     "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
     "offline marker "*) EVENT_PLAIN="Record of the staged update ${t#offline marker }" ;;
     "harvest applied"*) EVENT_PLAIN="Staged update installed on restart${t#harvest applied}" ;;
@@ -1405,6 +1411,11 @@ KEMPT_APPLY_REFUSED=3
 # may finish while this one waits, so its history entry is never this run's evidence.
 # shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
 KEMPT_APPLY_BUSY=5
+# kempt-refresh answers the same way, with the same status, and both helpers print this sentence
+# after their own name. dnf_check says it in place of the helper's line, so a check that found an
+# earlier one still going reads as that and not as a broken check.
+# shellcheck disable=SC2034 # read by backends/dnf.sh, which is sourced beside this file
+KEMPT_HELPER_BUSY_TEXT="dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed."
 apply_refusal_reason() {  # → why the helper refused, as the user's side of the boundary sees it
   local relup
   if relup="$(offline_release_upgrade)"; then
@@ -1587,13 +1598,17 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
 # repositories" as the reason is worse than silence. Nothing matched → the last non-empty line,
 # where a terse failure lands, skipping the `== ... ==` section headings Kempt writes itself (a
 # heading is never the reason). Redacted, and capped at 120 characters, because this ends up in a
-# notification body. A line that opens with `>>> ` is never the reason either: that is a package's
-# setup step talking through dnf5, and "Remote peer disconnected" from one that restarted a service
-# reads as the update failing when dnf5 itself may have finished fine.
+# notification body. A line that opens with `>>> ` is a package's setup step talking through dnf5,
+# so it comes after every other line that names a failure, and is never the last-line fallback.
+# Only when no other line names one does the first `>>> ` line saying "error" or "failed" stand in,
+# before the last line. "Remote peer disconnected" is never chosen: a step that restarted a service
+# prints it, and it reads as the update failing when dnf5 itself may have finished fine.
 run_failure_reason() {  # log-file → one line, possibly empty
   local line=""
   [[ -r "$1" ]] || { printf '\n'; return 0; }
   line="$(grep -vE '^[[:space:]]*>>> ' "$1" | grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' || true)"
+  [[ -n "$line" ]] || line="$(grep -E '^[[:space:]]*>>> ' "$1" | grep -viF 'remote peer disconnected' \
+                              | grep -m1 -iE 'error|failed' || true)"
   [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$|^[[:space:]]*>>> ' "$1" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
   line="$(friendly_error "$line" | redact_error_text)"

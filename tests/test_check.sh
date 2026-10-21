@@ -136,6 +136,18 @@ STUB
 state_red="$("$KEMPT" check)"
 assert_contains "$(jq -r .error <<<"$state_red")" "dnf check failed: Failed to download https://repohost:8080/***/x for ~/.cache/x" \
   "the dnf check error loses credentials, path tokens, the query and the home path"
+
+# The helper's busy answer (exit 5: the check it started earlier is still running) is its own plain
+# sentence, not the helper's line with its name on it.
+cat > "$TESTTMP/refresh-stub" <<'STUB'
+#!/usr/bin/env bash
+echo "kempt-refresh: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." >&2
+exit 5
+STUB
+state_busy="$("$KEMPT" check)"
+assert_eq "$(jq -r .error <<<"$state_busy")" \
+  "dnf check failed: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." \
+  "a busy check helper is reported in its own plain words"
 printf '#!/usr/bin/env bash\necho "error: While fetching https://u:pw@dlhost/repo/summary#t0ken: refused" >&2\nexit 1\n' \
   > "$TESTTMP/fp-fail-red"; chmod +x "$TESTTMP/fp-fail-red"
 "$KEMPT" config set include_flatpak true

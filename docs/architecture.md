@@ -584,8 +584,9 @@ action. A cheap verb must never share an action with a dangerous one.
   It handles dnf only. `flatpak update` asks polkit for itself and runs as the user.
 
 Both helpers validate every argument before running anything, accept no free-form arguments, and
-pin `PATH` and `LC_ALL`. Each verb runs as a fixed-name service that a watchdog polls. A live
-upgrade that dnf5's history records as Ok counts as a success, whatever the helper exited with. The full model, including what passwordless mode grants, is in
+pin `PATH` and `LC_ALL`. Each verb runs as a fixed-name service that a watchdog polls. For a
+live upgrade, the status dnf5's history records for the run's own transaction settles a
+disagreement with the helper's exit status, in either direction. The full model, including what passwordless mode grants, is in
 [security.md](security.md).
 
 ## The widget's one command path
@@ -935,7 +936,7 @@ missing path, unless the row says otherwise.
 | `KEMPT_SYSTEMD_RUN` | `/usr/bin/systemd-run` | What the root helpers hand dnf5 to, so systemd starts it as a fresh service. Honoured only when not root. `tests/lib.sh` points it at a stand-in that records its arguments |
 | `KEMPT_SYSTEMD_BOOTED` | `/run/systemd/system` | Present only while systemd is PID 1. Without it, or without `systemd-run`, the root helpers exit 4 and start nothing. Honoured only when not root. `tests/lib.sh` points it at a test directory |
 | `KEMPT_SYSTEMD_SYSTEMCTL` | `/usr/bin/systemctl` | What the root helpers ask whether their fixed-name service is running, clear its last failure with, and poll while `systemd-run` waits. Honoured only when not root. `tests/lib.sh` points it at a stand-in that answers from a script of states |
-| `KEMPT_SYSTEMD_POLL` | `5` | Seconds between the root helpers' polls of their service. Honoured only when not root |
+| `KEMPT_SYSTEMD_POLL` | `5` | Seconds between the root helpers' polls of their service. Until the service is seen running, the first 10 polls come every second, or every `KEMPT_SYSTEMD_POLL` seconds when that is shorter. Honoured only when not root |
 | `KEMPT_SYSTEMD_GRACE` | `2` | Polls a service must stay ended before a helper stops waiting on `systemd-run`. Honoured only when not root |
 | `KEMPT_SYSTEMD_LONG_RUN` | `180` | Polls before a helper says once that dnf5 has run for 15 minutes. Honoured only when not root |
 | `KEMPT_DNF_CACHE_DIR` | `/var/cache/libdnf5` | dnf5's system cache. `kempt doctor` warns when another user owns or can write an entry in it, and never follows a link to do so. With no readable `*/repodata/repomd.xml` in it, and the directory itself readable, a failed dnf refresh is tried again after 15 minutes. `tests/lib.sh` points it at a path that does not exist |

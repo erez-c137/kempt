@@ -60,8 +60,17 @@ dnf_parse_check_update() {  # $1=installed TSV; stdin=dnf5 check-update, text or
 }
 
 dnf_check() {  # → items JSON on stdout; non-zero on helper OR parser failure
-  local out rc=0 lookup prc=0
-  out="$(priv_refresh check)" || rc=$?
+  local out rc=0 lookup prc=0 herr
+  # The helper's stderr is held back for one case: exit 5 (KEMPT_APPLY_BUSY), the check Kempt
+  # started earlier still running. That gets its own plain sentence, without the helper's name.
+  herr="$(mktemp)" || herr=""
+  out="$(priv_refresh check 2>"${herr:-/dev/stderr}")" || rc=$?
+  if [[ $rc -eq $KEMPT_APPLY_BUSY ]]; then
+    printf '%s\n' "$KEMPT_HELPER_BUSY_TEXT" >&2
+  elif [[ -n "$herr" ]]; then
+    cat "$herr" >&2
+  fi
+  [[ -z "$herr" ]] || rm -f "$herr"
   if [[ $rc -ne 0 && $rc -ne 100 ]]; then return 1; fi
   # A failed lookup must be loud: without this guard the join still succeeds against an empty
   # file and every package reports from="?" - a plausible-looking, entirely fabricated report.

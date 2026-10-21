@@ -38,7 +38,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **An update no longer hangs when a package's setup step restarts the system's service
   manager.** Kempt kept waiting forever, and then reported the update as failed even when it had
   installed. It now notices the update has finished and reads the result from dnf's history. A
-  setup step that runs long is never interrupted. After 15 minutes the log says so once.
+  setup step that runs long is never interrupted. After 15 minutes the log says so once. If an
+  earlier update or check is still running, a new one changes nothing and says so.
 - **A staged update now says how many updates it holds.** When the check before staging found
   nothing new, but staging then found updates, the summary and `kempt log` said "Staged 0
   updates". The count now comes from the staged update itself.

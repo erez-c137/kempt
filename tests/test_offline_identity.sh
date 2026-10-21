@@ -503,6 +503,39 @@ live_lost_run
 sed -i 's/exit 5$/exit 1/' "$TESTTMP/live-apply-lost"
 assert_eq "$(jq -r .status "$HH")" "failed" "...and so does a run the helper turned away as busy"
 assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "outcome read from history" "...which reads nothing from history"
+# Only an exit that can follow a dnf5 that ran is overridden: 1 (dnf5's failure, or the helper's
+# own when systemd lost the result), 255 (killed) and 128 and up (systemd-run stopped by a
+# signal). 2, 3, 4 and 5 are the helper turning the run away, and 126 and 127 are pkexec's: nothing
+# ran, so the Ok entry is another run's.
+for rc in 2 4 126 127; do
+  sed -i "s/exit 1\$/exit $rc/" "$TESTTMP/live-apply-lost"
+  live_lost_run
+  sed -i "s/exit $rc\$/exit 1/" "$TESTTMP/live-apply-lost"
+  assert_eq "$(jq -r .status "$HH")" "failed" "...and so does a helper exit of $rc, which ran nothing"
+  assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "outcome read from history" "...$rc: nothing read from history"
+done
+for rc in 255 143; do
+  sed -i "s/exit 1\$/exit $rc/" "$TESTTMP/live-apply-lost"
+  live_lost_run
+  sed -i "s/exit $rc\$/exit 1/" "$TESTTMP/live-apply-lost"
+  assert_eq "$(jq -r .status "$HH")" "ok" "a helper exit of $rc after this run's Ok transaction: the run is a success"
+done
+
+# The other way round: the helper says 0, and the history names this run's transaction as failed.
+# That happens when the helper read "gone" as success because another run reset the failed unit.
+# The history is the evidence, and the run is a failure.
+: > "$KEMPT_STATE_DIR/events.log"
+LIVE_AFTER="$TESTTMP/live-list-error.json"; live_run
+LIVE_AFTER="$TESTTMP/live-list-after.json"
+assert_eq "$(jq -r .status "$HH")" "failed" "the helper exits 0, the history records this run's transaction as Error: the run failed"
+assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "10" "...naming that transaction"
+assert_contains "$(jq -r '.error // ""' "$HH")" "dnf5 recorded this update as failed" "...with a plain reason"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "dnf outcome read from history (transaction 10 Error, helper rc=0)" \
+  "...and the event log says where the result came from"
+jq '(.[] | select(.id == 10)) |= del(.status)' "$TESTTMP/live-list-after.json" > "$TESTTMP/live-list-nostatus.json"
+LIVE_AFTER="$TESTTMP/live-list-nostatus.json"; live_run
+LIVE_AFTER="$TESTTMP/live-list-after.json"
+assert_eq "$(jq -r .status "$HH")" "ok" "...but a transaction with no status Kempt can read leaves the helper's 0 as it is"
 
 # The reason picker skips `>>> ` lines wherever they come from.
 printf '%s\n' "== System (dnf) ==" ">>> Running %post scriptlet: demo-1.0" ">>> [RPM] Remote peer disconnected: error" \
@@ -512,6 +545,15 @@ assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$RE
 printf '%s\n' ">>> Running %post scriptlet: demo-1.0" ">>> Remote peer disconnected" "Complete!" > "$TESTTMP/reason.log"
 assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log")" \
   "Complete!" "...also when no line names a failure"
+# When nothing else names a failure, a setup-step line that does is a better reason than the last
+# line. "Remote peer disconnected" is never one of them: dnf5 prints it when a step restarts a service.
+printf '%s\n' "== System (dnf) ==" ">>> Running %post scriptlet: demo-1.0" ">>> Remote peer disconnected: error" \
+  ">>> Scriptlet failed: %post(demo-1.0) exit status 1" "Complete!" > "$TESTTMP/reason.log"
+assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log")" \
+  ">>> Scriptlet failed: %post(demo-1.0) exit status 1" "...but a setup-step line that names a failure beats the last line"
+printf '%s\n' ">>> Running %post scriptlet: demo-1.0" ">>> Remote peer disconnected: error" "Complete!" > "$TESTTMP/reason.log"
+assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log")" \
+  "Complete!" "...and \"Remote peer disconnected\" never does"
 
 # A transaction PackageKit ran has no command line, and dnf5 lists it with command_line null. That
 # is another command, not a history of another shape: one such entry must not blind either reader.
