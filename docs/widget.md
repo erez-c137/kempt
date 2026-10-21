@@ -345,9 +345,9 @@ inside the system tray. It reads when it opens and when you press its arrow, nev
 background, and it changes nothing.
 
 It lists in full what didn't start this boot, with its log line and **Copy Command**, what changed
-since the last update, and timers whose last run failed. What starts and what runs on a schedule
-are counts, with **Show All**. One line gives startup time against the usual. Empty sections are
-left out. **Back** or Escape returns to the updates.
+since the last update, and timers whose last run failed. A removed service is left out. What
+starts and what runs on a schedule are counts, with **Show All**. One line gives startup time
+against the usual. Empty sections are left out. **Back** or Escape returns to the updates.
 
 ## Settings
 

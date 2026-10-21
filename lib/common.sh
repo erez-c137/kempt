@@ -1801,13 +1801,15 @@ startup_systemctl() {  # system|user args...
 
 # The units failing now in one scope, as [{unit, description}]; rc 1 when systemd did not answer,
 # or answered something that is not a list. Transient units and run-* leftovers are skipped:
-# systemd-run made them, Kempt's own helpers included, and nobody set them up to start. `show`
+# systemd-run made them, Kempt's own helpers included, and nobody set them up to start. So is a
+# unit whose file is gone (not-found): systemd lists it as failed until the next restart, and
+# nothing is left to fix. `show`
 # names the transient ones and gives the description, and is asked only when something failed;
 # when it fails, the list's own description stands.
 startup_failed() {  # system|user
   local list show="" names=()
   list="$(startup_systemctl "$1" --failed --output=json)" || return 1
-  mapfile -t names < <(jq -r 'if type == "array" then .[] | objects | .unit | strings | select(startswith("run-") | not)
+  mapfile -t names < <(jq -r 'if type == "array" then .[] | objects | select(.load != "not-found") | .unit | strings | select(startswith("run-") | not)
                               else error("shape") end' <<<"$list" 2>/dev/null; echo "rc=$?")
   [[ "${names[-1]}" == rc=0 ]] || return 1
   unset 'names[-1]'
@@ -1816,7 +1818,7 @@ startup_failed() {  # system|user
   jq -c --rawfile show <(printf '%s' "$show") '
     ([$show | split("\n\n")[] | [split("\n")[] | capture("^(?<key>[A-Za-z]+)=(?<value>.*)$")]
       | from_entries | select(.Id != null) | {(.Id): .}] | add // {}) as $s
-    | [.[] | objects | select((.unit | type) == "string") | .unit as $u
+    | [.[] | objects | select((.unit | type) == "string" and .load != "not-found") | .unit as $u
        | select(($u | startswith("run-") | not) and ($s[$u].Transient // "no") != "yes")
        | {unit: $u, description: ($s[$u].Description // .description // $u | tostring)}] | sort_by(.unit)' <<<"$list" \
     | startup_autostart_labels

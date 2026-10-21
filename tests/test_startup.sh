@@ -126,6 +126,10 @@ failing system 'bluetooth.service=Bluetooth service' 'run-u42.service=/usr/bin/t
 echo 'tmp-x.scope' > "$SD/transient-system"
 assert_json_eq "$(startup_failed system)" '[{"unit":"bluetooth.service","description":"Bluetooth service"}]' \
   "the failed list skips transient units and run-* leftovers, and keeps the description"
+jq -c '. + [{unit: "gone.service", load: "not-found", active: "failed", sub: "failed", description: "gone.service"}]' \
+  "$SD/failed-system.json" > "$SD/f.json" && mv "$SD/f.json" "$SD/failed-system.json"
+assert_eq "$(startup_failed system | jq -r '[.[].unit] | join(",")')" "bluetooth.service" \
+  "...and units whose file is gone (not-found), which systemd keeps listing until the next restart"
 rm -f "$SD/transient-system"
 touch "$SD/down-user"
 assert_exit 1 "a scope systemd does not answer for is a failure, not an empty list" -- startup_failed user
@@ -438,6 +442,19 @@ check >/dev/null
 assert_eq "$(note_count)" "1" "a unit systemd no longer knows is dropped without a word"
 assert_eq "$(startup_state '.announced | length')" "0" "...from the announced list"
 assert_eq "$(startup_state '.recovered | length')" "0" "...and is not listed as running again"
+# Removed with its package after it failed: systemd still lists it as failed, but not-found, until
+# the next restart. Nothing is left to fix, so it is dropped the same way.
+reset_world; dnf_max 150; check >/dev/null
+entry 20261020T110000 boot-A '[]' 150
+export KEMPT_BOOT_ID=boot-B
+failing system 'bluetooth.service=Bluetooth service'
+check >/dev/null
+assert_eq "$(startup_state '[.announced[].unit]')" '["bluetooth.service"]' "premise: the failure is announced"
+jq -c '.[0].load = "not-found"' "$SD/failed-system.json" > "$SD/f.json" && mv "$SD/f.json" "$SD/failed-system.json"
+echo bluetooth.service > "$SD/gone-system"
+check >/dev/null
+assert_eq "$(startup_state '.announced | length')" "0" "a failed unit whose file is gone leaves the announced list"
+assert_eq "$(startup_state '.recovered | length')" "0" "...without being called running again"
 reset_world; dnf_max 150; check >/dev/null
 entry 20261020T110000 boot-A '[]' 150
 export KEMPT_BOOT_ID=boot-B
