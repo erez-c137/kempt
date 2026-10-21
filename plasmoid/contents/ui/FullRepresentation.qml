@@ -1898,6 +1898,9 @@ PlasmaExtras.Representation {
     footer: PlasmaExtras.PlasmoidHeading {
         leftPadding: popup.edgeInset
         rightPadding: popup.edgeInset
+        // Not under the Startup page, which only reads: Update Now there would start a run, or
+        // open the risky question, behind the page, out of sight. Back brings it back.
+        visible: !popup.startupOpen
         contentItem: RowLayout {
             spacing: Kirigami.Units.smallSpacing
 
