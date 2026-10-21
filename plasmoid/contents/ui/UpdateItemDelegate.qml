@@ -112,7 +112,8 @@ RowLayout {
         } else if (row.newPackage) {
             parts.push(i18n("Installs version %1.", row.to));
         } else if (row.from === row.to) {
-            parts.push(Logic.versionTextOf(row.from, row.to) + ".");
+            parts.push(i18nc("@info:accessible a version, said as a sentence", "%1.",
+                             Logic.versionTextOf(row.from, row.to)));
         } else {
             parts.push(i18n("Updates from %1 to %2.", row.from, row.to));
         }

@@ -46,15 +46,18 @@ ColumnLayout {
         for (const note of sp.notes) out.push(note);
         if (sp.bootLine.length > 0) out.push(sp.bootLine);
         if (sp.failed.length > 0)
-            out.push(failedHeading.label + ": " + sp.failed.map(f => f.title).join(", ") + ".");
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2.", failedHeading.label,
+                           sp.failed.map(f => f.title).join(i18nc("@info:accessible list separator", ", "))));
         if (sp.failedNote.length > 0) out.push(sp.failedNote);
-        if (sp.changed.length > 0) out.push(sp.changedTitle + ": " + sp.changed.join(" "));
+        if (sp.changed.length > 0)
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2", sp.changedTitle, sp.changed.join(" ")));
         if (sp.timerFailures.length > 0)
-            out.push(timerFailHeading.label + ": " + sp.timerFailures.join(" "));
-        if (sp.startsLines.length > 0) out.push(startsHeading.label + ": " + sp.startsSummary + ".");
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2", timerFailHeading.label, sp.timerFailures.join(" ")));
+        if (sp.startsLines.length > 0)
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2.", startsHeading.label, sp.startsSummary));
         if (sp.skippedLine.length > 0) out.push(sp.skippedLine);
         if (sp.scheduleLines.length > 0)
-            out.push(scheduleHeading.label + ": " + sp.scheduleSummary + ".");
+            out.push(i18nc("@info:accessible a section heading, then what it holds", "%1: %2.", scheduleHeading.label, sp.scheduleSummary));
         return out.join("\n");
     }
 
@@ -95,7 +98,7 @@ ColumnLayout {
         signal toggled()
         text: open ? i18n("Hide") : i18n("Show All")
         icon.name: open ? "go-up" : "go-down"
-        Accessible.name: text + ": " + section
+        Accessible.name: i18nc("@action:button Show All or Hide, then the list it opens", "%1: %2", text, section)
         // What the list holds: its count and notes while folded, and every line once open, since
         // the lines themselves are not tab stops.
         property var lines: []
@@ -227,7 +230,8 @@ ColumnLayout {
                         visible: failedEntry.modelData.command.length > 0
                         icon.name: "edit-copy"
                         text: i18n("Copy Command")
-                        Accessible.name: text + ": " + failedEntry.modelData.title
+                        Accessible.name: i18nc("@action:button Copy Command, then the service it is for",
+                                               "%1: %2", text, failedEntry.modelData.title)
                         // What its log says as well: the line above is not a tab stop.
                         Accessible.description: failedEntry.modelData.log.length > 0
                             ? failedEntry.modelData.log + "\n" + failedEntry.modelData.command
