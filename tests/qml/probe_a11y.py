@@ -131,12 +131,18 @@ FOCUSED = """(function () {
   var t = (it.text === undefined || it.text === null) ? "" : String(it.text);
   function within(c) { for (var q = it; q; q = q.parent) if (q === c) return true; return false; }
   if (within(rowsView)) return "row:" + t;
-  if (within(lastRunView)) return "lastRun:" + t;
+  if (within(lastRunView))
+    return it === lastRunView.currentItem ? "lastRun:row" : "lastRun:" + (it.Accessible.name || t);
   var msgs = {restartMessage: restartMessage, riskyMessage: riskyMessage,
               stagedMessage: stagedMessage, reportMessage: reportMessage};
   for (var k in msgs) if (within(msgs[k])) return k + ":" + t;
   return "elsewhere:" + t;
 })()"""
+
+
+# The last-run row is two stops: the row itself, named by its title (a date, so not spelled out
+# here), and its expander, named by what pressing it does with the state in the words.
+LASTRUN = ["lastRun:row", "lastRun:Show details of the last update"]
 
 
 def focused():
@@ -300,7 +306,7 @@ ev("root.popupOpened()")
 settle()
 lev("popup.focusPrimary()")
 p.pump(50)
-expected = ["refreshButton", "configureButton"] + pins() + ["lastRun:Expand", "updateButton"]
+expected = ["refreshButton", "configureButton"] + pins() + [*LASTRUN, "updateButton"]
 got = walk(len(expected))
 p.check("Tab walks the whole popup from Update Now and comes back to it", got, expected)
 p.check("...which means every package row's pin is a tab stop", len(pins()), 10)
@@ -325,11 +331,19 @@ p.check("...and is not the name a second time",
         lev("popup.Window.activeFocusItem.Accessible.description"
             " === popup.Window.activeFocusItem.text"), False)
 
-# Backwards, once, because a chain that only walks one way is a chain with a trap in it.
+# Backwards, the whole way round, because a chain that only walks one way is a chain with a trap
+# in it. Measured before this was asserted: Shift+Tab from the last-run row jumped straight to the
+# gear, so every pin was unreachable backwards, and the row itself was a stop only that way.
+def reverse_of(ring):
+    """The Shift+Tab order a forward ring implies, starting from the same control: every stop
+    but the one it started on, last to first, and then back to the start."""
+    return list(reversed(ring[:-1])) + [ring[-1]]
+
+
 lev("popup.focusPrimary()")
 p.pump(20)
-p.check("Shift+Tab from Update Now goes to the other end of the ring rather than nowhere",
-        walk(1, back=True), ["lastRun:Expand"])
+p.check("Shift+Tab walks the same ring in exactly the reverse order",
+        walk(len(expected), back=True), reverse_of(expected))
 
 # A message that appears puts its actions in the ring, between the header and the list, and takes
 # them away again when it goes. Both halves matter: an action nobody can reach by keyboard is not
@@ -343,10 +357,14 @@ lev("popup.focusPrimary()")
 p.pump(50)
 expected = (["refreshButton", "configureButton",
              "restartMessage:Restart…", "restartMessage:Close"]
-            + pins() + ["lastRun:Expand", "updateButton"])
+            + pins() + [*LASTRUN, "updateButton"])
 p.check("...and its Restart button and its close button are both in the tab order, in the "
         "message stack's own place: after the header, before the list",
         walk(len(expected)), expected)
+lev("popup.focusPrimary()")
+p.pump(20)
+p.check("...and Shift+Tab walks that ring backwards, message buttons included",
+        walk(len(expected), back=True), reverse_of(expected))
 
 state(fixture("state-risky-heavy.json"))
 ev('root.postRunLine = ""')
@@ -356,9 +374,12 @@ p.check("a session-critical transaction is pending, so that message is up instea
 lev("popup.focusPrimary()")
 p.pump(50)
 expected = (["refreshButton", "configureButton", "riskyMessage:Install on Next Restart"]
-            + pins() + ["lastRun:Expand", "updateButton"])
+            + pins() + [*LASTRUN, "updateButton"])
 p.check("...so its action is the stop after the header, and the restart message's two are gone",
         walk(len(expected)), expected)
+lev("popup.focusPrimary()")
+p.pump(20)
+p.check("...and backwards the same way", walk(len(expected), back=True), reverse_of(expected))
 
 # The state this widget is actually FOR. A weekly Fedora update is fifty to two hundred packages,
 # and a ListView only builds the delegates near its viewport - so before the scroll-into-view,
@@ -373,8 +394,8 @@ lev("popup.focusPrimary()")
 p.pump(50)
 _rows = pins()
 p.check("eighty packages pending, which is an ordinary Tuesday", len(_rows), 80)
-# Two for the header, one for the last-run row, one to land back on Update Now: a complete ring.
-_seq = walk(len(_rows) + 4)
+# Two for the header, two for the last-run row, one to land back on Update Now: a complete ring.
+_seq = walk(len(_rows) + 5)
 _stops = [x for x in _seq if x.startswith("row:")]
 p.check("...and Tab reaches every one of their pins", len(_stops), len(_rows))
 p.check("...each exactly once", len(set(_stops)), len(_rows))
@@ -386,7 +407,26 @@ p.check("...in the list's own order", _stops == _rows, True)
 # chain leaves the list at the end of the pool, goes round the header, and comes back in.
 p.check("...and the header is passed once on the way round, not once per screenful of list",
         [x for x in _seq if not x.startswith("row:")],
-        ["refreshButton", "configureButton", "lastRun:Expand", "updateButton"])
+        ["refreshButton", "configureButton", *LASTRUN, "updateButton"])
+
+# ...and backwards, which is the harder half: going up, the view builds each row ABOVE the ones it
+# already has, and a delegate the view adds is the last child of the list whatever row it is. Qt
+# walks Shift+Tab by child order, so before the rows were put back in order the walk left the list
+# at the first row it had to build and went to the header. Measured on a 29-package list: the top
+# eleven pins unreachable backwards.
+lev("popup.focusPrimary()")
+p.pump(50)
+_back = walk(len(_rows) + 5, back=True)
+p.check("...and Shift+Tab reaches every pin too, bottom to top, in reverse list order",
+        [x for x in _back if x.startswith("row:")], list(reversed(_rows)))
+p.check("...with the rest of the ring in reverse as well",
+        [x for x in _back if not x.startswith("row:")],
+        [*reversed(LASTRUN), "configureButton", "refreshButton", "updateButton"])
+# ...and forward once more over the list that walk scrolled up and down, whose rows the view has
+# now built in no particular order.
+_again = walk(len(_rows) + 5)
+p.check("...after which Tab still visits every pin top to bottom",
+        [x for x in _again if x.startswith("row:")], _rows)
 
 # The quietest state, where most of the popup is not there: the ring still closes, and it still
 # never stops on the hidden Update Now.
@@ -396,7 +436,27 @@ p.pump(120)
 lev("popup.focusPrimary()")
 p.pump(50)
 p.check("up to date: Tab still has somewhere to go and comes back",
-        walk(3), ["configureButton", "lastRun:Expand", "refreshButton"])
+        walk(4), ["configureButton", *LASTRUN, "refreshButton"])
+lev("popup.focusPrimary()")
+p.pump(20)
+p.check("...and Shift+Tab goes round it the other way",
+        walk(4, back=True), [*reversed(LASTRUN), "configureButton", "refreshButton"])
+
+# The expander, opened from the keyboard: its name is the only place the open state reaches a
+# screen reader, so it has to change with it.
+lev("popup.focusPrimary()")
+p.pump(20)
+walk(3)
+p.check("on the expander", focused(), LASTRUN[1])
+press(Qt.Key_Space)
+p.pump(150)
+p.check("...Space opens the row, and the expander now says it hides the details",
+        [lev("lastRunView.currentItem.expanded"), focused()],
+        [True, "lastRun:Hide details of the last update"])
+press(Qt.Key_Space)
+p.pump(150)
+p.check("...and Space again closes it and says so",
+        [lev("lastRunView.currentItem.expanded"), focused()], [False, LASTRUN[1]])
 
 # ==================================================================================================
 # Escape.
@@ -624,7 +684,7 @@ p.pump(120)
 lev("popup.focusPrimary()")
 p.pump(50)
 
-_ring = ["refreshButton", "configureButton"] + pins() + ["lastRun:Expand", "updateButton"]
+_ring = ["refreshButton", "configureButton"] + pins() + [*LASTRUN, "updateButton"]
 _unnamed, _mis_roled = [], []
 for _stop in _ring:
     press(Qt.Key_Tab)

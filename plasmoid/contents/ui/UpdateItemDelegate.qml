@@ -66,12 +66,25 @@ RowLayout {
     signal toggleHold(string backend, string name, bool hold, bool keyboard)
 
     // The list refocuses this row by name after the model is rebuilt, and it cannot reach into the
-    // delegate for a private id. Qt.TabFocusReason and not the default: a QQC2 control draws its
-    // ring on `visualFocus`, which only the keyboard reasons set, so any other reason here would
-    // be focus nobody can see.
-    function focusPin() {
-        pinButton.forceActiveFocus(Qt.TabFocusReason);
+    // delegate for a private id. Qt.ShortcutFocusReason and not the default: a QQC2 control draws
+    // its ring on `visualFocus`, which only the keyboard reasons set, so any other reason here
+    // would be focus nobody can see. Not Tab or Backtab, which the list reads as the keys
+    // themselves arriving from outside it (FullRepresentation's rowsView).
+    // `reason` is for the list's own keyboard steps (stepPin): a step up the list stays a Backtab,
+    // so the walk keeps its direction.
+    function focusPin(reason) {
+        pinButton.forceActiveFocus(reason === undefined ? Qt.ShortcutFocusReason : reason);
     }
+
+    // Whether the padlock can take focus now: there is one, and no other row's hold has it
+    // standing down.
+    function pinFocusable() {
+        return pinButton.visible && pinButton.enabled;
+    }
+
+    // Tab (forward) or Shift+Tab on the padlock. The list moves the keyboard by row number,
+    // because the order Qt would walk is the order the view happened to build the rows in.
+    signal tabbed(bool forward)
 
     // The pin has taken keyboard focus. A row does not know it is in a list and cannot scroll
     // itself, so it says so and the list decides what to do about it.
@@ -251,6 +264,8 @@ RowLayout {
         // is the shipped Plasma pattern, per button, and it draws the press as well as sending it.
         Keys.onReturnPressed: animateClick()
         Keys.onEnterPressed: animateClick()
+        Keys.onTabPressed: event => { event.accepted = true; row.tabbed(true); }
+        Keys.onBacktabPressed: event => { event.accepted = true; row.tabbed(false); }
         // The guard the `enabled` binding used to be: a second press on the package already in
         // flight is refused HERE, where refusing costs no focus.
         onClicked: if (!row.pending) row.toggleHold(row.backend, row.name, !row.held,

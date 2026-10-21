@@ -407,6 +407,48 @@ PlasmaExtras.Representation {
         }
     }
 
+    // --- Tab and Shift+Tab through the padlocks --------------------------------------------------
+    // Qt walks the focus chain in the order items are children of their parent, and a ListView
+    // makes every delegate it builds its LAST child: right for a row built below the others, wrong
+    // for one built above them as the list scrolls back up, and a long list only has the rows near
+    // its viewport at all. Measured before this: Shift+Tab into an 80-row list landed on row
+    // eighteen, and Shift+Tab up a list that had been scrolled left it for the header after the
+    // first row the view had to rebuild. So inside the list the padlocks step by ROW NUMBER, and
+    // focus arriving from outside is sent to the right end. The rows that can be focused are the
+    // ones with a live padlock: runtime rows have none, and while one hold runs the others stand
+    // down (UpdateItemDelegate's otherPending).
+
+    function pinAt(i) {
+        const rows = popup.vm.rows;
+        if (i < 0 || i >= rows.length || rows[i].kind !== "item" || rows[i].holdable === false) return null;
+        // Contain, so a row already on screen does not move. It also BUILDS the delegate.
+        rowsView.positionViewAtIndex(i, ListView.Contain);
+        const loader = rowsView.itemAtIndex(i);
+        return loader && loader.item && loader.item.pinFocusable() ? loader.item : null;
+    }
+
+    function focusPinFrom(start, forward) {
+        const rows = popup.vm.rows;
+        for (let i = start; i >= 0 && i < rows.length; i += forward ? 1 : -1) {
+            const row = popup.pinAt(i);
+            if (row) {
+                row.focusPin(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // One Tab or Shift+Tab from the padlock on row `index`. Past either end, focus leaves to the
+    // control the focus chain has on that side of the whole list: the last-run row or the footer
+    // below it, the header or a message's button above it.
+    function stepPin(index, forward) {
+        if (popup.focusPinFrom(index + (forward ? 1 : -1), forward)) return;
+        const out = forward ? lastRunView.nextItemInFocusChain(true)
+                            : listArea.nextItemInFocusChain(false);
+        if (out) out.forceActiveFocus(forward ? Qt.TabFocusReason : Qt.BacktabFocusReason);
+    }
+
     Connections {
         target: popup.plasmoidItem
         function onHoldOutcome(name, hold, ok, message) {
@@ -1350,12 +1392,25 @@ PlasmaExtras.Representation {
                     // a button, so building them the ordinary way costs nothing worth having.
                     reuseItems: false
 
+                    // Focus arriving from outside the list by Tab starts at the first padlock,
+                    // and by Shift+Tab at the last, wherever the view's children happen to be.
+                    // The reason says which: nothing in this widget focuses a padlock with either
+                    // one in code (UpdateItemDelegate's focusPin uses the Shortcut reason).
+                    onActiveFocusChanged: {
+                        if (!activeFocus) return;
+                        const it = Window.activeFocusItem;
+                        if (!it) return;
+                        if (it.focusReason === Qt.TabFocusReason) popup.focusPinFrom(0, true);
+                        else if (it.focusReason === Qt.BacktabFocusReason)
+                            popup.focusPinFrom(popup.vm.rows.length - 1, false);
+                    }
+
                     delegate: Loader {
                         width: rowsView.width
                         required property var modelData
-                        // Only the scroll-into-view below needs this; a Loader gets `index` from
-                        // the view the same way it gets `modelData`, and required is how this
-                        // file asks for either.
+                        // The scroll-into-view and the Tab steps below need this; a Loader gets
+                        // `index` from the view the same way it gets `modelData`, and required is
+                        // how this file asks for either.
                         required property int index
                         sourceComponent: modelData.kind === "header" ? headerComponent : itemComponent
 
@@ -1447,6 +1502,8 @@ PlasmaExtras.Representation {
                                 // Component.onCompleted the item is not in the window's scene yet
                                 // and forceActiveFocus there does nothing at all.
                                 Component.onCompleted: if (popup.claimRefocus(modelData.name)) Qt.callLater(focusPin)
+                                // Tab and Shift+Tab on its padlock: by row number (see stepPin).
+                                onTabbed: forward => popup.stepPin(index, forward)
                             }
                         }
                     }
@@ -1574,11 +1631,55 @@ PlasmaExtras.Representation {
             visible: popup.plasmoidItem.lastRun !== null && !popup.shows("report")
             model: 1
 
+            // The row's own focus, drawn. The row is a tab stop (below) and Plasma's list items show
+            // keyboard focus through their view's highlight; without one, Tab would land on a row
+            // that looks exactly as it did. Only while the row itself holds focus: its expander and
+            // its actions draw their own rings.
+            highlight: PlasmaExtras.Highlight {
+                visible: lastRunView.currentItem !== null && lastRunView.currentItem.activeFocus
+            }
+
             delegate: PlasmaExtras.ExpandableListItem {
+                id: lastRunItem
                 // Stated rather than injected. The component declares `index` as a property of its
                 // own, which shadows the one a view hands its delegates, and its click handling
                 // writes that value into the view's currentIndex. One item, so it is 0.
                 index: 0
+                // A tab stop of its own, and the reason is Shift+Tab. The component wires
+                // KeyNavigation.tab from the row to its expander, and Qt makes that link two-way,
+                // so Shift+Tab from the expander always landed on this row; and from a row that is
+                // not in the focus chain, Qt's backward walk lost the whole update list and went
+                // straight to the gear. Measured: every padlock unreachable backwards. As a stop,
+                // the row sits between the last padlock and its expander in both directions, and
+                // what it says is the title as its name and the subtitle as its description.
+                activeFocusOnTab: true
+
+                // The expander says only "Expand" and never whether the row is open: libplasma
+                // names it, and Qt 6.11 has no accessible expanded state to report. So it is named
+                // here, with the state in the words, the way the padlocks carry theirs. The
+                // component keeps the button private, so it is found by its icon, which is the one
+                // thing the component sets on it and on nothing else.
+                property Item expandButton: null
+                readonly property string expandName: expanded ? i18n("Hide details of the last update")
+                                                              : i18n("Show details of the last update")
+                function findExpander(item) {
+                    const kids = item ? item.children : [];
+                    for (let i = 0; i < kids.length; i++) {
+                        const k = kids[i];
+                        if (k.icon !== undefined && k.display !== undefined && k.icon !== null
+                                && (k.icon.name === "expand" || k.icon.name === "collapse")) return k;
+                        const found = findExpander(k);
+                        if (found) return found;
+                    }
+                    return null;
+                }
+                Component.onCompleted: expandButton = findExpander(lastRunItem)
+                Binding {
+                    target: lastRunItem.expandButton
+                    when: lastRunItem.expandButton !== null
+                    property: "Accessible.name"
+                    value: lastRunItem.expandName
+                }
                 icon: "documentinfo"
                 title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs)
                 // Only a failure earns a second line here, or extensions the run's automatic removal
