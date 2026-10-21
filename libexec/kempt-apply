@@ -138,12 +138,20 @@ run_watched() {  # systemd-run --pipe|--pty ... → dnf5's exit status
 # unit name is fixed, so systemd would refuse the start anyway, with a message about unit names.
 # Otherwise the name is reset first. Without --collect a failed unit stays loaded until then, and
 # it would block the name. reset-failed changes nothing about a unit that is running.
-claim_unit() {  # → returns, or exits BUSY while the unit of an earlier run is still going
-  case "$("$SYSTEMCTL" show --no-pager -p ActiveState --value -- "$UNIT" 2>/dev/null || :)" in
-    active|activating|deactivating|reloading|refreshing)
-      echo "$ME: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." >&2
-      exit "$BUSY" ;;
-  esac
+# A unit from UPDATE_UNITS that is running refuses the run the same way, with its own sentence.
+claim_unit() {  # → returns, or exits BUSY while the unit of an earlier run, or an update unit, is going
+  local u
+  for u in "$UNIT" "${UPDATE_UNITS[@]}"; do
+    case "$("$SYSTEMCTL" show --no-pager -p ActiveState --value -- "$u" 2>/dev/null || :)" in
+      active|activating|deactivating|reloading|refreshing)
+        if [[ "$u" == "$UNIT" ]]; then
+          echo "$ME: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." >&2
+        else
+          echo "$ME: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
+        fi
+        exit "$BUSY" ;;
+    esac
+  done
   "$SYSTEMCTL" reset-failed --no-pager -- "$UNIT" 2>/dev/null || :
 }
 
@@ -159,7 +167,8 @@ claim_unit() {  # → returns, or exits BUSY while the unit of an earlier run is
 # is gone with it. A unit never seen running is never judged: systemd-run may still be starting it.
 # Until it has been seen, the first FIRST_READS reads come every FIRST seconds, so a dnf5 that ends
 # within seconds is still seen running. A read with no InvocationID names no run (systemd answers
-# like that while it re-executes itself), so it is never taken as this run's or another one's.
+# like that while it re-executes itself), so it is never taken as this run's or another one's, and
+# an ended read like that is not counted. A unit that is gone has none, and still counts.
 # Nothing here stops anything. A unit still running after LONG_RUN reads is only reported, once.
 watch_unit() {  # → "rc N" or "unknown" once dnf5's unit has ended; nothing while it runs
   local pause k v load active result code status inv mine="" seen=0 ended=0 polls=0 early=0
@@ -195,6 +204,7 @@ watch_unit() {  # → "rc N" or "unknown" once dnf5's unit has ended; nothing wh
         continue ;;
     esac
     (( seen )) || continue
+    [[ -n "$inv" || "$load" == not-found ]] || continue
     ended=$(( ended + 1 ))
     (( ended >= GRACE )) || continue
     # ExecMainCode is how dnf5 ended: 1 exited with ExecMainStatus, 2 killed, 3 dumped core.
@@ -224,6 +234,9 @@ FIRST_READS=10
 GRACE=2
 LONG_RUN=180
 UNIT=""
+# Units whose run also makes this helper BUSY (claim_unit). None here: kempt-refresh lists this
+# helper's four, so a check or refresh never waits on dnf5's lock behind an update.
+UPDATE_UNITS=()
 if [[ $EUID -ne 0 ]]; then
   SYSTEMD_RUN="${KEMPT_SYSTEMD_RUN:-$SYSTEMD_RUN}"
   SYSTEMD_BOOTED="${KEMPT_SYSTEMD_BOOTED:-$SYSTEMD_BOOTED}"

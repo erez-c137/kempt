@@ -509,11 +509,18 @@ run_watched() {
   return "$rc"
 }
 claim_unit() {
-  case "$("$SYSTEMCTL" show --no-pager -p ActiveState --value -- "$UNIT" 2>/dev/null || :)" in
-    active|activating|deactivating|reloading|refreshing)
-      echo "$ME: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." >&2
-      exit "$BUSY" ;;
-  esac
+  local u
+  for u in "$UNIT" "${UPDATE_UNITS[@]}"; do
+    case "$("$SYSTEMCTL" show --no-pager -p ActiveState --value -- "$u" 2>/dev/null || :)" in
+      active|activating|deactivating|reloading|refreshing)
+        if [[ "$u" == "$UNIT" ]]; then
+          echo "$ME: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." >&2
+        else
+          echo "$ME: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
+        fi
+        exit "$BUSY" ;;
+    esac
+  done
   "$SYSTEMCTL" reset-failed --no-pager -- "$UNIT" 2>/dev/null || :
 }
 watch_unit() {
@@ -550,6 +557,7 @@ watch_unit() {
         continue ;;
     esac
     (( seen )) || continue
+    [[ -n "$inv" || "$load" == not-found ]] || continue
     ended=$(( ended + 1 ))
     (( ended >= GRACE )) || continue
     if [[ "$load" == not-found ]]; then echo "rc 0"
@@ -590,6 +598,10 @@ root_shape_violations() {  # helper file → one line per violation, then "read 
   grep -E '(^|[^A-Za-z0-9_])UNIT=' <<<"$code" \
     | grep -vxE '[[:space:]]*UNIT=""|[[:space:]]*([a-z-]+)\) UNIT=kempt-(apply|refresh)-\1\.service ;;' \
     | sed 's/^/unit name other than the fixed table: /' || true
+  # The units whose run makes this helper busy: literal names from kempt-apply's table, never built.
+  grep -E 'UPDATE_UNITS' <<<"$code" \
+    | grep -vxE 'UPDATE_UNITS=\(( ?kempt-apply-dnf-(upgrade|offline-stage|offline-arm|offline-clean)\.service)*\)' \
+    | sed 's/^/busy units other than the fixed list: /' || true
   # Allowlist, not denylist: every call of run_dnf5 hands systemd-run only literal unit settings
   # from a fixed list. A caller-chosen -p or --setenv is a root command (ExecStartPre=, LD_PRELOAD=).
   grep -oE '(^|[^A-Za-z0-9_])run_dnf5[[:space:]][^;]*' <<<"$code" | sed -E 's/^.*run_dnf5[[:space:]]+//' \
@@ -654,6 +666,18 @@ assert_exit 0 "...it catches the watch's last resort aimed at something other th
   grep -q 'vetted function other than' <(mutant 's|kill -s KILL "\$sd_pid"|kill -s KILL -1|')
 assert_exit 0 "...it catches systemctl run outside the vetted functions" -- \
   grep -q 'starts another' <(mutant 's|^set -euo pipefail$|set -euo pipefail; systemctl stop kempt-apply-dnf-upgrade.service|')
+rmutant() { sed "$1" "$RH" > "$TESTTMP/mutant-r"; root_shape_violations "$TESTTMP/mutant-r"; }
+assert_exit 0 "...it catches the caller's argument in the busy units" -- \
+  grep -q 'busy units other than' <(rmutant 's|^UPDATE_UNITS=(kempt-apply-dnf-upgrade.service |UPDATE_UNITS=("$1" kempt-apply-dnf-upgrade.service |')
+assert_exit 0 "...it catches a unit added to the busy units later" -- \
+  grep -q 'busy units other than' <(rmutant 's|^set -euo pipefail$|set -euo pipefail; UPDATE_UNITS+=(sshd.service)|')
+assert_exit 0 "...it catches a unit that is not Kempt's in the busy units" -- \
+  grep -q 'busy units other than' <(rmutant 's|kempt-apply-dnf-offline-clean.service)$|kempt-apply-dnf-offline-clean.service sshd.service)|')
+# The busy units in kempt-refresh are exactly the units in kempt-apply's table, and kempt-apply has none.
+assert_eq "$(grep -E '^UPDATE_UNITS=' "$RH" | tr -d '()' | sed 's/^UPDATE_UNITS=//' | tr ' ' '\n' | sort)" \
+  "$(grep -oE 'UNIT=kempt-apply-[a-z-]+\.service' "$AH" | sed 's/^UNIT=//' | sort)" \
+  "kempt-refresh's busy units are kempt-apply's four units, word for word"
+assert_eq "$(grep -E '^UPDATE_UNITS=' "$AH")" "UPDATE_UNITS=()" "kempt-apply waits on no other unit"
 for h in "$RH" "$AH"; do
   for f in run_watched claim_unit watch_unit; do
     assert_eq "$(sed -n "/^$f() {/,/^}/p" "$h" | grep -vE '^[[:space:]]*#')" \
@@ -841,6 +865,12 @@ hang_run "loaded active 0 0 -" "loaded active 0 0 inv1" "loaded active 0 0 inv1"
 assert_eq "$HRC" 0 "a first read with no InvocationID is not this run's: the run is still judged by its own"
 hang_run "loaded active 0 0 inv1" "loaded active 0 0 -" "loaded active 0 0 inv1" "not-found inactive 0 0 -"
 assert_eq "$HRC" 0 "...and a later one is not another run's"
+# ...nor an ended read: it is not counted towards the verdict, so it cannot turn this run's recorded
+# result into "systemd no longer has it". A unit that is gone (not-found) has no InvocationID and
+# still counts, or a successful run would never be judged.
+hang_run "loaded active 0 0 inv1" "loaded inactive 0 0 -" "loaded inactive 0 0 -" "loaded failed 1 100 inv1 exit-code"
+assert_eq "$HRC" 100 "an ended read with no InvocationID is skipped: the run's own result (100) is read once systemd names it"
+assert_contains "$HERR" "so its exit status (100) was read from systemd" "...and the helper says it read it from systemd"
 
 # A unit that ends a couple of seconds after it starts, before the first read at the usual interval,
 # must still be seen running: the watch reads every second at first. And a systemd-run that ignores
@@ -919,15 +949,42 @@ assert_eq "$(grep -cE 'systemd-run|reset-failed' "$SDCALLS")" 0 "...starting not
 echo activating > "$TESTTMP/systemctl.claim"
 assert_exit 5 "...the same while it is starting" -- bash "$RH" refresh
 rm -f "$TESTTMP/systemctl.claim" "$SDSTATES"
+# The refresh helper also refuses while any kempt-apply unit runs, whoever started it (another user,
+# the widget): a check or refresh would only wait on dnf5's lock until that update ends. It asks
+# about the four fixed names, starts nothing and resets nothing. kempt-apply asks about no other unit.
+for u in kempt-apply-dnf-upgrade.service kempt-apply-dnf-offline-stage.service \
+         kempt-apply-dnf-offline-arm.service kempt-apply-dnf-offline-clean.service; do
+  for v in check refresh; do
+    rm -f "$SDCALLS" "$TESTTMP"/systemctl.claim.*; echo active > "$TESTTMP/systemctl.claim.$u"
+    assert_exit 5 "refresh $v while $u is active: exit 5" -- bash "$RH" "$v"
+    assert_eq "$(cat "$TESTTMP/last_output")" \
+      "kempt-refresh: dnf5 was not started, because a Kempt update is running. Nothing changed." "...and says a Kempt update is running"
+    assert_eq "$(grep -cE 'systemd-run|reset-failed' "$SDCALLS")" 0 "...starting nothing and resetting nothing"
+  done
+done
+rm -f "$SDCALLS"; echo deactivating > "$TESTTMP/systemctl.claim.kempt-apply-dnf-offline-arm.service"
+assert_exit 5 "...the same while an update unit is stopping" -- bash "$RH" check
+rm -f "$TESTTMP"/systemctl.claim.*
+rm -f "$SDCALLS"; echo active > "$TESTTMP/systemctl.claim.kempt-refresh-check.service"
+env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$AH" dnf-offline-clean >/dev/null 2>&1 || true
+assert_eq "$(grep -c 'kempt-refresh' "$SDCALLS")" 0 "kempt-apply never asks about the refresh helper's units"
+rm -f "$TESTTMP"/systemctl.claim.*
 for v in dnf-upgrade dnf-offline-stage dnf-offline-arm dnf-offline-clean check refresh; do
   rm -f "$SDCALLS"
   h="$AH"; case "$v" in check|refresh) h="$RH" ;; esac
   u="kempt-apply-$v.service"; case "$v" in check|refresh) u="kempt-refresh-$v.service" ;; esac
   # shellcheck disable=SC2046
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$h" "$v" $(offline_args "$v") >/dev/null 2>&1 || true
+  busy=""
+  case "$v" in check|refresh)
+    for b in kempt-apply-dnf-upgrade.service kempt-apply-dnf-offline-stage.service \
+             kempt-apply-dnf-offline-arm.service kempt-apply-dnf-offline-clean.service; do
+      busy+="systemctl show --no-pager -p ActiveState --value -- $b"$'\n'
+    done ;;
+  esac
   assert_eq "$(grep -v 'show --no-pager -p LoadState' "$SDCALLS")" \
-    "$(printf 'systemctl show --no-pager -p ActiveState --value -- %s\nsystemctl reset-failed --no-pager -- %s\nsystemd-run' "$u" "$u")" \
-    "$v: asks whether $u is running, resets it, then starts systemd-run"
+    "$(printf 'systemctl show --no-pager -p ActiveState --value -- %s\n%ssystemctl reset-failed --no-pager -- %s\nsystemd-run' "$u" "$busy" "$u")" \
+    "$v: asks whether $u${busy:+ and the four update units} is running, resets it, then starts systemd-run"
 done
 
 # The new settings, like the old ones, are read only inside the helpers' not-root block.

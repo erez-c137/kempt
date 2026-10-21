@@ -213,13 +213,17 @@ sandbox() {  # fresh dirs per test file; call first
   # logs each call to systemd.calls, as the systemd-run one does. `show` answers from
   # systemctl.states, one line per read and the last line for good: LoadState ActiveState
   # ExecMainCode ExecMainStatus InvocationID (- for none) [Result]. No file: the unit is not
-  # loaded. The ActiveState read before the start (`--value`) answers from systemctl.claim instead.
+  # loaded. The ActiveState read before the start (`--value`) answers from systemctl.claim.<unit>
+  # when that file exists, else from systemctl.claim.
   export KEMPT_SYSTEMD_SYSTEMCTL="$TESTTMP/systemctl"
   cat > "$KEMPT_SYSTEMD_SYSTEMCTL" <<EOF
 #!/usr/bin/env bash
 echo "systemctl \$*" >> "$TESTTMP/systemd.calls"
 [[ "\$1" == show ]] || exit 0
-[[ " \$* " == *" --value "* ]] && { cat "$TESTTMP/systemctl.claim" 2>/dev/null || echo inactive; exit 0; }
+if [[ " \$* " == *" --value "* ]]; then
+  c="$TESTTMP/systemctl.claim.\${!#}"; [[ -e "\$c" ]] || c="$TESTTMP/systemctl.claim"
+  cat "\$c" 2>/dev/null || echo inactive; exit 0
+fi
 f="$TESTTMP/systemctl.states" line="not-found inactive 0 0 -"
 if [[ -s "\$f" ]]; then
   line="\$(head -n 1 "\$f")"
