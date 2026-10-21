@@ -1374,7 +1374,7 @@ for _lit in startupPageAction startupPageBack startupPageRefresh startupPageRefr
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" "1" \
     "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
-assert_eq "$(js 'L.COPY.startupPageAction')" "Startup Page" "the widget's menu entry"
+assert_eq "$(js 'L.COPY.startupPageAction')" "Startup Report" "the widget's menu entry"
 assert_eq "$(js '[typeof L.COPY.startupPageSetting, typeof L.COPY.startupPageButton].join("|")')" "undefined|undefined" \
   "...and no setting or header button left to word"
 

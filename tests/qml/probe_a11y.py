@@ -939,7 +939,7 @@ p.check("...and main.qml is what answers it, next to the property it owns",
 
 # The rule that makes all of the above necessary, stated as a count. `expanded` is the property
 # whose setter segfaults outside plasmashell: two assignments in the whole widget, both in the file
-# that owns it (Escape's close, and the menu's Startup Page opening a closed widget), and none at
+# that owns it (Escape's close, and the menu's Startup Report opening a closed widget), and none at
 # all in a popup that a test has to be able to press keys in.
 p.check("the popup never writes the property that would take a test down with it",
         "expanded =" in _popup, False)

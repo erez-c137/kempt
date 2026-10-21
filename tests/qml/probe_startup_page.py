@@ -147,8 +147,8 @@ def press(key):
 # --- the menu entry, with no setting behind it ----------------------------------------------------
 p.check("nothing asks for a startup_page setting", p.call_count("config get startup_page"), 0)
 p.check("the header has no Startup button", lev("typeof startupButton"), "undefined")
-p.check("the widget's menu offers Startup Page, with the icon the button had",
-        [ev("startupAction.text"), ev("startupAction.icon.name")], ["Startup Page", "system-run"])
+p.check("the widget's menu offers Startup Report, with the icon the button had",
+        [ev("startupAction.text"), ev("startupAction.icon.name")], ["Startup Report", "system-run"])
 p.check("...registered with Check for Updates", ev("root.contextualActionsClaimed"), True)
 _MAIN = " ".join(open(os.path.join(harness.UI, "main.qml")).read().split())
 p.check("...beside it, in that order", "Plasmoid.contextualActions = [checkAction, startupAction];" in _MAIN, True)
