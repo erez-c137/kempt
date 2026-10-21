@@ -204,10 +204,33 @@ sandbox() {  # fresh dirs per test file; call first
   # which asks polkit for a password, and on a box without systemd it would refuse instead.
   mkdir -p "$TESTTMP/systemd-booted"
   export KEMPT_SYSTEMD_BOOTED="$TESTTMP/systemd-booted" KEMPT_SYSTEMD_RUN="$TESTTMP/systemd-run"
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/systemd-run.argv"\necho "$$" > "%s/systemd-run.pid"\nexit "${KEMPT_TEST_SDRUN_RC:-0}"\n' \
-    "$TESTTMP" "$TESTTMP" > "$KEMPT_SYSTEMD_RUN"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/systemd-run.argv"\necho "$$" > "%s/systemd-run.pid"\necho systemd-run >> "%s/systemd.calls"\nexit "${KEMPT_TEST_SDRUN_RC:-0}"\n' \
+    "$TESTTMP" "$TESTTMP" "$TESTTMP" > "$KEMPT_SYSTEMD_RUN"
   chmod +x "$KEMPT_SYSTEMD_RUN"
   unset KEMPT_TEST_SDRUN_RC
+  # The helpers ask systemctl about dnf5's unit before they start it, and while systemd-run waits.
+  # Unstubbed, a reset-failed would ask the real systemd, and polkit for a password. The stand-in
+  # logs each call to systemd.calls, as the systemd-run one does. `show` answers from
+  # systemctl.states, one line per read and the last line for good: LoadState ActiveState
+  # ExecMainCode ExecMainStatus InvocationID (- for none) [Result]. No file: the unit is not
+  # loaded. The ActiveState read before the start (`--value`) answers from systemctl.claim instead.
+  export KEMPT_SYSTEMD_SYSTEMCTL="$TESTTMP/systemctl"
+  cat > "$KEMPT_SYSTEMD_SYSTEMCTL" <<EOF
+#!/usr/bin/env bash
+echo "systemctl \$*" >> "$TESTTMP/systemd.calls"
+[[ "\$1" == show ]] || exit 0
+[[ " \$* " == *" --value "* ]] && { cat "$TESTTMP/systemctl.claim" 2>/dev/null || echo inactive; exit 0; }
+f="$TESTTMP/systemctl.states" line="not-found inactive 0 0 -"
+if [[ -s "\$f" ]]; then
+  line="\$(head -n 1 "\$f")"
+  (( \$(wc -l < "\$f") > 1 )) && sed -i 1d "\$f"
+fi
+read -r load active code status inv result <<<"\$line"
+printf 'LoadState=%s\nActiveState=%s\nResult=%s\nExecMainCode=%s\nExecMainStatus=%s\nInvocationID=%s\n' \\
+  "\$load" "\$active" "\${result:-success}" "\$code" "\$status" "\${inv#-}"
+EOF
+  chmod +x "$KEMPT_SYSTEMD_SYSTEMCTL"
+  unset KEMPT_SYSTEMD_POLL KEMPT_SYSTEMD_GRACE KEMPT_SYSTEMD_LONG_RUN
   # KEMPT_DNF_SYSTEM_CACHE joins the plain unsets rather than the poisoned ones above: its default
   # is only ever READ from, never run, and a test that cares drives both branches of its guard by
   # setting it itself. Unset here so a value exported in a developer's shell cannot decide which

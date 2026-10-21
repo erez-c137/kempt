@@ -139,12 +139,12 @@ declare -A WORD_BUDGET=(
   [CONTRIBUTING.md]=1700
   [SECURITY.md]=420
   [tests/README.md]=310
-  [docs/architecture.md]=4500
+  [docs/architecture.md]=4540
   [docs/configuration.md]=1150
   [docs/install.md]=1550
   [docs/RELEASING.md]=840
   [docs/ROADMAP.md]=1750
-  [docs/security.md]=3680
+  [docs/security.md]=3800
   [docs/usage.md]=3120
   [docs/widget.md]=3050
 )
