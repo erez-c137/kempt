@@ -1400,6 +1400,11 @@ priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-;
 # `dnf5 offline clean`, which would delete exactly what the refusal protected.
 # shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
 KEMPT_APPLY_REFUSED=3
+# The helper's exit status when the dnf5 it started earlier for the same verb is still running: it
+# starts nothing, so a second run never lands beside a transaction still in flight. That earlier run
+# may finish while this one waits, so its history entry is never this run's evidence.
+# shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
+KEMPT_APPLY_BUSY=5
 apply_refusal_reason() {  # → why the helper refused, as the user's side of the boundary sees it
   local relup
   if relup="$(offline_release_upgrade)"; then
@@ -1582,12 +1587,14 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
 # repositories" as the reason is worse than silence. Nothing matched → the last non-empty line,
 # where a terse failure lands, skipping the `== ... ==` section headings Kempt writes itself (a
 # heading is never the reason). Redacted, and capped at 120 characters, because this ends up in a
-# notification body.
+# notification body. A line that opens with `>>> ` is never the reason either: that is a package's
+# setup step talking through dnf5, and "Remote peer disconnected" from one that restarted a service
+# reads as the update failing when dnf5 itself may have finished fine.
 run_failure_reason() {  # log-file → one line, possibly empty
   local line=""
   [[ -r "$1" ]] || { printf '\n'; return 0; }
-  line="$(grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' "$1" || true)"
-  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$' "$1" | tail -1 || true)"
+  line="$(grep -vE '^[[:space:]]*>>> ' "$1" | grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' || true)"
+  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$|^[[:space:]]*>>> ' "$1" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
   line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"
@@ -3702,8 +3709,12 @@ dnf_history_duration() {  # id → seconds; rc 1 = unknown
 # is Kempt's - unless there are TWO of them, which is what an apply that was retried leaves behind.
 # Then either answer is a guess about which attempt the report describes, and a guess is exactly
 # what this is for avoiding. Same rule as the stage's: more than one candidate is cannot tell.
-live_history_attribution() {  # before-id command-line → id, then names; rc 1 = cannot tell
-  local before="$1" cmd="$2" list out n id res touched
+#
+# The second line is the status dnf5 recorded for that entry (Ok, Error, ...), or `unknown` when it
+# recorded none Kempt can read. The CLI trusts an Ok over a helper that exited non-zero after dnf5
+# finished: systemd-run can lose its line to PID 1 while a package's setup step restarts it.
+live_history_attribution() {  # before-id command-line → id, status, then names; rc 1 = cannot tell
+  local before="$1" cmd="$2" list out n id st res touched
   [[ "$before" =~ ^[0-9]+$ && -n "$cmd" ]] || return 1
   list="$(dnf_history_json list)" || return 1
   # Every entry shape-checked, not only the candidates, and the command compared in here: a list
@@ -3720,15 +3731,18 @@ live_history_attribution() {  # before-id command-line → id, then names; rc 1 
                or ((.command_line | type) as $c | $c != "string" and $c != "null")
             then error("fields") else . end
           | select(.id > $before and .command_line == $cmd) ]
-      | (length | tostring), (.[] | .id | tostring)' <<<"$list" 2>/dev/null)" || return 1
+      | (length | tostring),
+        (.[] | (.id | tostring), (.status | if type == "string" then . else "" end))' <<<"$list" 2>/dev/null)" || return 1
   n="${out%%$'\n'*}"
   [[ "$n" =~ ^[0-9]+$ ]] || return 1
   (( n == 1 )) || return 1
-  id="${out#*$'\n'}"; id="${id%%$'\n'*}"
+  out="${out#*$'\n'}"; id="${out%%$'\n'*}"
   [[ "$id" =~ ^[0-9]+$ ]] || return 1
+  st=""; [[ "$out" == *$'\n'* ]] && st="${out#*$'\n'}"
+  [[ "$st" =~ ^[A-Za-z]{1,20}$ ]] || st="unknown"
   res="$(history_entry_lists "$id")" || return 1
   touched="$(sed -n '/^--touched$/,$p' <<<"$res" | sed '1d')"
-  printf '%s\n%s\n' "$id" "$touched"
+  printf '%s\n%s\n%s\n' "$id" "$st" "$touched"
 }
 
 # After the restart: did the stage this marker records run, and which history entry is it?

@@ -1794,7 +1794,7 @@ cmd_update() {
     live_before="$(dnf_history_max_id)" || live_before=""
     local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
-    local live_rc=0 unsafe_dir=""
+    local live_rc=0 unsafe_dir="" live_status live_was_status="$status" live_was_failed="$run_failed_otherwise"
     apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || live_rc=$?
     if [[ $live_rc -eq 0 ]]; then
       dnf_status="ok"
@@ -1812,7 +1812,18 @@ cmd_update() {
     # this run was, and its packages are still the honest report of what moved.
     if [[ -n "$live_before" ]] && live_att="$(live_history_attribution "$live_before" "$live_cmd")"; then
       live_txid="${live_att%%$'\n'*}"
+      live_att="${live_att#*$'\n'}"; live_status="${live_att%%$'\n'*}"
       if [[ "$live_att" == *$'\n'* ]]; then live_keep="${live_att#*$'\n'}"; fi
+      # The helper exited non-zero, yet dnf5's history names this run's transaction and records it
+      # as Ok. The transaction is the evidence: systemd-run can lose its line to PID 1 when a
+      # package's setup step restarts it, and the helper then reports what it could not see. The
+      # run's earlier state comes back, and the log says where the answer came from. Never for a
+      # refusal or a busy answer, which ran nothing: the entry would be another run's.
+      if [[ $live_rc -ne 0 && $live_rc -ne $KEMPT_APPLY_REFUSED && $live_rc -ne $KEMPT_APPLY_BUSY \
+            && "$live_status" == Ok ]]; then
+        dnf_status="ok"; status="$live_was_status"; run_failed_otherwise="$live_was_failed"
+        log_event "dnf outcome read from history (transaction $live_txid ok, helper rc=$live_rc)"
+      fi
     fi
   fi
 

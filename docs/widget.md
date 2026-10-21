@@ -304,7 +304,7 @@ The widget says where the update is running:
 - `Staging updates for the next restart…`, when staging.
 
 You can close the widget meanwhile. If a run cannot start, the widget shows Kempt's message and fix. If it still says it is updating after the run has ended, press **Not Updating? Check for Updates**.
-If a run dies without writing its state, the widget gives up after three hours and checks again.
+After three hours without word from a run, the widget checks again. The run may still be going.
 
 ### When the widget checks
 
