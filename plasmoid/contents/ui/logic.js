@@ -562,7 +562,7 @@ var COPY = {
     startupSettingNote: "Kempt only looks. It never turns anything on or off, and the update count never includes this.",
 
     // The Startup page: an entry in the widget's menu, then a page that only reads.
-    startupPageAction: "Startup Page",
+    startupPageAction: "Startup Report",
     startupPageBack: "Back",
     startupPageBackTip: "Returns to the list of updates.",
     startupPageRefresh: "Refresh",

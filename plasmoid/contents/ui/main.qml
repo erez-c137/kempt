@@ -1700,7 +1700,7 @@ PlasmoidItem {
     // The literal is repeated from Logic.COPY.startupPageAction, as checkAction's is.
     PlasmaCore.Action {
         id: startupAction
-        text: i18n("Startup Page")
+        text: i18n("Startup Report")
         icon.name: "system-run"
         onTriggered: root.showStartupPage()
     }

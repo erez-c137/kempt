@@ -28,7 +28,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   this boot with its log line, what changed since the last update, and what starts with the
   computer, grouped by package. Then timers, cron and anacron, and startup time against the
   usual. `--json` is for scripts. Kempt only reads.
-- **The widget shows the same list on a Startup page.** Choose **Startup Page** in the widget's
+- **The widget shows the same list on a Startup report.** Choose **Startup Report** in the widget's
   right-click menu, or in **More actions** in the system tray. There is nothing to turn on. The
   page reads when it opens or when you refresh it, lists failures and changes in full, counts the
   rest with **Show All**, and offers only **Copy Command**.
@@ -39,7 +39,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **Screen readers now hear the whole widget.** Shift+Tab visits every control in reverse.
   Opening the list says how many updates are waiting, and each padlock says its version change.
-  Banner buttons name their service, settings radios name their setting, and the Startup page
+  Banner buttons name their service, settings radios name their setting, and the Startup report
   reads out what it found.
 - **An update no longer hangs when a package's setup step restarts the system's service
   manager.** Kempt kept waiting forever, and then reported the update as failed even when it had

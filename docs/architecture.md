@@ -371,7 +371,7 @@ tolerate absence.
 | `backends.flatpak.eol` | array, optional | On a live run: one `{id, branch, kind, apps, reason}` per end-of-life ref (see `flatpak_eol_notices`). Only `kempt summary` shows it so far. |
 | `backends.flatpak.reclaimed` | object, optional | When `reclaim=automatic` tried a removal after the run: `{refs, bytes, status}`, plus `partial` and `in_use` as in `reclaim.last`. `status` takes `reclaim.last.result` values. Shown only when `removed`. |
 
-## Startup page JSON
+## Startup report JSON
 
 `kempt startup --all --json` prints one object for the widget. Each outside call runs under
 `timeout 5`, all within 8 s. Empty sections are absent; present ones have every key. Times are
@@ -901,10 +901,10 @@ missing path, unless the row says otherwise.
 | `KEMPT_NSSWITCH_FILE`, `KEMPT_HOME_ROOTS` | `/etc/nsswitch.conf`, `/home /var/home` | The other two account signals: a network source (`sss`, `ldap`, `winbind`, `nis`) on the `passwd` line, and Flatpak data in more than one home. Either makes `reclaim=automatic` act as `ask`. Stubbed |
 | `KEMPT_SSSD_DIR`, `KEMPT_SMB_CONF`, `KEMPT_SYSTEMCTL_CMD` | `/etc/sssd`, `/etc/samba/smb.conf`, `systemctl` | Whether `sss` or `winbind` on that line counts. `sss` counts with an sssd `[domain/...]` section. If `/etc/sssd` is unreadable, it counts unless systemd says sssd is down and found no config. `winbind` counts with `security = ads` or `domain`. Any unreadable config counts. `ldap` and `nis` count from the line alone. `KEMPT_SYSTEMCTL_CMD` also answers `notify_startup`'s read-only queries, under `timeout 5`. Stubbed |
 | `KEMPT_JOURNALCTL_CMD`, `KEMPT_GROUPS_CMD` | `journalctl`, `id -Gn` | `kempt startup --all`'s log lines. The system journal is read only for members of `wheel`, `adm` or `systemd-journal`, and only after `journalctl --system -b -n 1` prints a line: it exits 0 without access. One query per scope, and none when nothing failed |
-| `KEMPT_CRONTAB_CMD`, `KEMPT_ATQ_CMD` | `crontab`, `atq` | Your own cron and `at` jobs for the Startup page |
-| `KEMPT_RPM_QF_CMD` | `rpm` | One `rpm -qf` for every unit and autostart file the Startup page lists, with an unowned directory between paths to mark each answer |
+| `KEMPT_CRONTAB_CMD`, `KEMPT_ATQ_CMD` | `crontab`, `atq` | Your own cron and `at` jobs for the Startup report |
+| `KEMPT_RPM_QF_CMD` | `rpm` | One `rpm -qf` for every unit and autostart file the Startup report lists, with an unowned directory between paths to mark each answer |
 | `KEMPT_SYSTEMD_ANALYZE_CMD` | `systemd-analyze` | Startup time, recorded once per boot in `boot-times.json`. Until startup has finished, `time` says so and each check asks again (a few milliseconds). `blame`, which costs half a second, is asked only by the page, once per boot |
-| `KEMPT_STARTUP_ETC`, `KEMPT_ANACRON_SPOOL`, `KEMPT_LINGER_DIR`, `KEMPT_SYSTEM_UNIT_DIRS` | `/etc`, `/var/spool/anacron`, `/var/lib/systemd/linger`, `/etc/systemd/system /usr/lib/systemd/system` | Where the Startup page finds `crontab`, `cron.d`, `cron.*`, `anacrontab` and `rc.local`, anacron's stamps (their times give the last run), the lingering flag, and an enabled template's file, which `systemctl show` refuses |
+| `KEMPT_STARTUP_ETC`, `KEMPT_ANACRON_SPOOL`, `KEMPT_LINGER_DIR`, `KEMPT_SYSTEM_UNIT_DIRS` | `/etc`, `/var/spool/anacron`, `/var/lib/systemd/linger`, `/etc/systemd/system /usr/lib/systemd/system` | Where the Startup report finds `crontab`, `cron.d`, `cron.*`, `anacrontab` and `rc.local`, anacron's stamps (their times give the last run), the lingering flag, and an enabled template's file, which `systemctl show` refuses |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
 | `KEMPT_GETFACL` | `getfacl` | Doctor's ACL scan of the dnf folders |
 | `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session, which the harvest and `notify_startup` compare |

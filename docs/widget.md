@@ -337,10 +337,10 @@ they restart. A staged update is the other way round: it installs during the res
 The **x** hides the message until your next Plasma login. **Restart reminders** turns it off
 for good.
 
-### The Startup page
+### The Startup report
 
-The Startup page shows `kempt startup --all`: what starts with the computer and what runs on a
-schedule. Open it with **Startup Page** in the widget's right-click menu, or in **More actions**
+The Startup report shows `kempt startup --all`: what starts with the computer and what runs on a
+schedule. Open it with **Startup Report** in the widget's right-click menu, or in **More actions**
 inside the system tray. It reads when it opens and when you press its arrow, never in the
 background, and it changes nothing.
 
@@ -422,7 +422,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Copy Command** for a service | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |
 | Opening the widget while it says a service runs again | `kempt startup ack --expect=<digest>` |
-| **Startup Page** in the menu, and the arrow on the Startup page | `kempt startup --all --json` |
+| **Startup Report** in the menu, and the arrow on the Startup report | `kempt startup --all --json` |
 | Every setting | `kempt config set` |
 
 The widget's automatic checks run `kempt check --coalesce`.
