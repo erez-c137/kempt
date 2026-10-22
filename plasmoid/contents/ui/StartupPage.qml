@@ -99,7 +99,6 @@ ColumnLayout {
     component ListToggle: PlasmaComponents.ToolButton {
         property bool open: false
         property string section: ""
-        signal toggled()
         text: open ? i18n("Hide") : i18n("Show All")
         icon.name: open ? "go-up" : "go-down"
         Accessible.name: i18nc("@action:button Show All or Hide, then the list it opens", "%1: %2", text, section)
@@ -111,7 +110,6 @@ ColumnLayout {
             .filter(t => t.length > 0).join("\n")
         Keys.onReturnPressed: animateClick()
         Keys.onEnterPressed: animateClick()
-        onClicked: toggled()
     }
 
     // --- the page's own row: Back, then the spinner and Refresh ---------------------------------
@@ -311,7 +309,7 @@ ColumnLayout {
                     section: startsHeading.label
                     notes: page.showsPage ? [page.sp.startsSummary, page.sp.skippedLine] : []
                     lines: page.showsPage ? page.sp.startsLines : []
-                    onToggled: page.startsOpen = !page.startsOpen
+                    onClicked: page.startsOpen = !page.startsOpen
                 }
             }
 
@@ -353,7 +351,7 @@ ColumnLayout {
                     section: scheduleHeading.label
                     notes: page.showsPage ? [page.sp.scheduleSummary].concat(page.sp.scheduleNotes) : []
                     lines: page.showsPage ? page.sp.scheduleLines : []
-                    onToggled: page.scheduleOpen = !page.scheduleOpen
+                    onClicked: page.scheduleOpen = !page.scheduleOpen
                 }
             }
 
