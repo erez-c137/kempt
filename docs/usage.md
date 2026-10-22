@@ -634,6 +634,7 @@ Its wording is fixed, so you can search it:
 | `startup failed after the update: <units>` | Services that started before a Kempt update stopped starting after it. `after the last restart` when another tool changed packages since. Needs `notify_startup`. |
 | `startup recovered: <units>` | Services Kempt announced are running again. |
 | `startup muted <scope>:<unit>` / `startup unmuted <scope>:<unit>` | `kempt startup mute` or `unmute` ran. |
+| `notification shown: <text>` / `notification not shown (<reason>): <text>` | Kempt sent a desktop notification, and whether it reached the desktop. The reason is `no desktop session`, `timed out`, `notify-send is missing` or `notify-send failed, exit <n>`. "Shown" means it reached the desktop, not that you read it. |
 | `security check failed` | dnf could not list the security advisories. The check itself still worked. At most once a day. |
 | `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |
 | `check skipped (a Kempt update is running)` | The root helper would not query dnf while a Kempt update or check ran, so the check printed the previous state. A refresh refused the same way is not recorded as failed. |
@@ -650,8 +651,8 @@ Its wording is fixed, so you can search it:
 | `offline staged <n>` | An update was staged for the next restart. |
 | `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
-| `offline stage cannot install (...) - announced` | The staged update can no longer install on a restart. |
-| `offline stage replaced outside Kempt (<what differs>) - announced` | The staged update is no longer the one Kempt made. |
+| `offline stage cannot install (...) - announced\|not announced` | The staged update can no longer install on a restart. `not announced` when the notification did not show. It is not sent again. |
+| `offline stage replaced outside Kempt (<what differs>) - announced\|not announced` | The staged update is no longer the one Kempt made. `not announced` as above. |
 | `offline stage installed by another updater (<counts>)` | Another updater installed the staged packages, or newer ones, on the restart or before it. The history entry says `offline (installed by another updater)`. |
 | `offline stage left in place (another updater has prepared the next restart)` | Nothing was left to stage, and the old stage was kept, because removing it would cancel the other updater's restart update. |
 | `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or kept because a newer stage arrived during a check. |

@@ -566,7 +566,7 @@ assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0
   "...and the clean that would remove that symlink is never run"
 assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
 assert_exit 0 "...with its snapshot copy" -- test ! -f "$af_pre"
-assert_eq "$(tail -n 3 "$KEMPT_STATE_DIR/events.log" | grep -c 'offline stage left in place (another updater has prepared the next restart)')" "1" \
+assert_eq "$(tail -n 4 "$KEMPT_STATE_DIR/events.log" | grep -c 'offline stage left in place (another updater has prepared the next restart)')" "1" \
   "...and the log says why the stored one stayed"
 afhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$afhist")" \
