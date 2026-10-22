@@ -9,6 +9,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Kempt's log says whether each notification reached you.** Every notification Kempt sends
+  adds a line to `kempt log`: what it said, and whether it showed. When it did not, the line
+  says why, for example no desktop session. A staged update that can no longer install no
+  longer claims you were told when the notification did not show.
 - **`kempt status --list` shows every update.** One line each with the current and new version,
   then the held ones, marked held. Security updates and apps installed for you only are marked
   too. It reads the last check, like `kempt status`, and lists the same updates as the widget.

@@ -2699,7 +2699,7 @@ reconcile_detour_stage() {  # marker-json toml-status
   offline_marker_still "$1" || {
     log_event "offline marker kept (a new stage arrived while the check ran)"; return 0; }
   notify "Kempt" "Your staged update can no longer install on a restart. $(stage_remedy)"
-  log_event "offline stage cannot install (status $2) - announced"
+  log_event "offline stage cannot install (status $2) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
   # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
   # pointer, the names and the boot id survive for the doctor rows that read them.
   jq -c '. + {armed: false}' <<<"$1" | write_offline_marker \
@@ -2720,7 +2720,7 @@ reconcile_replaced_stage() {
   local why updated
   if why="$(offline_stage_replaced "$marker")" && offline_marker_still "$marker"; then
     notify "Kempt" "Your staged update was replaced outside Kempt, so the next restart will not install it. $(stage_remedy)"
-    log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - announced"
+    log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
     updated="$(jq -c '. + {replaced: true}' <<<"$marker" 2>/dev/null)" || updated=""
     if [[ -n "$updated" ]] && printf '%s\n' "$updated" | write_offline_marker; then
       marker="$updated"

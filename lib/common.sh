@@ -132,6 +132,8 @@ SECURITY_QUERY_TIMEOUT=15
 # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
 SECURITY_LOCK_WAIT=5
 SECURITY_NOTIFY_TIMEOUT=5
+# The same bound for every other notification (notify).
+NOTIFY_TIMEOUT=5
 # Whether everything that started before an update still starts after it (notify_startup).
 # startup.json is what the last check compared and announced; startup-mutes holds one
 # `scope:unit` per line, like holds, and recovery clears a unit's line. Both are written under the
@@ -316,6 +318,10 @@ event_plain() {  # event text → EVENT_PLAIN
         EVENT_PLAIN="Security update notice shown (${BASH_REMATCH[1]} pending)"
       fi ;;
     "security check failed") EVENT_PLAIN="Security advisories could not be listed" ;;
+    "notification shown: "*) EVENT_PLAIN="Notified: ${t#notification shown: }" ;;
+    "notification not shown ("*"): "*)
+      rest="${t#notification not shown (}"
+      EVENT_PLAIN="Notification not shown (${rest%%): *}): ${rest#*): }" ;;
     "startup failed after the "*": "*) rest="${t#startup failed after the }"
       EVENT_PLAIN="Didn't start after the ${rest%%: *}: ${rest#*: }" ;;
     "startup recovered: "*) EVENT_PLAIN="Running again: ${t#startup recovered: }" ;;
@@ -438,6 +444,8 @@ event_plain() {  # event text → EVENT_PLAIN
   EVENT_PLAIN="${EVENT_PLAIN//(status ready, but the restart marker is gone)/(it was cancelled outside Kempt)}"
   # A notification the line records, in words.
   [[ "$EVENT_PLAIN" != *" - announced" ]] || EVENT_PLAIN="${EVENT_PLAIN% - announced}, and you were notified"
+  [[ "$EVENT_PLAIN" != *" - not announced" ]] \
+    || EVENT_PLAIN="${EVENT_PLAIN% - not announced}, but the notification could not be shown"
 }
 
 # Event lines with the control characters taken out (tab and newline stay), so an escape sequence
@@ -1636,7 +1644,33 @@ notify_escape() {  # args... → NOTIFY_ARGS
   NOTIFY_ARGS=()
   for a in "$@"; do a="${a//&/\&amp;}"; a="${a//</\&lt;}"; a="${a//>/\&gt;}"; NOTIFY_ARGS+=("$a"); done
 }
-notify()       { notify_escape "$@"; "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1 || true; }
+# Every notification, and whether it reached the desktop, gets a line in events.log, so "did Kempt
+# tell me?" has an answer afterwards. NOTIFY_SHOWN carries the same answer to a caller whose own
+# line says the person was told. Bounded, since an update or a check is waiting on it, and never
+# fatal: a notification that failed must not fail what it reports.
+notify() {  # title body
+  local body="${2:-$1}" why="" rc=0
+  NOTIFY_SHOWN=false
+  if ! session_bus_present; then
+    why="no desktop session"
+  else
+    notify_escape "$@"
+    timeout -k 1 "$NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1 || rc=$?
+    case $rc in
+      0) NOTIFY_SHOWN=true ;;
+      124|137) why="timed out" ;;
+      126|127) why="notify-send is missing" ;;
+      *) why="notify-send failed, exit $rc" ;;
+    esac
+  fi
+  body="${body//$'\n'/ }"
+  if [[ "$NOTIFY_SHOWN" == true ]]; then
+    log_event "notification shown: ${body:0:200}"
+  else
+    log_event "notification not shown ($why): ${body:0:200}"
+  fi
+  return 0
+}
 now_iso()      { date -Is; }
 
 # --- the security notification (notify_security) ----------------------------------------------
