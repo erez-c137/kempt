@@ -1571,6 +1571,11 @@ reinstall_hint() {  # [again] → the fix for this kind of install, as a sentenc
 }
 explain_helper_error() {  # stderr-tail → the tail, the missing-helper message, or an authorization one
   local t="$1" h
+  # uutils' timeout, which some distributions ship, leaves the path out of this message.
+  if [[ "$t" == *"timeout: failed to execute"*"No such file"* ]]; then
+    printf '%s\n' "root helper not installed. $(reinstall_hint "") (see: kempt doctor)"
+    return 0
+  fi
   if [[ "$t" == *"No such file"* ]]; then
     for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
       if [[ "$t" == *"$h"* || "$t" == *"${h##*/}"* ]]; then
