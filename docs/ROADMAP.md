@@ -23,10 +23,18 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **The first outside users.** Their reports come before everything below.
 - **Removing the dnf5 text parsers when Fedora 43 reaches end of life.** From then on every
   supported Fedora prints `check-update` and `needs-restarting` as JSON, which Kempt already reads.
-- **Fedora's official repos.** The package passes the review tools. The next step is a review
-  request, which needs a sponsor.
+- **Fedora's official repos.** The package passes the review tools. The next step, after 0.2.1, is
+  a review request, which needs a sponsor.
 
-## Next: updates that take care of themselves
+## Next: a staged update that stays staged
+
+Another program's update check can cancel an update staged for the next restart. Discover's
+notifier seems to be the usual cause. Today Kempt warns about it and offers **Put It Back**, which
+asks for a password. In 0.2.1, Kempt puts the update back by itself when the computer shuts down,
+with no warning, button or password. If packages changed, the stage cannot be saved, and
+Kempt still says so.
+
+## Then: updates that take care of themselves
 
 Today Kempt tells you updates are waiting, and you start each one yourself. This stage can do it for you,
 safely. It also shows more about what an update changes.
@@ -52,6 +60,21 @@ safely. It also shows more about what an update changes.
   suggests a restart.
 - **A notification when updates arrive.** Today only the badge on the tray icon changes. Kempt can
   also show a notification, which you can turn off.
+- **Failed updates explained.** When an update fails, Kempt says why and what to do
+  next, without a terminal where it can. That includes conflicts between third-party repositories.
+
+## Then: clear to everyone
+
+- **Everyday words.** "System" and "Apps" in the widget in place of "dnf" and "flatpak", with the
+  full package list one click away.
+- **Translations.** The QML wraps its text in `i18n()`, but there is no translation domain,
+  catalogue or extraction step yet. Some widget sentences are also built from parts in `logic.js`,
+  which translators cannot reorder. Both get fixed together. Until then Kempt is English only.
+
+## When people ask
+
+These wait for real requests.
+
 - **Which updates are security fixes.** Kempt will show how many system updates fix security problems,
   where Fedora publishes that. Each package can link to its advisory and its changelog.
 - **What changed since the last boot.** Kempt keeps a record of every run. It will use it to show
@@ -61,11 +84,12 @@ safely. It also shows more about what an update changes.
   - `kempt update --dry-run` shows what dnf would do and changes nothing. It needs no password.
   - A new state field tells "no restart needed" apart from "could not tell". Today `reboot_needed`
     is `false` for both.
+- **Holds with patterns** such as `kernel*`, with a warning when a pattern matches most of the list.
 
-## 0.3: a second distribution
+## Other distributions
 
-Kempt runs only on Fedora today. Work on a second distribution starts once automatic updates work
-well on Fedora.
+Kempt runs only on Fedora today. Other distributions wait until Kempt does what it should on Fedora,
+or until there is real demand or a contributor wants to lead one. The order below applies then.
 
 - **openSUSE first ([#3](https://github.com/erez-c137/kempt/issues/3)).** It uses rpm, like
   Fedora, and zypper's output is easy to read. It also keeps locked packages visible, the way Kempt
@@ -78,7 +102,7 @@ well on Fedora.
 - **What already works everywhere.** Flatpak updates, freeing disk space, holds and the history
   of runs.
 - **Groundwork, for contributors.** Today a new package manager means changes all through the tool
-  ([architecture.md](architecture.md#adding-a-backend-for-your-distro) lists them). In 0.3, each
+  ([architecture.md](architecture.md#adding-a-backend-for-your-distro) lists them). First, each
   package manager becomes one file. It says how to detect it, what to call it, how to apply its
   updates and when it needs a restart. Installing during a restart moves into the Fedora file.
   Two settings, `disable` and `only`, choose which package managers Kempt checks. Scripts that
@@ -101,13 +125,7 @@ package stays ready for review at every release.
 ## 1.x
 
 - **A choice of panel icon:** the icon theme's own update icons, the Kempt comb, or any icon name.
-- **Translations.** The QML wraps its text in `i18n()`, but there is no translation domain,
-  catalogue or extraction step yet. Some widget sentences are also built from parts in `logic.js`,
-  which translators cannot reorder. Both get fixed together. Until then Kempt is English only.
-- **Everyday words.** "System" and "Apps" in the widget in place of "dnf" and "flatpak", with the
-  full package list one click away.
 - **Update later.** "Tonight" or "only on Wi-Fi". Automatic staging may make it unnecessary.
-- **Holds with patterns** such as `kernel*`, with a warning when a pattern matches most of the list.
 - **A restart reminder that stays dismissed.** Closing it hides it until Plasma restarts. Kempt
   would store the dismissal against the boot ID, as offline staging does.
 - **Fedora's official repos, after COPR.** Then `dnf install kempt` works with no COPR step. The
