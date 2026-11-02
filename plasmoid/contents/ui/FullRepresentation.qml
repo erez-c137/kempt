@@ -1000,7 +1000,7 @@ PlasmaExtras.Representation {
             id: stageDiscoverWarningMessage
             Layout.fillWidth: true
             type: Kirigami.MessageType.Information
-            text: i18n("Discover's update check can cancel your staged updates before you restart. Turning off its notifier stops that.")
+            text: i18n("Discover's update check can cancel your staged updates before you restart. Turning off its notifier should stop that.")
             Accessible.name: text
             visible: popup.shows("stageDiscoverWarning")
             actions: [

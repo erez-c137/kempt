@@ -9,7 +9,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
-- **Staging warns when Discover's update check could cancel it.** While Discover's notifier runs,
+- **Staging warns when Discover's update check could cancel it.** While Discover's notifier is set to start,
   the staging notification says so, and the widget offers to turn the notifier off beside the staged
   update.
 - **Put It Back restores staged updates that another program cancelled.** PackageKit removes the

@@ -2691,6 +2691,12 @@ assert_eq "$(js "L.restoreStageMessage(1, '', '')")" \
 
 # --- the Discover offer while something is staged ----------------------------------------------
 assert_eq "$(js 'L.COPY.stageDiscoverWarning.indexOf("—")')" "-1" "the staged Discover warning has no long dash"
+assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, restart: true})')" '["staged","restart"]' \
+  "a restart owed keeps its button over the Discover warning"
+assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, startup: true})')" '["staged","startup"]' \
+  "...and a service that stopped starting keeps its message"
+assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, fetchMissed: true})')" '["staged","stageDiscoverWarning"]' \
+  "...and the warning still outranks calmer news"
 
 # --- vm.stageBlocked: a stage another updater's restart stands in front of ----------------------
 # Discover, through PackageKit, prepared the next restart: dnf5 will not run behind its symlink, so
