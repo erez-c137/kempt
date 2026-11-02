@@ -128,14 +128,17 @@ rm -f "$LAST_REFRESH_FILE"
 # therefore a seam of its own, and a test reaches the real check by setting it equal to the
 # helper seam. Nothing is executed here; doctor only stats the path.
 ME_U="$(id -un)"; ME_G="$(id -gn)"
+# A regular file that root owns at 0755. Where coreutils is uutils, /usr/bin/ls is a symlink, so it
+# is followed to the file itself.
+ROOT_FILE="$(readlink -f /usr/bin/ls)"
 # Exit 1 rather than 0, and the extra FAIL is the install-skew section doing its job on the same
 # fixture: /usr/bin/ls is root:root 0755, which is the only reason the ownership branch is
 # reachable without root at all, and it is just as obviously not this checkout's kempt-refresh. The
 # ownership line is what this case is about; the skew line is asserted with it so the pair cannot
 # drift apart unnoticed.
 assert_exit 1 "a helper that IS root:root 0755 at the annotated path passes its ownership check" \
-  env KEMPT_REFRESH_HELPER=/usr/bin/ls KEMPT_REFRESH_HELPER_PATH=/usr/bin/ls "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" 'ok    root helper (refresh): /usr/bin/ls (root:root 0755)' \
+  env KEMPT_REFRESH_HELPER=$ROOT_FILE KEMPT_REFRESH_HELPER_PATH=$ROOT_FILE "$KEMPT" doctor
+assert_contains "$(cat "$TESTTMP/last_output")" "ok    root helper (refresh): $ROOT_FILE (root:root 0755)" \
   "...and the ok line reports the ownership it actually verified"
 assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  helpers: DIFFER from checkout' \
   "...while the skew check says that file is not the checkout's helper"
@@ -167,7 +170,7 @@ grep -qF "root helper directory (apply) is $ME_U:$ME_G 777, expected root-owned 
   && echo "ok: ...and the FAIL line names the directory, its owner and its mode" \
   || { echo "FAIL: loose helper directory not reported - got: $(grep 'root helper' "$TESTTMP/last_output")"; _fail=1; }
 # ...and a sound directory adds no line: /usr/bin is root-owned and 0755.
-env KEMPT_REFRESH_HELPER=/usr/bin/ls KEMPT_REFRESH_HELPER_PATH=/usr/bin/ls "$KEMPT" doctor \
+env KEMPT_REFRESH_HELPER=$ROOT_FILE KEMPT_REFRESH_HELPER_PATH=$ROOT_FILE "$KEMPT" doctor \
   > "$TESTTMP/dir-ok.txt" 2>&1 || true
 assert_not_contains "$(cat "$TESTTMP/dir-ok.txt")" 'root helper directory' \
   "...while a root-owned directory nobody else can write says nothing"
@@ -189,28 +192,28 @@ mk_policy() {  # dest refresh_path apply_path
 # and for the same reason: the comparison is only made when the helper seam IS the annotated path,
 # because with a stub in play what this CLI runs is not what polkit would ever be asked about.
 # /usr/bin/ls because it exists everywhere the suite runs; nothing here executes it.
-as_annotated() {  # policy-file -> a checkup with both helpers at /usr/bin/ls
+as_annotated() {  # policy-file -> a checkup with both helpers at $ROOT_FILE
   env KEMPT_POLICY_FILE="$1" \
-      KEMPT_REFRESH_HELPER=/usr/bin/ls KEMPT_REFRESH_HELPER_PATH=/usr/bin/ls \
-      KEMPT_APPLY_HELPER=/usr/bin/ls   KEMPT_APPLY_HELPER_PATH=/usr/bin/ls "$KEMPT" doctor
+      KEMPT_REFRESH_HELPER=$ROOT_FILE KEMPT_REFRESH_HELPER_PATH=$ROOT_FILE \
+      KEMPT_APPLY_HELPER=$ROOT_FILE   KEMPT_APPLY_HELPER_PATH=$ROOT_FILE "$KEMPT" doctor
 }
 
 # Agreement is the ordinary state, and it must cost the report nothing. The one FAIL is the install
 # skew section doing its job: /usr/bin/ls is obviously not this checkout's kempt-refresh.
-mk_policy "$TESTTMP/policy-agree.xml" /usr/bin/ls /usr/bin/ls
+mk_policy "$TESTTMP/policy-agree.xml" $ROOT_FILE $ROOT_FILE
 assert_exit 1 "a policy that pins the helper this CLI runs is not a problem of its own" \
   -- as_annotated "$TESTTMP/policy-agree.xml"
 assert_eq "$(grep -c '^FAIL  polkit exec.path' "$TESTTMP/last_output" || true)" "0" \
   "...and adds no FAIL of its own (the one there is the install skew)"
 for a in refresh apply; do
-  grep -qF "ok    polkit exec.path ($a): /usr/bin/ls" "$TESTTMP/last_output" \
+  grep -qF "ok    polkit exec.path ($a): $ROOT_FILE" "$TESTTMP/last_output" \
     && echo "ok: ...and the $a line names the path both sides agree on" \
     || { echo "FAIL: no exec.path ok line for $a - got: $(grep 'exec.path' "$TESTTMP/last_output")"; _fail=1; }
 done
 
 # The split install itself: one action pinned somewhere else. This is the shape an RPM policy over
 # a checkout CLI has, and it is a FAIL because nothing privileged can run without a dialog.
-mk_policy "$TESTTMP/policy-split.xml" /usr/bin/ls /usr/libexec/kempt-apply
+mk_policy "$TESTTMP/policy-split.xml" $ROOT_FILE /usr/libexec/kempt-apply
 assert_exit 1 "a policy that pins a different apply helper fails the checkup" \
   -- as_annotated "$TESTTMP/policy-split.xml"
 grep -qE '^FAIL  polkit exec.path \(apply\)' "$TESTTMP/last_output" \
@@ -219,7 +222,7 @@ grep -qE '^FAIL  polkit exec.path \(apply\)' "$TESTTMP/last_output" \
 # BOTH paths, because the reader cannot act on either one alone: which is wrong depends on which
 # install they meant to have.
 ep_line="$(grep '^FAIL  polkit exec.path (apply)' "$TESTTMP/last_output" || true)"
-[[ "$ep_line" == */usr/libexec/kempt-apply* && "$ep_line" == */usr/bin/ls* ]] \
+[[ "$ep_line" == */usr/libexec/kempt-apply* && "$ep_line" == *$ROOT_FILE* ]] \
   && echo "ok: ...naming the path the policy pins and the path this CLI runs" \
   || { echo "FAIL: the FAIL line does not name both paths - got: $ep_line"; _fail=1; }
 assert_contains "$(cat "$TESTTMP/last_output")" 'authentication dialog' \
@@ -231,7 +234,7 @@ assert_contains "$(cat "$TESTTMP/last_output")" './install.sh' \
 assert_contains "$(cat "$TESTTMP/last_output")" 'sudo dnf reinstall kempt' \
   "...and the remedy for a package"
 # The action that still agrees still passes: two actions, two verdicts, never one summary.
-assert_contains "$(cat "$TESTTMP/last_output")" 'ok    polkit exec.path (refresh): /usr/bin/ls' \
+assert_contains "$(cat "$TESTTMP/last_output")" "ok    polkit exec.path (refresh): $ROOT_FILE" \
   "...while the action that agrees is still reported as ok"
 
 # A policy with no annotation at all is not a verdict either way: an action without an exec.path is
@@ -320,6 +323,9 @@ assert_eq "$(jq -r .status <<<"$state")" "stale" "...with only 'stale' to hint t
 assert_eq "$(jq -r .error <<<"$state")" \
   "dnf check failed: root helper not installed. Run ./install.sh (see: kempt doctor)" \
   "the stale error names the missing helper, not a timeout"
+# uutils' timeout says the same thing without the path.
+assert_contains "$(bash -c 'source "$1/lib/common.sh"; explain_helper_error "timeout: failed to execute process: No such file or directory (os error 2)"' _ "$REPO_ROOT")" \
+  "root helper not installed." "...and so it does from a timeout that leaves the path out"
 grep -qi 'timeout' <<<"$(jq -r .error <<<"$state")" \
   && { echo "FAIL: the error still reads as a timeout"; _fail=1; } \
   || echo "ok: no phantom timeout in the error"
