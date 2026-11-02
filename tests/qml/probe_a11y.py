@@ -414,6 +414,19 @@ lev("popup.focusPrimary()")
 p.pump(20)
 p.check("...and backwards the same way", walk(len(expected), back=True), reverse_of(expected))
 
+# Actions that ask for a password: polkit takes the focus the instant one is pressed, so the words
+# have to be on the button Kirigami draws, not just on the action behind it.
+_doc = json.load(open(fixture("state-risky-heavy.json")))
+_doc.pop("offline_staged", None)
+_doc["offline_stage_restorable"] = {"staged_at": "2026-09-02T10:31:00+03:00", "count": 61}
+_path = os.path.join(p.sandbox, "state-restorable.json")
+json.dump(_doc, open(_path, "w"))
+state(_path)
+p.pump(150)
+p.check("Put It Back's button says it may ask for a password",
+        "password" in str(lev("popup.buttonFor(stageRestorableMessage, "
+                              "stageRestorableMessage.actions[0]).Accessible.description")), True)
+
 # The state this widget is actually FOR. A weekly Fedora update is fifty to two hundred packages,
 # and a ListView only builds the delegates near its viewport - so before the scroll-into-view,
 # the focus chain simply ended at whichever row happened to exist and Tab jumped out of the list.
@@ -874,13 +887,16 @@ def _code(name):
 # The eighth is popup.speakActionsAs binding those two actions' spoken descriptions onto the
 # buttons Kirigami draws for them, since an action cannot reach its own button's.
 #
+# The ninth is Put It Back: its tooltip says it may ask for a password, and polkit takes the focus
+# the instant it is pressed.
+#
 # configGeneral.qml has one: Undo beside a service just unmuted names the service it mutes again.
 #
 # StartupPage.qml has three: Back says where it goes, each Copy Command carries the command it
 # copies, so one service's button is told from the next by ear, and Refresh's tooltip reads its
 # description back rather than repeating the literal. The fourth is Show All and Hide, which carry
 # the folded list's count, and the whole list once it is open.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 8, "configGeneral.qml": 1, "StartupPage.qml": 4}
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 9, "configGeneral.qml": 1, "StartupPage.qml": 4}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)
