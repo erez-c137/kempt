@@ -2182,7 +2182,9 @@ cmd_update() {
     elif [[ "$stage_blocked" == true ]]; then
       notify "Kempt" "Updates are staged, but another updater has prepared the next restart, so they will not install then"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
-      notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}"
+      local discover_tail=""
+      discover_running && discover_tail=". Discover's update check can cancel this, so restart soon or run kempt discover-notifier off"
+      notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}$discover_tail"
     elif [[ "$status" == "ok" ]]; then
       # The space an automatic removal freed, when it freed some: the one moment it is news.
       local freed_tail=""
@@ -3238,6 +3240,13 @@ cmd_unstage() {
   cmd_check >/dev/null 2>&1 || true
 }
 
+restore_stage_stop_offering() {  # marker-json
+  local fresh
+  offline_marker_still "$1" || return 0
+  fresh="$(offline_marker_read)"
+  jq -c '. + {restore_failed: true}' <<<"$fresh" | write_offline_marker || true
+}
+
 # `kempt restore-stage` - set a staged update to install on the next restart again, after another
 # program removed its restart step. See offline_stage_restorable. Through the verb that armed it the
 # first time, so this adds nothing a root helper could be asked to do. dnf5 checks the transaction
@@ -3262,43 +3271,57 @@ cmd_restore_stage() {
     log_event "restore-stage refused (another updater has prepared the next restart)"
     exit 5
   fi
-  if offline_stage_still_ours "$marker" && offline_armed && jq -e '.armed != false' <<<"$marker" >/dev/null 2>&1; then
+  # Set to install, but dnf5 holds something this stage cannot vouch for: never "put back" or "already set".
+  if offline_armed && ! offline_stage_rearmable "$marker"; then
+    echo "An update is set to install on the next restart, but Kempt cannot confirm it is the one it staged. See: kempt doctor" >&2
+    log_event "restore-stage refused (the stage cannot be put back)"
+    exit 5
+  fi
+  if offline_armed && jq -e '.armed != false' <<<"$marker" >/dev/null 2>&1; then
     echo "Your staged update is already set to install on the next restart."
     log_event "restore-stage found it already set"
     return 0
   fi
-  # Armed under a demoted marker is the restart step coming back on its own: only the record is wrong,
-  # and only when the transaction behind it is still this stage.
-  if ! offline_stage_rearmable "$marker" \
-     || { ! offline_armed && ! offline_stage_restorable "$marker"; }; then
+  # Still armed under a demoted marker is the restart step coming back on its own: only the record is wrong.
+  if ! offline_armed && ! offline_stage_restorable "$marker"; then
     echo "Your staged update cannot be put back, because the system has changed since it was staged. $(stage_remedy)" >&2
     log_event "restore-stage refused (the stage cannot be put back)"
     exit 5
   fi
-  local rc=0 err=""
+  local rc=0 err="" unsafe_dir=""
   offline_armed || err="$(priv_apply dnf-offline-arm 2>&1 >/dev/null)" || rc=$?
   if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
-    echo "Your staged update was not put back, because $(apply_refusal_reason). See: kempt doctor" >&2
+    if unsafe_dir="$(apply_unsafe_dir)"; then
+      echo "Your staged update was not put back, because other users can change files in $unsafe_dir. See: kempt doctor" >&2
+    else
+      echo "Your staged update was not put back, because $(apply_refusal_reason). See: kempt doctor" >&2
+    fi
+    restore_stage_stop_offering "$marker"
     log_event "restore-stage refused by the root helper"
+    cmd_check >/dev/null 2>&1 || true
     exit 5
   fi
   if [[ $rc -ne 0 ]] || ! offline_armed; then
     log_event "restore-stage failed rc=$rc"
-    # A cancelled or denied password prompt, or dnf5 still busy: pressing again is worth it. Anything
-    # else was dnf5's answer, and it will give the same one, so the button stops asking for a password.
-    if [[ $rc -eq 126 || $rc -eq 127 || $rc -eq $KEMPT_APPLY_BUSY ]]; then
-      echo "Your staged update was not put back. You can press Put It Back again." >&2
-    else
-      offline_marker_still "$marker" \
-        && jq -c '. + {restore_failed: true}' <<<"$marker" | write_offline_marker
-      echo "Your staged update could not be put back. $(stage_remedy)" >&2
-      [[ -z "$err" ]] || printf '%s\n' "$err" >&2
-      cmd_check >/dev/null 2>&1 || true
-    fi
+    case "$rc" in
+      # A dismissed password prompt, or dnf5 still busy: pressing again is worth it.
+      126|"$KEMPT_APPLY_BUSY") echo "Your staged update was not put back. You can press Put It Back again." >&2 ;;
+      # Not authorized, no authentication agent, or no helper: the same press would get the same answer.
+      127) echo "Your staged update was not put back, because Kempt was not allowed to do it. See: kempt doctor" >&2 ;;
+      # dnf5's own answer, which will not change, so the button stops asking for a password to hear it.
+      *) echo "Your staged update could not be put back. $(stage_remedy)" >&2
+         [[ -z "$err" ]] || printf '%s\n' "$err" >&2
+         restore_stage_stop_offering "$marker"
+         cmd_check >/dev/null 2>&1 || true
+         ;;
+    esac
     exit 1
   fi
+  # Read again: a check may have demoted it during the password prompt, and this is the newer answer.
+  local fresh
+  fresh="$(offline_marker_read)"
   if ! offline_marker_still "$marker" \
-     || ! jq -c --arg boot "$(current_boot_id)" '. + {armed: true, boot_id: $boot}' <<<"$marker" | write_offline_marker; then
+     || ! jq -c --arg boot "$(current_boot_id)" '. + {armed: true, boot_id: $boot} | del(.restore_failed)' <<<"$fresh" | write_offline_marker; then
     echo "warning: could not record that the staged update was put back. The next check may report it again" >&2
   fi
   # Before the check: its harvest takes this lock and skips the stage without it.

@@ -1429,6 +1429,23 @@ ev("root.leaveUpdating()")
 settle()
 ev('root.actionMessage = ""')
 
+# --- the Discover offer, with the reason that matters while something is staged ---------------
+offer_doc = json.load(open(CONFLICT1))
+offer_doc["discover_offer"] = True
+offer_doc.pop("surface_offer", None)
+STAGED_OFFER = os.path.join(p.sandbox, "state-staged-offer.json")
+json.dump(offer_doc, open(STAGED_OFFER, "w"))
+state(STAGED_OFFER)
+settle()
+p.check("a staged update with Discover's notifier on warns, with the offer's own answers",
+        [lev("stageDiscoverWarningMessage.visible"), lev("discoverOfferMessage.visible"),
+         lev("stageDiscoverWarningMessage.actions.length")], [True, False, 2])
+p.check("...in the copy's words", lev("stageDiscoverWarningMessage.text"), ev("Logic.COPY.stageDiscoverWarning"))
+state(CONFLICT1)
+settle()
+p.check("...and without the offer pending it does not",
+        lev("stageDiscoverWarningMessage.visible"), False)
+
 # --- Put It Back: a stage another program took the restart step from --------------------------
 def restorable_state(staged_at):
     doc = json.load(open(fixture("state-risky-heavy.json")))
@@ -3735,6 +3752,7 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
     "stagedRebuildCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
+    "stageDiscoverWarning", # -> the banner's text, written as a literal in the QML
     "stageRestorable",      # -> vm.stageRestorableMessage
     "stageRestoreAction",   # -> the banner's action, written as a literal in the QML
     "stageRestoreTooltip",  # -> ...and its tooltip and accessible description

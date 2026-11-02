@@ -857,7 +857,7 @@ assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.disc
   "Turn Off Discover's Notifier|Keep Discover's Notifier|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
 for _lit in discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" \
-    "$([[ $_lit == discoverOfferOff ]] && echo 2 || echo 1)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
+    "$(case $_lit in discoverOfferOff) echo 3 ;; discoverOfferKeep) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
 # What Settings shows, from `kempt discover-notifier status --json`.
 dn() { js "JSON.stringify(L.discoverSettingOf('$1'))"; }
@@ -2688,6 +2688,9 @@ assert_eq "$(js "L.restoreStageMessage(124, '', 'timeout after 300000ms') === L.
   "the widget giving up is a sentence, not a log line"
 assert_eq "$(js "L.restoreStageMessage(1, '', '')")" \
   "The staged update could not be put back (exit 1). Press Check Installation to find out why." "...and any other failure names its status"
+
+# --- the Discover offer while something is staged ----------------------------------------------
+assert_eq "$(js 'L.COPY.stageDiscoverWarning.indexOf("—")')" "-1" "the staged Discover warning has no long dash"
 
 # --- vm.stageBlocked: a stage another updater's restart stands in front of ----------------------
 # Discover, through PackageKit, prepared the next restart: dnf5 will not run behind its symlink, so

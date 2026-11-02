@@ -414,6 +414,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Install on Next Restart**, **Rebuild Staged Update** | `kempt run --surface=offline` |
 | **Discard Staged Update** | `kempt unstage` |
 | **Put It Back** | `kempt restore-stage` |
+| **Turn Off Discover's Notifier**, on the warning beside a staged update | `kempt discover-notifier off` |
 | The padlock | `kempt hold` or `kempt unhold` |
 | **Check Installation** | `kempt doctor` |
 | **Free Up Space** | `kempt reclaim -y --expect=<digest>` |

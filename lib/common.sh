@@ -4121,6 +4121,7 @@ offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, h
 # without asking for a password to find out.
 offline_stage_restorable() {  # marker-json → 0 when only the restart step is missing
   [[ "$(offline_system_status)" == ready && "$(offline_link_state)" == none ]] || return 1
+  jq -e '.restore_failed == true' <<<"$1" >/dev/null 2>&1 && return 1
   offline_stage_rearmable "$1"
 }
 
@@ -4128,7 +4129,6 @@ offline_stage_restorable() {  # marker-json → 0 when only the restart step is 
 # reports nothing when it cannot compare, which is right for a warning and wrong for arming.
 offline_stage_rearmable() {  # marker-json → 0 when dnf5's transaction is this stage and nothing moved
   offline_stage_still_ours "$1" || return 1
-  jq -e '.restore_failed == true' <<<"$1" >/dev/null 2>&1 && return 1
   local cookie pre now rc=0
   cookie="$(jq -r '.rpmdb_cookie // empty | strings' <<<"$1" 2>/dev/null || true)"
   [[ "$cookie" =~ ^[0-9a-f]{64}$ ]] || return 1

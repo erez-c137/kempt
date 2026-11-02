@@ -187,6 +187,44 @@ cp "$FIXTURES/offline-release-upgrade.toml" "$TOML"
 restore arms
 assert_not_contains "$out" "already set" "a release upgrade behind an armed link is not called already set"
 
+# Armed, undemoted, and no longer vouched for: "already set" would be a promise about something else.
+staged_armed
+printf 'someother\t1-1.fc44\n' >> "$WORLD/rpm.tsv"
+restore arms
+assert_eq "$rc" "5" "an armed stage whose packages moved is not called already set"
+assert_contains "$(cat "$TESTTMP/err")" "cannot confirm" "...and says what it does not know"
+staged_armed
+jq -c 'del(.rpmdb_cookie)' "$marker" > "$marker.new" && mv "$marker.new" "$marker"
+restore arms
+assert_not_contains "$out" "already set" "...nor is one under a marker with no cookie"
+# A stage dnf5 turned down, whose restart step then came back: true again, and the record says so.
+staged_lost
+jq -c '. + {restore_failed: true}' "$marker" > "$marker.new" && mv "$marker.new" "$marker"
+ln -sfn "$KEMPT_OFFLINE_DATADIR" "$KEMPT_OFFLINE_LINK"
+restore arms
+assert_eq "$rc" "0" "a turned-down stage with its restart step back is recorded as set"
+assert_eq "$(jq -r '.restore_failed // "cleared"' "$marker")" "cleared" "...and the old failure is forgotten"
+# Not authorized: the same press gets the same answer, so it does not invite one.
+apply_stub denied 'dnf-offline-arm) exit 127 ;;'
+staged_lost
+restore denied
+assert_eq "$rc" "1" "a denied prompt is a failed run"
+assert_not_contains "$(cat "$TESTTMP/err")" "press Put It Back again" "...which does not suggest pressing again"
+# A state directory that cannot be written still gets its sentence.
+staged_lost
+marker_dir="$(dirname "$marker")"
+write_blocked="$TESTTMP/apply-blocks"
+cat > "$write_blocked" <<STUB
+#!/usr/bin/env bash
+chmod a-w "$marker_dir"
+echo "dnf5 said why" >&2; exit 1
+STUB
+chmod +x "$write_blocked"
+rc=0; out="$(KEMPT_APPLY_HELPER="$write_blocked" "$KEMPT" restore-stage 2>"$TESTTMP/err")" || rc=$?
+chmod u+w "$marker_dir"
+assert_eq "$rc" "1" "an unwritable state directory is still a plain failure"
+assert_contains "$(cat "$TESTTMP/err")" "could not be put back" "...with its sentence"
+
 # A marker with no cookie cannot say the transaction is this stage, so nothing is armed on its word.
 staged_lost
 jq -c 'del(.rpmdb_cookie)' "$marker" > "$marker.new" && mv "$marker.new" "$marker"
@@ -218,6 +256,20 @@ rm -f "$marker" "$KEMPT_OFFLINE_LINK"; cp "$FIXTURES/offline-ready.toml" "$TOML"
 restore arms
 assert_eq "$rc" "5" "with no stage of Kempt's there is nothing to put back"
 assert_eq "$(calls dnf-offline-arm)" "0" "...and nothing is armed"
+
+# --- the warning at the moment it matters ----------------------------------------------------------
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/pgrep-yes"; printf '#!/usr/bin/env bash\nexit 1\n' > "$TESTTMP/pgrep-no"
+chmod +x "$TESTTMP/pgrep-yes" "$TESTTMP/pgrep-no"
+stage_says() {  # pgrep-stub → the staging notification
+  cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"; cp "$FIXTURES/offline-ready.toml" "$TOML"
+  rm -f "$marker" "$KEMPT_OFFLINE_LINK"; : > "$WORLD/notified"
+  KEMPT_DISCOVER_PGREP="$TESTTMP/$1" KEMPT_APPLY_HELPER="$TESTTMP/apply-arms" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+  cat "$WORLD/notified"
+}
+said="$(stage_says pgrep-yes)"
+assert_contains "$said" "Updates are staged and install on the next restart" "staging with Discover's notifier running keeps the promise"
+assert_contains "$said" "kempt discover-notifier off" "...and says what can cancel it and how to stop that"
+assert_not_contains "$(stage_says pgrep-no)" "Discover" "without it, the notification does not mention Discover"
 
 assert_exit 2 "restore-stage takes no arguments" "$KEMPT" restore-stage --all
 

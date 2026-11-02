@@ -167,6 +167,8 @@ var COPY = {
     // The one offer to turn off Discover's own update notifier, while it starts with the session.
     // Turning it back on is in Settings, under the same name.
     discoverOffer: "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.",
+    stageDiscoverWarning:
+        "Discover's update check can cancel your staged updates before you restart. Turning off its notifier stops that.",
     discoverOfferOff: "Turn Off Discover's Notifier",
     discoverOfferKeep: "Keep Discover's Notifier",
     discoverOn: "Turn On Discover's Notifier",
@@ -1305,7 +1307,7 @@ var MESSAGE_CAP = 2;
 // `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
-var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "stageRestorable", "startup",
+var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "stageRestorable", "stageDiscoverWarning", "startup",
                      "restart", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
                      "discoverOffer", "reclaim"];
 
@@ -3336,7 +3338,9 @@ function viewModel(state, updating, cliError, opts) {
         kernel: riskyMessage !== "" && !riskyChoice,
         riskyChoice: riskyChoice,
         surfaceOffer: surfaceOffer,
-        discoverOffer: discoverOffer,
+        // The same offer with the reason that matters while something is staged, and higher up.
+        discoverOffer: discoverOffer && !staged,
+        stageDiscoverWarning: discoverOffer && staged && !stageBlocked,
         reclaim: reclaimShown && !updating,
         startup: startupWanted,
         startupRecovered: startupRecoveredWanted
