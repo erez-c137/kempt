@@ -57,6 +57,8 @@ ROOT=/opt/kempt
 export HOME=/root
 export KEMPT_PKEXEC= KEMPT_APPLY_HELPER=$ROOT/libexec/kempt-apply KEMPT_REFRESH_HELPER=$ROOT/libexec/kempt-refresh
 export KEMPT_NOTIFY=/tmp/gate-notify KEMPT_TERMINAL=/bin/true
+# notify() stays quiet with no desktop session, and this container has none.
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent
 # The gate drives Kempt as root inside its container, which Kempt otherwise refuses.
 export KEMPT_ALLOW_ROOT=1
 K=$ROOT/bin/kempt
@@ -308,10 +310,15 @@ has "announced as a stage that can no longer install" "$(notes)" "can no longer 
 is "marker demoted rather than deleted" "$(jq -r '.armed' <<<"$(marker)")" "false"
 is "dnf5 still says ready - the demote is Kempt's reading, not dnf5's" "$(toml_status)" "ready"
 is "nothing is published as a pending install" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
-d=$("$K" doctor 2>&1); rc=$?
-has "doctor names it" "$d" "staged update can never install"
-has "...and offers the re-stage" "$d" "kempt update --surface=offline"
-is "...exit 1" "$rc" "1"
+# Nothing moved, so dnf5 can make the symlink again: doctor offers that, as a warning.
+d=$("$K" doctor 2>&1)
+has "doctor offers to put it back" "$d" "kempt restore-stage"
+"$K" restore-stage > /tmp/s10-restore.out 2>&1
+is "Put It Back succeeds on real dnf5" "$?" "0"
+[[ -L "$LINK" ]] && ok "...with the symlink back" || bad "...no symlink after Put It Back"
+is "...and the marker armed again" "$(jq -r '.armed' <<<"$(marker)")" "true"
+rm -f "$LINK"
+KEMPT_BOOT_ID=s10-boot "$K" check > /dev/null 2>&1
 dnf5 -y -q offline clean >/dev/null 2>&1
 KEMPT_BOOT_ID=s10-boot "$K" check >/dev/null 2>&1
 is "a real clean then clears the demoted marker" "$(marker)" ""
