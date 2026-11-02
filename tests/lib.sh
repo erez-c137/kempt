@@ -25,6 +25,9 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_STATE_DIR="$TESTTMP/state"
   export KEMPT_PKEXEC=""
   export KEMPT_NOTIFY="true"   # /usr/bin/true - notifications are no-ops in tests
+  # notify() stays quiet with no desktop session, and a build root has none. Every test gets the same
+  # answer on any machine, and none can reach a real session bus.
+  export DBUS_SESSION_BUS_ADDRESS="unix:path=$TESTTMP/no-bus-needed"
   # Same shape: the installer's icon-cache signal must never reach the real session bus from a
   # test run. The suite asserts the SHAPE of the command install.sh builds, not its delivery.
   export KEMPT_DBUS_SEND="true"
