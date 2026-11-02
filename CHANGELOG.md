@@ -9,6 +9,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **Put It Back restores staged updates that another program cancelled.** PackageKit removes the
+  restart step of a staged update when it refreshes, and Discover's notifier usually asks for that
+  once a day, so a later restart installed nothing. The updates stay downloaded. If no packages have
+  changed since, the widget now offers **Put It Back**, and `kempt restore-stage` does the same.
 - **Kempt's log says whether each notification reached you.** Every notification Kempt sends
   adds a line to `kempt log`: what it said, and whether it showed. When it did not, the line
   says why, for example no desktop session. A staged update that can no longer install no

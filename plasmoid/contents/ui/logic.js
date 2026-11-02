@@ -385,6 +385,23 @@ var COPY = {
     // prefers the CLI's own first line wherever there is one. None of them is silence: this press
     // makes a banner disappear and nothing else, and a message that only vanished is
     // indistinguishable from a button that did nothing at all.
+    // A stage whose restart step another program removed. main.qml's restoreStage reports through
+    // restoreStageMessage, which prefers the CLI's own first line.
+    stageRestorable:
+        "Your staged updates will not install on the next restart, because another program removed "
+        + "their restart step. They are still downloaded.",
+    stageRestoreAction: "Put It Back",
+    stageRestoreTooltip:
+        "Sets your staged updates to install on the next restart again. May ask for your password.",
+    stageRestoreTimedOut:
+        "This took too long, so Kempt stopped waiting. Press Put It Back again if the warning is still there.",
+    stageRestoreDone: "Put back. The next restart installs your staged updates.",
+    stageRestoreRefused: "Nothing was put back. Press Check Installation to find out why.",
+    stageRestoreBusy: "An update is running, so nothing was put back. Try again when it has finished.",
+    stageRestoreFailed:
+        "The staged update could not be put back (exit %1). Press Check Installation to find out why.",
+    stageRestoreChanged:
+        "The staged update changed since this was offered. Nothing was put back; check the messages above.",
     stagedDiscardDone: "The staged update is gone. The next restart installs nothing.",
     stagedDiscardRefused: "Nothing was discarded. Press Check Installation to find out why.",
     stagedDiscardBusy:
@@ -1288,7 +1305,7 @@ var MESSAGE_CAP = 2;
 // `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
-var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "startup",
+var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "stageRestorable", "startup",
                      "restart", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
                      "discoverOffer", "reclaim"];
 
@@ -2479,6 +2496,18 @@ function discardStagedMessage(rc, stdout, stderr) {
     return fill(COPY.stagedDiscardFailed, "%1", String(rc));
 }
 
+// restoreStageMessage(rc, stdout, stderr) -> the one sentence after `kempt restore-stage`, by the
+// rule discardStagedMessage follows: the CLI's own first line, and never "".
+function restoreStageMessage(rc, stdout, stderr) {
+    if (rc === 0) return firstLineOf(stdout) || COPY.stageRestoreDone;
+    if (isExecutorTimeout(rc, stderr)) return COPY.stageRestoreTimedOut;
+    var msg = firstLineOf(stderr) || firstLineOf(stdout);
+    if (msg !== "") return msg;
+    if (rc === 5) return COPY.stageRestoreRefused;
+    if (rc === 3) return COPY.stageRestoreBusy;
+    return fill(COPY.stageRestoreFailed, "%1", String(rc));
+}
+
 // --- answering an offer, or changing a setting through a CLI verb ----------------------------------
 // How long the widget waits for `kempt config set` or `kempt discover-notifier`. Each takes the
 // CLI's writers' lock, which waits up to 30 s for another writer before it gives up, so anything
@@ -3269,6 +3298,13 @@ function viewModel(state, updating, cliError, opts) {
     var startupWanted = startupFree && startup.entries.length > 0;
     var startupRecoveredWanted = startupFree && !startupWanted && startup.recoveredText !== "";
 
+    // Never beside a stage that will install: a run's own patch of state.json can briefly hold both.
+    var restorableStage = (state && state.offline_stage_restorable
+                           && typeof state.offline_stage_restorable === "object")
+        ? state.offline_stage_restorable : null;
+    var stageRestorableAt = (restorableStage && !staged && !stageBlocked
+                             && typeof restorableStage.staged_at === "string")
+        ? restorableStage.staged_at : "";
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
         // ...and while a blocked stage is up, a report saying the stage installs on the next restart
@@ -3283,6 +3319,7 @@ function viewModel(state, updating, cliError, opts) {
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
         staged: staged || stageBlocked,
+        stageRestorable: stageRestorableAt !== "" && !updating,
         // Above everything except a report of something that just happened: it is the one message
         // that says what this machine is, and every other message here presumes a box Kempt can
         // update. The kernel message is not displaced here but SILENCED (riskyIsMoot above): with
@@ -3501,6 +3538,8 @@ function viewModel(state, updating, cliError, opts) {
         // its start. "" means there is nothing to compare, which the re-verify reads as "do not
         // act".
         stagedStagedAt: stagedVariant.stagedAt,
+        stageRestorableAt: stageRestorableAt,
+        stageRestorableMessage: COPY.stageRestorable,
         // The names behind the sentence. The banner shows the first and a count; anything that has
         // to say them again takes them from here rather than parsing them out of the sentence.
         stagedConflictNames: stagedVariant.conflictNames,
@@ -3586,6 +3625,7 @@ if (typeof module !== "undefined" && module.exports) {
         runFinishedSince: runFinishedSince,
         runStartMessage: runStartMessage,
         discardStagedMessage: discardStagedMessage,
+        restoreStageMessage: restoreStageMessage,
         DOCTOR_TIMEOUT_MS: DOCTOR_TIMEOUT_MS,
         DOCTOR_SUMMARY_MAX: DOCTOR_SUMMARY_MAX,
         mentionsDoctor: mentionsDoctor,
