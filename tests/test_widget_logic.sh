@@ -857,7 +857,7 @@ assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.disc
   "Turn Off Discover's Notifier|Keep Discover's Notifier|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
 for _lit in discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" \
-    "$([[ $_lit == discoverOfferOff ]] && echo 2 || echo 1)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
+    "$(case $_lit in discoverOfferOff) echo 3 ;; discoverOfferKeep) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
 # What Settings shows, from `kempt discover-notifier status --json`.
 dn() { js "JSON.stringify(L.discoverSettingOf('$1'))"; }
@@ -2671,6 +2671,27 @@ assert_eq "$(vm '{}' "$STG" 0 'stagedShowRestart')" "true" \
 assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
   "...and stands down when the restart message is already offering it"
 
+# --- vm.stageRestorableAt: a stage that lost its restart step and can have it back ---------------
+RST=',offline_stage_restorable:{staged_at:"2026-09-02T10:31:00+03:00",count:61}'
+assert_eq "$(vm '{}' "$RST" 0 'stageRestorableAt')" "2026-09-02T10:31:00+03:00" "a stage that can be put back is read"
+assert_eq "$(vm '{}' '' 0 'stageRestorableAt')" "" "...and no key is nothing to offer"
+assert_eq "$(vm '{}' ',offline_stage_restorable:"yes"' 0 'stageRestorableAt')" "" "...nor is a key of the wrong type"
+assert_eq "$(vm '{}' ',offline_stage_restorable:{count:1}' 0 'stageRestorableAt')" "" "...nor one with no stage named"
+assert_eq "$(js "L.restoreStageMessage(0, 'Put back. The next restart installs your 61 staged updates.\\n', '')")" \
+  "Put back. The next restart installs your 61 staged updates." "a restore that worked reports the CLI's own sentence"
+assert_eq "$(js "L.restoreStageMessage(0, '', '')")" "Put back. The next restart installs your staged updates." \
+  "...and a silent one still says so"
+assert_eq "$(js "L.restoreStageMessage(5, '', 'cannot be put back\\nmore\\n')")" "cannot be put back" "a refusal is the CLI's first line"
+assert_eq "$(js "L.restoreStageMessage(5, '', '') === L.COPY.stageRestoreRefused")" "true" "...or its own sentence"
+assert_eq "$(js "L.restoreStageMessage(3, '', '') === L.COPY.stageRestoreBusy")" "true" "another update running has one too"
+assert_eq "$(js "L.restoreStageMessage(124, '', 'timeout after 300000ms') === L.COPY.stageRestoreTimedOut")" "true" \
+  "the widget giving up is a sentence, not a log line"
+assert_eq "$(js "L.restoreStageMessage(1, '', '')")" \
+  "The staged update could not be put back (exit 1). Press Check Installation to find out why." "...and any other failure names its status"
+
+# --- the Discover offer while something is staged ----------------------------------------------
+assert_eq "$(js 'L.COPY.stageDiscoverWarning.indexOf("—")')" "-1" "the staged Discover warning has no long dash"
+
 # --- vm.stageBlocked: a stage another updater's restart stands in front of ----------------------
 # Discover, through PackageKit, prepared the next restart: dnf5 will not run behind its symlink, so
 # Kempt's stage does not install then. The CLI publishes offline_stage_blocked and never
@@ -3593,7 +3614,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -4291,6 +4312,7 @@ assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
 # literals are DECLARED - so it would answer "found it" for a QML file that never wrote them. The
 # .qml files alone are the question.
 for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedDiscardTooltip \
+            stageRestoreAction stageRestoreTooltip \
             reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
             installOnNextRestartTooltip installOnNextRestartSystemTooltip \
             startupMute startupMuting startupMuteTooltip startupSetting startupSettingNote \
@@ -4301,8 +4323,8 @@ done
 # The tooltip is the accessible description as well, and that is the load-bearing half: a polkit
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
 # the authorization and the discard cost by then hears them never.
-assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "5" \
-  "...and both banner actions, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
+assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "6" \
+  "...and both banner actions, Put It Back, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting

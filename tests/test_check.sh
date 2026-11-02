@@ -745,7 +745,7 @@ assert_exit 2 "check refuses --anyway with a value" "$KEMPT" check --anyway=yes
 # may export a variable that carries it.
 internal_calls="$(grep -nE '(^|[^_a-z])cmd_check( |$)' "$REPO_ROOT/bin/kempt" | grep -v 'cmd_check()' \
                   | grep -vF 'check)   shift; cmd_check "$@" ;;' | grep -v '^[0-9]*: *#')"
-assert_eq "$(grep -c . <<<"$internal_calls")" "8" "bin/kempt has its eight internal checks (premise)"
+assert_eq "$(grep -c . <<<"$internal_calls")" "11" "bin/kempt has its eleven internal checks (premise)"
 assert_eq "$(grep -cvE 'cmd_check >/dev/null 2>&1 \|\| true$' <<<"$internal_calls")" "0" \
   "...and every one runs cmd_check with no arguments, so none can pass --anyway"
 assert_eq "$(grep -ciE 'export[^#]*anyway|KEMPT_ANYWAY' "$REPO_ROOT/bin/kempt" "$REPO_ROOT/lib/common.sh" \

@@ -67,6 +67,7 @@ if command -v node >/dev/null 2>&1; then
     for (const rc of [0, 1, 3, 5, 75, 124]) {
       tryAdd("runStartMessage(" + rc + ")", () => L.runStartMessage(rc, "", ""));
       tryAdd("discardStagedMessage(" + rc + ")", () => L.discardStagedMessage(rc, "", ""));
+      tryAdd("restoreStageMessage(" + rc + ")", () => L.restoreStageMessage(rc, "", ""));
       tryAdd("doctorOutcomeOf(" + rc + ")", () => L.doctorOutcomeOf(rc, "", ""));
       for (const result of ["removed", "needs_auth", "partial", "failed"]) {
         const last = { at: at, result: result, bytes: 300000000, refs: result === "partial" ? null : ["a"], in_use: ["c"] };

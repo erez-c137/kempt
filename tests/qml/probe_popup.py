@@ -91,6 +91,13 @@ UNSTAGEERR = os.path.join(p.sandbox, "unstageerr")
 open(UNSTAGERC, "w").write("0")
 open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart installs nothing.\n")
 open(UNSTAGEERR, "w").write("")
+# ...and `kempt restore-stage`, which the Put It Back action runs.
+RESTORERC = os.path.join(p.sandbox, "restorerc")
+RESTOREOUT = os.path.join(p.sandbox, "restoreout")
+RESTOREERR = os.path.join(p.sandbox, "restoreerr")
+open(RESTORERC, "w").write("0")
+open(RESTOREOUT, "w").write("Put back. The next restart installs your 61 staged updates.\n")
+open(RESTOREERR, "w").write("")
 # `kempt reclaim`, which Free Up Space runs: status, both streams, and the state the CLI leaves
 # behind (a path, copied over state.json with @NOW@ stamped as `date -Iseconds`, or empty to leave
 # state.json alone). The real command rewrites state.json before it exits, with reclaim.last.
@@ -213,6 +220,7 @@ case "$1" in
            else echo "Kempt - 2026-08-25T01:00:00 (terminal, 42s) ok"; echo "more detail"; fi
            exit 0 ;;
   unstage) cat %(UOUT)s; cat %(UERR)s >&2; exit "$(cat %(URC)s)" ;;
+  restore-stage) cat %(BOUT)s; cat %(BERR)s >&2; exit "$(cat %(BRC)s)" ;;
   reclaim) src="$(cat %(RST)s)"
            if [[ -n "$src" ]]; then sed "s/@NOW@/$(date -Iseconds)/" "$src" > %(ST)s; fi
            cat %(ROUT)s; cat %(RERR)s >&2; exit "$(cat %(RRC)s)" ;;
@@ -223,7 +231,7 @@ esac
        "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
                                 restart_reminder="cat %s" % RR),
        "CHKRC": CHECKRC, "CHKSLEEP": CHECKSLEEP, "OLDRUN": OLDRUN, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
-       "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
+       "RUNJSON": RUNJSON, "BOUT": RESTOREOUT, "BERR": RESTOREERR, "BRC": RESTORERC, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
 # used to paste into actionMessage. Nothing calls it any more, and that is the point: a widget
@@ -1420,6 +1428,83 @@ p.check("a rebuild asked for during a run is not a second run",
 ev("root.leaveUpdating()")
 settle()
 ev('root.actionMessage = ""')
+
+# --- the Discover offer, with the reason that matters while something is staged ---------------
+offer_doc = json.load(open(CONFLICT1))
+offer_doc["discover_offer"] = True
+offer_doc.pop("surface_offer", None)
+STAGED_OFFER = os.path.join(p.sandbox, "state-staged-offer.json")
+json.dump(offer_doc, open(STAGED_OFFER, "w"))
+state(STAGED_OFFER)
+settle()
+p.check("a staged update with Discover's notifier on warns, with the offer's own answers",
+        [lev("stageDiscoverWarningMessage.visible"), lev("discoverOfferMessage.visible"),
+         lev("stageDiscoverWarningMessage.actions.length")], [True, False, 2])
+p.check("...in the copy's words", lev("stageDiscoverWarningMessage.text"), ev("Logic.COPY.stageDiscoverWarning"))
+state(CONFLICT1)
+settle()
+p.check("...and without the offer pending it does not",
+        lev("stageDiscoverWarningMessage.visible"), False)
+
+# --- Put It Back: a stage another program took the restart step from --------------------------
+def restorable_state(staged_at):
+    doc = json.load(open(fixture("state-risky-heavy.json")))
+    doc.pop("offline_staged", None)
+    doc["offline_stage_restorable"] = {"staged_at": staged_at, "count": 61}
+    path = os.path.join(p.sandbox, "state-restorable-%s.json" % staged_at[:10])
+    json.dump(doc, open(path, "w"))
+    return path
+
+RESTORABLE = restorable_state("2026-09-02T10:31:00+03:00")
+state(RESTORABLE)
+settle()
+p.check("a stage that can be put back has a banner of its own",
+        [lev("stageRestorableMessage.visible"), lev("stagedMessage.visible")], [True, False])
+p.check("...which says what happened, in the copy's words",
+        lev("stageRestorableMessage.text"), ev("Logic.COPY.stageRestorable"))
+p.check("...with one way out", lev("stageRestorableMessage.actions[0].text"), "Put It Back")
+# The consent rule again: the banner describes one stage, and a press spends consent on that one.
+json.dump(json.load(open(restorable_state("2026-09-05T08:00:00+03:00"))), open(STATE_JSON, "w"))
+p.clear_calls()
+ev('root.actionMessage = ""')
+ev('root.actionDone = ""')
+lev("stageRestorableMessage.actions[0].trigger()")
+settle()
+p.check("a press over a different stage than the one offered runs nothing",
+        p.call_count("restore-stage"), 0)
+p.check("...and says so", ev("root.actionMessage"), ev("Logic.COPY.stageRestoreChanged"))
+# The refusal first, so the banner is still up for the press that works.
+state(RESTORABLE)
+settle()
+open(RESTORERC, "w").write("5")
+open(RESTOREOUT, "w").write("")
+open(RESTOREERR, "w").write("Your staged update cannot be put back, because the system has changed since it was staged.\n")
+p.clear_calls()
+ev('root.actionMessage = ""')
+lev("stageRestorableMessage.actions[0].trigger()")
+p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
+settle()
+p.check("a refusal reports the CLI's reason", str(ev("root.actionMessage")).startswith("Your staged update cannot be put back"), True)
+open(RESTORERC, "w").write("0")
+open(RESTOREOUT, "w").write("Put back. The next restart installs your 61 staged updates.\n")
+open(RESTOREERR, "w").write("")
+state(RESTORABLE)
+settle()
+open(CHECKSRC, "w").write(fixture("state-risky-heavy.json"))
+p.clear_calls()
+ev('root.actionMessage = ""')
+ev('root.actionDone = ""')
+lev("stageRestorableMessage.actions[0].trigger()")
+p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
+settle()
+p.check("a press runs the CLI's verb exactly once, with no arguments",
+        p.argv("restore-stage"), ["restore-stage"])
+p.check("...reports the CLI's own sentence, as a success",
+        [ev("root.actionDone"), ev("root.reportFailed")],
+        ["Put back. The next restart installs your 61 staged updates.", False])
+p.check("...and re-checks, which takes the banner away",
+        [p.call_count("check") >= 1, lev("stageRestorableMessage.visible")], [True, False])
+ev('root.actionDone = ""')
 
 # --- Discard Staged Update, the same banner's other way out ---------------------------------
 # `kempt unstage` from the popup, so somebody who staged an update here can undo it here. The
@@ -3667,6 +3752,16 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
     "stagedRebuildCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
+    "stageDiscoverWarning", # -> the banner's text, written as a literal in the QML
+    "stageRestorable",      # -> vm.stageRestorableMessage
+    "stageRestoreAction",   # -> the banner's action, written as a literal in the QML
+    "stageRestoreTooltip",  # -> ...and its tooltip and accessible description
+    "stageRestoreTimedOut", # -> restoreStageMessage, for the Executor's own kill
+    "stageRestoreDone",     # -> restoreStageMessage, for a restore the CLI did not describe
+    "stageRestoreRefused",  # -> restoreStageMessage, for a silent exit 5
+    "stageRestoreBusy",     # -> restoreStageMessage, for a silent exit 3
+    "stageRestoreFailed",   # -> restoreStageMessage, with the status in the %1
+    "stageRestoreChanged",  # -> root.actionMessage, as stagedDiscardChanged is for the discard
     "stagedDiscardDone",    # -> discardStagedMessage, for a discard the CLI did not describe
     "stagedDiscardRefused",  # -> discardStagedMessage, for a silent exit 5
     "stagedDiscardBusy",    # -> discardStagedMessage, for a silent exit 3

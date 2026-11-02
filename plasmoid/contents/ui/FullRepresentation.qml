@@ -972,6 +972,53 @@ PlasmaExtras.Representation {
             ]
         }
 
+        // A stage that lost only its restart step. logic.js decides when; `kempt restore-stage` acts.
+        Kirigami.InlineMessage {
+            id: stageRestorableMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Warning
+            text: popup.vm.stageRestorableMessage
+            Accessible.name: text
+            visible: popup.shows("stageRestorable")
+            // Assertive for the staged banner's reason: what the person was promised has changed.
+            property string spoken: ""
+            onVisibleChanged: popup.speakMessage(stageRestorableMessage, true, text)
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Put It Back")
+                    icon.name: "edit-undo"
+                    tooltip: i18n("Sets your staged updates to install on the next restart again. May ask for your password.")
+                    Accessible.description: tooltip
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => popup.plasmoidItem.restoreStage()
+                }
+            ]
+        }
+
+        // The Discover offer, while something it can cancel is staged. Same answers, same marker.
+        Kirigami.InlineMessage {
+            id: stageDiscoverWarningMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Information
+            text: i18n("Discover's update check can cancel your staged updates before you restart. Turning off its notifier stops that.")
+            Accessible.name: text
+            visible: popup.shows("stageDiscoverWarning")
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Turn Off Discover's Notifier")
+                    icon.name: "notifications-disabled"
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
+                },
+                Kirigami.Action {
+                    text: i18n("Keep Discover's Notifier")
+                    icon.name: "dialog-ok"
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("keep"); popup.rescueFocus(); }
+                }
+            ]
+        }
+
         // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr,
         // dnf is not how the machine updates, and `kempt update` aborts in pre-flight. Those images
         // ship dnf5 and plasma-workspace, so Kempt installs cleanly and everything here fills in

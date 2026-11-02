@@ -701,6 +701,14 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # A stage that lost only its restart step, so the widget can offer Put It Back.
+  local restorable_json
+  restorable_json="$(offline_stage_restorable_state 2>/dev/null)" || restorable_json=""
+  if [[ -n "$restorable_json" ]] \
+     && merged="$(jq --argjson r "$restorable_json" '. + {offline_stage_restorable: $r}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   # The unused Flatpak runtimes, merged in after assembly because the block is optional and has no
   # say in the check's status. Guarded at every step (set -e, and this runs inside the check lock):
   # a helper, du or jq that fails leaves the state exactly as assembled, never a failed check.
@@ -2174,7 +2182,9 @@ cmd_update() {
     elif [[ "$stage_blocked" == true ]]; then
       notify "Kempt" "Updates are staged, but another updater has prepared the next restart, so they will not install then"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
-      notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}"
+      local discover_tail=""
+      discover_running && discover_tail=". Discover's update check can cancel this, so restart soon or run kempt discover-notifier off"
+      notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}$discover_tail"
     elif [[ "$status" == "ok" ]]; then
       # The space an automatic removal freed, when it freed some: the one moment it is news.
       local freed_tail=""
@@ -2698,10 +2708,16 @@ reconcile_detour_stage() {  # marker-json toml-status
   # write below is a read-modify-write of a file `kempt update` owns under a different lock.
   offline_marker_still "$1" || {
     log_event "offline marker kept (a new stage arrived while the check ran)"; return 0; }
-  notify "Kempt" "Your staged update can no longer install on a restart. $(stage_remedy)"
+  if offline_stage_restorable "$1"; then
+    notify "Kempt" "Your staged update can no longer install on a restart, because another program removed its restart step. To put it back, open Kempt and press Put It Back, or run kempt restore-stage."
+  else
+    notify "Kempt" "Your staged update can no longer install on a restart. $(stage_remedy)"
+  fi
   log_event "offline stage cannot install (status $2) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
   # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
   # pointer, the names and the boot id survive for the doctor rows that read them.
+  # `kempt restore-stage` shares this lock, and may have put it back during that notification.
+  offline_armed && return 0
   jq -c '. + {armed: false}' <<<"$1" | write_offline_marker \
     || echo "warning: could not record that the staged update was announced. The next check may repeat it" >&2
 }
@@ -3221,6 +3237,102 @@ cmd_unstage() {
   log_event "unstage discarded the staged update"
   # state.json is the widget's only channel, so a discarded stage stops being advertised in the
   # panel exactly when this rewrites it.
+  cmd_check >/dev/null 2>&1 || true
+}
+
+restore_stage_stop_offering() {  # marker-json
+  local fresh
+  offline_marker_still "$1" || return 0
+  fresh="$(offline_marker_read)"
+  jq -c '. + {restore_failed: true}' <<<"$fresh" | write_offline_marker || true
+}
+
+# `kempt restore-stage` - set a staged update to install on the next restart again, after another
+# program removed its restart step. See offline_stage_restorable. Through the verb that armed it the
+# first time, so this adds nothing a root helper could be asked to do. dnf5 checks the transaction
+# again as root: a package set the snapshot cannot tell apart still ends in its refusal, and nothing
+# is claimed until both halves of armed are there.
+cmd_restore_stage() {
+  [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
+  kempt_init_dirs
+  acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
+  trap release_lock EXIT
+  stage_lock_try || { echo "another kempt update is running" >&2; exit 3; }
+
+  local marker count
+  marker="$(offline_marker_read)"
+  if [[ -z "$marker" ]]; then
+    echo "Nothing is staged, so there is nothing to put back." >&2
+    log_event "restore-stage refused (nothing staged)"
+    exit 5
+  fi
+  if [[ "$(offline_link_state)" == other ]]; then
+    echo "Nothing was put back. Another updater has prepared the next restart, and its update installs then. After the restart, check Kempt again." >&2
+    log_event "restore-stage refused (another updater has prepared the next restart)"
+    exit 5
+  fi
+  # Set to install, but dnf5 holds something this stage cannot vouch for: never "put back" or "already set".
+  if offline_armed && ! offline_stage_rearmable "$marker"; then
+    echo "An update is set to install on the next restart, but Kempt cannot confirm it is the one it staged. See: kempt doctor" >&2
+    log_event "restore-stage refused (the stage cannot be put back)"
+    exit 5
+  fi
+  if offline_armed && jq -e '.armed != false' <<<"$marker" >/dev/null 2>&1; then
+    echo "Your staged update is already set to install on the next restart."
+    log_event "restore-stage found it already set"
+    return 0
+  fi
+  # Still armed under a demoted marker is the restart step coming back on its own: only the record is wrong.
+  if ! offline_armed && ! offline_stage_restorable "$marker"; then
+    echo "Your staged update cannot be put back, because the system has changed since it was staged. $(stage_remedy)" >&2
+    log_event "restore-stage refused (the stage cannot be put back)"
+    exit 5
+  fi
+  local rc=0 err="" unsafe_dir=""
+  offline_armed || err="$(priv_apply dnf-offline-arm 2>&1 >/dev/null)" || rc=$?
+  if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
+    if unsafe_dir="$(apply_unsafe_dir)"; then
+      echo "Your staged update was not put back, because other users can change files in $unsafe_dir. See: kempt doctor" >&2
+    else
+      echo "Your staged update was not put back, because $(apply_refusal_reason). See: kempt doctor" >&2
+    fi
+    restore_stage_stop_offering "$marker"
+    log_event "restore-stage refused by the root helper"
+    cmd_check >/dev/null 2>&1 || true
+    exit 5
+  fi
+  if [[ $rc -ne 0 ]] || ! offline_armed; then
+    log_event "restore-stage failed rc=$rc"
+    case "$rc" in
+      # A dismissed password prompt, or dnf5 still busy: pressing again is worth it.
+      126|"$KEMPT_APPLY_BUSY") echo "Your staged update was not put back. You can press Put It Back again." >&2 ;;
+      # Not authorized, no authentication agent, or no helper: the same press would get the same answer.
+      127) echo "Your staged update was not put back, because Kempt was not allowed to do it. See: kempt doctor" >&2 ;;
+      # dnf5's own answer, which will not change, so the button stops asking for a password to hear it.
+      *) echo "Your staged update could not be put back. $(stage_remedy)" >&2
+         [[ -z "$err" ]] || printf '%s\n' "$err" >&2
+         restore_stage_stop_offering "$marker"
+         cmd_check >/dev/null 2>&1 || true
+         ;;
+    esac
+    exit 1
+  fi
+  # Read again: a check may have demoted it during the password prompt, and this is the newer answer.
+  local fresh
+  fresh="$(offline_marker_read)"
+  if ! offline_marker_still "$marker" \
+     || ! jq -c --arg boot "$(current_boot_id)" '. + {armed: true, boot_id: $boot} | del(.restore_failed)' <<<"$fresh" | write_offline_marker; then
+    echo "warning: could not record that the staged update was put back. The next check may report it again" >&2
+  fi
+  # Before the check: its harvest takes this lock and skips the stage without it.
+  stage_unlock
+  count="$(jq -r '.staged // empty' <<<"$marker" 2>/dev/null || true)"
+  case "$count" in
+    1) echo "Put back. The next restart installs your 1 staged update." ;;
+    ''|*[!0-9]*) echo "Put back. The next restart installs your staged updates." ;;
+    *) echo "Put back. The next restart installs your $count staged updates." ;;
+  esac
+  log_event "restore-stage put the staged update back"
   cmd_check >/dev/null 2>&1 || true
 }
 
@@ -4615,6 +4727,9 @@ doctor_offline_rows() {
         # the next restart does instead.
         if [[ "$dr_link" != dnf5 ]]; then
           [[ "$dr_done" == true ]] && doctor_stale_done_row "$dr_link"
+          if [[ "$dr_link" == none ]] && offline_stage_restorable "$dr_marker"; then
+            doctor_warn "staged update: it is still downloaded, but the next restart will not install it, because another program removed its restart step. To put it back, run: kempt restore-stage"
+          fi
         # One package is its own sentence, verb included; zero is plural.
         elif [[ "$dr_count" == 1 ]]; then
           doctor_info "staged update: 1 package installs on the next restart"
@@ -4719,7 +4834,8 @@ doctor_offline_rows() {
     # somebody else's transaction to Kempt, which the row two above has just said it is not.
     if offline_release_upgrade >/dev/null; then
       doctor_fail "the stored Fedora release upgrade can never install: dnf5 says \"ready\" but the restart marker $KEMPT_OFFLINE_LINK is not in place, so a restart has already been past it. Set it to install again with: sudo dnf5 system-upgrade reboot, or clear it with: sudo dnf5 offline clean"
-    else
+    # The row above has already said a stage that can be put back can be: "never" would be false.
+    elif [[ -z "$dr_marker" ]] || ! offline_stage_restorable "$dr_marker"; then
       doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` sets it to install again. Stage it again with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
     fi
   fi
@@ -4968,7 +5084,7 @@ cmd_disable_passwordless() {
 # One block per command, in the order `kempt help` lists them. A block is the command's synopsis
 # lines (two spaces in), each followed by its description at column 24. `kempt help` prints them
 # all; `kempt <command> --help` and `kempt help <command>` print one (usage_of).
-KEMPT_USAGE_ORDER="check update run status summary history log doctor hold unhold holds unstage reclaim startup config
+KEMPT_USAGE_ORDER="check update run status summary history log doctor hold unhold holds unstage restore-stage reclaim startup config
 discover-notifier enable-passwordless disable-passwordless version help"
 usage_block() {  # command → its block, or nothing for a command Kempt does not have
   case "$1" in
@@ -5046,6 +5162,11 @@ EOF
     ;;
     unstage) cat <<'EOF'
   unstage               discard the staged offline update; the next restart installs nothing
+EOF
+    ;;
+    restore-stage) cat <<'EOF'
+  restore-stage         set a staged update to install on the next restart again, when another
+                        program removed its restart step
 EOF
     ;;
     reclaim) cat <<'EOF'
@@ -5151,7 +5272,7 @@ fi
 # mistyped command change nothing, so they skip it. So does `discover-notifier status`, which only
 # reads: `install.sh --uninstall` runs it and must write nothing.
 case "${1:-help}" in
-  check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|startup|\
+  check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|restore-stage|reclaim|startup|\
   enable-passwordless|disable-passwordless) surface_migrate ;;
   discover-notifier) [[ "${2:-}" == status ]] || surface_migrate ;;
 esac
@@ -5170,6 +5291,7 @@ case "${1:-help}" in
   unhold)  shift; cmd_unhold "$@" ;;
   holds)   shift; cmd_holds "$@" ;;
   unstage) shift; cmd_unstage "$@" ;;
+  restore-stage) shift; cmd_restore_stage "$@" ;;
   reclaim) shift; cmd_reclaim "$@" ;;
   security-ack) shift; cmd_security_ack "$@" ;;
   startup) shift; cmd_startup "$@" ;;

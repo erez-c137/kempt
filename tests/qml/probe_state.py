@@ -861,13 +861,13 @@ p.check("a run's own stage changes start no check after it",
 def stage_moves_then_check(discard):
     harness.touch(p.offline, "2030-07-0%d" % (5 if discard else 4))
     ev("watchDeferred.stop()")
-    ev("root.discardJustRan = %s; root.doCheck()" % ("true" if discard else "false"))
+    ev("root.stageActionJustRan = %s; root.doCheck()" % ("true" if discard else "false"))
     p.wait_for(ev, "root.checking", False, timeout_ms=15000)
     p.wait_idle(ev, "executor")
     return ev("watchDeferred.running")
 p.check("a stage change seen by a plain check's re-baseline is postponed", stage_moves_then_check(False), True)
 p.check("...but the one a Discard made is taken in", stage_moves_then_check(True), False)
-p.check("...and the flag is spent", ev("root.discardJustRan || root.watchAbsorbStage"), False)
+p.check("...and the flag is spent", ev("root.stageActionJustRan || root.watchAbsorbStage"), False)
 ev("watchDeferred.stop()")
 
 # A run that starts while a watcher check is postponed ends with its own check, which answers it.
