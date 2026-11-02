@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.1.9
+Version:        0.2.0
 # A hand build passes --define "kempt_local <stamp>" so two builds of DIFFERENT CONTENT cannot both
 # call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
 # one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
@@ -277,6 +277,18 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Mon Nov 02 2026 Erez <erez.c137@protonmail.com> - 0.2.0-1
+- Kempt says when a service stops starting after an update, in a notification
+  and in the widget. kempt startup and the widget's Startup Report list what
+  starts on its own. Kempt only reads.
+- Put It Back restores a staged update whose restart step another program
+  removed, and staging warns when Discover's update check could cancel it.
+- kempt status --list shows every update. kempt log says whether each
+  notification reached you.
+- An update no longer hangs when a package's setup step restarts the system's
+  service manager. Screen readers hear the whole widget.
+- kempt doctor checks the folders above dnf's folders.
+
 * Mon Oct 19 2026 Erez <erez.c137@protonmail.com> - 0.1.9-1
 - The widget no longer misses a package change made by another program
   shortly after a check, an update or a stage. A dnf command that cancelled

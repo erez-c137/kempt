@@ -49,15 +49,15 @@
     <!-- width and height must be the image's real size: the validator compares them. -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the widget open on the pending updates</caption>
-      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.8/docs/images/kempt-tray-popup.png</image>
+      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.2.0/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>After staging: the updates install on the next restart, or can be discarded</caption>
-      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.8/docs/images/kempt-staged.png</image>
+      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.2.0/docs/images/kempt-staged.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: where updates run, check interval and restart reminders</caption>
-      <image type="source" width="845" height="986">https://raw.githubusercontent.com/erez-c137/kempt/v0.1.8/docs/images/kempt-settings.png</image>
+      <image type="source" width="845" height="986">https://raw.githubusercontent.com/erez-c137/kempt/v0.2.0/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
@@ -66,6 +66,18 @@
   </provides>
   <!-- Must match VERSION, plasmoid/metadata.json and kempt.spec; tests/test_version.sh checks. -->
   <releases>
+    <release version="0.2.0" date="2026-11-02" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.2.0</url>
+      <description>
+        <p>
+          Kempt now says when a service stops starting after an update, and the widget's Startup
+          Report lists what starts on its own. Put It Back restores a staged update that another
+          program cancelled, and staging warns when Discover could cancel it. An update no longer
+          hangs when a package's setup step restarts the service manager, and screen readers hear
+          the whole widget.
+        </p>
+      </description>
+    </release>
     <release version="0.1.9" date="2026-10-19" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.1.9</url>
       <description>

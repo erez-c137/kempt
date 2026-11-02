@@ -2,7 +2,7 @@
 
 Where Kempt is going, in order. There are no dates: each stage ships when it is ready.
 
-## Shipped: 0.1.x
+## Shipped
 
 Public since 2026-09-03, on GitHub, in COPR (Fedora 43 to 45 and rawhide, x86_64 and aarch64) and
 on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
@@ -15,6 +15,8 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **0.1.6:** Kempt reads dnf5's JSON output on Fedora 44 and later.
 - **0.1.7:** `kempt reclaim` frees the space unused Flatpak runtimes take.
 - **0.1.8:** updates run in the widget, with no terminal needed.
+- **0.2.0:** Kempt says when a service stops starting after an update, and shows what starts on
+  its own.
 
 ## Now
 
@@ -24,9 +26,9 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **Fedora's official repos.** The package passes the review tools. The next step is a review
   request, which needs a sponsor.
 
-## 0.2: updates that take care of themselves
+## Next: updates that take care of themselves
 
-Today Kempt tells you updates are waiting, and you start each one yourself. 0.2 can do it for you,
+Today Kempt tells you updates are waiting, and you start each one yourself. This stage can do it for you,
 safely. It also shows more about what an update changes.
 
 - **Automatic updates, installed when you restart.** Kempt asks once: "Install updates
@@ -48,11 +50,11 @@ safely. It also shows more about what an update changes.
   update can leave you without your usual graphics. The driver is still being built for the new
   kernel. After an update that installs right away, Kempt checks the driver is ready before it
   suggests a restart.
-- **A notification when updates arrive.** Today only the badge on the tray icon changes. 0.2 can
+- **A notification when updates arrive.** Today only the badge on the tray icon changes. Kempt can
   also show a notification, which you can turn off.
-- **Which updates are security fixes.** 0.2 shows how many system updates fix security problems,
+- **Which updates are security fixes.** Kempt will show how many system updates fix security problems,
   where Fedora publishes that. Each package can link to its advisory and its changelog.
-- **What changed since the last boot.** Kempt keeps a record of every run. 0.2 uses it to show
+- **What changed since the last boot.** Kempt keeps a record of every run. It will use it to show
   what changed since you last started the computer.
 - **More control from the command line.**
   - `kempt update --security` installs only security fixes.

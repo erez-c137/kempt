@@ -7,14 +7,16 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-02
+
 ### Added
 
 - **Staging warns when Discover's update check could cancel it.** While Discover's notifier is set to start,
   the staging notification says so, and the widget offers to turn the notifier off beside the staged
   update.
 - **Put It Back restores staged updates that another program cancelled.** PackageKit removes the
-  restart step of a staged update when it refreshes, and Discover's notifier usually asks for that
-  once a day, so a later restart installed nothing. The updates stay downloaded. If no packages have
+  restart step of a staged update when it refreshes, which seems to come from Discover's notifier
+  about once a day, so a later restart installed nothing. The updates stay downloaded. If no packages have
   changed since, the widget now offers **Put It Back**, and `kempt restore-stage` does the same.
 - **Kempt's log says whether each notification reached you.** Every notification Kempt sends
   adds a line to `kempt log`: what it said, and whether it showed. When it did not, the line
@@ -1369,7 +1371,8 @@ installer and its documentation, and the Plasma panel widget that sits on top of
 - The dnf pending check reads text output. Moving it to `dnf5 check-update --json` is the planned
   next improvement for that backend.
 
-[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.1.9...HEAD
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/erez-c137/kempt/compare/v0.1.9...v0.2.0
 [0.1.9]: https://github.com/erez-c137/kempt/compare/v0.1.8...v0.1.9
 [0.1.8]: https://github.com/erez-c137/kempt/compare/v0.1.7...v0.1.8
 [0.1.7]: https://github.com/erez-c137/kempt/compare/v0.1.6...v0.1.7
