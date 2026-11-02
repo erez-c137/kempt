@@ -168,7 +168,7 @@ var COPY = {
     // Turning it back on is in Settings, under the same name.
     discoverOffer: "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.",
     stageDiscoverWarning:
-        "Discover's update check can cancel your staged updates before you restart. Turning off its notifier stops that.",
+        "Discover's update check can cancel your staged updates before you restart. Turning off its notifier should stop that.",
     discoverOfferOff: "Turn Off Discover's Notifier",
     discoverOfferKeep: "Keep Discover's Notifier",
     discoverOn: "Turn On Discover's Notifier",
@@ -1300,6 +1300,8 @@ var MESSAGE_CAP = 2;
 // `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
 // comes first because it answers the Update Now press just made, and nothing runs until it is
 // answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
+// `stageDiscoverWarning` sits under the failure and the restart: a person warned to restart soon
+// needs the restart banner's button, and a failure is worse news than something that may happen.
 // `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
 // only one of the two is ever on screen.
 // `startup` (a service that stopped starting after an update) sits above the restart: a live run
@@ -1307,8 +1309,8 @@ var MESSAGE_CAP = 2;
 // `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
-var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "stageRestorable", "stageDiscoverWarning", "startup",
-                     "restart", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
+var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "stageRestorable", "startup",
+                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
                      "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.

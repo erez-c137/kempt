@@ -258,18 +258,23 @@ assert_eq "$rc" "5" "with no stage of Kempt's there is nothing to put back"
 assert_eq "$(calls dnf-offline-arm)" "0" "...and nothing is armed"
 
 # --- the warning at the moment it matters ----------------------------------------------------------
-printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/pgrep-yes"; printf '#!/usr/bin/env bash\nexit 1\n' > "$TESTTMP/pgrep-no"
-chmod +x "$TESTTMP/pgrep-yes" "$TESTTMP/pgrep-no"
-stage_says() {  # pgrep-stub → the staging notification
+# The sentence follows the offer: an enabled notifier nobody has answered about, running or not, since
+# it starts at the next login. A person who pressed Keep has answered, so it is not repeated.
+AUTOSTART_SYS="$TESTTMP/xdg-sys"; mkdir -p "$AUTOSTART_SYS"
+printf '[Desktop Entry]\nType=Application\nExec=DiscoverNotifier\n' > "$AUTOSTART_SYS/org.kde.discover.notifier.desktop"
+stage_says() {  # → the staging notification
   cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"; cp "$FIXTURES/offline-ready.toml" "$TOML"
   rm -f "$marker" "$KEMPT_OFFLINE_LINK"; : > "$WORLD/notified"
-  KEMPT_DISCOVER_PGREP="$TESTTMP/$1" KEMPT_APPLY_HELPER="$TESTTMP/apply-arms" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+  KEMPT_APPLY_HELPER="$TESTTMP/apply-arms" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
   cat "$WORLD/notified"
 }
-said="$(stage_says pgrep-yes)"
-assert_contains "$said" "Updates are staged and install on the next restart" "staging with Discover's notifier running keeps the promise"
-assert_contains "$said" "kempt discover-notifier off" "...and says what can cancel it and how to stop that"
-assert_not_contains "$(stage_says pgrep-no)" "Discover" "without it, the notification does not mention Discover"
+said="$(KEMPT_XDG_AUTOSTART_DIR="$AUTOSTART_SYS" stage_says)"
+assert_contains "$said" "Updates are staged and install on the next restart" "staging with Discover's notifier set to start keeps the promise"
+assert_contains "$said" "kempt discover-notifier off" "...and says what can cancel it and how to stop that, even before it is running"
+: > "$KEMPT_STATE_DIR/discover-offer-answered"
+assert_not_contains "$(KEMPT_XDG_AUTOSTART_DIR="$AUTOSTART_SYS" stage_says)" "Discover" "a person who answered is not told again"
+rm -f "$KEMPT_STATE_DIR/discover-offer-answered"
+assert_not_contains "$(KEMPT_DISCOVER_PGREP=true KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/none" stage_says)" "Discover" "with no notifier set to start, the notification does not mention Discover"
 
 assert_exit 2 "restore-stage takes no arguments" "$KEMPT" restore-stage --all
 

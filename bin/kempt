@@ -2183,7 +2183,7 @@ cmd_update() {
       notify "Kempt" "Updates are staged, but another updater has prepared the next restart, so they will not install then"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       local discover_tail=""
-      discover_running && discover_tail=". Discover's update check can cancel this, so restart soon or run kempt discover-notifier off"
+      discover_offer_pending && discover_tail=". Discover's update check can cancel this, so restart soon or run kempt discover-notifier off"
       notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}$discover_tail"
     elif [[ "$status" == "ok" ]]; then
       # The space an automatic removal freed, when it freed some: the one moment it is news.
