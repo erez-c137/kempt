@@ -1,7 +1,7 @@
 # Kempt
 
 Tidy dnf and Flatpak updates for Fedora KDE, from a tray widget or the command line. Other
-distributions are planned.
+distributions come later.
 
 [![CI](https://github.com/erez-c137/kempt/actions/workflows/ci.yml/badge.svg)](https://github.com/erez-c137/kempt/actions/workflows/ci.yml)
 [![COPR build](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/package/kempt/status_image/last_build.png)](https://copr.fedorainfracloud.org/coprs/erez-c137/kempt/)
