@@ -217,12 +217,10 @@ assert_eq "$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_LIN
   KEMPT_OFFLINE_DATADIR="$FL/offline" bash -c 'source "$1/lib/common.sh"; apply_refusal_reason' _ "$REPO_ROOT")" \
   "another updater has prepared the next restart" "...also when the path is not a link at all"
 
-# --- the upgrade, the stage and the arm refuse while other users can change dnf5's folders --------
-# The restart installs the staged packages as root without checking their signatures again, and
-# the stored record names each one by its full path. So while another user can change the state
-# folder or the staged-package folder, the three verbs that build on them exit 3. The clean still
-# runs: discarding the stage is part of the fix kempt doctor prints. The rule is doctor's.
-unsafe_line() { printf 'kempt-apply: refusing %s: other users can change files in %s. Run kempt doctor for the fix.\n' "$1" "$2"; }
+# --- the verbs refuse while other users can change dnf5's folders ---------------------------------
+# tests/test_apply_parents.sh has the rules, as root in a namespace. Here is what a plain run shows:
+# the suite does not run as root, so everything it makes stands in for a folder another user owns.
+unsafe_line() { printf 'kempt-apply: Updates paused for safety: users other than root can change %s. Run kempt doctor for the fix.\n' "$1"; }
 UD="$TESTTMP/unsafe"
 declare -A verb_cmd=(
   [dnf-upgrade]="$(sd '' upgrade -y)"
@@ -233,103 +231,31 @@ declare -A verb_cmd=(
 verb_args() { [[ "$1" == dnf-upgrade || "$1" == dnf-offline-stage ]] && echo -y; return 0; }
 unsafe_case() {  # var setup label → each verb against a fresh folder at $UD made by setup
   local var="$1" setup="$2" label="$3" v
-  for v in dnf-upgrade dnf-offline-stage dnf-offline-arm; do
+  for v in dnf-upgrade dnf-offline-stage dnf-offline-arm dnf-offline-clean; do
     rm -rf "$UD"; mkdir -p "$UD"; (cd "$UD" && eval "$setup")
     # shellcheck disable=SC2046 # verb_args prints nothing or one word
     assert_exit "$REFUSED_RC" "$v is refused when $label" -- \
       env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$var=$UD" bash "$AH" "$v" $(verb_args "$v")
-    assert_eq "$(cat "$TESTTMP/last_output")" "$(unsafe_line "$v" "$UD")" "...and says which folder, and where the fix is"
+    assert_eq "$(cat "$TESTTMP/last_output")" "$(unsafe_line "$UD")" "...and says which folder, and where the fix is"
   done
-  rm -rf "$UD"; mkdir -p "$UD"; (cd "$UD" && eval "$setup")
-  assert_exit 0 "...but the clean still runs when $label" -- \
-    env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$var=$UD" bash "$AH" dnf-offline-clean
-  assert_eq "$(cat "$TESTTMP/last_output")" "${verb_cmd[dnf-offline-clean]}" "...building its usual command"
   rm -rf "$UD"
 }
-# The suite does not run as root, so everything it makes is "not root's". Here that stands in for
-# a folder another user owns. Root-owned cases run below, as root in a user namespace.
 if [[ $EUID -ne 0 ]]; then
   unsafe_case KEMPT_DNF_SYSIMAGE_DIR 'mkdir offline' "the state folder is not root's"
   unsafe_case KEMPT_DNF_OFFLINE_PKG_DIR 'mkdir packages' "the staged-package folder is not root's"
 else
   skip "folders that are not root's - the suite is running as root"
 fi
-# Missing folders are safe: dnf5 creates them root-only. The sandbox points both at such paths.
-for v in dnf-upgrade dnf-offline-stage dnf-offline-arm; do
+# Missing folders are safe: dnf5 creates them root-only. The sandbox points all three at such paths.
+for v in dnf-upgrade dnf-offline-stage dnf-offline-arm dnf-offline-clean; do
   # shellcheck disable=SC2046
-  assert_exit 0 "$v goes ahead when neither folder exists" -- \
+  assert_exit 0 "$v goes ahead when no folder exists" -- \
     env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" bash "$AH" "$v" $(verb_args "$v")
   assert_eq "$(cat "$TESTTMP/last_output")" "${verb_cmd[$v]}" "...and builds its usual command"
 done
 # Argument validation still comes first.
 assert_exit 2 "a bad argument is exit 2 even with an unsafe folder" -- \
   env KEMPT_APPLY_ECHO=1 KEMPT_DNF_SYSIMAGE_DIR="$TESTTMP" bash "$AH" dnf-upgrade --installroot=/
-
-# As root, in a user namespace with spare ids, the rest of doctor's rule: links, world- and
-# group-writable entries, entries another user owns and ACL entries count, and a clean folder does
-# not. The seams are honoured only for an unprivileged caller, so each run binds the folder over
-# the real path, as as_ns_root does below.
-ns_apply() {  # target setup verb → the helper's exit status as root, its message in last_output
-  local target="$1" setup="$2" verb="$3" args=""
-  [[ "$verb" == dnf-upgrade || "$verb" == dnf-offline-stage ]] && args=-y
-  rm -rf "$UD"; mkdir -p "$UD" "$TESTTMP/ns-plain"
-  local rc=0
-  # shellcheck disable=SC2016 # expanded by the inner bash
-  timeout 30 unshare --map-auto --map-root-user --mount bash -c '
-    d="$1" t="$2" setup="$3" h="$4" v="$5" a="$6" plain="$7"
-    (cd "$d" && eval "$setup") || exit 97
-    # Both real folders get a root-owned stand-in first, so only the one under test can refuse.
-    for p in /usr/lib/sysimage/libdnf5 /var/lib/dnf/offline; do
-      [[ -d "$p" ]] && { mount --bind "$plain" "$p" || exit 99; }
-    done
-    [[ -d "$t" ]] || exit 96
-    mount --bind "$d" "$t" || exit 99
-    exec env KEMPT_APPLY_ECHO=1 KEMPT_SYSTEMD_BOOTED=/no-such-dir KEMPT_OFFLINE_TOML=/no-such-file bash "$h" "$v" $a' \
-    _ "$UD" "$target" "$setup" "$AH" "$verb" "$args" "$TESTTMP/ns-plain" > "$TESTTMP/last_output" 2>&1 || rc=$?
-  rm -rf "$UD"
-  return "$rc"
-}
-NS_TARGETS=()
-for t in /usr/lib/sysimage/libdnf5 /var/lib/dnf/offline; do [[ -d "$t" ]] && NS_TARGETS+=("$t"); done
-if [[ $EUID -ne 0 && ${#NS_TARGETS[@]} -gt 0 ]] \
-   && timeout 20 unshare --map-auto --map-root-user bash -c 'f=$(mktemp) && chown 1000:1000 "$f"; r=$?; rm -f "$f"; exit $r' 2>/dev/null; then
-  # Where systemd runs, a verb that goes ahead execs the real systemd-run with ECHO, so it prints and
-  # exits 0. Without systemd it exits 4. Either way it was not refused. The sandbox points both
-  # folder seams at missing paths, and root ignores them, so each refusal below also shows that a
-  # seam cannot hide the real folder.
-  if [[ -d /run/systemd/system && -x /usr/bin/systemd-run ]]; then go_rc=0; else go_rc=4; fi
-  for t in "${NS_TARGETS[@]}"; do
-    for v in dnf-upgrade dnf-offline-stage dnf-offline-arm; do
-      for c in "world-writable file|: > f; chmod 666 f" "world-writable folder|mkdir d; chmod 777 d" \
-               "group-writable file with another group|: > f; chown 0:1000 f; chmod 664 f" \
-               "file another user owns|: > f; chown 1000:0 f; chmod 644 f" \
-               "root-owned link|ln -s / l" "folder that is itself world-writable|chmod 777 ."; do
-        assert_exit "$REFUSED_RC" "as root, $v is refused over a ${c%%|*} in $t" -- ns_apply "$t" "${c#*|}" "$v"
-        assert_contains "$(cat "$TESTTMP/last_output")" "other users can change files in $t. Run kempt doctor for the fix." "...naming the real folder"
-      done
-      if command -v setfacl >/dev/null; then
-        assert_exit "$REFUSED_RC" "as root, $v is refused over an ACL entry in $t, though the mode is 755" -- \
-          ns_apply "$t" 'mkdir d; setfacl -m u:0:rwx d' "$v"
-      else
-        skip "setfacl is not installed, so the ACL refusal did not run"
-      fi
-      assert_exit "$go_rc" "as root, $v goes ahead over a root-owned $t with group-root write" -- \
-        ns_apply "$t" ': > f; chmod 664 f; mkdir d' "$v"
-      assert_not_contains "$(cat "$TESTTMP/last_output")" "refusing" "...and is not refused"
-    done
-    # A real /system-update (Discover's prepared update, say) is root's to judge, so the clean
-    # refuses over it whatever the folders hold. Only a box without one can show the clean going ahead.
-    if [[ ! -e /system-update && ! -L /system-update ]]; then
-      assert_exit "$go_rc" "as root, the clean is never refused over an unsafe $t" -- \
-        ns_apply "$t" 'chmod 777 .' dnf-offline-clean
-      assert_not_contains "$(cat "$TESTTMP/last_output")" "refusing" "...so the fix can discard the stage"
-    else
-      skip "root clean over an unsafe $t: this box has a /system-update of its own"
-    fi
-  done
-else
-  skip "root-owned unsafe-folder cases - need a user namespace with spare ids and /usr/lib/sysimage/libdnf5 or /var/lib/dnf/offline"
-fi
 
 # --- umask and limits: what pkexec passes on from the caller never reaches root's dnf5 ------------
 # dnf5 gets its umask and limits from the unit systemd starts it in (UMask=0022 and LimitCORE=0 are
@@ -356,64 +282,6 @@ got_mode="$(env KEMPT_APPLY_ECHO=1 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.t
   umask 000; source "$1" dnf-offline-clean >/dev/null; mkdir "$2/d"; : > "$2/f"; stat -c "%a" "$2/d" "$2/f" | tr "\n" " "' \
   _ "$AH" "$TESTTMP/umask-probe")"
 assert_eq "$got_mode" "755 644 " "a directory and a file made under the helper are 755 and 644 after the caller's umask 000"
-
-# As root the path is fixed, and KEMPT_OFFLINE_TOML must change nothing. Run for real, without
-# sudo: an unprivileged user namespace makes EUID 0, and a private mount namespace puts a fixture
-# directory over /usr/lib/sysimage/libdnf5 for this one process. Nothing outside the namespace sees
-# the mount, and ECHO keeps dnf5 from running.
-LIBDNF5=/usr/lib/sysimage/libdnf5
-mkdir -p "$TESTTMP/ns-relup/offline" "$TESTTMP/ns-empty"
-cp "$FIXTURES/offline-release-upgrade.toml" "$TESTTMP/ns-relup/offline/offline-transaction-state.toml"
-as_ns_root() {  # bind-dir verb [env...] → runs the helper as EUID 0 over that directory
-  local dir="$1" verb="$2"; shift 2
-  timeout 20 unshare --map-root-user --mount bash -c '
-    d="$1" h="$2" v="$3"; shift 3
-    mount --bind "$d" '"$LIBDNF5"' || exit 99
-    # The host'"'"'s root-owned files read as nobody'"'"'s in here, which the helper counts as unsafe.
-    if [[ -d /var/lib/dnf/offline ]]; then mount --bind "$d" /var/lib/dnf/offline || exit 99; fi
-    [[ $EUID -eq 0 ]] || exit 98
-    exec env KEMPT_APPLY_ECHO=1 "$@" bash "$h" "$v"' _ "$dir" "$AH" "$verb" "$@"
-}
-if [[ $EUID -ne 0 && -d "$LIBDNF5" ]] && command -v unshare >/dev/null \
-   && timeout 20 unshare --map-root-user --mount bash -c 'mount --bind "$1" '"$LIBDNF5" _ "$TESTTMP/ns-empty" 2>/dev/null; then
-  assert_exit "$REFUSED_RC" "as root, the real path decides: a stored release upgrade is refused even with the seam at an ordinary update" -- \
-    as_ns_root "$TESTTMP/ns-relup" dnf-offline-arm KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
-  assert_eq "$(cat "$TESTTMP/last_output")" "$(relup_line dnf-offline-arm)" "...refused by what the real path holds"
-  # Root reads only the real paths, so a verb that goes ahead does so where systemd runs and stops
-  # with exit 4 where it does not, as in the package build's container.
-  if [[ -d /run/systemd/system && -x /usr/bin/systemd-run ]]; then go_rc=0; else go_rc=4; fi
-  # The clean below refuses over a real /system-update, as above.
-  if [[ ! -e /system-update && ! -L /system-update ]]; then
-    assert_exit "$go_rc" "as root, the seam cannot invent a release upgrade either" -- \
-      as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
-    if (( go_rc == 0 )); then
-      assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" \
-        "...the real path is empty, so the verb goes ahead, through the real systemd-run"
-    else
-      assert_not_contains "$(cat "$TESTTMP/last_output")" "release upgrade" "...the real path is empty, so it stops only for want of systemd"
-    fi
-    # The systemd seams change nothing as root either. The sandbox points them at the stand-in and a
-    # directory that exists; here the booted one points nowhere.
-    if (( go_rc == 0 )); then
-      assert_exit 0 "as root, the systemd seams are ignored: the real systemd-run, though the seam says systemd is absent" -- \
-        as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir"
-      assert_eq "$(cat "$TESTTMP/last_output")" "$(KEMPT_SYSTEMD_RUN=/usr/bin/systemd-run sd '' offline clean -y)" "...and its fixed path"
-    else
-      assert_exit 4 "as root, the systemd seams are ignored: no systemd here, though the seams point at a stand-in" -- \
-        as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean
-    fi
-  else
-    skip "root clean seam tests: this box has a /system-update of its own"
-  fi
-  if [[ ! -e /system-update && ! -L /system-update ]]; then
-    assert_exit "$go_rc" "as root, the link seam cannot invent another updater's restart" -- \
-      as_ns_root "$TESTTMP/ns-empty" dnf-offline-clean KEMPT_OFFLINE_LINK="$FL/foreign-link" KEMPT_OFFLINE_DATADIR="$FL/offline"
-  else
-    skip "root link-seam test: this box has a /system-update of its own"
-  fi
-else
-  skip "root-path seam test - needs unprivileged user and mount namespaces and $LIBDNF5"
-fi
 
 # --- the one way root's dnf5 starts: systemd-run, and nothing else ---------------------------------
 # pkexec hands the helper far more of the caller than its environment: umask, limits, ignored
@@ -583,16 +451,17 @@ root_shape_violations() {  # helper file → one line per violation, then "read 
     || echo "vetted function other than the vetted text: the pipes, cats, systemctl calls and signals are not the ones checked"
   local sdline='^[[:space:]]*run "\$SYSTEMD_RUN" (--pipe|"\$io") --wait --quiet --unit="\$UNIT" --expand-environment=no -p UMask=0022 -p LimitCORE=0 .*-- /usr/bin/dnf5 "\$@"$'
   grep -wE 'dnf5' <<<"$code" \
-    | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*echo "kempt-(apply|refresh): [^"]*" >&2$' \
+    | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*echo "(kempt-(apply|refresh)|\$ME): [^"]*" >&2$' \
     | sed 's/^/dnf5 outside systemd-run: /' || true
   local execs; execs="$(grep -wE 'exec' <<<"$code" || true)"
   [[ -z "$execs" ]] || printf 'exec outside the vetted functions: %s\n' "${execs//$'\n'/ | }"
   local runs; runs="$(grep -E '(^|[;&|)]|then|else|do)[[:space:]]*run[[:space:]]' <<<"$code" || true)"
   [[ "$(grep -c . <<<"$runs")" == 1 ]] && grep -qE "$sdline" <<<"$runs" \
     || printf 'run called other than on the systemd-run line: %s\n' "${runs//$'\n'/ | }"
-  sed -E 's/[0-9]*>&[0-9]//g; s/[0-9]*>[[:space:]]*\/dev\/null//g; s/ -> / /g' <<<"$code" | grep -E '>' \
+  # (( a >= b )) compares; it cannot write. Nothing else with a > in it is let off.
+  sed -E 's/\(\( [^()]* \)\)//g; s/[0-9]*>&[0-9]//g; s/[0-9]*>[[:space:]]*\/dev\/null//g; s/ -> / /g' <<<"$code" | grep -E '>' \
     | sed 's/^/writes a file: /' || true
-  grep -E '(^|[^A-Za-z0-9_-])(touch|mkdir|cp|mv|rm|ln|install|chmod|chown|chgrp|truncate|dd|tee|mktemp|mkfifo|timeout|env|nohup|setsid|nice|systemctl|pkexec|sudo|runuser|flatpak)([[:space:]]|$)|sed -i|[^&>]&([^&>]|$)' <<<"$code" \
+  grep -E '(^|[^A-Za-z0-9_-])(touch|mkdir|cp|mv|rm|ln|install|chmod|chown|chgrp|truncate|dd|tee|mktemp|mkfifo|timeout|env|nohup|setsid|nice|systemctl|pkexec|sudo|runuser|flatpak)([[:space:]]|$)|sed -i|[^&>]&([^&>]|$)' <<<"$(sed -E 's/\(\( [^()]* \)\)//g' <<<"$code")" \
     | grep -vxE '[[:space:]]*SYSTEMCTL=/usr/bin/systemctl' | sed 's/^/writes or starts another command: /' || true
   # The unit name: UNIT is empty, or one literal per verb from the table, never built from input.
   grep -E '(^|[^A-Za-z0-9_])UNIT=' <<<"$code" \
@@ -610,8 +479,13 @@ root_shape_violations() {  # helper file → one line per violation, then "read 
   # Command position only: after a line start, ; & | ( { or a shell keyword. A variable as the command
   # ("$D" args) is caught too: root's commands are named, never looked up from a variable.
   grep -E '(^|[;&|({]|then|else|do)[[:space:]]*(eval|source|\.|rpm|kill|pkill|killall|bash|sh|/usr/bin/systemd-run|systemd-run|"\$[^"]*")([[:space:]]|$)' <(sed -E 's/\[\[[^]]*(\][^]][^]]*)*\]\]//g' <<<"$code") \
-    | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*SYSTEMD_RUN=' \
+    | grep -vE -e "$sdline" -e "rpm -q --qf '%\{VERSION\}' dnf5 2>/dev/null" -e '^[[:space:]]*SYSTEMD_RUN=' -e '\$\("\$(FIND|GETFACL)" -' \
     | sed 's/^/runs code other than through systemd-run: /' || true
+  # Those two read-only checks are the one exception, so their names are pinned: the fixed name, or
+  # the seam inside the block that real root never enters.
+  grep -E '(^|[^A-Za-z0-9_])(FIND|GETFACL)=' <<<"$code" \
+    | grep -vxE 'FIND=find|GETFACL=getfacl|  FIND="\$\{KEMPT_FIND:-\$FIND\}"|  GETFACL="\$\{KEMPT_GETFACL:-\$GETFACL\}"' \
+    | sed 's/^/check tool other than the fixed name: /' || true
   # The one choice the shell makes about systemd-run itself: a pty for a terminal, else pipes.
   grep -E '(^|[^A-Za-z0-9_])io=' <<<"$code" | grep -vxE '[[:space:]]*local io=--pipe|[[:space:]]*\[\[ -t 0 \]\] && io=--pty' \
     | sed 's/^/systemd-run mode other than pipe or pty: /' || true
@@ -989,10 +863,10 @@ done
 
 # The new settings, like the old ones, are read only inside the helpers' not-root block.
 for h in "$RH" "$AH"; do
-  assert_eq "$(awk '/^if \[\[ \$EUID -ne 0 \]\]; then$/ { inb = 1; next } inb && /^fi$/ { inb = 0; next }
+  assert_eq "$(awk '/^if (\[\[ \$EUID -ne 0 \]\]|\(\( SEAMS \)\)); then$/ { inb = 1; next } inb && /^fi$/ { inb = 0; next }
                     !inb && /KEMPT_SYSTEMD_/ && !/^[[:space:]]*#/' "$h")" "" \
     "$(basename "$h"): every KEMPT_SYSTEMD_ setting is honoured only when not root"
-  assert_eq "$(awk '/^if \[\[ \$EUID -ne 0 \]\]; then$/ { inb = 1; next } inb && /^fi$/ { inb = 0; next }
+  assert_eq "$(awk '/^if (\[\[ \$EUID -ne 0 \]\]|\(\( SEAMS \)\)); then$/ { inb = 1; next } inb && /^fi$/ { inb = 0; next }
                     !inb && /(^|[^A-Za-z_])(POLL|FIRST|FIRST_READS|GRACE|LONG_RUN)=/' "$h")" \
     "$(printf 'POLL=5\nFIRST=1\nFIRST_READS=10\nGRACE=2\nLONG_RUN=180')" \
     "$(basename "$h"): as root the watch's timing is the fixed one"
@@ -1015,7 +889,10 @@ for h in "$RH" "$AH"; do
 done
 assert_exit 2 "a bad argument is still exit 2 without systemd" -- env KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir" bash "$AH" dnf-upgrade --installroot=/
 assert_exit 2 "...for the refresh helper too" -- env KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir" bash "$RH" check extra
-assert_exit "$REFUSED_RC" "a refusal is still exit 3 without systemd" -- \
+: > "$TESTTMP/ostree-booted"
+assert_exit "$REFUSED_RC" "an atomic system is still refused with exit 3 without systemd" -- \
+  env KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir" KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" bash "$AH" dnf-offline-clean
+assert_exit 4 "the folder checks and everything after them hear about systemd first" -- \
   env KEMPT_SYSTEMD_BOOTED="$TESTTMP/no-such-dir" KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" bash "$AH" dnf-offline-clean
 
 # The LC_ALL=C.UTF-8 pin precedes validation on purpose: under a UTF-8 locale glibc widens
