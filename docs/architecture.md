@@ -625,13 +625,6 @@ executor must be able to kill a stuck `kempt check`.
 The rule: a fast, periodic caller must not share a queue with a slow, occasional one. Add another
 instance rather than making the queue clever.
 
-**Rebuild Staged Update runs the same command as Install on Next Restart**
-(`kempt update --surface=offline`, detached with `setsid`), so there is one staging path to
-secure. A rebuild destroys the old transaction at once, and the widget can sit open for an hour. So
-`rebuildStaged()` in `main.qml` first rereads `state.json`. It goes ahead only if the banner's
-stage (`vm.stagedStagedAt`) is still published and still raises a warning. Otherwise it redraws
-the banner and says the staged update changed. During a run it does nothing, like `stageOffline`.
-
 When the watcher (every 2 seconds during a run) sees `state.json` change after a run,
 `adoptState()` takes the file at once. The run has already published the armed stage, and a stale
 **Update Now** would discard it.
@@ -656,7 +649,7 @@ the panel icon.
 | The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. Silent while a Check for Updates answer is being said, since that answer carries the same failure. |
 
 Each announcing message keeps a `spoken` string so one change is announced once, and clears it
-when hidden. The **Rebuild Staged Update** tooltip names its costs, and `Accessible.description`
+when hidden. The **Discard Staged Update** tooltip names its costs, and `Accessible.description`
 is bound to it, because the polkit dialog takes focus at once.
 
 ### Where the widget's last-run line comes from

@@ -5,7 +5,7 @@
 // builds in logic.js, and every action is a call back into main.qml - but it also reaches directly
 // for about two dozen members of main.qml through the untyped `plasmoidItem` handle (updating,
 // checking, runRequested, pendingHold, holdError, lastRun, reportText, restartError, logTail,
-// nowMs, setHold, promptRestart, rebuildStaged, showLog, ...). Those are live state and verbs, not
+// nowMs, setHold, promptRestart, discardStaged, showLog, ...). Those are live state and verbs, not
 // derived values: anything that is a DERIVED string or list belongs in the view model, and adding
 // a derivation here instead is the drift to watch for.
 //
@@ -923,51 +923,15 @@ PlasmaExtras.Representation {
                     onTriggered: source => popup.plasmoidItem.promptRestart()
                 },
                 Kirigami.Action {
-                    // ...and what stands in its place. ONE action, offered only where there is
-                    // something to change: rebuilding an ordinary armed stage would destroy a good
-                    // transaction to produce the same one back.
-                    //
-                    // system-software-update, the icon already on Update Now below, because this
-                    // runs the same verb: `kempt update --surface=offline`. view-refresh would be
-                    // wrong twice over - it is this popup's icon for "check again" and already sits
-                    // on the Refresh button and the contextual action; system-reboot is taken by
-                    // the button standing down right beside it.
-                    text: i18n("Rebuild Staged Update")
-                    icon.name: "system-software-update"
-                    // The tooltip is the disclosure, not a hint: authorization, and the cost of a
-                    // rebuild that fails (dnf5 destroys the stored transaction the moment a
-                    // re-stage begins, so there is no "keep the old one" outcome).
-                    // Accessible.description carries the identical words because a polkit dialog
-                    // takes the focus the moment this is pressed - a screen-reader user who has not
-                    // heard the cost by then hears it never.
-                    tooltip: i18n("Builds the staged update again with your current holds. May ask for your password. If the rebuild fails, the current staged update is removed.")
-                    Accessible.description: tooltip
-                    // Shown by the view model, and disabled while a staging action is already
-                    // pending (main.qml, actionPending): a second press would queue a second
-                    // action behind the first. Disabled and not hidden, because the banner it
-                    // stands on has not changed - the answer is on its way.
-                    visible: popup.vm.stagedShowRebuild
-                    enabled: visible && !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.rebuildStaged()
-                },
-                Kirigami.Action {
-                    // The way out that is neither a restart nor a rebuild, and the one somebody who
-                    // simply changed their mind is looking for. LAST in the list on purpose: on a
-                    // warning it stands BESIDE the rebuild rather than where the rebuild stands,
-                    // because the conflict remedy is what that message is for. It is on the green
-                    // banner too - staging an update and then thinking better of it is not a
-                    // problem anybody should have to open a terminal to fix.
-                    //
-                    // edit-delete, which is what it does: system-software-update is the staging
-                    // icon and sits on the action right above this one, view-refresh is Refresh,
-                    // and system-reboot is the button standing down beside it.
+                    // The way out, and the one somebody who simply changed their mind is looking
+                    // for. On a warning it is the first half of the remedy. It is on the green
+                    // banner too: staging an update and then thinking better of it is not a problem
+                    // anybody should have to open a terminal to fix.
                     text: i18n("Discard Staged Update")
                     icon.name: "edit-delete"
-                    // The tooltip is the disclosure, not a hint, and its second half is the fact
-                    // that separates this from the rebuild above: a rebuild reuses dnf5's package
-                    // cache, and this deletes it. Accessible.description carries the identical
-                    // words for the identical reason - a polkit dialog takes the focus the moment
-                    // this is pressed.
+                    // The tooltip is the disclosure, not a hint. Accessible.description carries the
+                    // identical words because a polkit dialog takes the focus the moment this is
+                    // pressed: a screen-reader user who has not heard the cost by then hears it never.
                     tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again.")
                     Accessible.description: tooltip
                     visible: popup.vm.stagedShowDiscard

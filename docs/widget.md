@@ -189,17 +189,18 @@ because there is no way to edit a stored update and the restart would still inst
 
 ```
  (!) You held kernel-core after the update was staged, so it still installs.
-     Rebuild the staged update to skip kernel-core, or stop holding kernel-core
-     to keep the current plan. Rebuilding may ask for your password. If it
-     fails, nothing stays staged.                   [Rebuild Staged Update]
+     Discard the staged update and stage again to skip kernel-core, or stop
+     holding kernel-core to keep the current plan. Discarding deletes the
+     downloaded packages, so staging again downloads them again.
+                                                    [Discard Staged Update]
 ```
 
 With several held packages it names the first and counts the rest:
 
 ```
  (!) You held kernel-core and 2 more after the update was staged, so they
-     still install. Rebuild the staged update to skip them, or stop holding
-     them to keep the current plan.
+     still install. Discard the staged update and stage again to skip them,
+     or stop holding them to keep the current plan.
 ```
 
 When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
@@ -207,23 +208,17 @@ When Kempt cannot read what the staged update contains and you hold dnf packages
 
 ```
  (!) You added holds after the update was staged, so it may still install
-     held packages. Rebuild the staged update to apply your holds. Rebuilding
-     may ask for your password. If it fails, nothing stays staged.
-                                                    [Rebuild Staged Update]
+     held packages. Discard the staged update and stage again to apply your
+     holds. Discarding deletes the downloaded packages, so staging again
+     downloads them again.                          [Discard Staged Update]
 ```
 
 While the warning shows, neither it nor the restart message has **Restart…**, because a restart
 would install the package you held. Flatpak holds never cause a warning: only system packages are
 staged.
 
-**Rebuild Staged Update** has this tooltip:
-
-> Builds the staged update again with your current holds. May ask for your password. If the rebuild
-> fails, the current staged update is removed.
-
-A rebuild reuses the downloaded packages. If the staged update changed after the banner was drawn,
-nothing runs and the widget says `The staged update changed since this was offered. Nothing was rebuilt; check the
-banner above.`
+In a terminal, `kempt update --surface=offline` replaces the staged update with your current holds
+and reuses the download.
 
 **Discard Staged Update** has this tooltip:
 
@@ -427,7 +422,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Download Anyway** | `kempt check --anyway` |
 | **Update Now** | `kempt run` |
 | **Install Now** | `kempt run --risky-ok` |
-| **Install on Next Restart**, **Rebuild Staged Update** | `kempt run --surface=offline` |
+| **Install on Next Restart** | `kempt run --surface=offline` |
 | **Discard Staged Update** | `kempt unstage` |
 | **Turn Off Discover's Notifier**, on the warning beside a staged update | `kempt discover-notifier off` |
 | **Turn Off**, on the warning about Discover's automatic updates | `kempt discover-notifier off`. Drawing that warning runs `kempt discover-notifier seen` |

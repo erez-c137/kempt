@@ -356,35 +356,19 @@ var COPY = {
     // after the mechanism it has no antecedent once the green banner is gone.
     stagedConflictOne:
         "You held %1 after the update was staged, so it still installs. "
-        + "Rebuild the staged update to skip %1, or stop holding %1 to keep the current plan.",
+        + "Discard the staged update and stage again to skip %1, or stop holding %1 to keep the current plan.",
     stagedConflictMore:
         "You held %1 and %2 more after the update was staged, so they still install. "
-        + "Rebuild the staged update to skip them, or stop holding them to keep the current plan.",
+        + "Discard the staged update and stage again to skip them, or stop holding them to keep the current plan.",
     // "may", because that is exactly what is known: names_source "none" means an empty conflict
     // list is "cannot tell", never "no conflict". The spec's rule is that names may CONFIRM a
     // conflict and may never DENY one, so silence here would be denying one on no evidence.
     stagedConflictUnknown:
         "You added holds after the update was staged, so it may still install held packages. "
-        + "Rebuild the staged update to apply your holds.",
+        + "Discard the staged update and stage again to apply your holds.",
     // The cost, as the banner's SECOND SENTENCE rather than only in the action's tooltip, which
     // discloses it only to somebody who has already hovered the button they are deciding about.
-    stagedRebuildCost: "Rebuilding may ask for your password. If it fails, nothing stays staged.",
-
-    // The one action a warning variant offers, and its whole cost. Both facts are real: it runs
-    // `kempt update --surface=offline`, a privileged verb, and dnf5 destroys the stored
-    // transaction the moment a re-stage begins, so a failed rebuild leaves nothing
-    // staged. It deliberately does NOT say "re-downloads" - a replace-stage reuses dnf5's package
-    // cache (container-measured) - and says "removed", the CLI's own word for it.
-    stagedRebuildAction: "Rebuild Staged Update",
-    stagedRebuildTooltip:
-        "Builds the staged update again with your current holds. May ask for your password. "
-        + "If the rebuild fails, the current staged update is removed.",
-    // What the rebuild says instead of acting when the stage it was offered over is not the stage
-    // on disk any more - the only sentence that stops a press with no effect being
-    // indistinguishable from a broken button. main.qml assigns it, like restartFailed.
-    stagedChanged:
-        "The staged update changed since this was offered. Nothing was rebuilt; "
-        + "check the banner above.",
+    stagedDiscardCost: "Discarding deletes the downloaded packages, so staging again downloads them again.",
 
     // --- discarding the staged update from the popup instead of from a terminal ------------------
     // The other way out of a staged update, and the one a person who simply changed their mind
@@ -394,9 +378,8 @@ var COPY = {
     // is worse in exactly one place: a button labelled Cancel inside a message reads as "close
     // this message", which is the one thing it does not do.
     stagedDiscardAction: "Discard Staged Update",
-    // The whole cost, before the press, and the second half is what separates this from a rebuild:
-    // a rebuild reuses dnf5's package cache, and this deletes it (`dnf5 offline clean` removes the
-    // downloaded packages with the transaction). Said as what happens NEXT time rather than as a
+    // The whole cost, before the press: `dnf5 offline clean` removes the downloaded packages with
+    // the transaction. Said as what happens NEXT time rather than as a
     // warning, because that cost is only paid by somebody who stages again.
     stagedDiscardTooltip:
         "Removes the update waiting for the next restart, so the restart installs nothing. "
@@ -415,8 +398,7 @@ var COPY = {
     stagedDiscardFailed:
         "The staged update could not be discarded (exit %1). "
         + "Press Check Installation to find out why.",
-    // ...and the click-time re-verify's refusal, the same sentence stagedChanged is for the
-    // rebuild: a press with no effect must never be indistinguishable from a broken button.
+    // ...and the click-time re-verify's refusal: a press with no effect must never be indistinguishable from a broken button.
     // main.qml assigns it.
     stagedDiscardChanged:
         "The staged update changed since this was offered. Nothing was discarded; "
@@ -1889,12 +1871,12 @@ function stagedVariantOf(staged, heldDnf, fpPending) {
                      ? fill(COPY.stagedConflictOne, "%1", names[0])
                      : fill(fill(COPY.stagedConflictMore, "%1", names[0]),
                             "%2", String(names.length - 1)))
-                     + " " + COPY.stagedRebuildCost,
+                     + " " + COPY.stagedDiscardCost,
                  conflictNames: names, stagedAt: plain.stagedAt };
     }
     if (staged.names_source === "none" && heldDnf) {
         return { type: "warning",
-                 message: COPY.stagedConflictUnknown + " " + COPY.stagedRebuildCost,
+                 message: COPY.stagedConflictUnknown + " " + COPY.stagedDiscardCost,
                  conflictNames: [], stagedAt: plain.stagedAt };
     }
     return plain;
@@ -3041,7 +3023,7 @@ function viewModel(state, updating, cliError, opts) {
     // is ONE slot, and a transaction whose target release differs from the system's cannot be one
     // Kempt built. A current CLI stops publishing offline_staged in that state; this handles a file
     // an older one wrote, and it is what stops the popup showing both banners - the second of which
-    // tells the reader to press a Rebuild button the first has just taken away.
+    // tells the reader to press a Discard button the first has just taken away.
     var stagedVariant = stagedVariantOf(
         (usable && !releaseUpgrade) ? state.offline_staged : null, heldDnf,
         usable ? backendActionable(state, "flatpak") : 0);
@@ -3049,7 +3031,7 @@ function viewModel(state, updating, cliError, opts) {
     var staged = stagedMessage !== "";
     // A stage another updater's restart stands in front of (COPY.stageBlocked). It borrows the
     // staged slot as a warning and offers none of its actions: no restart (the restart installs the
-    // other update), no rebuild (it would land behind the same symlink), and no discard (the CLI
+    // other update) and no discard (the CLI
     // refuses one, since dnf5 offline clean would cancel the other update too). An object is all
     // that is read: the sentence needs neither the count nor the stamp.
     var stageBlocked = usable && !releaseUpgrade && !staged && !imageBased
@@ -3533,26 +3515,11 @@ function viewModel(state, updating, cliError, opts) {
         // one thing there is to do, and the sentence says so.
         stagedShowRestart: !restartMessageVisible
             && ((staged && !stagedWarning) || stageBlocked || restartHeldBanner),
-        // ...and what stands in its place. Only on the variants where there is something to
-        // change: rebuilding an ordinary armed stage would destroy a good transaction to
-        // produce the same one back.
-        // ...and never where a stage is refused: a rebuild runs the same privileged verb, so it
-        // would cancel a stored release upgrade exactly as a first stage would, and abort in
-        // pre-flight on an image-based box exactly as a first stage would.
-        stagedShowRebuild: stagedWarning && !noOfflineRoute,
-        // ...and the way out that is neither a restart nor a rebuild: discard the staged update,
-        // and let the next restart install nothing. Offered on BOTH banners, which is where it
-        // differs from the rebuild: a rebuild only makes sense where there is something to change,
-        // while "install nothing at all" is an answer to either one - and on a warning the person
-        // has just said they did not want one of those packages, so it is the least surprising
-        // button on that message. It is drawn LAST, so it stands beside the conflict remedy rather
-        // than where the conflict remedy stands.
-        // The guard is the rebuild's, for the rebuild's reason: `kempt unstage` refuses with exit
-        // 5 while a Fedora release upgrade is stored (dnf5 has one slot, and discarding what is in
-        // it would cancel the upgrade), so the button is not offered on a box the CLI would turn
-        // down. Belt and braces on that path - a release upgrade already takes the whole banner
-        // away - and the half that acts is the image-based one, where dnf is not how the machine
-        // updates at all.
+        // ...and the way out: discard the staged update, and let the next restart install nothing.
+        // Offered on BOTH banners: "install nothing at all" is an answer to either one, and on a
+        // warning it is the first half of the remedy the sentence names.
+        // Never where it would be refused: `kempt unstage` exits 5 while a Fedora release upgrade
+        // is stored, and on an image-based box dnf is not how the machine updates at all.
         stagedShowDiscard: staged && !noOfflineRoute,
         // Whether the popup may OFFER to stage at all. The CLI refuses the press; this is what
         // stops it being offered, so nobody has to press a button to be told no.
@@ -3575,14 +3542,9 @@ function viewModel(state, updating, cliError, opts) {
         stageTooltipNamesFlatpak: flatpakPending,
         imageBasedMessage: imageBasedMessage,
         foldersPausedMessage: foldersPausedMessage,
-        // Published rather than left as a literal in the QML's Accessible.description, so the
-        // words a screen reader hears and the words the tooltip shows are one decision. The QML
-        // still writes the literal for i18n extraction; the probe ties the two together.
-        stagedRebuildTooltip: COPY.stagedRebuildTooltip,
         // The stamp this banner was derived from, for main.qml's click-time re-verify. Consent is
         // given to a BANNER, and a banner describes ONE transaction: between render and click it
-        // can be consumed by a restart, replaced or cleaned away, and a rebuild is destructive at
-        // its start. "" means there is nothing to compare, which the re-verify reads as "do not
+        // can be consumed by a restart, replaced or cleaned away. "" means there is nothing to compare, which the re-verify reads as "do not
         // act".
         stagedStagedAt: stagedVariant.stagedAt,
         // The names behind the sentence. The banner shows the first and a count; anything that has

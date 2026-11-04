@@ -12,6 +12,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Put It Back and `kempt restore-stage`.** When another program cancels a staged update, Kempt now
   tells you and the updates stay in the list. Stage them again with **Install on Next Restart** or
   `kempt update --surface=offline`. The packages are still downloaded, so this costs no new download.
+- **Rebuild Staged Update.** To apply new holds to a staged update, press **Discard Staged Update**
+  and stage again. That deletes the download, so staging again downloads the packages again. In a
+  terminal, `kempt update --surface=offline` still replaces the stage and reuses the download.
 
 ### Security
 

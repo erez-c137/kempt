@@ -443,7 +443,7 @@ p.check("...and it refuses when nothing is running, rather than checking twice f
         (lambda before: (ev("root.checkAgain()"), p.call_count("check") - before)[1])(
             p.call_count("check")), 0)
 
-# --- Stage offline and a rebuild are not terminal runs, whatever the setting says ---------------
+# --- Stage offline is not a terminal run, whatever the setting says ----------------------------
 before_update = p.call_count("update")
 ev("root.stageOffline()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
@@ -1105,18 +1105,16 @@ p.check("...under the same label the restart message uses",
         lev("stagedMessage.actions[0].text"), ev("Logic.COPY.restartAction"))
 # ...and the way out of it, on the green banner as much as on the warnings: staging an update
 # and then thinking better of it is not a problem anybody should have to open a terminal to
-# fix. Third and last in the list, so it never stands where the conflict remedy stands.
-p.check("...with a third action, which is the way to discard the staged update",
-        lev("stagedMessage.actions[2].text"), ev("Logic.COPY.stagedDiscardAction"))
-p.check("...on screen beside the restart", lev("stagedMessage.actions[2].visible"), True)
-p.check("...and the rebuild is NOT: there is nothing to rebuild on a banner with no conflict",
-        lev("stagedMessage.actions[1].visible"), False)
-# The tooltip is the disclosure, and the same words go to a screen reader for the reason the
-# rebuild's do: polkit takes the focus the instant this is pressed.
+# fix.
+p.check("...with a second action, which is the way to discard the staged update",
+        lev("stagedMessage.actions[1].text"), ev("Logic.COPY.stagedDiscardAction"))
+p.check("...on screen beside the restart", lev("stagedMessage.actions[1].visible"), True)
+# The tooltip is the disclosure, and the same words go to a screen reader: polkit takes the focus
+# the instant this is pressed.
 p.check("...disclosing the authorization and the downloads in its tooltip",
-        lev("stagedMessage.actions[2].tooltip"), ev("Logic.COPY.stagedDiscardTooltip"))
+        lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedDiscardTooltip"))
 p.check("...in the same words a screen reader gets, before polkit takes the focus",
-        lev("stagedMessage.actions[2].Accessible.description"),
+        lev("stagedMessage.actions[1].Accessible.description"),
         ev("Logic.COPY.stagedDiscardTooltip"))
 
 dbus_staged = len(records("dbus-send"))
@@ -1174,9 +1172,6 @@ CONFLICT3 = conflict_from("state-risky-heavy.json", "state-staged-conflict3.json
 # a box that is holding dnf packages is owed the vague warning instead of the reassurance.
 GENERIC = conflict_from("state-held-only.json", "state-staged-generic.json", [], "none")
 
-REBUILD_TIP = ("Builds the staged update again with your current holds. May ask for "
-               "your password. If the rebuild fails, the current staged update is removed.")
-
 _sev("clear()")
 state(CONFLICT1)
 stack("with a hold on a package the staged update contains", "stagedMessage")
@@ -1184,8 +1179,8 @@ p.check("...the banner tells it in the person's own order of events, with both w
         "the cost of the one on the button",
         lev("stagedMessage.text"),
         "You held kernel-core after the update was staged, so it still"
-        " installs. Rebuild the staged update to skip kernel-core, or stop holding kernel-core to keep the"
-        " current plan. Rebuilding may ask for your password. If it fails, nothing stays staged.")
+        " installs. Discard the staged update and stage again to skip kernel-core, or stop holding kernel-core to keep the"
+        " current plan. Discarding deletes the downloaded packages, so staging again downloads them again.")
 p.check("...as a Warning, because the reassurance is no longer true",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
@@ -1198,28 +1193,13 @@ p.check("...announced to a screen reader as the sentence, not as a change of col
 p.check("...and the flip is spoken as the new sentence, once",
         [w for w in said() if w.startswith("You held") or w.endswith("next restart")],
         [lev("stagedMessage.text")])
-p.check("...offering three actions in the list, one of which is standing down",
-        lev("stagedMessage.actions.length"), 3)
+p.check("...offering two actions in the list, one of which is standing down",
+        lev("stagedMessage.actions.length"), 2)
 p.check("...and the Restart… button is NOT one of them: offering a restart here offers the "
         "very install they tried to stop", lev("stagedMessage.actions[0].visible"), False)
 p.check("...inert as well as invisible", lev("stagedMessage.actions[0].enabled"), False)
-p.check("...the one action offered is the rebuild", lev("stagedMessage.actions[1].text"),
-        "Rebuild Staged Update")
-p.check("...and it is on screen", lev("stagedMessage.actions[1].visible"), True)
-p.check("...disclosing the authorization and the discard cost in its tooltip",
-        lev("stagedMessage.actions[1].tooltip"), REBUILD_TIP)
-# ...and the same words to a screen reader, which is the load-bearing half: a polkit dialog
-# takes focus the moment this is pressed, so a person who has not heard the cost by then hears
-# it never.
-p.check("...in the same words a screen reader gets, before polkit takes the focus",
-        lev("stagedMessage.actions[1].Accessible.description"), REBUILD_TIP)
-p.check("...which is the copy table's tooltip, not a second copy of it",
-        lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedRebuildTooltip"))
-# ...and the discard stands BESIDE it rather than in its place. The person who just held a
-# package is the likeliest of all to want no install at all, and the remedy this banner exists
-# for is still the first button on it.
-p.check("...with the discard offered as well, after the remedy rather than instead of it",
-        [lev("stagedMessage.actions[2].text"), lev("stagedMessage.actions[2].visible")],
+p.check("...the one action offered is the discard",
+        [lev("stagedMessage.actions[1].text"), lev("stagedMessage.actions[1].visible")],
         [ev("Logic.COPY.stagedDiscardAction"), True])
 
 # The only Restart button on screen sat forty pixels above the sentence saying what a
@@ -1290,8 +1270,8 @@ state(CONFLICT3)
 p.check("three held packages read as the first one and a count, every word moved with it",
         lev("stagedMessage.text"),
         "You held kernel-core and 2 more after the update was staged, so they"
-        " still install. Rebuild the staged update to skip them, or stop holding them to keep the current"
-        " plan. Rebuilding may ask for your password. If it fails, nothing stays staged.")
+        " still install. Discard the staged update and stage again to skip them, or stop holding them to keep the current"
+        " plan. Discarding deletes the downloaded packages, so staging again downloads them again.")
 p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
 state(GENERIC)
@@ -1299,30 +1279,22 @@ stack("with a staged list that could not be read and dnf packages held", "staged
 p.check("...the banner says may, because that is what is known",
         lev("stagedMessage.text"),
         "You added holds after the update was staged, so it may still install"
-        " held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for"
-        " your password. If it fails, nothing stays staged.")
+        " held packages. Discard the staged update and stage again to apply your holds. Discarding deletes"
+        " the downloaded packages, so staging again downloads them again.")
 p.check("...as a warning all the same", lev("stagedMessage.type"),
         lev("Kirigami.MessageType.Warning"))
-p.check("...offering the same rebuild, which applies every current hold whatever the list said",
-        lev("stagedMessage.actions[1].visible"), True)
+p.check("...offering the same discard", lev("stagedMessage.actions[1].visible"), True)
 p.check("...and no restart", lev("stagedMessage.actions[0].visible"), False)
 
 # The unchanged case, asserted again from the other side of the flip: the plain armed stage is
-# still Positive with a live Restart… and no rebuild. This is the regression pin - a variant
+# still Positive with a live Restart…. This is the regression pin - a variant
 # that fired too eagerly would turn every ordinary staged transaction into a warning.
 state(STAGED_RISKY)
 p.check("an armed stage with no hold behind it is the Positive banner it always was",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...with the restart still on it", lev("stagedMessage.actions[0].visible"), True)
-p.check("...and no rebuild offered", lev("stagedMessage.actions[1].visible"), False)
 
 # --- the precondition re-verify, at click time ----------------
-# Consent is given to a BANNER, and the banner describes one transaction. Between rendering it
-# and the click, that transaction can be consumed by a restart, replaced by another stage, or
-# cleaned away - and a rebuild is destructive at its start (dnf5 destroys the stored
-# transaction the moment a re-stage begins). So the click re-reads state.json and
-# proceeds only if it is still looking at the same stage, still in conflict. Anything else and
-# it runs nothing and says so.
 # The 30-second watcher would otherwise be a coin toss inside this section: it polls mtimes,
 # and rewriting the state file under the widget is exactly what it exists to notice. A check it
 # triggered would re-read the STUB's fixture and put the old stage back mid-assertion. Its own
@@ -1338,85 +1310,17 @@ def mutate_state(source, **changes):
         doc["offline_staged"].update(changes)
     open(STATE_JSON, "w").write(json.dumps(doc))
 
-state(CONFLICT1)
-p.check("premise: the banner is derived from the stage staged at 10:31",
-        ev("root.vm.stagedStagedAt"), "2026-09-02T10:31:00+03:00")
-mutate_state(CONFLICT1, staged_at="2026-09-05T08:00:00+03:00")
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stagedMessage.actions[1].trigger()")
-settle()
-p.check("a rebuild clicked over a stage that has since been replaced runs NOTHING",
-        p.call_count("run") + p.call_count("update"), 0)
-p.check("...and does not pretend an update started", ev("root.updating"), False)
-p.check("...and the press is over, so the banner's actions are live again",
-        ev("root.actionPending"), False)
-p.check("...it says the stage moved, in the popup, where the press happened",
-        ev("root.actionMessage"), ev("Logic.COPY.stagedChanged"))
-p.check("...and the banner is re-derived from what is really on disk now",
-        ev("root.vm.stagedStagedAt"), "2026-09-05T08:00:00+03:00")
-
-# The stage cleaned away entirely between the render and the click: same refusal, and the
-# banner goes with it rather than standing over nothing.
-state(CONFLICT1)
-mutate_state(CONFLICT1, drop_staged=True)
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stagedMessage.actions[1].trigger()")
-settle()
-p.check("a rebuild clicked over a stage that is gone runs nothing either",
-        p.call_count("run") + p.call_count("update"), 0)
-p.check("...and the banner goes with it", ev("root.vm.stagedMessage"), "")
-
-# ...and the path that DOES act: nothing moved, so the click spends the consent it was given,
-# on the same command Install on Next Restart runs. Same verb, same polkit action, same dialog.
-state(CONFLICT1)
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stagedMessage.actions[1].trigger()")
-p.wait_for(ev, "root.updating", True, timeout_ms=8000)
-# calls_matching and not argv(): argv.<verb> is the LAST call's arguments and survives from
-# the stageOffline test far above, so it would answer correctly for a rebuild that never ran.
-# The call log is cleared right before the trigger, so only this press can fill it.
-p.check("an unchanged stage rebuilds through the offline surface, exactly once",
-        p.calls_matching("run"), ["run --surface=offline"])
-p.check("...with nothing to apologise for", ev("root.actionMessage"), "")
-p.check("...and the popup goes into its updating state", ev("root.updating"), True)
-ev("root.leaveUpdating()")
-settle()
-
-# ...and refused, like Install on Next Restart, when another update holds the lock: `run` says so
-# before anything is launched, and the popup shows it instead of a pane waiting for a rebuild that
-# never began.
-state(CONFLICT1)
-open(RUNRC, "w").write("3")
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stagedMessage.actions[1].trigger()")
-p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
-settle()
-p.check("a rebuild refused because an update is running says so, in the CLI's words",
-        ev("root.actionMessage"), "An update is already running.")
-p.check("...and stays out of the updating state", ev("root.updating"), False)
-p.check("...and the press is no longer pending", ev("root.actionPending"), False)
-ev("root.leaveUpdating()")
-settle()
-open(RUNRC, "w").write("0")
-ev('root.actionMessage = ""')
-
 # --- one pending action for the whole banner ---------------------------------------------------
-# A rebuild or a discard first reads state.json, and that read queues behind whatever the executor
-# is running - a check can take two minutes. Without a guard, a second press in that window queues a second
-# action: two unstages, or a discard and then a rebuild of the stage it had just thrown away.
+# A discard first reads state.json, and that read queues behind whatever the executor is running - a
+# check can take two minutes. Without a guard, a second press in that window queues a second action.
 state(CONFLICT1)
 p.clear_calls()
 ev('root.actionMessage = ""; root.actionDone = ""')
 ev("root.discardStaged()")
 p.check("a discard press is pending until the CLI answers", ev("root.actionPending"), True)
 p.check("...and the banner's actions are disabled meanwhile, not hidden",
-        [lev("stagedMessage.actions[1].enabled"), lev("stagedMessage.actions[2].enabled"),
-         lev("stagedMessage.actions[2].visible")], [False, False, True])
-ev("root.discardStaged(); root.rebuildStaged(); root.stageOffline()")
+        [lev("stagedMessage.actions[1].enabled"), lev("stagedMessage.actions[1].visible")], [False, True])
+ev("root.discardStaged(); root.stageOffline()")
 p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
 settle()
 p.check("presses while one is pending start nothing: exactly one unstage, no stage",
@@ -1425,19 +1329,6 @@ p.check("presses while one is pending start nothing: exactly one unstage, no sta
 p.check("...and the press is over once the CLI has answered", ev("root.actionPending"), False)
 open(CHECKSRC, "w").write(CONFLICT1)
 ev('root.actionMessage = ""; root.actionDone = ""')
-
-# A rebuild asked for while a run is already in flight does nothing, the same guard
-# stageOffline has: two staging runs at once is the double-press this widget already learned
-# about, with a destructive first step this time.
-ev("root.enterUpdating()")
-p.clear_calls()
-ev("root.rebuildStaged()")
-settle()
-p.check("a rebuild asked for during a run is not a second run",
-        p.call_count("run") + p.call_count("update"), 0)
-ev("root.leaveUpdating()")
-settle()
-ev('root.actionMessage = ""')
 
 # --- the Discover offer, with the reason that matters while something is staged ---------------
 offer_doc = json.load(open(CONFLICT1))
@@ -1589,22 +1480,20 @@ settle()
 ev('root.discoverOfferAnswered = false; root.actionDone = ""; root.actionMessage = ""')
 
 # --- Discard Staged Update, the same banner's other way out ---------------------------------
-# `kempt unstage` from the popup, so somebody who staged an update here can undo it here. The
-# consent rule is the rebuild's, and so is the re-verify that enforces it: a banner describes
-# ONE staged update, and a press must not spend consent on a different one.
+# `kempt unstage` from the popup, so somebody who staged an update here can undo it here. Consent
+# is given to a banner, and a banner describes ONE staged update: a press must not spend consent on
+# a different one.
 state(CONFLICT1)
 mutate_state(CONFLICT1, staged_at="2026-09-06T08:00:00+03:00")
 p.clear_calls()
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
-lev("stagedMessage.actions[2].trigger()")
+lev("stagedMessage.actions[1].trigger()")
 settle()
 p.check("a discard clicked over a stage that has since been replaced runs NOTHING",
         p.call_count("unstage"), 0)
 p.check("...and says the stage moved, where the press happened",
         ev("root.actionMessage"), ev("Logic.COPY.stagedDiscardChanged"))
-p.check("...in its own words, not the rebuild's, because nothing was rebuilt here",
-        str(ev("root.actionMessage")).find("discarded") > 0, True)
 
 # The path that acts. The stub answers as the real command does, and the check that follows it
 # is what takes the banner off the screen: `kempt unstage` rewrites state.json before it exits,
@@ -1616,7 +1505,7 @@ checks_before = p.call_count("check")
 p.clear_calls()
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
-lev("stagedMessage.actions[2].trigger()")
+lev("stagedMessage.actions[1].trigger()")
 p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
 settle()
 p.check("an unchanged stage is discarded through the CLI's own verb, exactly once",
@@ -1649,7 +1538,7 @@ open(UNSTAGEERR, "w").write(
 p.clear_calls()
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
-lev("stagedMessage.actions[2].trigger()")
+lev("stagedMessage.actions[1].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
 p.check("a refused discard reports the CLI's reason, which names the upgrade it protected",
@@ -1831,7 +1720,7 @@ open(UNSTAGERC, "w").write("3")
 open(UNSTAGEERR, "w").write("")
 p.clear_calls()
 ev('root.actionMessage = ""')
-lev("stagedMessage.actions[2].trigger()")
+lev("stagedMessage.actions[1].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
 p.check("another update holding the lock is still a sentence, not a status code",
@@ -3864,14 +3753,13 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictOne",    # -> stagedVariantOf -> vm.stagedMessage (a name goes into the %1)
     "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
-    "stagedRebuildCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
-    "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
+    "stagedDiscardCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "stageDiscoverWarning", # -> the banner's text, written as a literal in the QML
     "stagedDiscardDone",    # -> discardStagedMessage, for a discard the CLI did not describe
     "stagedDiscardRefused",  # -> discardStagedMessage, for a silent exit 5
     "stagedDiscardBusy",    # -> discardStagedMessage, for a silent exit 3
     "stagedDiscardFailed",  # -> discardStagedMessage, with the status in the %1
-    "stagedDiscardChanged",  # -> root.actionMessage, as stagedChanged is for the rebuild
+    "stagedDiscardChanged",  # -> root.actionMessage, the same way restartFailed is assigned
     "holdFailed",           # -> root.holdError.text, assigned by main.qml with the name filled in
     "engineMissing",        # -> vm.engineFaultMessage, and vm.tooltipSub on its own
     "engineMissingCopy",    # -> vm.engineFaultCopyText: a clipboard payload of shell commands,

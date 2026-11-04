@@ -525,7 +525,7 @@ p.check("a settings apply inside the window is still acted on at once",
 # to throw away as superseded. The one press the staged state exists to prevent.
 #
 # So the file that moved is read directly, here, instead of waiting to be told about it. One
-# `cat`, no lock: the same trade rebuildStaged and discardStaged make before they act on a banner.
+# `cat`, no lock: the same trade discardStaged makes before it acts on a banner.
 STAGED = json.load(open(os.path.join(harness.FIXTURES, "state-live.json")))
 STAGED["offline_staged"] = {"staged_at": "2026-09-02T10:31:00+03:00", "count": 7, "armed": True}
 open(MODE, "w").write("live")

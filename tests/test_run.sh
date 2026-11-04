@@ -422,8 +422,8 @@ assert_eq "$([[ -e "$TESTTMP/term-argv" ]] && echo launched || echo nothing)" "n
 "$KEMPT" config set surface background
 rc=0; "$KEMPT" run 2>/dev/null || rc=$?
 assert_eq "$rc" "3" "a background run is refused the same way"
-# ...and so is a stage asked for by name, which is how the widget's Install on Next Restart and
-# Rebuild Staged Update reach the CLI. A detached `kempt update` would refuse with an exit 3
+# ...and so is a stage asked for by name, which is how the widget's Install on Next Restart reaches
+# the CLI. A detached `kempt update` would refuse with an exit 3
 # nobody reads, and the popup would wait in its updating pane for a stage that never began.
 rc=0; lockerr="$("$KEMPT" run --surface=offline 2>&1 >/dev/null)" || rc=$?
 assert_eq "$rc" "3" "a stage asked for with --surface=offline is refused the same way"

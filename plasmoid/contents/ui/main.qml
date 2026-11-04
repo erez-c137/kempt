@@ -289,10 +289,10 @@ PlasmoidItem {
     // thing between a double press and two terminals both asking the risky question.
     property bool runRequested: false
 
-    // The same guard for Install on Next Restart, Rebuild Staged Update and Discard Staged Update:
-    // one flag for all three, set at the press and cleared on every callback path. Each waits its
+    // The same guard for Install on Next Restart and Discard Staged Update:
+    // one flag for both, set at the press and cleared on every callback path. Each waits its
     // turn on the executor, behind a check for up to two minutes, and `updating` is false all that
-    // time, so without it a second press queues a second action. The popup disables all three.
+    // time, so without it a second press queues a second action. The popup disables both.
     property bool actionPending: false
 
     // The clock the relative times ("Checked 4 min ago") are measured against, refreshed while the
@@ -654,7 +654,7 @@ PlasmoidItem {
     // still shows Update Now - which starts a live upgrade over the staged transaction and makes
     // the CLI discard it as superseded.
     //
-    // One `cat`, taking no lock, the same trade rebuildStaged and discardStaged make before they
+    // One `cat`, taking no lock, the same trade discardStaged makes before it
     // act on a banner. stateDir is NOT shellQuote'd. findLog() says why.
     function adoptState(done) {
         executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
@@ -912,14 +912,9 @@ PlasmoidItem {
         riskyChoiceOpen = false;
         actionPending = true;
         actionMessage = "";
-        launchStage();
-    }
-
-    // The one staging command, shared by stageOffline and rebuildStaged. It clears actionPending
-    // on every outcome, including the executor's own timeout (rc 124). The pane gets the surface
-    // the CLI will really use: with auto_accept off, `run` sends a named surface to the terminal
-    // as well, because only a terminal can ask.
-    function launchStage() {
+        // Clears actionPending on every outcome, including the executor's own timeout (rc 124). The
+        // pane gets the surface the CLI will really use: with auto_accept off, `run` sends a named
+        // surface to the terminal as well, because only a terminal can ask.
         executor.run(kemptCmd + " run --surface=offline", 15000, function(stdout, stderr, rc) {
             root.actionPending = false;
             if (rc === 0) {
@@ -931,67 +926,17 @@ PlasmoidItem {
         });
     }
 
-    // The conflict banner's one action. It runs EXACTLY what stageOffline runs above (launchStage),
-    // the same polkit action: a rebuild IS a stage, and dnf5 replaces the stored transaction with
-    // the one the current holds produce. Nothing is unstaged first: `run` launches the same
-    // `kempt update --surface=offline`, whose "offline restage" replaces the old transaction.
-    //
-    // What is new is the RE-VERIFY, and it is why this is not stageOffline() under a second label.
-    // Consent is given to a BANNER, and a banner describes ONE transaction: the popup can sit open
-    // for an hour, in which the stage can be consumed by a restart, replaced, or cleaned away. A
-    // rebuild is destructive at its START - dnf5 destroys the stored transaction the moment a
-    // re-stage begins - so acting on a stale banner throws away a transaction the person never
-    // agreed to lose. So: read the state file as it is NOW, and proceed only if it is
-    // still the same stage and still in conflict. stateDir is NOT shellQuote'd. findLog() says why.
-    function rebuildStaged() {
-        // The same guard stageOffline has, and it matters more here: two staging runs at once is a
-        // double press with a destructive first step.
-        if (updating || runRequested || actionPending) return;
-        actionPending = true;
-        actionMessage = "";
-        // Read HERE, synchronously, before anything can move it: this is the stamp of the banner
-        // the person was looking at when they pressed. Comparing against root.vm instead would
-        // compare the new file with itself once the fresh state has been assigned in, and always
-        // agree.
-        var offered = vm.stagedStagedAt;
-        executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
-            // Deliberately NOT re-running `kempt check`. The file IS what check publishes, reading
-            // it costs nothing and cannot take a lock, and a check would put a command that can
-            // run for two minutes between the click and the action it was meant to authorise.
-            var fresh = Logic.parseState(stdout);
-            // Re-derived from the bytes just read, so the banner after a refusal is the truth
-            // rather than the thing they clicked. Only when there is something to derive from:
-            // null means we learned nothing, and rule 1 of the schema says keep what we had.
-            if (fresh !== null) root.kemptState = fresh;
-            var vmNow = Logic.viewModel(fresh, false, "");
-            // Three conditions, all about the SAME transaction still being there and still being
-            // wrong: a stage is published at all, it is the one this banner was built from
-            // (staged_at, compared as published - see logic.js stagedStagedAt), and it would still
-            // raise a warning. The third stops a rebuild running over a conflict already resolved.
-            if (vmNow.stagedStagedAt === "" || vmNow.stagedStagedAt !== offered
-                    || !vmNow.stagedShowRebuild) {
-                root.actionPending = false;
-                root.actionMessage = Logic.COPY.stagedChanged;
-                return;
-            }
-            // Still pending: launchStage clears the flag when `run` answers.
-            root.launchStage();
-        });
-    }
-
-    // The staged banner's other action: discard the staged update, so the next restart installs
+    // The staged banner's action: discard the staged update, so the next restart installs
     // nothing. `kempt unstage`, which somebody staging from this popup would otherwise have to
     // open a terminal to reach.
     //
-    // WAITED ON rather than handed off, which is where it differs from stageOffline and
-    // rebuildStaged. Those two hand off to a run that writes state.json and reports itself through
-    // the updating pane; this one is a single short verb with an exit code that means five
+    // WAITED ON rather than handed off, which is where it differs from stageOffline. That one hands
+    // off to a run that writes state.json and reports itself through the updating pane; this one is a single short verb with an exit code that means five
     // different things, and the answer IS the report. The timeout is the check's, not the stage's:
     // the authentication dialog is on the far side of it and a person can take a while to find
     // their password.
     //
-    // The re-verify above it is rebuildStaged's, for rebuildStaged's reason: consent is given to a
-    // BANNER, and a banner describes ONE transaction. The popup can sit open for an hour, in which
+    // Re-verified first, because consent is given to a BANNER, and a banner describes ONE transaction. The popup can sit open for an hour, in which
     // a restart can consume the stage, a re-stage can replace it, or `dnf5 offline clean` can take
     // it away - and discarding what arrived in its place is spending consent that was never given.
     // stateDir is NOT shellQuote'd. findLog() says why.

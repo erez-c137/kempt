@@ -851,27 +851,23 @@ def _code(name):
 # icon-only button arrived with no description, because some unrelated description elsewhere was
 # already covering for it.
 #
-# FullRepresentation.qml has two. The Rebuild Staged Update action is a labelled button, not an
-# icon-only one, and it carries a description anyway: its tooltip discloses that the rebuild asks
-# for authorization and that a failed rebuild removes the current staged update, and a polkit
-# dialog takes the focus the instant it is pressed. A disclosure that has not been heard by then is
-# never heard, so the same words are bound to Accessible.description. The second is the updating
-# pane's escape hatch, which is text-only and says what pressing it does - it is the ONLY control
-# in that pane, so a person who cannot see the label has nothing else to go on.
+# FullRepresentation.qml has several. The first is the updating pane's escape hatch, which is
+# text-only and says what pressing it does - it is the ONLY control in that pane, so a person who
+# cannot see the label has nothing else to go on.
 #
-# The third is Discard Staged Update, on the same banner and for the same reason: its tooltip
-# discloses the authorization and that the downloaded packages go with the transaction, and polkit
-# takes the focus the instant it is pressed.
+# The second is Discard Staged Update, a labelled button that carries a description anyway: its
+# tooltip discloses the authorization and that the downloaded packages go with the transaction, and
+# polkit takes the focus the instant it is pressed.
 #
-# The fourth is Free Up Space on the reclaim offer: Flatpak's polkit dialog can take the focus the
+# The third is Free Up Space on the reclaim offer: Flatpak's polkit dialog can take the focus the
 # same way, so the tooltip that says so is its description too.
 #
-# The fifth is the footer button when updates run on the next restart: it reads Install on Next
+# The fourth is the footer button when updates run on the next restart: it reads Install on Next
 # Restart, and its tooltip says the press downloads now and installs at the restart.
 #
-# The sixth and seventh are the startup banner's Copy Command and Mute Until It Starts: one pair
+# The fifth and sixth are the startup banner's Copy Command and Mute Until It Starts: one pair
 # per service, so the description (the command, and what muting does) tells them apart by ear.
-# The eighth is popup.speakActionsAs binding those two actions' spoken descriptions onto the
+# The seventh is popup.speakActionsAs binding those two actions' spoken descriptions onto the
 # buttons Kirigami draws for them, since an action cannot reach its own button's.
 #
 # configGeneral.qml has one: Undo beside a service just unmuted names the service it mutes again.
@@ -880,7 +876,7 @@ def _code(name):
 # copies, so one service's button is told from the next by ear, and Refresh's tooltip reads its
 # description back rather than repeating the literal. The fourth is Show All and Hide, which carry
 # the folded list's count, and the whole list once it is open.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 8, "configGeneral.qml": 1, "StartupPage.qml": 4}
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 7, "configGeneral.qml": 1, "StartupPage.qml": 4}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)
