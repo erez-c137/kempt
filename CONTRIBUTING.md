@@ -169,8 +169,7 @@ Docs, comments, commit messages, issues and the widget's text all follow these r
     disagree, fix the doc. Run every example before you commit it.
 
 `tools/prose-check.py` measures sentence length, asides and self-praise. The suite runs it over
-every doc. It fails on a FAIL verdict, and when a doc goes over its word budget in
-`tests/test_docs.sh`.
+every doc. It fails on a FAIL verdict.
 
 Address the reader as "you" and the program as "Kempt". Spelling is British (*behaviour*,
 *cancelled*), except text copied from Plasma. Commands, paths and keys go in backticks, and

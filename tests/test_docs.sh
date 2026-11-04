@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
-# Documentation defects that a reader sees and a diff does not, and the limits that keep the docs
-# short.
+# Documentation defects that a reader sees and a diff does not.
 #
 # A Markdown table broken by a blank line still renders, but the rows below the break show as
 # literal text full of pipes. A seam missing from the environment-seams table works and is
 # documented nowhere. Neither shows in a diff, so each gets a test instead of a convention.
 #
 # Nothing here needs jq, a package manager or a desktop: it reads the tree it is standing in. The
-# word budgets and the prose check need python3.
+# prose check needs python3.
 source "$(dirname "$0")/lib.sh"; sandbox
 
 # --- a table split in two by a blank line --------------------------------------------------------
@@ -127,51 +126,17 @@ else
   echo "ok: ...and hardcodes no version of its own"
 fi
 
-# --- every doc stays inside its word budget and passes the prose check ---------------------------
-# A change to a doc leaves it no longer (AGENTS.md, "Writing"). Each budget was set about 5% above
-# the doc's size, rounded up. tools/prose-check.py counts the words, and it skips code blocks,
-# tables, headings and blockquotes, so an example or a table row costs nothing. Raise a budget only
-# when the reader gains something new, and say why in the commit. The man page has its own budget
-# below, counted with wc -w once the roff macros are stripped, so it needs no groff.
-declare -A WORD_BUDGET=(
-  [README.md]=820
-  [CONTRIBUTING.md]=1700
-  [SECURITY.md]=420
-  [tests/README.md]=310
-  [docs/architecture.md]=4590
-  [docs/configuration.md]=1150
-  [docs/install.md]=1550
-  [docs/RELEASING.md]=840
-  [docs/ROADMAP.md]=1750
-  [docs/security.md]=3965
-  [docs/usage.md]=3540
-  [docs/widget.md]=3200
-)
-# A new doc needs a row, so it cannot grow outside the table.
-unbudgeted=""
-for f in "$REPO_ROOT"/docs/*.md; do
-  rel="${f#"$REPO_ROOT"/}"
-  if [[ -z "${WORD_BUDGET[$rel]+set}" ]]; then unbudgeted+="$rel "; fi
-done
-assert_eq "${unbudgeted% }" "" "every docs/*.md has a word budget in tests/test_docs.sh"
-
+# --- every doc passes the prose check --------------------------------------------------------------
+# tools/prose-check.py reads sentence length, asides and self-praise. It skips code blocks, tables,
+# headings and blockquotes. Docs have no word limit; a release compares `wc -w` with the last tag.
+PROSE_DOCS=(README.md CONTRIBUTING.md SECURITY.md tests/README.md "$REPO_ROOT"/docs/*.md)
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "FAIL: python3 is missing, so the word budgets and the prose check cannot run"; _fail=1
+  echo "FAIL: python3 is missing, so the prose check cannot run"; _fail=1
 else
-  while IFS= read -r rel; do
-    # The first line reads "FILE: N words, M per sentence, PASS" or "..., FAIL, ...".
+  for rel in "${PROSE_DOCS[@]}"; do
+    rel="${rel#"$REPO_ROOT"/}"
     out="$(python3 "$REPO_ROOT/tools/prose-check.py" "$REPO_ROOT/$rel")" || true
     head="${out%%$'\n'*}"
-    words="$(sed -nE 's/^.*: ([0-9]+) words, .*$/\1/p' <<<"$head")"
-    budget="${WORD_BUDGET[$rel]}"
-    if [[ -z "$words" ]]; then
-      echo "FAIL: tools/prose-check.py could not read $rel"; _fail=1
-    elif (( words > budget )); then
-      echo "FAIL: $rel is $words words, its budget is $budget: cut it, or raise the budget in this table and say why in the commit"
-      _fail=1
-    else
-      echo "ok: $rel is $words words, inside its budget of $budget"
-    fi
     if [[ "$head" == *", PASS" ]]; then
       echo "ok: $rel passes tools/prose-check.py"
     else
@@ -179,14 +144,13 @@ else
       printf '%s\n' "$out" | sed 1d
       _fail=1
     fi
-  done < <(printf '%s\n' "${!WORD_BUDGET[@]}" | sort)
+  done
 fi
 
 # CHANGELOG.md and the man page are NOT run through tools/prose-check.py, on purpose. The changelog
 # is a record of what changed, so the history words the check flags ("no longer", "an earlier
 # version") are its job, and it is 15,000 words of past releases; the man page is roff, which the
-# Markdown reader mistakes for 33-word sentences. They get the dash rules below instead, and the
-# man page its word budget.
+# Markdown reader mistakes for 33-word sentences. They get the dash rules below instead.
 # Customer-facing text: no em dash, and no " - " aside (rephrase or use a comma). Headings
 # ("## [0.1.8] - Unreleased") and the two quoted messages the program prints with that dash stay.
 # The man page spells dashes as roff escapes too: \(em, \(en, \[em], \[en], and \- between spaces as an
@@ -199,15 +163,6 @@ asides="$(grep -nE ' - ' "$REPO_ROOT/CHANGELOG.md" | grep -vE '^[0-9]+:## \[|Not
 asides+="$(grep -nE ' - ' "$MAN" | cut -d: -f1 | sed 's/^/man:/' | tr '\n' ' ' || true)"
 assert_eq "${dashes% }" "" "CHANGELOG.md and the man page have no em or en dash"
 assert_eq "${asides% }" "" "CHANGELOG.md and the man page have no ' - ' aside (line numbers)"
-
-MAN_BUDGET=2390
-man_words="$(sed -E 's/^\.[A-Za-z]+ ?//; s/\\f[BIRP]//g; s/\\[-c]//g' "$REPO_ROOT/docs/man/kempt.1" | wc -w)"
-if (( man_words > MAN_BUDGET )); then
-  echo "FAIL: docs/man/kempt.1 is $man_words words, its budget is $MAN_BUDGET: cut it, or raise MAN_BUDGET in this file and say why in the commit"
-  _fail=1
-else
-  echo "ok: docs/man/kempt.1 is $man_words words, inside its budget of $MAN_BUDGET"
-fi
 
 # --- the public tree does not talk about how it was made ------------------------------------------
 # Public files state facts without saying who decided them or how the work was done

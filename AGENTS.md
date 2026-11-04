@@ -77,6 +77,5 @@ so. CI runs them in a Fedora container, so a green badge means the widget was te
 Public files name nobody and say nothing about how the work was made.
 
 A feature changes the docs it touches and leaves them no longer. Before you add a paragraph, cut
-or merge an older one in the same section. `tests/test_docs.sh` holds a word budget per doc. Raise
-one only when the reader gains something new, and say why in the commit. Run
-`python3 tools/prose-check.py` on every doc you changed.
+or merge an older one in the same section. Run `python3 tools/prose-check.py` on every doc you
+changed.

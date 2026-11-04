@@ -42,12 +42,14 @@ shows up in its own list like any other update. Only checkout installs upgrade b
    tests/run_tests.sh
    ```
 
-   Then check the docs. Run `python3 tools/prose-check.py` over them. Read every doc whose budget
-   in `tests/test_docs.sh` went up since the last release, and cut it.
+   Then check the docs. Run `python3 tools/prose-check.py` over them. Compare each doc's `wc -w`
+   with the last tag, read any that grew, and cut it.
 
    ```bash
    python3 tools/prose-check.py README.md AGENTS.md CONTRIBUTING.md SECURITY.md tests/README.md docs/*.md
-   git diff "$(git describe --tags --abbrev=0)" -- tests/test_docs.sh   # budgets raised since
+   for f in README.md CONTRIBUTING.md docs/*.md; do
+     echo "$f $(git show "$(git describe --tags --abbrev=0):$f" 2>/dev/null | wc -w) -> $(wc -w < "$f")"
+   done
    ```
 
 4. **Run the release check.** The suite tests the code; this tests the packages.
