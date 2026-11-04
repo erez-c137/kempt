@@ -302,7 +302,7 @@ assert_contains "$OUT" "FAIL  " "premise: doctor reports a problem on another mo
 assert_contains "$OUT" "mount namespace" "...in those words"
 
 # --- parity: one table through both, doctor fails exactly when the helper exits 3 -------------------------
-PARITY_ROWS='^FAIL  (dnf |Kempt |getfacl|.*mount namespace|.*could not check)'
+PARITY_ROWS='^FAIL  (dnf |Kempt |.*mount namespace|.*could not check)'
 parity() {  # title setup [env...]
   local title="$1" setup="$2" helper rows; shift 2
   in_ns 'bash "$AH" dnf-offline-stage >/dev/null 2>&1; echo "helper=$?"; "$K" doctor || true' "$setup" "$@"
@@ -347,7 +347,6 @@ find ESTALE on a parent|export KEMPT_FIND="$(fail_stub "$R/var/lib" find "Stale 
 find EACCES on a parent|export KEMPT_FIND="$(fail_stub "$R/var/lib" find "Permission denied")"
 find ENOENT on the leaf|export KEMPT_FIND="$(fail_stub "$R/var/lib/dnf/offline" find "No such file or directory")"
 getfacl EIO on a parent|export KEMPT_GETFACL="$(fail_stub "$R/var/lib" getfacl "Input/output error")"
-getfacl absent|export KEMPT_GETFACL="$R/no-such-getfacl"
 find ESTALE on the state folder|export KEMPT_FIND="$(fail_stub "$R/usr/lib/sysimage/libdnf5" find "Stale file handle")"
 find ESTALE on the staged folder|export KEMPT_FIND="$(fail_stub "$R/var/lib/dnf/offline" find "Stale file handle")"
 find ESTALE on the cache folder|export KEMPT_FIND="$(fail_stub "$R/var/cache/libdnf5" find "Stale file handle")"

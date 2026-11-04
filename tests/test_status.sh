@@ -104,7 +104,7 @@ assert_contains "$out" "Held: 10 (aajohan-comfortaa-fonts, bash, brandnew, curl,
 assert_eq "$(status_rc)" "0" "all held exits 0"
 
 put reboot-needed
-assert_contains "$(status)" "Restart to apply installed updates" "a restart owed has its line"
+assert_contains "$(status)" "Restart to finish updating." "a restart owed has its line"
 put security
 assert_contains "$(status)" "Security: 3 updates" "the security block's count"
 jq '.security.count = 1' "$FIXTURES/state-security.json" > "$STATE_FILE"
@@ -125,9 +125,9 @@ assert_eq "$(status_rc)" "1" "an unreadable state exits 1"
 jq '.offline_staged = {staged_at: "2026-08-27T10:00:00+03:00", count: 12, armed: true}
     | .reboot_needed = true' "$FIXTURES/state-live.json" > "$STATE_FILE"
 out="$(status)"
-assert_eq "$(head -n 1 <<<"$out")" "12 updates staged for the next restart" "staged: the staged header"
+assert_eq "$(head -n 1 <<<"$out")" "12 updates ready for the next restart" "staged: the staged header"
 assert_contains "$out" "Staged: 12 updates install on the next restart" "staged: the staged line"
-assert_contains "$out" "Restart to apply installed updates" "staged: the restart line"
+assert_contains "$out" "Restart to finish updating." "staged: the restart line"
 assert_not_contains "$out" "System (dnf)" "staged: no pending sections under the staged header"
 # Held, security and staged together: held stays, the security count goes, as in the widget.
 jq '.offline_staged = {count: 12} | .security = {count: 2, packages: ["bash"]}
@@ -138,9 +138,9 @@ assert_not_contains "$out" "Security" "staged: no security count"
 assert_not_contains "$out" "updates for" "staged: no section names"
 assert_contains "$out" "Staged: 12 updates install on the next restart" "staged: the staged line, with held and security"
 jq '.offline_staged = {count: 1}' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_eq "$(status | head -n 1)" "1 update staged for the next restart" "one staged update is singular"
+assert_eq "$(status | head -n 1)" "1 update ready for the next restart" "one staged update is singular"
 jq '.offline_staged = {}' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_eq "$(status | head -n 1)" "Updates staged for the next restart" "a stage with no count drops the figure"
+assert_eq "$(status | head -n 1)" "Updates ready for the next restart" "a stage with no count drops the figure"
 
 # The apps for you only could not be listed, with nothing else pending.
 jq '.backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0
@@ -193,7 +193,7 @@ stage_run '{"staged":12}'
 jq '.offline_staged = {staged_at: "2026-08-27T10:00:00+03:00", count: 12, armed: true}' \
   "$FIXTURES/state-live.json" > "$STATE_FILE"
 out="$(status)"
-assert_eq "$(head -n 1 <<<"$out")" "12 updates staged for the next restart" "a staging run: the header says what is staged now"
+assert_eq "$(head -n 1 <<<"$out")" "12 updates ready for the next restart" "a staging run: the header says what is staged now"
 assert_eq "$(tail -n 1 <<<"$out")" "Last update 59 min ago · staged 12 updates for a restart" \
   "...and the last run says what that run did"
 put live
@@ -325,8 +325,11 @@ node_facts() {  # state file → the same, from logic.js
     const st = L.parseState(fs.readFileSync(process.argv[2], "utf8"));
     const vm = L.viewModel(st, false, "", { nowMs: Number(process.argv[3]) * 1000 });
     const usable = vm.actionable !== null;  // null exactly when the state is not one it can read
-    console.log(JSON.stringify({ header: vm.headerText,
-      sections: usable ? L.collectItems(st).sections.map((s) => [s.title, s.items.length]) : [],
+    // The widget says System and Apps and puts the risk on its status line. The terminal keeps the
+    // names of the tools whose output it shows, and says the risk under the question.
+    const cli = (t) => ({ System: "System (dnf)", Apps: "Apps (flatpak)" }[t] || t);
+    console.log(JSON.stringify({ header: vm.headerText.replace(/, including a new kernel$/, ""),
+      sections: usable ? L.collectItems(st).sections.map((s) => [cli(s.title), s.items.length]) : [],
       held: Number((/(\d+) held/.exec(vm.footerText) || [0, 0])[1]),
       security: Number((/(\d+) security update/.exec(vm.tooltipSub) || [0, 0])[1]) }));
   ' "$LOGIC" "$1" "$NOW"
@@ -450,7 +453,7 @@ assert_eq "$(status_rc --list)" "1" "...and exits 1"
 
 # The lines around the sections are status's own: a restart owed, security, a staged update.
 put reboot-needed
-assert_contains "$(list)" "Restart to apply installed updates" "--list says a restart is owed"
+assert_contains "$(list)" "Restart to finish updating." "--list says a restart is owed"
 put security
 assert_contains "$(list)" "Security: 3 updates" "--list keeps the security count"
 jq '.offline_staged = {count: 10}' "$FIXTURES/state-live.json" > "$STATE_FILE"
@@ -476,7 +479,10 @@ for f in live held-only security risky-heavy; do
     const vm = L.viewModel(L.parseState(fs.readFileSync(process.argv[2], "utf8")), false, "", {});
     const newest = (v) => v === "?" ? "new" : v;
     for (const r of vm.rows) {
-      if (r.kind === "header") { console.log("S\u001f" + r.title); continue; }
+      if (r.kind === "header") {
+        console.log("S\u001f" + ({ System: "System (dnf)", Apps: "Apps (flatpak)" }[r.title] || r.title));
+        continue;
+      }
       const v = r.from === "?" && r.to === "?" ? "" : r.from === r.to ? r.to + " (new build)" : newest(r.from) + " → " + r.to;
       const tags = [r.held ? "held" : "", r.security ? "security" : "", r.forYouOnly ? "for you only" : ""].filter(Boolean);
       console.log("I\u001f" + r.name + (r.branch ? " " + r.branch : "") + "\u001f" + v + "\u001f" + tags.join(", "));
