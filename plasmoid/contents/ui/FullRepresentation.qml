@@ -2096,7 +2096,6 @@ PlasmaExtras.Representation {
             text: {
                 switch (popup.plasmoidItem.runningSurface) {
                 case "popup":      return i18n("Updating…");
-                case "background": return i18n("Updating in the background…");
                 case "offline":    return i18n("Staging updates for the next restart…");
                 default:           return i18n("Updating in a terminal window…");
                 }

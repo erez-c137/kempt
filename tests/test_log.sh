@@ -112,10 +112,10 @@ assert_eq "$(text_of "$line")" "config set surface=popup (was unset)" \
 
 # KEMPT_VIA is the widget's stamp and nothing else: two answers, so the log can separate "I
 # clicked that" from "something else did it".
-KEMPT_VIA=widget "$KEMPT" config set surface background
+KEMPT_VIA=widget "$KEMPT" config set surface offline
 assert_eq "$(awk '{print $2}' <<<"$(last_event)")" "widget" \
   "KEMPT_VIA=widget is recorded as widget"
-assert_eq "$(text_of "$(last_event)")" "config set surface=background (was popup)" \
+assert_eq "$(text_of "$(last_event)")" "config set surface=offline (was popup)" \
   "...and the old value is the one the previous write left"
 KEMPT_VIA=something-else "$KEMPT" config set surface popup
 assert_eq "$(awk '{print $2}' <<<"$(last_event)")" "cli" \
@@ -149,12 +149,12 @@ assert_eq "$(grep -c '' "$EV")" "1" "...as exactly one line"
 # A run, end to end.
 # ==================================================================================================
 : > "$EV"
-"$KEMPT" config set surface background >/dev/null
+"$KEMPT" config set surface widget >/dev/null
 "$KEMPT" config set auto_accept true >/dev/null
 : > "$EV"
-assert_exit 0 "a successful background run exits 0" "$KEMPT" update
+assert_exit 0 "a successful detached run exits 0" "$KEMPT" update
 assert_eq "$(events | grep -c '^.* run start ')" "1" "...recording exactly one run start"
-assert_eq "$(text_of "$(events | grep ' run start ' | tail -1)")" "run start surface=background" \
+assert_eq "$(text_of "$(events | grep ' run start ' | tail -1)")" "run start surface=popup" \
   "...which names the surface it ran on"
 hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
 assert_eq "$(text_of "$(events | grep ' run done ' | tail -1)")" \
@@ -549,7 +549,7 @@ assert_eq "$(stat -c %a "$EV")" "600" "...and the rewrite keeps the file 0600"
 # every append.
 : > "$EV"
 for i in $(seq 1 2400); do printf '2026-01-01T00:00:00+00:00 cli seed %s\n' "$i"; done >> "$EV"
-"$KEMPT" config set surface background >/dev/null
+"$KEMPT" config set surface widget >/dev/null
 assert_eq "$(grep -c '' "$EV")" "2401" "below the threshold the file is left exactly as it is"
 
 # ==================================================================================================

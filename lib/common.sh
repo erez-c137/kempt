@@ -298,7 +298,7 @@ event_where_phrase() {  # surface → where a run went, in the widget's settings
   case "$1" in
     terminal) EVENT_WHERE="in a terminal window" ;;
     popup) EVENT_WHERE="in the widget" ;;
-    background) EVENT_WHERE="in the background" ;;
+    background) EVENT_WHERE="in the widget" ;;  # a line an older version logged
     offline) EVENT_WHERE="to stage for the next restart" ;;
     *) EVENT_WHERE="somewhere Kempt does not know ($1)" ;;
   esac
@@ -571,18 +571,19 @@ KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widg
 # observe. A table, so a second enum is one line rather than a new branch.
 config_enum_values() {  # key → accepted values, space separated, or nothing
   case "$1" in
-    surface) printf '%s\n' "terminal popup background offline" ;;
+    surface) printf '%s\n' "terminal popup offline" ;;
     reclaim) printf '%s\n' "ask automatic off" ;;
   esac
 }
 
 # A surface as Kempt reads it: trimmed, lower-cased, and with `widget` read as `popup`. `widget` is
 # the word the person sees, and `popup` is the value stored, which older widgets and scripts read.
+# `background` is a surface that merged into it, and a config may still name it.
 surface_canon() {  # surface → canonical spelling (unknown values pass through, trimmed and lowered)
   local s="$1"
   s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
   s="${s,,}"
-  [[ "$s" != widget ]] || s=popup
+  case "$s" in widget|background) s=popup ;; esac
   printf '%s\n' "$s"
 }
 

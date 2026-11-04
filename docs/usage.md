@@ -133,7 +133,7 @@ zero updates.
 ## update
 
 ```
-kempt update [--no-flatpak] [--surface=terminal|widget|background|offline] [--risky-ok]
+kempt update [--no-flatpak] [--surface=terminal|widget|offline] [--risky-ok]
 ```
 
 Runs the update now, in this process. Flags override the config file for this run.
@@ -147,7 +147,7 @@ kempt update --surface=offline    # stage it; installs on the next restart
 | Option | Effect |
 | --- | --- |
 | `--no-flatpak` | Updates system packages only. |
-| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `widget` (**In this widget**), `background` (**In the background**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
+| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `widget` (**In this widget**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
 | `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
 
 With `auto_accept=false`, every run uses a terminal with live output, because only a terminal can
@@ -325,7 +325,7 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 ## run
 
 ```
-kempt run [--print-command] [--surface=terminal|widget|background|offline] [--risky-ok]
+kempt run [--print-command] [--surface=terminal|widget|offline] [--risky-ok]
 ```
 
 Starts `kempt update` where your settings say, then returns at once. In a terminal, `kempt update`
@@ -339,10 +339,10 @@ kempt run --print-command
 terminal: konsole -e kempt update
 ```
 
-With `surface=background`:
+With `surface=widget`:
 
 ```
-detached: kempt update (surface=background)
+detached: kempt update (surface=widget)
 ```
 
 | Option | Effect |
@@ -603,7 +603,7 @@ kempt history
 2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  restart (staged update installed)  ok  41 updated
 2026-08-22T23:10:37+03:00  offline  ok  staged 41 updates for a restart
-2026-08-22T18:12:55+03:00  background  failed  no package changes  (authentication cancelled)
+2026-08-22T18:12:55+03:00  widget  failed  no package changes  (authentication cancelled)
 ```
 
 `history --json` prints every run as one JSON array of `summary --json` entries, newest first, or
@@ -634,7 +634,7 @@ kempt log -n 4
 ```
 2026-08-26T20:58:11+03:00 cli Checked: 7 updates to install, 1 held
 2026-08-26T21:10:55+03:00 widget Setting auto_accept changed to true (was false)
-2026-08-26T21:11:02+03:00 widget Update started in the background
+2026-08-26T21:11:02+03:00 widget Update started in the widget
 2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
 ```
 
@@ -956,7 +956,7 @@ kempt config get refresh_interval_min   # 60
 newer widget can use keys this version does not know:
 
 ```
-warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, background, offline
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, offline
 ```
 
 Setting `surface` also answers the widget's one-time offer to run updates in the widget.

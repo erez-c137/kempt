@@ -944,7 +944,7 @@ assert_eq "$(js "[L.backendActionable(null, 'dnf'), L.backendActionable({backend
   "...and 0 for no state or no backend"
 
 # --- resolveSurface: unknown means terminal, exactly as bin/kempt decides ---------------------
-for s in terminal popup background offline; do
+for s in terminal popup offline; do
   assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
 done
 assert_eq "$(js 'L.resolveSurface("nonsense")')" "terminal" "an unknown surface falls back to terminal"
@@ -2741,7 +2741,7 @@ assert_eq "$(held "$PEND" "$OFFL" updateButtonText)" "Update Now" "...and says U
 assert_eq "$(held "$PEND" "$OFFL" updateOffered)" "true" "...and is offered"
 assert_eq "$(held "$PEND" "$OFFL" heldLiveSurface)" "popup" "a box set to stage runs it live, naming the surface"
 assert_eq "$(held "$PEND" '{surface:"terminal",configuredSurface:"offline",autoAccept:false}' heldLiveSurface)" "terminal" "...the terminal, with confirmation on"
-assert_eq "$(held "$PEND" '{surface:"background",configuredSurface:"background"}' heldLiveSurface)" "background" "...and the surface already chosen, when that is live"
+assert_eq "$(held "$PEND" '{surface:"popup",configuredSurface:"popup"}' heldLiveSurface)" "popup" "...and the surface already chosen, when that is live"
 assert_eq "$(free "$PEND" "$OFFL" heldLiveSurface)" "" "...and no surface is named when nobody holds it"
 
 # Its own question with system updates, none for Flatpak alone.
@@ -3486,8 +3486,6 @@ assert_eq "$(js 'L.COPY.updateNow')" "Update Now" "copy: the primary action"
 # terminal run that aborted or was closed, with no list, no Update Now and a disabled Refresh.
 assert_eq "$(js 'L.COPY.updatingTerminal')" "Updating in a terminal window…" \
   "copy: the pane names the window the update is actually running in"
-assert_eq "$(js 'L.COPY.updatingBackground')" "Updating in the background…" \
-  "copy: ...or says there is no window to look for"
 assert_eq "$(js 'L.COPY.updatingHere')" "Updating…" \
   "copy: ...or nothing at all, when the output is arriving right here"
 assert_eq "$(js 'L.COPY.updatingOffline')" "Staging updates for the next restart…" \
@@ -3495,13 +3493,14 @@ assert_eq "$(js 'L.COPY.updatingOffline')" "Staging updates for the next restart
 assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not Updating? Check for Updates" \
   "copy: the way out of a pane that is waiting for a run nobody is running any more"
 # One surface, one sentence, and no surface without one: the pane switches on the running surface
-# and a fifth value would draw an empty label.
-assert_eq "$(js 'L.SURFACES.length')" "4" "premise: the CLI knows four surfaces"
+# and a fourth value would draw an empty label.
+assert_eq "$(js 'L.SURFACES.length')" "3" "premise: the CLI knows three surfaces"
 assert_eq "$(js 'L.SURFACES.map(function (s) { return L.updatingLabelOf(s); }).filter(function (t) { return t === ""; })')" \
   "[]" "every surface the CLI knows has a sentence for the pane"
 assert_eq "$(js 'L.updatingLabelOf("terminal")')" "$(js 'L.COPY.updatingTerminal')" "terminal names its window"
 assert_eq "$(js 'L.updatingLabelOf("popup")')" "$(js 'L.COPY.updatingHere')" "the in-widget run says nothing extra"
-assert_eq "$(js 'L.updatingLabelOf("background")')" "$(js 'L.COPY.updatingBackground')" "background says so"
+assert_eq "$(js '[L.resolveSurface("background"), L.updatingLabelOf("background") === L.COPY.updatingHere].join("|")')" "popup|true" \
+  "a config from when background was a surface reads as the widget"
 assert_eq "$(js 'L.updatingLabelOf("offline")')" "$(js 'L.COPY.updatingOffline')" "offline is a preparation, not an update"
 # Anything else is terminal, which is what the CLI itself falls back to (resolve_surface).
 assert_eq "$(js 'L.updatingLabelOf("wat")')" "$(js 'L.COPY.updatingTerminal')" \

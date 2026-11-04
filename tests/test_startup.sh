@@ -150,7 +150,7 @@ STUB
 chmod +x "$TESTTMP/apply-stub"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/fp-update-stub"; chmod +x "$TESTTMP/fp-update-stub"
 export KEMPT_APPLY_HELPER="$TESTTMP/apply-stub" KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/fp-update-stub"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 live="$(ls "$HD"/*.json | tail -n 1)"
 assert_json_eq "$(jq -c '.failed_before | {boot_id, system, user}' "$live")" \
   '{"boot_id":"boot-A","system":[{"unit":"cups.service","description":"CUPS Scheduler"}],"user":[]}' \
@@ -162,7 +162,7 @@ assert_json_eq "$(jq -c '.failed_before.enabled' "$live")" '{"system":["sshd.ser
 reset_world
 touch "$SD/down-system" "$SD/down-user"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 assert_eq "$(jq -c 'has("failed_before")' "$(ls "$HD"/*.json | tail -n 1)")" "false" \
   "with systemctl not answering, the entry has no failed_before"
 rm -f "$SD/down-system" "$SD/down-user"
@@ -179,7 +179,7 @@ assert_json_eq "$(jq -c '.failed_before.system' "$M" 2>/dev/null)" '[{"unit":"cu
   "a stage records the baseline in its marker"
 failing system 'cups.service=CUPS Scheduler' 'avahi-daemon.service=Avahi mDNS/DNS-SD Stack'
 touch "$WORLD/no-dnf-change"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 rm -f "$WORLD/no-dnf-change"
 assert_eq "$(jq -c '[.failed_before.system[].unit]' "$M" 2>/dev/null)" '["avahi-daemon.service","cups.service"]' \
   "a live run that rebases the pending stage gives it its own baseline"
@@ -363,7 +363,7 @@ reset_world
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 check >/dev/null
 jq -n '[{unit: "bluetooth.service", load: "loaded", active: "failed", sub: "failed", description: "Bluetooth service"}]' > "$WORLD/breaks"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 rm -f "$WORLD/breaks"
 assert_contains "$(notes)" "Bluetooth service didn't start after the" "a live run's closing check announces a unit the run broke"
 assert_eq "$(startup_state '[.announced[].unit]')" '["bluetooth.service"]' "...and records it"
@@ -374,7 +374,7 @@ reset_world
 check >/dev/null
 assert_eq "$([[ -e "$SD/calls" ]] && echo asked || echo never)" "never" "with notify_startup off, systemd is never asked"
 assert_eq "$(block 'has("startup")')" "false" "...and state.json has no startup block"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 assert_eq "$(jq -c 'has("failed_before")' "$(ls "$HD"/*.json | tail -n 1)")" "false" "...and a run records no baseline"
 "$KEMPT" config set notify_startup true >/dev/null
 
@@ -503,7 +503,7 @@ failing system 'bluetooth.service=Bluetooth service'
 check >/dev/null
 assert_eq "$(note_count)" "0" "premise: a unit that fails with no run since is not announced"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 assert_eq "$(notes | grep -c "didn't start" || true)" "0" "a unit already failing when a live run started is not blamed on it"
 assert_eq "$(startup_state '[.already[].unit]')" '["bluetooth.service"]' "...and is listed as already failing"
 
@@ -525,7 +525,7 @@ touch "$SD/down-user"
 check >/dev/null
 rm -f "$SD/down-user"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 assert_contains "$(notes)" "Foo didn't start after the update." \
   "a run before the waiting scope answered does not make its failure look older than it is"
 

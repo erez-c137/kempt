@@ -324,7 +324,6 @@ p.check("...handing the keyboard back to a control that is on screen",
 
 # The other three surfaces say where to look, which "Updating in the terminal surface…" never did.
 for _surface, _said in (("popup", "Updating…"),
-                        ("background", "Updating in the background…"),
                         ("offline", "Staging updates for the next restart…")):
     ev('root.enterUpdating("%s")' % _surface)
     p.pump(80)

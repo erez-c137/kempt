@@ -302,7 +302,6 @@ stored.
 The widget says where the update is running:
 
 - `Updating in a terminal window…`
-- `Updating in the background…`
 - `Updating…`, with the live log below, for **In this widget**
 - `Staging updates for the next restart…`, when staging.
 
@@ -373,7 +372,7 @@ ask. Runs then use a terminal, and **Install on Next Restart** still stages. You
 when you turn the option on again.
 
 **Run updates in** (`surface`) is **Terminal window**, **In this widget** (the default),
-**In the background** or **On the next restart**.
+or **On the next restart**.
 
 **Check every** (`refresh_interval_min`, 60 minutes by default) sets how often the widget checks.
 The lowest value it offers is 15 minutes.

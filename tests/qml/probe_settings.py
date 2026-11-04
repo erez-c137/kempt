@@ -193,7 +193,7 @@ p.check("each unused-runtimes radio is named with its setting",
 p.check("...and each surface radio",
         ev0(NAMES % {"r": "surfaceRepeater"}),
         "|".join(["Run updates in: Terminal window", "Run updates in: In this widget",
-                  "Run updates in: In the background", "Run updates in: On the next restart"]))
+                  "Run updates in: On the next restart"]))
 p.check("...and each panel-icon-size radio",
         ev0(NAMES % {"r": "iconSizeRepeater"}),
         "|".join(["Panel icon size: Automatic", "Panel icon size: Small",
@@ -251,11 +251,11 @@ for icon_size, want in (("auto", 0), ("medium", 2)):
 # this section would be proving nothing. The other group must not move.
 before_icon = group(evR, "iconSizeRepeater")
 before_reclaim = group(evR, "reclaimRepeater")
-evR("surfaceRepeater.itemAt(3).toggle()")
-evR("surfaceRepeater.itemAt(3).toggled()")
+evR("surfaceRepeater.itemAt(2).toggle()")
+evR("surfaceRepeater.itemAt(2).toggled()")
 p.pump(60)
 p.check("clicking a surface radio moves the surface choice", evR("page.surfaceKey"), "offline")
-p.check("...leaving exactly one of its own buttons checked", group(evR, "surfaceRepeater"), [1, 3])
+p.check("...leaving exactly one of its own buttons checked", group(evR, "surfaceRepeater"), [1, 2])
 p.check("...and the panel-icon-size group exactly as it was",
         group(evR, "iconSizeRepeater"), before_icon)
 p.check("...including the property behind it", evR("page.iconSizeKey"), "medium")
@@ -841,7 +841,7 @@ p.check("...with nothing left outstanding", ev8("page.outstandingWrites"), 0)
 # would decrement a counter that had been reset under them, and the page could reach zero - and
 # report itself saved - with writes still queued.
 toggle_fail(SLOWSET, "surface")
-ev8("page.applySurface('background'); page.markChanged('surface')")
+ev8("page.applySurface('offline'); page.markChanged('surface')")
 p.pump(50)
 p.clear_calls()
 serial8 = ev8("cfgExecutor.serial")
@@ -852,7 +852,7 @@ ev8("page.saveConfig()")
 p.check("a second Apply on top of one still running dispatches nothing extra",
         ev8("cfgExecutor.serial") - serial8, 1)
 p.wait_idle(ev8, "cfgExecutor")
-p.check("...and the single round that ran wrote the value", stored("surface"), "background")
+p.check("...and the single round that ran wrote the value", stored("surface"), "offline")
 p.check("...having called the CLI exactly once", p.call_count("config set surface"), 1)
 p.check("...leaving the page clean exactly once", ev8("page.unsavedChanges"), False)
 toggle_fail(SLOWSET, "include_flatpak", False)

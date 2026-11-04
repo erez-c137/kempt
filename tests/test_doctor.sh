@@ -386,7 +386,7 @@ assert_exit 1 "a missing terminal emulator fails while surface=terminal" \
   env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" doctor
 assert_contains "$(cat "$TESTTMP/last_output")" "terminal emulator 'kempt-no-such-terminal' not found" \
   "the FAIL line names the missing emulator"
-"$KEMPT" config set surface background
+"$KEMPT" config set surface widget
 assert_exit 0 "...but not on a detached surface" \
   env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" doctor
 assert_eq "$(grep -qE "^info .*terminal emulator" "$TESTTMP/last_output" && echo yes || echo no)" "yes" \

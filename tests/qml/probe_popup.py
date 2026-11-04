@@ -198,7 +198,7 @@ case "$1" in
           [[ "$rc" == 3 ]] && { echo "An update is already running." >&2; exit 3; }
           # "2u": exit 2 with the refusal's own words, on a run that had no option to refuse.
           [[ "$rc" == 2u ]] && { echo "unknown option: --risky-ok" >&2; exit 2; }
-          [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit "$rc"; }
+          [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2; exit "$rc"; }
           exit 0 ;;
   update) exit 0 ;;
   discover-notifier)
@@ -460,7 +460,7 @@ open(RUNRC, "w").write("4")
 ev("root.startUpdate()")
 p.wait_for(ev, 'String(root.actionMessage).indexOf("konsole") >= 0', True, timeout_ms=8000)
 p.check("a failed launch reports the CLI's own remedy", ev("root.actionMessage"),
-        "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)")
+        "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)")
 p.check("...and does NOT pretend an update is running", ev("root.updating"), False)
 open(RUNRC, "w").write("0")
 

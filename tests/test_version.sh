@@ -96,7 +96,7 @@ assert_contains "$("$KEMPT" security-ack --help)" "usage: kempt security-ack --e
   "the internal security-ack still answers --help, without running"
 assert_not_contains "$("$KEMPT" --help)" "security-ack" "...and stays out of the full usage"
 assert_contains "$("$KEMPT" check --help)" "Flatpak apps installed" "check's help names the Flatpak apps installed for you only"
-assert_contains "$("$KEMPT" config --help)" "terminal, widget, background" "config's help lists the surface values"
+assert_contains "$("$KEMPT" config --help)" "terminal, widget or offline" "config's help lists the surface values"
 assert_contains "$("$KEMPT" enable-passwordless --help)" "without a password" "enable-passwordless says what it does"
 assert_contains "$("$KEMPT" disable-passwordless --help)" "ask for a password again" "...and so does disable-passwordless"
 assert_not_contains "$("$KEMPT" help)" "popup" "the usage list never says popup"

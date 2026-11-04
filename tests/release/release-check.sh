@@ -157,8 +157,8 @@ su - alice -c "kempt holds" >/dev/null 2>&1 && ok "holds runs on a box that has 
 su - alice -c "kempt summary --json" >/dev/null 2>&1 && ok "summary --json runs with no history" || bad "summary --json failed"
 su - alice -c "kempt history" >/dev/null 2>&1 && ok "history runs with no history" || bad "history failed"
 is "the default surface is the documented one" "$(su - alice -c 'kempt config get surface')" "popup"
-su - alice -c "kempt config set surface background" >/dev/null 2>&1 \
-  && is "...and a setting round-trips" "$(su - alice -c 'kempt config get surface')" "background" \
+su - alice -c "kempt config set surface offline" >/dev/null 2>&1 \
+  && is "...and a setting round-trips" "$(su - alice -c 'kempt config get surface')" "offline" \
   || bad "config set failed"
 su - alice -c "kempt config set surface popup" >/dev/null 2>&1
 su - alice -c "kempt hold dnf:zsh" >/dev/null 2>&1 && is "a hold is recorded" "$(su - alice -c 'kempt holds')" "dnf:zsh" || bad "hold failed"
@@ -218,7 +218,7 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   hold_pkg="$(su - alice -c 'jq -r "[.backends.dnf.items[]?.name] | first // empty" ~/.local/state/kempt/state.json' 2>/dev/null)"
   hold_pkg="${hold_pkg:-jq}"
   su - alice -c "kempt hold dnf:$hold_pkg" >/dev/null 2>&1 || bad "the released version could not hold a package"
-  su - alice -c 'timeout 180 kempt update --surface=background --no-flatpak --risky-ok' </dev/null >/dev/null 2>&1
+  su - alice -c 'timeout 180 kempt update --surface=widget --no-flatpak --risky-ok' </dev/null >/dev/null 2>&1
   su - alice -c 'kempt doctor' >/dev/null 2>&1
   user_files() { su - alice -c 'cd ~ && find .config/kempt .local/state/kempt -type f | LC_ALL=C sort | xargs -r sha256sum'; }
   old_files="$(user_files)"

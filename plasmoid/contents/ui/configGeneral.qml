@@ -584,7 +584,6 @@ KCM.SimpleKCM {
             model: [
                 { key: "terminal",   label: i18n("Terminal window") },
                 { key: "popup",      label: i18n("In this widget") },
-                { key: "background", label: i18n("In the background") },
                 { key: "offline",    label: i18n("On the next restart") }
             ]
 

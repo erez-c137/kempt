@@ -494,7 +494,7 @@ p.check("a watcher tick after the window checks again", p.call_count("check") - 
 # is pending, so re-reading the settings is not enough on its own.
 CONFIG_FILE = os.path.join(p.config, "config")
 os.makedirs(p.config, exist_ok=True)
-open(CONFIG_FILE, "w").write("surface=background\n")
+open(CONFIG_FILE, "w").write("surface=offline\n")
 ev("root.watchStamp = ''; root.pollWatch(false)")      # learn the config file's mtime
 # NOT a fixed pump. An empty baseline learns and fires nothing (main.qml: `previous === ""`), so a
 # stat that has not come back yet turns this assertion into its own opposite: the touch below is

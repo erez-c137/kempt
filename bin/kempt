@@ -848,7 +848,7 @@ resolve_surface() {  # surface → a known surface (single definition: cmd_updat
   local s
   s="$(surface_canon "$1")"
   case "$s" in
-    terminal|popup|background|offline) printf '%s\n' "$s" ;;
+    terminal|popup|offline) printf '%s\n' "$s" ;;
     *) echo "warning: surface='$1' is not a known value, so updates run in a terminal window" >&2; printf 'terminal\n' ;;
   esac
 }
@@ -2386,8 +2386,8 @@ cmd_run() {
       [[ -z "$named_set" ]] || { echo "unknown option: $a (--surface given twice)" >&2; exit 2; }
       named_set=1; named="$(surface_canon "${a#--surface=}")"
       case "$named" in
-        terminal|popup|background|offline) ;;
-        *) echo "unknown --surface value: ${a#--surface=} (use terminal, widget, background or offline)" >&2; exit 2 ;;
+        terminal|popup|offline) ;;
+        *) echo "unknown --surface value: ${a#--surface=} (use terminal, widget or offline)" >&2; exit 2 ;;
       esac ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
@@ -2414,7 +2414,7 @@ cmd_run() {
     # Checked before the dry run too: "what would happen" must include "nothing, you have no
     # terminal emulator".
     command -v "$KEMPT_TERMINAL" >/dev/null \
-      || { echo "Kempt could not find $KEMPT_TERMINAL. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit 4; }
+      || { echo "Kempt could not find $KEMPT_TERMINAL. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2; exit 4; }
     # A named surface is passed on to the update in the window, because `kempt update` reads the
     # configured surface itself: without it, a terminal asked for by name on a box configured to
     # stage would stage in that window. Nothing is added without one, so the default launch is
@@ -2484,7 +2484,7 @@ cmd_run() {
       local why
       if [[ "$RUN_LAUNCH_RC" -ne 0 ]]; then why="$KEMPT_TERMINAL exited $RUN_LAUNCH_RC"
       else why="$KEMPT_TERMINAL opened no window within ${wait_s}s"; fi
-      echo "The terminal window did not open, so the update did not start ($why). Run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2
+      echo "The terminal window did not open, so the update did not start ($why). Run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2
       log_event "run did not start: $why"
       exit 5
     fi
@@ -3307,7 +3307,8 @@ harvest_offline() {
 cmd_config() {
   case "${1:-}" in
     get) [[ -n "${2:-}" && $# -le 3 ]] || { echo "usage: kempt config get <key> [default]" >&2; exit 2; }
-         config_get "$2" "${3-}" ;;
+         if [[ "$2" == surface ]]; then surface_canon "$(config_get "$2" "${3-}")"
+         else config_get "$2" "${3-}"; fi ;;
     set) [[ -n "${2:-}" && -n "${3+x}" && $# -le 3 ]] || { echo "usage: kempt config set <key> <value>" >&2; exit 2; }
          # Warns and stores. See config_warn_unknown: refusing would make this CLI the thing that
          # stops a newer widget writing a key it knows and this build does not.
@@ -4363,12 +4364,12 @@ doctor_tool_rows() {
   # warning nobody can act on.
   local surface auto term_needed=false
   surface="$(surface_canon "$(config_get surface)")"; auto="$(config_get auto_accept)"
-  case "$surface" in popup|background|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
+  case "$surface" in popup|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
   is_true "$auto" || term_needed=true
   if command -v "$KEMPT_TERMINAL" >/dev/null; then
     doctor_ok "terminal emulator: $(command -v "$KEMPT_TERMINAL")"
   elif [[ "$term_needed" == true ]]; then
-    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found, so 'kempt run' exits 4 with surface=terminal. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)"
+    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found, so 'kempt run' exits 4 with surface=terminal. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)"
   else
     doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$(surface_word "$surface")"
   fi
@@ -5591,7 +5592,7 @@ EOF
   update [--no-flatpak] [--surface=X] [--risky-ok]
                         run the update now, in this process. The options override the config
                         for this run. --no-flatpak updates system packages only. --surface=X
-                        picks where it runs: terminal, widget, background or offline, which
+                        picks where it runs: terminal, widget or offline, which
                         stages it for the next restart. --risky-ok leaves out the
                         session-critical notification
 EOF
@@ -5600,8 +5601,8 @@ EOF
   run [--print-command] [--surface=X] [--risky-ok]
                         start an update where the config says, as Update Now does, and return.
                         --print-command prints the launch command and starts nothing.
-                        --surface=X runs this one elsewhere: terminal, widget, background or
-                        offline. --risky-ok as for update, but a terminal run still asks
+                        --surface=X runs this one elsewhere: terminal, widget or offline.
+                        --risky-ok as for update, but a terminal run still asks
 EOF
     ;;
     status) cat <<'EOF'
@@ -5667,8 +5668,7 @@ EOF
     config) cat <<'EOF'
   config get <key> [default]
   config set <key> <value>
-                        read or write a setting. surface takes terminal, widget, background
-                        or offline
+                        read or write a setting. surface takes terminal, widget or offline
 EOF
     ;;
     discover-notifier) cat <<'EOF'

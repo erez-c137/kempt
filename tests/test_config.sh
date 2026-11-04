@@ -24,8 +24,8 @@ assert_eq "$(KEMPT_FLATPAK_LIST_CMD="true list" flatpak_included && echo in || e
 : > "$KEMPT_CONFIG_DIR/config"
 
 assert_eq "$(config_get surface terminal)" "terminal" "default when unset"
-config_set surface background
-assert_eq "$(config_get surface terminal)" "background" "reads set value"
+config_set surface popup
+assert_eq "$(config_get surface terminal)" "popup" "reads set value"
 config_set surface offline
 assert_eq "$(config_get surface terminal)" "offline" "overwrite same key"
 assert_eq "$(grep -c '^surface=' "$KEMPT_CONFIG_DIR/config")" "1" "no duplicate keys"
@@ -152,7 +152,7 @@ grep -q "not a value surface accepts" "$ERR" \
 rc=0; "$KEMPT" config set Bad x 2>"$TESTTMP/cfg-badkey" >/dev/null || rc=$?
 assert_eq "$rc" "2" "an invalid key is refused with exit 2"
 assert_eq "$(cat "$TESTTMP/cfg-badkey")" "invalid config key: Bad" "...and only the invalid-key error is printed"
-for v in terminal widget background offline; do
+for v in terminal widget offline; do
   grep -q "$v" "$ERR" || { echo "FAIL: the warning does not offer $v"; _fail=1; }
 done
 echo "ok: ...and lists every value it does accept"
@@ -233,7 +233,7 @@ assert_eq "$(cat "$TESTTMP/alias.err")" "" "...with no warning, since widget is 
 assert_eq "$("$KEMPT" config get surface)" "popup" "...and config get prints the stored value"
 "$KEMPT" config set surface " Widget " 2>/dev/null
 assert_eq "$(grep '^surface=' "$KEMPT_CONFIG_DIR/config")" "surface=popup" "...trimmed and in any case, as surfaces are read"
-assert_contains "$("$KEMPT" config set surface bogus 2>&1)" "Accepted: terminal, widget, background, offline" \
+assert_contains "$("$KEMPT" config set surface bogus 2>&1)" "Accepted: terminal, widget, offline" \
   "the warning for an unknown surface names widget"
 assert_not_contains "$("$KEMPT" config set surface bogus 2>&1)" "popup" "...and never the stored word"
 assert_eq "$(surface_word popup)|$(surface_word offline)" "widget|offline" "surface_word shows popup as widget and leaves the rest"

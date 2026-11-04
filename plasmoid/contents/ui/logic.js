@@ -125,7 +125,6 @@ var COPY = {
     // One sentence per surface, each naming where to look, and staging says what it is rather than
     // calling itself an update. Never the CONFIGURED surface, and never the word "surface".
     updatingTerminal: "Updating in a terminal window…",
-    updatingBackground: "Updating in the background…",
     updatingHere: "Updating…",
     updatingOffline: "Staging updates for the next restart…",
     // ...and the way out. Only a state.json change ends the updating state, and a terminal run
@@ -653,7 +652,7 @@ function isArray(v) { return Object.prototype.toString.call(v) === "[object Arra
 function arrayOf(v) { return isArray(v) ? v : []; }
 
 // The run surfaces the CLI knows, in the order the settings page offers them.
-var SURFACES = ["terminal", "popup", "background", "offline"];
+var SURFACES = ["terminal", "popup", "offline"];
 // What a config with no `surface` key runs on: lib/common.sh's kempt_default, which this twins.
 // A value the CLI does not recognise is a different case and still means terminal (resolveSurface).
 var DEFAULT_SURFACE = "popup";
@@ -670,10 +669,11 @@ function isTrue(value) {
 
 // resolveSurface(s) -> a surface the CLI recognises, mirroring bin/kempt's resolve_surface():
 // anything unknown is `terminal`, because that is what the CLI itself would run.
-// `widget` is the CLI's other name for the stored `popup` (lib/common.sh, surface_canon).
+// `widget` is the CLI's other name for the stored `popup`, and an older config's `background`
+// reads as it too (lib/common.sh, surface_canon).
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
-    if (s === "widget") s = "popup";
+    if (s === "widget" || s === "background") s = "popup";
     return SURFACES.indexOf(s) >= 0 ? s : "terminal";
 }
 
@@ -684,7 +684,6 @@ function resolveSurface(value) {
 function updatingLabelOf(surface) {
     switch (resolveSurface(surface)) {
     case "popup":      return COPY.updatingHere;
-    case "background": return COPY.updatingBackground;
     case "offline":    return COPY.updatingOffline;
     default:           return COPY.updatingTerminal;
     }
@@ -3057,8 +3056,7 @@ function viewModel(state, updating, cliError, opts) {
     // Whether Update Now asks before it runs: a risky set, a route to the next restart, and a run
     // that would install it live with nobody asked. A terminal asks for itself, and the offline
     // surface already is the next restart.
-    var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute
-        && (runSurface === "popup" || runSurface === "background");
+    var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute && runSurface === "popup";
     var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
     // Nothing of Kempt's staged behind that restart: the banner stands by itself. Not beside what
     // the release-upgrade and image-based messages already say about the same restart.

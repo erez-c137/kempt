@@ -169,7 +169,7 @@ push_history_back() {
   done
 }
 
-"$KEMPT" config set surface background
+"$KEMPT" config set surface widget
 "$KEMPT" hold dnf:vim-common
 
 out="$("$KEMPT" update)"
@@ -277,7 +277,7 @@ assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" \
 "$KEMPT" unhold flatpak:net.mkiol.SpeechNote
 : > "$WORLD/apply-calls"
 fl_rc=0
-fl_err="$(KEMPT_FLATPAK_REMOTE_CMD=false "$KEMPT" update --surface=background 2>&1 >/dev/null)" || fl_rc=$?
+fl_err="$(KEMPT_FLATPAK_REMOTE_CMD=false "$KEMPT" update --surface=widget 2>&1 >/dev/null)" || fl_rc=$?
 fl_hist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .backends.flatpak.status "$fl_hist")" "failed" \
   "a flatpak hold with a failed update lookup reports flatpak failed, not ok"
@@ -293,7 +293,7 @@ assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" "..
 : > "$WORLD/apply-calls"
 nofp_rc=0
 KEMPT_FLATPAK_LIST_CMD="kempt-no-such-flatpak list" KEMPT_FLATPAK_SNAP_CMD="kempt-no-such-flatpak list" \
-  "$KEMPT" update --surface=background >/dev/null 2>&1 || nofp_rc=$?
+  "$KEMPT" update --surface=widget >/dev/null 2>&1 || nofp_rc=$?
 nofp_hist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$nofp_rc" "0" "no flatpak at the default: the run succeeds"
 assert_eq "$(jq -r .backends.flatpak.status "$nofp_hist")" "skipped" "...with Flatpak skipped, not failed"
@@ -1081,7 +1081,7 @@ rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 # BEFORE touching anything - loudly, with its own exit code, and the detached user is told.
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 prc=0
-perr="$(KEMPT_DNF_INSTALLED_CMD=false "$KEMPT" update --surface=background 2>&1 >/dev/null)" || prc=$?
+perr="$(KEMPT_DNF_INSTALLED_CMD=false "$KEMPT" update --surface=widget 2>&1 >/dev/null)" || prc=$?
 assert_eq "$prc" "5" "unreadable package set aborts pre-flight with exit 5"
 grep -q 'cannot read the installed package set' <<<"$perr" \
   && echo "ok: pre-flight failure says what went wrong" || { echo "FAIL: preflight message - got: $perr"; _fail=1; }
@@ -1260,7 +1260,7 @@ grep -qE '^      graphics drivers \(mesa\) +2 packages' <<<"$unl" \
   printf 'kwin-x11.x86_64   6.5.1-1.fc44   updates\n'
   printf 'kernel-devel.x86_64   6.15.4-200.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
 : > "$WORLD/notifications"
-"$KEMPT" update --surface=background >/dev/null 2>&1
+"$KEMPT" update --surface=widget >/dev/null 2>&1
 grep -qF 'This update includes 20 packages your running session depends on (the Linux kernel, KDE framework libraries, the window manager, graphics drivers, ...). Restart after it finishes.' "$WORLD/notifications" \
   && echo "ok: notification summarises by family, capped at 4" || { echo "FAIL: family summary - got: $(cat "$WORLD/notifications")"; _fail=1; }
 grep -q 'qtmod' "$WORLD/notifications" && { echo "FAIL: individual names leaked into the notification"; _fail=1; } \
@@ -1290,13 +1290,13 @@ wait "$bgpid" || true
 # A detached surface must not prompt even when it happens to have a terminal on stdin: the surface
 # itself says nobody is watching, and a background run must never block waiting on a human.
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
-KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=background <<<"a" >/dev/null 2>&1
-grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: background surface proceeds instead of prompting" \
-  || { echo "FAIL: background surface prompted and was aborted"; _fail=1; }
+KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"a" >/dev/null 2>&1
+grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: detached surface proceeds instead of prompting" \
+  || { echo "FAIL: detached surface prompted and was aborted"; _fail=1; }
 
 # detached surface: nobody is there to answer a prompt, so it warns and proceeds
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
-"$KEMPT" update --surface=background >/dev/null 2>&1
+"$KEMPT" update --surface=widget >/dev/null 2>&1
 grep -q 'running session depends on' "$WORLD/notifications" && echo "ok: detached surface gets a heads-up" || { echo "FAIL: detached heads-up"; _fail=1; }
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: detached surface proceeds anyway" || { echo "FAIL: detached proceed"; _fail=1; }
 
@@ -1306,7 +1306,7 @@ grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: detached surface p
 ( flock -n 9 && sleep 3 ) 9>"$KEMPT_STATE_DIR/lock" &
 lockpid=$!
 sleep 0.4
-lockrc=0; "$KEMPT" update --surface=background >/dev/null 2>&1 || lockrc=$?
+lockrc=0; "$KEMPT" update --surface=widget >/dev/null 2>&1 || lockrc=$?
 assert_eq "$lockrc" "3" "premise: the run is stopped by the held lock"
 assert_eq "$(grep -c 'running session depends on' "$WORLD/notifications")" "0" \
   "a run stopped by the lock sends no session-critical heads-up"
@@ -1589,7 +1589,7 @@ ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
 : > "$WORLD/apply-calls"
 # Without cmp on PATH (nocmp_dir): "the stage is still pending" and "the set moved" are decided
 # from content, not from a diffutils binary a minimal box may not have.
-PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
   && echo "ok: a live rpm change discards the stage it invalidated" \
   || { echo "FAIL: the superseded stage was left armed and doomed"; _fail=1; }
@@ -1601,7 +1601,7 @@ grep -q 'offline stage dropped (superseded by live update)' "$KEMPT_STATE_DIR/ev
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
 comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
 assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "1" "the live run records ONE entry, not one plus a phantom harvest"
-assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "background" "the entry is the live run, not a mislabelled harvest"
+assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "popup" "the entry is the live run, not a mislabelled harvest"
 
 # The same supersede behind another updater's /system-update: dnf5's clean would remove that
 # symlink too, and with it the other updater's restart install. Kempt's stage cannot install
@@ -1614,7 +1614,7 @@ push_history_back
 ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
 : > "$WORLD/apply-calls"
 KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" \
-  "$KEMPT" update --surface=background --no-flatpak --risky-ok >/dev/null 2>&1
+  "$KEMPT" update --surface=widget --no-flatpak --risky-ok >/dev/null 2>&1
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "a live run behind another updater's symlink never runs the clean that would remove it"
 assert_exit 0 "...while the superseded marker goes" -- test ! -f "$marker"
@@ -1638,7 +1638,7 @@ transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 push_history_back
 : > "$WORLD/apply-calls"
-"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+"$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
 assert_exit 0 "a run that changed no rpm leaves the pending stage alone" -- test -f "$marker"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and never discards it"
@@ -1658,7 +1658,7 @@ rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 sup_pre="$(jq -r .pre_snapshot "$marker")"
 push_history_back
 : > "$WORLD/apply-calls"
-"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
   && echo "ok: a failed live run that moved rpms discards the stage it invalidated" \
   || { echo "FAIL: a failed live run left the superseded stage advertised"; _fail=1; }
@@ -1678,7 +1678,7 @@ cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 push_history_back
-"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
 assert_exit 0 "a superseded stage whose clean failed keeps its marker for the doctor" -- test -f "$marker"
 assert_eq "$(jq -r .armed "$marker")" "false" "...marked as no longer armed"
 assert_eq "$(jq -r '.offline_staged // "none"' "$KEMPT_STATE_DIR/state.json")" "none" \
@@ -1824,7 +1824,7 @@ relpre="$(jq -r .pre_snapshot "$marker")"
 push_history_back
 : > "$WORLD/apply-calls"
 release_upgrade_staged   # ...and now theirs is the one that is stored
-PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "a live run never cleans a transaction Kempt did not stage"
 assert_exit 0 "...but our marker goes, because it describes one dnf5 already threw away" \
@@ -1898,7 +1898,7 @@ push_history_back
 { ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null || true; } | sort > "$TESTTMP/hist-logro-before.txt"
 logro_end="$(grep -cE 'run done rc=0|run failed rc=1' "$KEMPT_STATE_DIR/events.log" || true)"
 : > "$WORLD/apply-calls"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 chmod 644 "$KEMPT_STATE_DIR"/logs/*.log 2>/dev/null || true
 { ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null || true; } | sort > "$TESTTMP/hist-logro-after.txt"
 logro_hist="$(comm -13 "$TESTTMP/hist-logro-before.txt" "$TESTTMP/hist-logro-after.txt" | head -1)"
@@ -1930,7 +1930,7 @@ cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 before_done="$(grep -c 'run done rc=0' "$KEMPT_STATE_DIR/events.log" || true)"
 before_lost="$(grep -c 'history entry not written' "$KEMPT_STATE_DIR/events.log" || true)"
 rc=0
-TMPDIR="$RUN_TMP" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || rc=$?
+TMPDIR="$RUN_TMP" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || rc=$?
 chmod 700 "$RUN_TMP"
 assert_eq "$rc" "0" "a run whose temp directory fills after the update is still a successful run"
 assert_eq "$(grep -c 'run done rc=0' "$KEMPT_STATE_DIR/events.log")" "$(( before_done + 1 ))" \
@@ -1984,7 +1984,7 @@ cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 : > "$WORLD/notifications"
 touch "$TESTTMP/ostree-booted"
 rc=0
-ibout="$(KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" update --surface=background --no-flatpak 2>&1)" || rc=$?
+ibout="$(KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" update --surface=widget --no-flatpak 2>&1)" || rc=$?
 assert_eq "$rc" "5" "on an image-based system the run aborts in pre-flight, having changed nothing"
 assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "...with nothing escalated and nothing run"
 case "$ibout" in
@@ -2008,7 +2008,7 @@ assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0
   "...having staged nothing"
 # The seam is a FILE TEST, so an ordinary Fedora - where the file does not exist - is untouched.
 : > "$WORLD/apply-calls"
-"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+"$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" \
   && echo "ok: an ordinary Fedora updates exactly as before" \
   || { echo "FAIL: the ostree gate fired on an ordinary box"; _fail=1; }
@@ -2176,7 +2176,7 @@ STUB
 : > "$WORLD/apply-calls"
 export KEMPT_RETRY_DELAY=0
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: the mixed log must be this run's alone
-assert_exit 1 "a lock-then-disk run fails" "$KEMPT" update --surface=background
+assert_exit 1 "a lock-then-disk run fails" "$KEMPT" update --surface=widget
 mixed_log="$(ls -t "$KEMPT_STATE_DIR"/logs/*.log | awk 'NR==1')"
 assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "3" "the dnf lock error is retried three times"
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" "...and the flatpak disk error is tried exactly once"
@@ -2204,7 +2204,7 @@ STUB
   chmod +x "$TESTTMP/fp-update-stub"
   : > "$WORLD/apply-calls"
   rm -f "$KEMPT_STATE_DIR"/logs/*.log
-  "$KEMPT" update --surface=background >/dev/null 2>&1 || true
+  "$KEMPT" update --surface=widget >/dev/null 2>&1 || true
   assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "3" "flatpak lock wording retried: $label"
 done <<'CASES'
 libflatpak, path at the end|error: Unable to lock /var/lib/flatpak/repo/.lock: Resource temporarily unavailable
@@ -2223,7 +2223,7 @@ exit 1
 STUB
 chmod +x "$TESTTMP/fp-update-stub"
 : > "$WORLD/apply-calls"
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls")" "1" \
   "an UNlock failure is not a lock to wait on, and is tried once"
 
@@ -2238,7 +2238,7 @@ STUB
 chmod +x "$TESTTMP/fp-update-stub"
 : > "$WORLD/notifications"
 push_history_back; rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: this run's lines only
-rc=0; "$KEMPT" update --surface=background >/dev/null 2>&1 || rc=$?
+rc=0; "$KEMPT" update --surface=widget >/dev/null 2>&1 || rc=$?
 assert_eq "$rc" "7" "a busy Flatpak lock exits 7 after the retries"
 fpb_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r .status "$fpb_hist")" "failed" "...and the run is recorded as failed"
@@ -2263,7 +2263,7 @@ exit 0
 STUB
 chmod +x "$TESTTMP/apply-stub"
 push_history_back; rm -f "$KEMPT_STATE_DIR"/logs/*.log
-rc=0; "$KEMPT" update --surface=background >/dev/null 2>&1 || rc=$?
+rc=0; "$KEMPT" update --surface=widget >/dev/null 2>&1 || rc=$?
 assert_eq "$rc" "1" "a dnf failure followed by a busy Flatpak lock exits 1"
 fpb2="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 case "$(jq -r .error "$fpb2")" in
@@ -2285,7 +2285,7 @@ cat > "$TESTTMP/fp-update-stub" <<STUB
 sed -i 's/^org\.gimp\.GIMP\t.*/org.gimp.GIMP\t3.0.4/' "$WORLD/fp.tsv"
 STUB
 push_history_back; rm -f "$KEMPT_STATE_DIR"/logs/*.log
-rc=0; "$KEMPT" update --surface=background >/dev/null 2>&1 || rc=$?
+rc=0; "$KEMPT" update --surface=widget >/dev/null 2>&1 || rc=$?
 bf_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$rc" "7" "dnf busy while Flatpak updated an app still exits 7"
 assert_eq "$(jq -r '.backends.flatpak.updated | length' "$bf_hist")" "1" "...with the Flatpak update in the history entry"
@@ -2311,7 +2311,7 @@ STUB
   : > "$WORLD/apply-calls"
   rm -f "$KEMPT_STATE_DIR"/logs/*.log
   # </dev/null: the loops below feed this function from the fixture on stdin.
-  "$KEMPT" update --surface=background --no-flatpak </dev/null >/dev/null 2>&1 || true
+  "$KEMPT" update --surface=widget --no-flatpak </dev/null >/dev/null 2>&1 || true
   assert_eq "$(grep -c '^APPLY' "$WORLD/apply-calls")" "$2" "$3: $1"
 }
 while IFS= read -r line; do
@@ -2368,7 +2368,7 @@ cp "$TESTTMP/rb-applied.tsv" "$WORLD/rpm.tsv"   # the reboot applied it; no chec
 simulate_reboot
 push_history_back   # per-second names: move the staging entry off the second the live run will use
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
-"$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+"$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
 [[ ! -f "$marker" ]] && echo "ok: an already-applied stage is harvested, never swallowed by a rebase" \
   || { echo "FAIL: the staged transaction was folded into the baseline and lost"; _fail=1; }
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
@@ -2378,7 +2378,7 @@ off_entry=/dev/null; live_entry=/dev/null
 while IFS= read -r f; do
   case "$(jq -r '.surface // ""' "$f" 2>/dev/null)" in
     "offline (applied on reboot)") off_entry="$f" ;;
-    background) live_entry="$f" ;;
+    popup) live_entry="$f" ;;
   esac
 done < "$TESTTMP/hist-new.txt"
 [[ "$off_entry" != /dev/null ]] && echo "ok: the staged transaction gets its own history entry" \
@@ -2413,7 +2413,7 @@ pre_c="$(jq -r .pre_snapshot "$marker")"
 cp "$pre_c" "$TESTTMP/baseline-copy.tsv"
 : > "$WORLD/apply-calls"
 push_history_back   # per-second names: the live run must not overwrite the staging run's entry
-KEMPT_DNF_INSTALLED_CMD="$TESTTMP/partial-installed" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+KEMPT_DNF_INSTALLED_CMD="$TESTTMP/partial-installed" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
 assert_exit 0 "a truncated after-snapshot leaves the marker in place" -- test -f "$marker"
 assert_exit 0 "...and never overwrites its baseline with the truncation" -- cmp -s "$pre_c" "$TESTTMP/baseline-copy.tsv"
 assert_eq "$(ls -1a "$KEMPT_STATE_DIR"/snapshots/.atomic.* 2>/dev/null | wc -l)" "0" "the rebase leaves no temp files behind"
@@ -2571,7 +2571,7 @@ chmod +x "$TESTTMP/backwards-clock/date"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
-PATH="$TESTTMP/backwards-clock:$PATH" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
+PATH="$TESTTMP/backwards-clock:$PATH" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
 assert_exit 0 "...the fake clock really was consulted" -- test -e "$TESTTMP/backwards-clock/started"
 hb="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_eq "$(jq -r .duration_sec "$hb")" "0" "a run whose clock stepped backwards records a duration of 0, never a negative one"
@@ -2615,7 +2615,7 @@ assert_eq "$(jq -r .status "$he")" "ok" "an end-of-life notice does not fail the
 # A lookup that fails costs the note and nothing else: the update is already over.
 export KEMPT_FLATPAK_APP_RUNTIME_CMD=false
 push_history_back
-"$KEMPT" update --surface=background >/dev/null 2>&1 || true
+"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 he="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_eq "$(jq -c .backends.flatpak.eol "$he")|$(jq -r .status "$he")" "[]|ok" \
   "a failed app lookup records no notes and the run still succeeds"
@@ -2688,7 +2688,7 @@ rc_offer() {
   "$KEMPT" check >/dev/null 2>&1 || true
 }
 rc_update() { push_history_back; : > "$WORLD/notifications"
-              "$KEMPT" update --surface=background >/dev/null 2>&1 || true
+              "$KEMPT" update --surface=widget >/dev/null 2>&1 || true
               RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"; }
 rc_calls() { cat "$RC/calls" 2>/dev/null || echo "(none)"; }
 
@@ -2701,7 +2701,7 @@ assert_eq "$(jq -c '.backends.flatpak.reclaimed' "$RH")" "null" "...and its hist
 
 "$KEMPT" config set reclaim automatic >/dev/null
 rc_offer
-rsum="$(push_history_back; : > "$WORLD/notifications"; "$KEMPT" update --surface=background 2>/dev/null)" || true
+rsum="$(push_history_back; : > "$WORLD/notifications"; "$KEMPT" update --surface=widget 2>/dev/null)" || true
 RH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_eq "$(rc_calls)" "UNINSTALL runtime/org.freedesktop.Platform/x86_64/24.08 runtime/org.kde.Platform/x86_64/5.15-23.08
 UNINSTALL runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra runtime/org.freedesktop.Platform.Locale/x86_64/24.08" \
@@ -2833,7 +2833,7 @@ export KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_UPDATE_CMD="$TES
        KEMPT_FLATPAK_USER_LIST_CMD="cat $WORLD/u-fp.tsv" KEMPT_FLATPAK_USER_SNAP_CMD="cat $WORLD/u-fp.tsv"
 for h in $(grep '^flatpak:' "$KEMPT_CONFIG_DIR/holds" 2>/dev/null || true); do "$KEMPT" unhold "$h" >/dev/null; done
 uf_update() { cp "$TESTTMP/u-before.tsv" "$WORLD/u-fp.tsv"; : > "$WORLD/apply-calls"; push_history_back
-              UF_OUT="$("$KEMPT" update --surface=background 2>/dev/null)" || true
+              UF_OUT="$("$KEMPT" update --surface=widget 2>/dev/null)" || true
               UH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"; }
 
 uf_update
@@ -2929,7 +2929,7 @@ printf '#!/usr/bin/env bash\necho "FLATPAK $@" >> "%s/apply-calls"\necho "error:
 chmod +x "$TESTTMP/fp-busy-stub"
 uf_busy_update() { cp "$TESTTMP/u-before.tsv" "$WORLD/u-fp.tsv"; : > "$WORLD/apply-calls"; push_history_back
                    UF_RC=0; KEMPT_RETRY_DELAY=0 KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/fp-busy-stub" \
-                     "$KEMPT" update --surface=background >/dev/null 2>&1 || UF_RC=$?
+                     "$KEMPT" update --surface=widget >/dev/null 2>&1 || UF_RC=$?
                    UH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"; }
 uf_busy_update
 assert_eq "$UF_RC" "7" "a busy system installation with the per-user one fine still exits 7"
@@ -2953,7 +2953,7 @@ printf '#!/usr/bin/env bash\necho "APPLY $@" >> "%s/apply-calls"\necho "Failed t
 chmod +x "$TESTTMP/apply-busy-stub"
 cp "$TESTTMP/u-before.tsv" "$WORLD/u-fp.tsv"; : > "$WORLD/apply-calls"; push_history_back
 UF_RC=0; KEMPT_RETRY_DELAY=0 KEMPT_APPLY_HELPER="$TESTTMP/apply-busy-stub" KEMPT_FLATPAK_USER_SNAP_CMD=false \
-  "$KEMPT" update --surface=background >/dev/null 2>&1 || UF_RC=$?
+  "$KEMPT" update --surface=widget >/dev/null 2>&1 || UF_RC=$?
 UH="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_eq "$UF_RC" "1" "a busy dnf lock and per-user apps unreadable before the run exit 1"
 assert_contains "$(jq -r .error "$UH")" "another program is using the package system" "...the reason names the busy lock"

@@ -15,8 +15,15 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$KEMPT_TERMINAL"; chmod +x "$KEMPT_TER
 # --print-command prints the launch plan instead of spawning anything
 "$KEMPT" config set surface terminal
 assert_eq "$("$KEMPT" run --print-command)" "terminal: $KEMPT_TERMINAL -e kempt update" "terminal plan"
-"$KEMPT" config set surface background
-assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=background)" "background plan"
+# A config from when `background` was a surface of its own runs in the widget.
+printf 'surface=background\n' >> "$KEMPT_CONFIG_DIR/config"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=widget)" "a saved background runs in the widget"
+assert_eq "$("$KEMPT" config get surface)" "popup" "...and reads as such"
+assert_eq "$("$KEMPT" run --print-command --surface=background)" "detached: kempt update (surface=widget)" \
+  "...and so does a script that names it"
+"$KEMPT" config set surface background 2>"$TESTTMP/bg.err"
+assert_eq "$(grep '^surface=' "$KEMPT_CONFIG_DIR/config")|$(cat "$TESTTMP/bg.err")" "surface=popup|" \
+  "...and setting it stores the widget, with no warning"
 "$KEMPT" config set surface popup
 assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=widget)" "popup plan"
 # --risky-ok, after Install Now in the popup, reaches the detached update and nothing else.
@@ -72,7 +79,7 @@ assert_eq "$("$KEMPT" run --print-command 2>&1)" "detached: kempt update (surfac
   "a hand-written surface=widget runs in the widget, with no warning"
 assert_eq "$("$KEMPT" run --print-command --surface=Widget 2>&1)" "detached: kempt update (surface=widget)" \
   "--surface=widget is accepted as the widget"
-assert_contains "$("$KEMPT" run --print-command --surface=bogus 2>&1)" "use terminal, widget, background or offline" \
+assert_contains "$("$KEMPT" run --print-command --surface=bogus 2>&1)" "use terminal, widget or offline" \
   "an unknown --surface value names widget among the choices"
 
 # --- --surface=<s>: one run on a named surface, whatever the setting says -----------------------
@@ -102,7 +109,7 @@ assert_eq "$("$KEMPT" run --print-command --surface=popup)" "terminal: $KEMPT_TE
 # rather than quietly turned into a terminal the way a mistyped setting is.
 rc=0; surferr="$("$KEMPT" run --print-command --surface=bogus 2>&1 >/dev/null)" || rc=$?
 assert_eq "$rc" "2" "run: an unknown --surface is refused (exit 2)"
-assert_eq "$surferr" "unknown --surface value: bogus (use terminal, widget, background or offline)" \
+assert_eq "$surferr" "unknown --surface value: bogus (use terminal, widget or offline)" \
   "...naming the surfaces there are"
 assert_exit 2 "run: an empty --surface is refused" "$KEMPT" run --print-command --surface=
 assert_exit 2 "run: --surface given twice is refused" \
@@ -123,7 +130,7 @@ assert_exit 4 "missing terminal emulator is a loud failure" \
   env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --print-command
 termerr="$(KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" run --print-command 2>&1 >/dev/null || true)"
 assert_eq "$termerr" \
-  "Kempt could not find kempt-no-such-terminal. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" \
+  "Kempt could not find kempt-no-such-terminal. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" \
   "the error names the emulator, the command and the control that change it"
 
 # --- the terminal run ends the widget's updating state, however that window exits ---------------
@@ -419,9 +426,9 @@ assert_eq "$rc" "3" "with an update holding the lock, a terminal run is refused 
 assert_eq "$lockerr" "An update is already running." "...in a sentence the widget can show as it is"
 sleep 0.5
 assert_eq "$([[ -e "$TESTTMP/term-argv" ]] && echo launched || echo nothing)" "nothing" "...and no window is opened"
-"$KEMPT" config set surface background
+"$KEMPT" config set surface widget
 rc=0; "$KEMPT" run 2>/dev/null || rc=$?
-assert_eq "$rc" "3" "a background run is refused the same way"
+assert_eq "$rc" "3" "a detached run is refused the same way"
 # ...and so is a stage asked for by name, which is how the widget's Install on Next Restart reaches
 # the CLI. A detached `kempt update` would refuse with an exit 3
 # nobody reads, and the popup would wait in its updating pane for a stage that never began.
