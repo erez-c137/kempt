@@ -65,7 +65,8 @@ update leaves the kernel out:
 The header reads one of:
 
 - `3 updates available`. The count has no cap.
-- `No updates found 5 days ago` after a failed check, dated by the older of that check and its lists.
+- `Last check failed` when a check failed and nothing is waiting. The footer and the tooltip give
+  the age of the last good check.
 - `Up to date`, `Up to date · 2 held` when every pending update is held, or
   `Up to date · apps for you only not checked` when the apps installed for you alone could not be
   listed.

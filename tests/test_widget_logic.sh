@@ -278,26 +278,22 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,hel
   "x · Last successful check 1 day ago" "the stale tooltip gives the age of the counts in words"
 
 # --- a failed check never says "Up to date" ------------------------------------------------------
-# The header says when updates were last looked for, by whichever clock is older: a check an hour
-# ago that answered from five-day-old lists has not looked for an hour.
+# It says the check failed, however old the last good one. The footer and the tooltip keep the age.
 NF_NOW='{nowMs:Date.parse("2026-08-27T10:00:00+03:00")}'
 nf() { js "L.viewModel({schema:1,status:\"stale\",error:\"x\",actionable:0,held_total:0,backends:{},$1},false,\"\",$NF_NOW).$2"; }
 NF_HOUR='last_success:"2026-08-27T09:00:00+03:00"'
-NF_OLD='metadata_refreshed:"2026-08-22T10:00:00+03:00"'
-assert_eq "$(nf "$NF_HOUR" headerText)" "No updates found 1 hour ago" "failed check, nothing waiting: says when it last found nothing"
-assert_eq "$(nf "$NF_HOUR" tooltipMain)" "No updates found 1 hour ago" "...and the tooltip's title says the same"
-assert_eq "$(nf "$NF_HOUR,$NF_OLD" headerText)" "No updates found 5 days ago" "...by the older clock when the lists are older"
-assert_eq "$(nf 'last_success:"2026-08-22T10:00:00+03:00",metadata_refreshed:"2026-08-27T09:00:00+03:00"' headerText)" \
-  "No updates found 5 days ago" "...and by the older clock when the check is older"
-assert_eq "$(nf "$NF_HOUR,metadata_refreshed:\"not a date\"" headerText)" "No updates found 1 hour ago" "...an unreadable list stamp is no clock"
-assert_eq "$(nf 'last_success:"not a date"' headerText)" "Last check failed" "an unreadable check stamp: no time, and no Up to date"
+assert_eq "$(nf "$NF_HOUR" headerText)" "Last check failed" "failed check, nothing waiting: says the check failed"
+assert_eq "$(nf "$NF_HOUR" tooltipMain)" "Last check failed" "...and the tooltip's title says the same"
+assert_eq "$(nf 'last_success:"not a date"' headerText)" "Last check failed" "...also with an unreadable check stamp"
 assert_eq "$(nf "$NF_HOUR,backends:{dnf:{items:[{name:\"bash\",from:\"1\",to:\"2\",held:true}]}}" headerText)" \
-  "No updates found 1 hour ago · 1 held" "...the held count stays beside it"
+  "Last check failed · 1 held" "...the held count stays beside it"
 assert_eq "$(nf 'backends:{dnf:{items:[{name:"bash",from:"1",to:"2",held:true}]}}' headerText)" \
   "Last check failed · 1 held" "...also with no successful check on record"
 assert_eq "$(nf "$NF_HOUR,backends:{flatpak:{scopes:{user:\"failed\"}}}" headerText)" \
-  "No updates found 1 hour ago · apps for you only not checked" "...and so does the unchecked apps note"
-assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{},$NF_HOUR,$NF_OLD},false,\"\",$NF_NOW).headerText")" \
+  "Last check failed · apps for you only not checked" "...and so does the unchecked apps note"
+assert_contains "$(nf "$NF_HOUR" tooltipSub)" "1 hour ago" "...and the tooltip keeps the age"
+assert_contains "$(nf "$NF_HOUR" footerText)" "1 hour ago" "...and so does the footer"
+assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{},$NF_HOUR},false,\"\",$NF_NOW).headerText")" \
   "Up to date" "premise: a check that succeeded still says Up to date"
 
 # --- stale is CALM: last-known contents, explained in the tooltip, never an alarm --------------

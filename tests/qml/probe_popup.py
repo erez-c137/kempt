@@ -4027,8 +4027,7 @@ _ASSEMBLED_IN_LOGIC = {
     "restartHeldBanner",    # -> vm.stagedBanner and vm.stagedMessage
     "restartHeldFooter",    # -> lastRunText
     "restartHeldAsk",       # -> vm.heldChoiceMessage
-    "noUpdatesFound",       # -> vm.headerText and vm.tooltipMain, over a failed check with nothing waiting
-    "lastCheckFailedHeader",  # -> the same, when that check has no readable date
+    "lastCheckFailedHeader",  # -> vm.headerText and vm.tooltipMain, over a failed check with nothing waiting
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

@@ -217,7 +217,6 @@ var COPY = {
     // DATES those counts. The CLI's reason goes in the tooltip of the button that tries again.
     lastCheckFailed: "last check failed",
     // ...and the header in place of "Up to date" when that check found nothing waiting.
-    noUpdatesFound: "No updates found",
     lastCheckFailedHeader: "Last check failed",
     // ...and while the per-user apps could not be listed. The rest of the check stands, so this is
     // a footer fact like the one above. The sentence replaces "Everything is up to date".
@@ -2034,15 +2033,6 @@ function metadataAgeText(iso, nowMs, floorMs) {
     return "lists " + Math.floor(age / 60000) + " min old";
 }
 
-// nothingFoundPhrase(state, nowMs) -> the header over a failed check with nothing waiting. Dated by
-// the older of the check and the lists it read, because that is when updates were last looked for.
-function nothingFoundPhrase(state, nowMs) {
-    var checked = stampMs(state.last_success);
-    if (!isRenderableStamp(state.last_success) || !isFinite(checked)) return COPY.lastCheckFailedHeader;
-    var older = stampMs(state.metadata_refreshed) < checked ? state.metadata_refreshed : state.last_success;
-    return COPY.noUpdatesFound + " " + relativeTime(older, nowMs);
-}
-
 // refreshMissed(state, askedMs) -> whether the check a Check for Updates press started at `askedMs`
 // answered without fresh metadata: the refresh was skipped (battery, metered) or failed (offline).
 // metadata_refreshed has whole seconds, so `askedMs` is floored to its second. With no stamp (the
@@ -3009,8 +2999,8 @@ function viewModel(state, updating, cliError, opts) {
         // a box whose every pending update is held would draw. Nothing is ACTIONABLE, which is
         // what the badge and the button are about; the header is the sentence, and the sentence
         // owes the held count.
-        // ...and a failed check has not looked, so it says when something last did.
-        var nothingWaiting = stale ? nothingFoundPhrase(state, opts.nowMs) : COPY.upToDate;
+        // ...and a failed check has not looked. The footer and the tooltip say when something last did.
+        var nothingWaiting = stale ? COPY.lastCheckFailedHeader : COPY.upToDate;
         countPhrase = actionable === 0
             ? (heldTotal > 0 ? nothingWaiting + DOT + heldTotal + " " + COPY.held
                 : userUnchecked ? nothingWaiting + DOT + COPY.userAppsUncheckedShort : nothingWaiting)

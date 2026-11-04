@@ -21,8 +21,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Fixed
 
 - **A failed check no longer says "Up to date".** With nothing waiting, the widget and `kempt status`
-  now say "No updates found 5 days ago", dated by the older of the last good check and the package
-  lists it read.
+  now say "Last check failed". The footer and the tooltip say how long ago the last good check was.
 - **A failed update still reads as failed after the widget is reopened.** The Last update row now
   starts "Last update failed", with the reason under it.
 - **The footer no longer cuts off "restart pending".** It takes a second line when it needs one.

@@ -4752,7 +4752,6 @@ KEMPT_JQ_STATUS='
     restartHeld: "The next restart belongs to another updater",
     noSuccessfulCheckYet: "No successful check yet",
     lastCheckFailed: "last check failed",
-    noUpdatesFound: "No updates found",
     lastCheckFailedHeader: "Last check failed"
   };
   def section_titles: {dnf: "System (dnf)", flatpak: "Apps (flatpak)"};
@@ -4862,12 +4861,7 @@ KEMPT_JQ_STATUS='
               elif $n == 1 then status_copy.stagedHeaderOne
               else ($n | tostring) + " " + status_copy.stagedHeaderTail end)
          elif $actionable == 0 then
-           (if ($stale | not) then status_copy.upToDate
-            elif (($s.last_success | renderable_stamp) and ($s.last_success | stamp_s) != null) then
-              (($s.metadata_refreshed | stamp_s) as $lists | ($s.last_success | stamp_s) as $checked
-               | status_copy.noUpdatesFound + " "
-                 + (if $lists != null and $lists < $checked then $s.metadata_refreshed else $s.last_success end | rel_time($now)))
-            else status_copy.lastCheckFailedHeader end) as $nothing_waiting
+           (if $stale then status_copy.lastCheckFailedHeader else status_copy.upToDate end) as $nothing_waiting
            | (if $held_total > 0 then $nothing_waiting + dot + ($held_total | tostring) + " " + status_copy.held
               elif $user_unchecked then $nothing_waiting + dot + status_copy.userAppsUncheckedShort
               else $nothing_waiting end)
