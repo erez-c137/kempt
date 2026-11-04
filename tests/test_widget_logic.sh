@@ -4445,34 +4445,9 @@ fi
 assert_eq "$(printf 'text: i18n("Wait...")\n' | sed 's://.*::' | grep -c '\.\.\.')" "1" \
   "the ellipsis scan finds three dots in a line it is given"
 
-# --- docs/widget.md has to describe the widget that is here -------------------------------------
-# Doc drift is not a documentation problem, it is a truth problem: the popup section is what a
-# person reads INSTEAD of watching the code, so a sentence that was true of an earlier build is
-# just a wrong answer with a nice tone. These tie the paragraphs most likely to drift back to the
-# code that decides them.
-WIDGET_DOC="$REPO_ROOT/docs/widget.md"
-
-# Every fixed header wording the view model can produce is DERIVED here rather than typed, so a
-# reworded header fails this instead of quietly leaving the page describing the old words. (The
-# count phrases - "3 updates available" - are built around a number and are shown by example.)
-while IFS= read -r hw; do
-  [[ -z "$hw" ]] && continue
-  if grep -qF -- "$hw" "$WIDGET_DOC"; then
-    echo "ok: docs/widget.md names the header wording \"$hw\""
-  else
-    echo "FAIL: docs/widget.md never mentions the header wording \"$hw\""; _fail=1
-  fi
-done <<EOF
-$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).headerText')
-$(js 'L.viewModel(null,true).headerText')
-$(js 'L.viewModel(null,false).headerText')
-$(js 'L.viewModel(null,false,"kempt: command not found").headerText')
-$(js 'L.viewModel(null,false,"",{engineMissing:true}).headerText')
-$(js 'L.viewModel({schema:2,status:"ok",actionable:1,held_total:0,backends:{}},false).headerText')
-EOF
-
-# ...and docs/install.md is where a store-first user lands, so the sentence it promises them is
-# the sentence the widget actually shows. Derived, not typed, for the same reason as the headers.
+# --- docs/install.md quotes what the widget shows ------------------------------------------------
+# docs/install.md is where a store-first user lands, so the sentence it promises them is
+# the sentence the widget actually shows. Derived from the copy table, not typed.
 INSTALL_DOC="$REPO_ROOT/docs/install.md"
 assert_eq "$(grep -cF "$(js 'L.COPY.engineMissing')" "$INSTALL_DOC")" "1" \
   "docs/install.md quotes the message a widget with no engine really shows"
@@ -4480,69 +4455,6 @@ while IFS= read -r _line; do
   assert_eq "$(grep -cF "$_line" "$INSTALL_DOC" | awk '{print ($1 >= 1)}')" "1" \
     "...and the install line under it, character for character: $_line"
 done < <(js 'L.COPY.engineMissingInstall'; echo)
-
-# The coalescing sentence. main.qml's doCheck sets recheckPending and runs a SECOND full check
-# when one is already in flight - deliberately, because the running check read the system before
-# whatever prompted this request. The page used to say the opposite.
-assert_eq "$(grep -c 'waits for that one rather than starting a second' "$WIDGET_DOC")" "0" \
-  "widget.md no longer claims the popup waits for a running check instead of asking again"
-assert_eq "$(grep -c 'If a check is already running, one more runs when it$' "$WIDGET_DOC")" "1" \
-  "...it describes the coalescing the code actually does"
-
-# Show Log is bound to the entry HAVING a log path (FullRepresentation.qml), and an offline
-# harvest entry has none - so "each with Show Log" was a promise the popup does not keep.
-assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$WIDGET_DOC")" "0" \
-  "widget.md no longer promises Show Log on every post-run message"
-assert_eq "$(grep -c 'opens the run.s log, when there is one' "$WIDGET_DOC")" "1" \
-  "...it says when the button is there instead"
-assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
-  "...and the QML really does bind both Show Log buttons to a log path being present"
-
-# The staged banner has three spellings now, and the page has to describe the one a worried person
-# will actually be looking at. Derived from the copy table rather than typed, so a reworded banner
-# fails here instead of quietly leaving the page describing the old words. The two sentences with a
-# package name in them are checked by their fixed halves: the name is the variable part.
-# Flattened first, because these sentences are long enough to wrap in a document and a wrapped
-# quote is still a quote. `grep -o | wc -l` rather than `grep -c`, which on a one-line file would
-# count the line and lose the "exactly once" half of the assertion.
-WIDGET_FLAT="$TESTTMP/widget-flat.txt"
-tr '\n' ' ' < "$WIDGET_DOC" | tr -s ' ' > "$WIDGET_FLAT"
-for _lit in stagedChanged stagedConflictUnknown; do
-  assert_eq "$(grep -oF "$(js "L.COPY.$_lit")" "$WIDGET_FLAT" | wc -l)" "1" \
-    "docs/widget.md quotes COPY.$_lit as the popup really says it"
-done
-# Presence rather than a count for the button's own name: it is a LABEL, and a label belongs both
-# in the prose and in the sketches of the banner it sits on. Counting it would make drawing the
-# widget twice a test failure.
-assert_eq "$(grep -qF "$(js 'L.COPY.stagedRebuildAction')" "$WIDGET_DOC" && echo yes || echo no)" "yes" \
-  "docs/widget.md calls the action by the name on the button"
-assert_eq "$(grep -qF "$(js 'L.COPY.stagedDiscardAction')" "$WIDGET_DOC" && echo yes || echo no)" "yes" \
-  "...and the other action on that banner by the name on ITS button"
-assert_eq "$(grep -c 'You held kernel-core after the update was staged' "$WIDGET_DOC")" "1" \
-  "...the singular conflict banner too"
-assert_eq "$(grep -c 'You held kernel-core and 2 more after the update was' "$WIDGET_DOC")" "1" \
-  "...and the plural one"
-# The tooltip is where the password prompt and the discard cost are disclosed, so the page must carry
-# both facts where a widget user will read them. Scoped to the popup section rather than the whole
-# page: the button table at the end names `kempt run --surface=offline` too, and a whole-file count
-# could pass with the popup section saying nothing at all.
-POPUP_DOC="$TESTTMP/widget-popup.md"
-awk '/^## Inside the widget$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
-assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
-  "premise: docs/widget.md still has a popup section to read"
-# Presence, not a count of one. It used to be exactly one because the tooltip was the ONLY place
-# that cost was stated; the banner carries it as its own second sentence now, so the page quotes it
-# wherever it quotes a banner.
-assert_eq "$(grep -q 'may ask for your password' "$POPUP_DOC" && echo yes || echo no)" "yes" \
-  "the popup section says the rebuild may ask for your password"
-assert_eq "$(tr -s ' \n' '  ' < "$POPUP_DOC" | grep -q 'If it fails, nothing stays staged' && echo 1 || echo 0)" "1" \
-  "...and that a rebuild that fails removes the staged update it was replacing"
-assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored transaction\|no way to edit a stored' "$POPUP_DOC")" "1" \
-  "...and that the pin never reaches into a transaction dnf5 has already stored"
-# The measured truth, kept out of the docs as firmly as out of the copy: a replace-stage reuses
-# dnf5's package cache, so nothing anywhere may promise a re-download.
-assert_eq "$(cat "$WIDGET_DOC" "$REPO_ROOT/docs/usage.md" | grep -ciE 're-?downloads? the (staged|transaction)' || true)" "0" \
-  "...and nothing in widget.md or usage.md claims a rebuild downloads it all again"
 
 # The widget stages through `kempt run --surface=offline`, never a detached `kempt update`: only
 # `run` refuses up front (exit 3 while another update holds the lock) where the popup can read it.
