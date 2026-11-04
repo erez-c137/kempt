@@ -24,7 +24,7 @@ assert_exit 0 "the full identity map is real root's" -- uid_map_is_identity "   
 assert_exit 0 "...and so is no map at all, so a missing file honours no seam" -- uid_map_is_identity ""
 assert_exit 1 "an unprivileged namespace's map is not" -- uid_map_is_identity "         0       1000          1"
 assert_exit 1 "...nor a map that stops short of the whole range" -- uid_map_is_identity "         0          0 65536"
-assert_exit 1 "...nor one of several lines" -- uid_map_is_identity $'         0       1000          1\n         1     100000      65536'
+assert_exit 1 "...nor one of several lines" -- uid_map_is_identity $'         0          0 4294967295\n         1     100000      65536'
 
 # Every setting but the print-only one is read inside the block real root never enters.
 assert_eq "$(awk '/^if \(\( SEAMS \)\); then$/ { inb = 1 } inb && /^fi$/ { inb = 0; next }
@@ -346,6 +346,9 @@ find EACCES on a parent|export KEMPT_FIND="$(fail_stub "$R/var/lib" find "Permis
 find ENOENT on the leaf|export KEMPT_FIND="$(fail_stub "$R/var/lib/dnf/offline" find "No such file or directory")"
 getfacl EIO on a parent|export KEMPT_GETFACL="$(fail_stub "$R/var/lib" getfacl "Input/output error")"
 getfacl absent|export KEMPT_GETFACL="$R/no-such-getfacl"
+find EACCES in the trees|export KEMPT_FIND="$(fail_stub -ignore_readdir_race find "Permission denied")"
+find silent in the trees|export KEMPT_FIND="$(fail_stub -ignore_readdir_race find "")"
+getfacl EACCES in the trees|export KEMPT_GETFACL="$(fail_stub -R getfacl "Permission denied")"
 atomic system|: > marker; export KEMPT_OSTREE_MARKER="$R/marker"
 another mount namespace|ln -s "mnt:[1]" ns1; export KEMPT_MNT_NS_INIT="$R/ns1"
 TABLE
