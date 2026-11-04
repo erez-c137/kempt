@@ -173,6 +173,151 @@ assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-offline-stage" "with nobody h
 rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 unset KEMPT_RISKY_RE
 
+# --- after the restart -------------------------------------------------------------------------
+# The stage named three packages. Across the restart some of them moved; dnf5's copy stayed at
+# `ready` and no link of dnf5's is left.
+export KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/rpm-installed.tsv"
+export KEMPT_DNF_HISTORY_CMD="false"
+export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+marker="$KEMPT_STATE_DIR/offline_staged.json"
+pre="$KEMPT_STATE_DIR/snapshots/offline-pre-test.tsv"
+tx="$TESTTMP/tx.json"
+cat > "$tx" <<'JSON'
+{"version":"1.0","rpms":[
+ {"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade","reason":"Dependency","repo_id":"updates"},
+ {"nevra":"aardvark-dns-2:1.18.0-1.fc44.x86_64","action":"Upgrade","reason":"User","repo_id":"updates"},
+ {"nevra":"7zip-26.03-1.fc44.x86_64","action":"Upgrade","reason":"User","repo_id":"updates"},
+ {"nevra":"bash-color-prompt-0.7.1-3.fc44.noarch","action":"Remove","reason":"User","repo_id":"@System"}]}
+JSON
+export KEMPT_OFFLINE_TXJSON="$tx"
+staged_marker() {  # names-json
+  mkdir -p "$KEMPT_STATE_DIR/snapshots"
+  { cat "$FIXTURES/rpm-installed.tsv"; printf 'librepo\t1.20.0-1.fc44\n'; } | LC_ALL=C sort > "$pre"
+  jq -n --arg snap "$pre" --argjson names "$1" \
+    '{staged_at:"2026-11-02T10:00:00+02:00", pre_snapshot:$snap, boot_id:"boot-before", staged:($names|length),
+      armed:true, staged_names:$names, staged_names_source:"transaction"}' > "$marker"
+}
+NAMES='["7zip","aardvark-dns","librepo","bash-color-prompt"]'
+after_tsv="$TESTTMP/after.tsv"
+qa="$TESTTMP/qa"
+moved() {  # tsv lines of what is installed now, on top of the snapshot
+  local name
+  { cat "$pre"; } > "$after_tsv.tmp"
+  while (( $# )); do
+    name="${1%%$'\t'*}"
+    grep -v "^$name"$'\t' "$after_tsv.tmp" > "$after_tsv.t2" || true
+    printf '%s\n' "$1" >> "$after_tsv.t2"
+    mv "$after_tsv.t2" "$after_tsv.tmp"; shift
+  done
+  LC_ALL=C sort "$after_tsv.tmp" > "$after_tsv"; rm -f "$after_tsv.tmp"
+}
+qa_from_after() { awk -F'\t' '{ v=$2; if (v !~ /:/) v="0:" v; print $1 "-" v ".x86_64" }' "$after_tsv" > "$qa"; }
+harvest() { : > "$WORLD/notifications"; rm -rf "$KEMPT_STATE_DIR/history"
+  KEMPT_RPM_QA_CMD="${QA_CMD:-cat $qa}" KEMPT_DNF_INSTALLED_CMD="cat $after_tsv" KEMPT_BOOT_ID=boot-after \
+    "$KEMPT" check >/dev/null 2>&1 || true; }
+entries() { ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | wc -l; }
+entry() { jq -r "$1" "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json | tail -1)"; }
+no_link
+
+# All: every staged package at its staged version or newer.
+staged_marker "$NAMES"
+moved $'librepo\t1.21.0-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'7zip\t26.03-1.fc44'
+grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"
+qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your staged updates are installed." "all of it: as before"
+assert_eq "$(entry .surface)" "offline (installed by another updater)" "...with its history entry"
+assert_exit 0 "...and the marker goes" -- test ! -f "$marker"
+
+# Some, plural, one of them at a version lower than the one staged, and a Remove entry that went.
+staged_marker "$NAMES"
+moved $'librepo\t1.20.9-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'zzz-unrelated\t1.0-1.fc44'
+grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"
+qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 2 of your staged updates were installed outside Kempt." \
+  "some of it: counted, a lower version included, a removal and an unrelated package not"
+assert_eq "$(entries)" "1" "...with a history entry"
+assert_eq "$(entry .surface)" "offline (partly installed outside Kempt)" "...saying how it arrived"
+assert_eq "$(entry '[.backends.dnf.updated[] | "\(.name) \(.to)"] | join(", ")')" "aardvark-dns 2:1.18.0-1.fc44, librepo 1.20.9-1.fc44" \
+  "...with the real versions, not the staged ones"
+assert_eq "$(entry '.backends.dnf.removed | length')" "0" "...and no removal"
+assert_exit 0 "...and the marker goes" -- test ! -f "$marker"
+assert_exit 0 "...with its snapshot" -- test ! -f "$pre"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" "...and nothing is published as staged"
+assert_contains "$("$KEMPT" history | awk 'NR==1')" "staged update (partly installed outside Kempt)" "...and history reads in words"
+assert_contains "$(grep -c 'offline stage partly installed outside Kempt' "$KEMPT_STATE_DIR/events.log")" "1" "...and one event records it"
+
+# Doctor over what is left. Reads with the same dnf5 files, so the row is about this copy.
+drep="$(KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "partly installed outside Kempt" "doctor explains the leftover"
+assert_contains "$drep" "To remove it, run: kempt unstage" "...naming unstage"
+assert_contains "$drep" "A later stage replaces it" "...and that a later stage replaces it"
+assert_not_contains "$drep" "staged outside Kempt" "...and not as somebody else's"
+assert_not_contains "$drep" "sudo dnf5 offline clean" "...and not with dnf5's own command"
+assert_not_contains "$drep" "can never install" "...and with no failure beside it"
+ln -s /x "$LINK"
+drep="$(KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "restart first, then run: kempt unstage" "...and with the restart held, unstage has to wait, so it says so"
+no_link
+cp "$FIXTURES/offline-ready.toml" "$TESTTMP/later.toml"; echo '# later' >> "$TESTTMP/later.toml"
+drep="$(KEMPT_OFFLINE_TOML="$TESTTMP/later.toml" KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
+assert_not_contains "$drep" "partly installed outside Kempt" "...and a later stage retires the row"
+KEMPT_OFFLINE_TOML="$TESTTMP/later.toml" KEMPT_RPM_QA_CMD="cat $qa" KEMPT_DNF_INSTALLED_CMD="cat $after_tsv" "$KEMPT" check >/dev/null 2>&1 || true
+staged_marker "$NAMES"
+: > "$WORLD/notifications"
+KEMPT_OFFLINE_TOML="$TESTTMP/later.toml" KEMPT_RPM_QA_CMD="cat $qa" KEMPT_DNF_INSTALLED_CMD="cat $pre" KEMPT_BOOT_ID=boot-before "$KEMPT" check >/dev/null 2>&1 || true
+assert_exit 0 "...and the next harvest clears its note" -- test ! -e "$KEMPT_STATE_DIR/offline-partial"
+rm -f "$marker" "$pre"
+
+# Some, singular.
+staged_marker "$NAMES"
+moved $'aardvark-dns\t2:1.18.0-1.fc44'
+qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 1 of your staged updates was installed outside Kempt." "one of them reads in the singular"
+rm -f "$KEMPT_STATE_DIR/offline-partial"
+
+# None: the set moved, none of it Kempt's.
+staged_marker "$NAMES"
+moved $'zzz-unrelated\t1.0-1.fc44'
+grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"
+qa_from_after; harvest
+assert_contains "$(cat "$WORLD/notifications")" "can no longer install" "none of it: as before, a removal not counting"
+assert_eq "$(entries)" "0" "...with no history"
+assert_eq "$(jq -r .armed "$marker")" "false" "...and the marker demoted"
+rm -f "$marker" "$pre"
+
+# Cannot tell: nothing false, and the normal list takes over.
+cannot_tell() {  # label
+  assert_eq "$(cat "$WORLD/notifications")" "" "$1: nothing is said"
+  assert_eq "$(entries)" "0" "$1: no history"
+  assert_eq "$(jq -r .armed "$marker")" "false" "$1: the promise is withdrawn"
+  assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" "$1: nothing is published as staged"
+  assert_eq "$(jq -r '.actionable > 0' "$KEMPT_STATE_DIR/state.json")" "true" "$1: the normal list is there"
+  rm -f "$marker" "$pre"
+}
+export KEMPT_SKIP_REFRESH=1
+staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
+KEMPT_OFFLINE_TXJSON="$TESTTMP/no-such.json" harvest
+cannot_tell "dnf5's copy unreadable"
+staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'
+QA_CMD=false harvest
+cannot_tell "rpm failing"
+staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
+jq -c '. + {replaced: true}' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
+harvest
+cannot_tell "a stage replaced outside Kempt"
+staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
+jq -c 'del(.staged_names)' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
+harvest
+cannot_tell "a marker that names nothing"
+
+# transaction-incomplete stays the detour, whatever moved.
+sed 's/^status *=.*/status = "transaction-incomplete"/' "$FIXTURES/offline-ready.toml" > "$TESTTMP/incomplete.toml"
+staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
+KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
+assert_contains "$(cat "$WORLD/notifications")" "can no longer install" "a transaction dnf5 left incomplete keeps its own path"
+assert_eq "$(entries)" "0" "...with no history"
+rm -f "$marker" "$pre"
+
 # --- Discover's setting ---------------------------------------------------------------------------
 ENTRY=org.kde.discover.notifier.desktop
 SYS="$TESTTMP/xdg-autostart"; mkdir -p "$SYS"; export KEMPT_XDG_AUTOSTART_DIR="$SYS"

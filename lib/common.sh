@@ -362,6 +362,10 @@ event_plain() {  # event text → EVENT_PLAIN
     "offline restage failed"*) EVENT_PLAIN="Rebuilding the staged update failed${t#offline restage failed}" ;;
     "offline restage"*) EVENT_PLAIN="Staged update rebuilt${t#offline restage}" ;;
     "offline stage found nothing to stage"*) EVENT_PLAIN="Nothing to stage${t#offline stage found nothing to stage}" ;;
+    "offline stage partly installed outside Kempt"*)
+      EVENT_PLAIN="Some of the staged update was installed outside Kempt${t#offline stage partly installed outside Kempt}" ;;
+    "offline stage result unknown"*)
+      EVENT_PLAIN="Kempt could not tell what became of the staged update" ;;
     "offline stage installed by another updater"*)
       EVENT_PLAIN="Another updater installed the staged update${t#offline stage installed by another updater}" ;;
     "offline stage recorded without its package baseline"*)
@@ -3261,6 +3265,23 @@ offline_toml_value() {  # key → its value, or nothing; rc 1 if the file cannot
 # exits 0 and leaves the old transaction exactly as it was, files untouched, so the next restart
 # installs all of it - the package just held included. A real stage rewrites both files, and the
 # mtime catches a rewrite whose content happens to match.
+# A stage partly installed outside Kempt leaves dnf5's copy behind, and removing that needs root, so
+# it stays until someone asks or a later stage replaces it. This file says which copy it is: doctor
+# explains that one and no other, and any change to dnf5's files retires the note.
+OFFLINE_PARTIAL_FILE="$KEMPT_STATE_DIR/offline-partial"
+offline_partial_record() {
+  { offline_stored_fingerprint > "$OFFLINE_PARTIAL_FILE"; } 2>/dev/null || true
+}
+offline_partial_current() {
+  [[ -s "$OFFLINE_PARTIAL_FILE" ]] && [[ "$(offline_stored_fingerprint)" == "$(cat "$OFFLINE_PARTIAL_FILE" 2>/dev/null)" ]]
+}
+offline_partial_tidy() {
+  if [[ -e "$OFFLINE_PARTIAL_FILE" ]] && ! offline_partial_current; then
+    rm -f "$OFFLINE_PARTIAL_FILE" 2>/dev/null || true
+  fi
+  return 0
+}
+
 offline_stored_fingerprint() {  # → one opaque line, or nothing
   [[ -r "$KEMPT_OFFLINE_TOML" ]] || return 0
   local f
@@ -3530,11 +3551,12 @@ offline_installonly_name() {  # name → 0 when installonly
   return 1
 }
 
-offline_stage_satisfied() {  # → 0 when the stored transaction's changes are all on the box
-  [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
+# rc 0 when all of it is on the box, 1 when it is not, 2 when the question could not be asked.
+offline_stage_satisfied() {
+  [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 2
   local sz want have line
   sz="$(stat -c %s "$KEMPT_OFFLINE_TXJSON" 2>/dev/null || echo 0)"
-  (( sz > 0 && sz <= KEMPT_TXJSON_MAX_BYTES )) || return 1
+  (( sz > 0 && sz <= KEMPT_TXJSON_MAX_BYTES )) || return 2
   # The shape guards of offline_txjson_names: any surprise is an error, and then no answer.
   # One line per entry that matters: action, name.arch, epoch:version-release.
   want="$(jq -r -n '
@@ -3553,16 +3575,16 @@ offline_stage_satisfied() {  # → 0 when the stored transaction's changes are a
           | if (.nevra | type) != "string" then error("nevra") else . end ] as $entries
       | $entries[]
       | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall","Remove"] | index($a) != null)
-      | "\(.action)\t\(norm(.nevra))"' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 1
-  [[ -n "$want" ]] || return 1
+      | "\(.action)\t\(norm(.nevra))"' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 2
+  [[ -n "$want" ]] || return 2
   if [[ -n "$KEMPT_RPM_QA_CMD" ]]; then
     # Unquoted for dnf_sizes' reason (backends/dnf.sh): a seam may carry its own arguments.
     # shellcheck disable=SC2086
-    have="$($KEMPT_RPM_QA_CMD 2>/dev/null)" || return 1
+    have="$($KEMPT_RPM_QA_CMD 2>/dev/null)" || return 2
   else
-    have="$(rpm -qa --queryformat '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null)" || return 1
+    have="$(rpm -qa --queryformat '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null)" || return 2
   fi
-  [[ -n "$have" ]] || return 1
+  [[ -n "$have" ]] || return 2
   # Installed builds by name.arch, each `epoch:version-release`, newline-separated.
   local -A inst=()
   local n e vr a key
@@ -3598,8 +3620,8 @@ offline_stage_satisfied() {  # → 0 when the stored transaction's changes are a
 # offline_stage_satisfied, asked about the stage a marker records. It reads dnf5's stored
 # transaction, and once a check has found that replaced, the stored one is somebody else's: its
 # packages being installed says nothing about Kempt's stage.
-offline_marker_stage_satisfied() {  # marker-json → 0 when the stage it records is installed
-  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 1
+offline_marker_stage_satisfied() {  # marker-json → rc as offline_stage_satisfied; replaced is 2
+  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 2
   offline_stage_satisfied
 }
 
@@ -4448,6 +4470,8 @@ KEMPT_JQ_COUNTS='
     if .surface == "offline (applied on reboot)" then "restart (staged update installed)"
     elif .surface == "offline (installed by another updater)"
     then "staged update (installed by another updater)"
+    elif .surface == "offline (partly installed outside Kempt)"
+    then "staged update (partly installed outside Kempt)"
     elif .surface == "popup" then "widget"
     else .surface end;
 '

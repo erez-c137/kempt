@@ -2798,6 +2798,35 @@ reconcile_replaced_stage() {
   return 0
 }
 
+# What moved of a stage that did not fully arrive: the snapshot diff, narrowed to the names the marker
+# recorded, without removals. Unlike report_keep_names it never falls back to the whole diff, since
+# the answer becomes a count someone reads. Fails when there is no answer: the question could not be
+# asked (rc 2 of offline_stage_satisfied, in $4) or the marker names nothing.
+stage_changed_report() {  # marker-json pre-snapshot now-snapshot satisfied-rc → report-json
+  [[ "$4" == 1 ]] || return 1
+  local diff
+  diff="$(tsv_diff_updates "$2" "$3")" || return 1
+  printf '%s\n%s\n' "$1" "$diff" | jq -ces '
+    (.[0].staged_names) as $k
+    | if ($k | type) != "array" or ($k | length) == 0 then error("no names") else . end
+    | .[1]
+    | { updated: (.updated | map(select(.name as $x | $k | index($x) != null))),
+        added:   (.added   | map(select(.name as $x | $k | index($x) != null))),
+        removed: [] }' 2>/dev/null
+}
+
+# After a restart that moved the package set, with no way to say how much of the stage arrived.
+# Nothing is claimed: the entry is the promise withdrawn, so the widget stops calling it staged and
+# the normal list says what is still pending. No history, no notification. A later check asks again.
+stage_result_unknown() {  # marker-json
+  if jq -e '.armed == false' <<<"$1" >/dev/null 2>&1; then return 0; fi
+  offline_marker_still "$1" || return 0
+  log_event "offline stage result unknown"
+  offline_armed && return 0
+  jq -c '. + {armed: false}' <<<"$1" | write_offline_marker \
+    || echo "warning: could not record that the staged update's result is unknown" >&2
+}
+
 # A run report narrowed to the named packages. Kept whole when there is nothing to narrow by or the
 # filter fails: the identification still stands, only the precision is lost. An empty list is a
 # source not saying what it touched, never a restart that touched nothing. `. as $x` before index(),
@@ -2820,6 +2849,7 @@ report_keep_names() {  # report-json names → report-json
 
 harvest_offline() {
   local pre now_snap ts report hist boot toml_status marker
+  offline_partial_tidy
   # ONE defensive read, and nothing below runs without it. Every branch here either clears the
   # marker or turns it into a history entry, both far too destructive to do on a file we could not
   # parse (see offline_marker_read): falling through disowns an armed stage that will still
@@ -2917,16 +2947,34 @@ harvest_offline() {
   # (offline_stage_satisfied). Then another updater installed the same updates, on this restart or
   # before it (PackageKit, preparing them behind dnf5's back, replaces the symlink and leaves dnf5's
   # state at `ready`), and the stage is done.
-  local installed_elsewhere=false
+  # Short of that it depends what the question can answer. A transaction dnf5 left incomplete is the
+  # detour, whatever moved. Otherwise what counts is how many staged packages changed since the stage:
+  # some of them is a partial install outside Kempt, none of them is the detour, and a question that
+  # cannot be asked (dnf5's copy unreadable, or no longer Kempt's) claims nothing either way.
+  local installed_elsewhere=false partly_elsewhere=false partly_report="" partly_count=0
   if [[ "$toml_status" != absent ]]; then
     if [[ "$toml_status" != ready ]] \
        || [[ -n "$boot" && "$boot" != unknown && "$(offline_link_state)" != dnf5 ]]; then
-      if offline_marker_stage_satisfied "$marker"; then
+      local sat_rc=0
+      offline_marker_stage_satisfied "$marker" || sat_rc=$?
+      if [[ "$sat_rc" == 0 ]]; then
         installed_elsewhere=true
-      else
+      elif [[ "$toml_status" == transaction-incomplete ]]; then
         rm -f "$now_snap"
         reconcile_detour_stage "$marker" "$toml_status"
         return 0
+      elif ! partly_report="$(stage_changed_report "$marker" "$pre" "$now_snap" "$sat_rc")"; then
+        rm -f "$now_snap"
+        stage_result_unknown "$marker"
+        return 0
+      else
+        partly_count="$(jq '(.updated | length) + (.added | length)' <<<"$partly_report")"
+        if [[ "$partly_count" == 0 ]]; then
+          rm -f "$now_snap"
+          reconcile_detour_stage "$marker" "$toml_status"
+          return 0
+        fi
+        partly_elsewhere=true
       fi
     elif ! jq -e '.set_moved == true' <<<"$marker" >/dev/null 2>&1; then
       # Once, not once per check: this lasts until the restart that installs it. The baseline is
@@ -2961,6 +3009,10 @@ harvest_offline() {
     local staged_names=""
     staged_names="$(offline_txjson_names)" || staged_names=""
     report="$(report_keep_names "$report" "$staged_names")"
+  elif [[ "$partly_elsewhere" == true ]]; then
+    # dnf5 ran nothing of this, so its history has nothing to attribute.
+    hsurface="offline (partly installed outside Kempt)"
+    report="$partly_report"
   elif attribution="$(offline_history_attribution "$marker")"; then
     verdict="${attribution%%$'\n'*}"
   fi
@@ -3032,6 +3084,8 @@ harvest_offline() {
   local hlog_head="Kempt staged this update and dnf5 installed it during the restart."
   if [[ "$installed_elsewhere" == true ]]; then
     hlog_head="Kempt staged this update, and another updater installed the same packages."
+  elif [[ "$partly_elsewhere" == true ]]; then
+    hlog_head="Kempt staged this update, and some of its packages were installed outside Kempt."
   fi
   if [[ -n "$hist" ]]; then
     if { printf '%s\n' \
@@ -3058,6 +3112,7 @@ harvest_offline() {
   # deleting it makes the panel forget an armed transaction.
   if offline_marker_still "$marker"; then
     rm -f "$OFFLINE_MARKER"
+    [[ "$partly_elsewhere" != true ]] || offline_partial_record
   else
     log_event "offline marker kept (a new stage arrived while the check ran)"
   fi
@@ -3075,6 +3130,15 @@ harvest_offline() {
     # asked for is what matters, and the history entry has the packages.
     log_event "offline stage installed by another updater${harvested:+ ($harvested)}"
     notify "Kempt" "Your staged updates are installed."
+  elif [[ "$partly_elsewhere" == true ]]; then
+    # Who did it stays unsaid, since `dnf upgrade foo` looks the same, and so does what became of the
+    # rest: the normal list shows whatever is still pending.
+    log_event "offline stage partly installed outside Kempt${harvested:+ ($harvested)}"
+    if [[ "$partly_count" == 1 ]]; then
+      notify "Kempt" "1 of your staged updates was installed outside Kempt."
+    else
+      notify "Kempt" "$partly_count of your staged updates were installed outside Kempt."
+    fi
   elif [[ "$verdict" == did-not-run ]]; then
     # Nothing here says what DID happen to the stage, because the history does not say it either:
     # removed, or replaced by a transaction that then ran. What it does say is that this was not it.
@@ -4744,8 +4808,9 @@ doctor_offline_rows() {
   # makes this doctor's line and nobody else's. Every other surface reads them together and
   # publishes one answer, so a marker over a transaction that can never install looks from outside
   # exactly like a pending update. Silent when there is neither, which is most boxes.
-  local dr_toml dr_count dr_marker dr_link dr_done=false
+  local dr_toml dr_count dr_marker dr_link dr_holder dr_done=false dr_partial=false
   dr_toml="$(offline_system_status)"
+  dr_holder="$(restart_holder)"
   # Whose the boot symlink is, and whether what dnf5 holds is already installed. Together they
   # settle the case where another updater prepared the next restart and installed the same
   # packages: dnf5 still says `ready`, and no restart will run it.
@@ -4758,6 +4823,8 @@ doctor_offline_rows() {
   # and would fall through to the armed row below. offline_marker_read refuses an empty,
   # unparsable or over-1 MB marker, and that means "skip", not "the stage is gone".
   dr_marker="$(offline_marker_read)"
+  # What is left of a stage partly installed outside Kempt: no marker, and the copy the harvest saw.
+  if [[ -z "$dr_marker" && ! -e "$OFFLINE_MARKER" ]] && offline_partial_current; then dr_partial=true; fi
   # A stored release upgrade answers for the whole section: dnf5 has one slot, ours is not in it,
   # and every sentence below would be about a transaction that no longer exists. Reported as
   # somebody else's, which is what it is, by the branch further down.
@@ -4844,6 +4911,13 @@ doctor_offline_rows() {
       esac
     elif [[ "$dr_done" == true ]]; then
       doctor_stale_done_row "$dr_link"
+    elif [[ "$dr_partial" == true ]]; then
+      # Neither "staged outside Kempt" nor dnf5's own clean: Kempt staged it, and unstage knows it.
+      if [[ "$dr_holder" == other ]]; then
+        doctor_info "dnf5 still keeps what is left of a staged update that was partly installed outside Kempt. It will not run again. A later stage replaces it. To remove it, restart first, then run: kempt unstage"
+      else
+        doctor_info "dnf5 still keeps what is left of a staged update that was partly installed outside Kempt. It will not run again. A later stage replaces it. To remove it, run: kempt unstage"
+      fi
     else
       doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\"). See: dnf5 offline status"
     fi
@@ -4874,7 +4948,7 @@ doctor_offline_rows() {
     else
       doctor_fail "boot symlink is live over a transaction that is not set to install (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Clear it with: sudo dnf5 offline clean"
     fi
-  elif [[ "$dr_toml" == ready && "$dr_link" == none && "$dr_done" == false ]]; then
+  elif [[ "$dr_toml" == ready && "$dr_link" == none && "$dr_done" == false && "$dr_partial" == false ]]; then
     # The INVERSE: `ready` with no symlink in front of it. A restart has already walked past this
     # transaction and no future one can install it either - see reconcile_detour_stage. Without
     # this row every surface calls it a pending install, forever.
