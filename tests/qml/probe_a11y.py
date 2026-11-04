@@ -581,7 +581,7 @@ p.check("the Refresh icon also says what pressing it does",
         lev("refreshButton.Accessible.description"),
         "Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
 p.check("...and the gear says what is behind it", lev("configureButton.Accessible.description"),
-        "Check interval, where updates run, restart reminders, and the packages you hold.")
+        "Check interval, where updates run, and the packages you hold.")
 p.check("...neither of them repeating its own label",
         [lev("refreshButton.Accessible.description") == lev("refreshButton.text"),
          lev("configureButton.Accessible.description") == lev("configureButton.text")],

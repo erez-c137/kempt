@@ -48,25 +48,6 @@ assert_eq "$(config_get surface terminal)" "offline" "rejected writes leave surf
 assert_eq "$(config_get include_flatpak true)" "false" "rejected writes leave include_flatpak intact"
 assert_eq "$(grep -c '' "$KEMPT_CONFIG_DIR/config")" "2" "rejected writes added no lines"
 
-# --- restart_reminder: a default that must exist, or the reminder is silently off --------------
-# The widget asks the CLI for this key and reads the answer with is_true(). A key with no entry in
-# kempt_default answers with the EMPTY STRING, is_true reads that as false, and the restart
-# reminder is off on every box whose config file has never named it - which is every box, since
-# nothing writes a key until somebody changes it. That is the same silent-off bug the wiring table
-# in docs/architecture.md describes for include_<backend>, so the default is asserted from BOTH
-# ends: the table itself, and the config_get fallback a reader actually goes through.
-assert_eq "$(kempt_default restart_reminder)" "true" "the defaults table knows restart_reminder"
-assert_eq "$(config_get restart_reminder)" "true" \
-  "an untouched restart_reminder reads as true, not as an empty string"
-assert_eq "$(is_true "$(config_get restart_reminder)" && echo on || echo off)" "on" \
-  "...and a reader that runs it through is_true gets the reminder ON"
-config_set restart_reminder false
-assert_eq "$(config_get restart_reminder)" "false" "turning the reminder off round-trips"
-assert_eq "$(grep -c '^restart_reminder=' "$KEMPT_CONFIG_DIR/config")" "1" \
-  "...as exactly one line, like every other key"
-config_set restart_reminder true
-assert_eq "$(config_get restart_reminder)" "true" "and back on again"
-
 # --- notify_startup: on unless turned off ---------------------------------------------------------
 assert_eq "$(kempt_default notify_startup)" "true" "the defaults table knows notify_startup, and it is on"
 assert_contains " $KEMPT_CONFIG_KEYS " " notify_startup " "...and it is a known setting"
@@ -155,8 +136,6 @@ assert_eq "$("$KEMPT" config set risky_regex '^foo' 2>&1 >/dev/null)" "" \
 # false, in as many words, and `auto_accept on` is the documented example of it.
 assert_eq "$("$KEMPT" config set auto_accept on 2>&1 >/dev/null)" "" \
   "a boolean takes anything, as documented, so it is not warned about"
-assert_eq "$("$KEMPT" config set widget_icon_size enormous 2>&1 >/dev/null)" "" \
-  "...and widget_icon_size is validated by the widget, which is the half that can see the panel"
 
 # hold and unhold stay silent, which is their own contract: they print nothing on success today and
 # nothing here changes that.

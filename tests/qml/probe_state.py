@@ -24,12 +24,10 @@ p = harness.Probe("probe-state")
 os.makedirs(p.state)
 MODE = os.path.join(p.sandbox, "mode")
 IVAL = os.path.join(p.sandbox, "interval")
-SIZE = os.path.join(p.sandbox, "iconsize")
 # The first check answers with NOTHING - another check holding the lock, which is the ordinary
 # state of a fresh login and the case the bounded retry below exists for.
 open(MODE, "w").write("empty")
 open(IVAL, "w").write("15")
-open(SIZE, "w").write("auto")
 STATE_JSON = os.path.join(p.state, "state.json")
 # What `kempt summary --json` answers: the newest history entry, or nothing at all on a box that
 # has never run an update. Absent until section 8e, which is about a run that wrote one.
@@ -39,7 +37,6 @@ p.stub("""
 mode="$(cat %(MODE)s)"
 if [[ "$1 $2" == "config get" ]]; then
   [[ "$3" == refresh_interval_min ]] && cat %(IVAL)s
-  [[ "$3" == widget_icon_size ]] && cat %(SIZE)s
   exit 0
 fi
 if [[ "$1 $2" == "summary --json" ]]; then
@@ -64,7 +61,7 @@ if [[ "$1" == check ]]; then
   esac
   exit 0
 fi
-""" % {"MODE": MODE, "IVAL": IVAL, "SIZE": SIZE, "FIX": harness.FIXTURES,
+""" % {"MODE": MODE, "IVAL": IVAL, "FIX": harness.FIXTURES,
        "ST": STATE_JSON, "SUM": SUMMARY})
 
 root, ev = p.create("main.qml")
@@ -199,7 +196,7 @@ open(MODE, "w").write("answerfirst")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False)
 p.check("stdout is used even when the CLI exits non-zero", ev("root.vm.badgeText"), "7")
-p.check("...and the disabled backend drops out of the popup", ev("root.vm.sections.length"), 1)
+p.check("...and the disabled backend drops out of the popup", ev("root.vm.rows.filter(function (r) { return r.kind === 'header' && !r.held; }).length"), 1)
 
 # --- 4. garbage: leave the last good state alone ----------------------------------------------
 open(MODE, "w").write("garbage")
@@ -396,7 +393,7 @@ open(MODE, "w").write("live")
 open(MODE, "w").write("never")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
-p.check("the state says no check has ever succeeded", ev("root.vm.lastSuccessText"), "never")
+p.check("the state says no check has ever succeeded", ev("root.vm.tooltipSub.indexOf('No successful check yet') >= 0"), True)
 before = p.call_count("check")
 for _ in range(3):
     ev("root.popupOpened()")
@@ -888,10 +885,8 @@ PlasmoidItem {
     id: shell
     width: %d; height: %d
     property var vm: ({ iconState: "updates", badgeText: "%s", badgeVisible: true })
-    property string sizeSetting: "%s"
     CompactRepresentation {
         id: cr; anchors.fill: parent; plasmoidItem: shell; vm: shell.vm
-        iconSizeSetting: shell.sizeSetting
     }
     function badge() {
         for (var i = 0; i < cr.children.length; i++)
@@ -922,9 +917,9 @@ PlasmoidItem {
 _serial = [0]
 
 
-def cell(size, text="7", setting="auto"):
+def cell(size, text="7"):
     _serial[0] += 1
-    return p.create_inline(CELL % (size, size, text, setting),
+    return p.create_inline(CELL % (size, size, text),
                            "cell-%d-%d.qml" % (size, _serial[0]))
 
 
@@ -942,7 +937,7 @@ for size in (22, 32, 44, 64):
 p.check("the badge fits its count and stays inside the panel cell at every size", overflow, 0)
 
 # The icon is requested at a size the theme hints, so a hinted symbolic renders 1:1 instead of
-# being scaled by a fraction and going soft. WHICH step it lands on is Logic.resolveIconSize, and
+# being scaled by a fraction and going soft. WHICH step it lands on is Logic.snapIconSize, and
 # its ladder is pinned to what the system tray draws rather than to "the largest that fits" - a
 # real tray drew a 32px Kempt icon standing in a row of 22px entries. This proves
 # the binding actually feeds Kirigami.Icon the laddered number at real panel thicknesses.
@@ -970,10 +965,6 @@ for txt in ("7", "347"):
     p.check("a 16px cell draws the icon at 16", cev("cr.iconSize"), 16)
     p.check("...and drops the %s badge rather than drawing an unreadable one" % txt,
             cev("badge().visible"), False)
-obj, cev = cell(44, "347", "small")
-p.pump(60)
-p.check("choosing Small on an ordinary panel puts the icon on the 16px step", cev("cr.iconSize"), 16)
-p.check("...so the badge goes with it", cev("badge().visible"), False)
 obj, cev = cell(22, "347")
 p.pump(60)
 p.check("the 22px step is where the badge comes back", cev("cr.iconSize"), 22)
@@ -987,29 +978,6 @@ p.pump(40)
 p.check("a cell smaller than the smallest hinted icon still gets a whole number of pixels",
         cev("cr.iconSize"), 12)
 
-# --- the widget_icon_size setting, bound ------------------------------------------------------
-# The three named sizes and the automatic one, on the SAME 44px panel - the ordinary Plasma
-# default, and the thickness this was found at on a real box.
-for setting, want in (("auto", smallmed), ("small", small), ("medium", smallmed),
-                      ("large", medium)):
-    obj, cev = cell(44, "7", setting)
-    p.pump(40)
-    p.check("widget_icon_size=%s on a 44px panel draws at %d px" % (setting, want),
-            cev("cr.iconSize"), want)
-    p.check("...and the Kirigami.Icon is given exactly that", cev("mainIcon().width"), want)
-# A value the widget does not recognise must draw, not vanish or throw: `kempt config set` stores
-# whatever it is handed, so this is the only place a typo is ever caught.
-obj, cev = cell(44, "7", "enormous")
-p.pump(40)
-p.check("an unrecognised setting falls back to automatic rather than breaking the icon",
-        cev("cr.iconSize"), smallmed)
-# ...and a size the cell cannot hold gives way to the cell. This is what makes the system tray's
-# slot win over the setting: the tray hands each entry a square at its own icon size.
-obj, cev = cell(22, "7", "large")
-p.pump(40)
-p.check("a chosen size larger than the cell gives way to the cell", cev("cr.iconSize"), smallmed)
-p.check("...and never overflows it", cev("cr.iconSize") <= 22, True)
-
 # The badge is drawn against the ICON now, not the cell. While the icon filled its cell the two
 # were the same thing; on a 44px panel the icon is 22, and a cell-anchored badge sat eleven pixels
 # away from the glyph it belongs to, at nearly the glyph's own size.
@@ -1022,32 +990,5 @@ p.check("...and sits at the icon's corner, not the cell's",
 p.check("...with a pill tall enough to read a count in", cev("badge().height") >= 12, True)
 p.check("the busy spinner is sized off the icon too",
         cev("busyWidth()") <= cev("cr.iconSize"), True)
-
-# ...and main.qml really reads the setting out of the CLI. Everything above proves the compact
-# representation obeys the value it is handed; this proves where that value comes from. A widget
-# that never re-read it would keep whatever it had at startup until plasmashell restarted.
-p.check("a fresh widget starts on the CLI's default", ev("root.iconSizeSetting"), "auto")
-open(SIZE, "w").write("large")
-ev("root.readIconSize()")
-p.wait_for(ev, "root.iconSizeSetting", "large")
-p.check("changing widget_icon_size in the CLI reaches the panel icon", ev("root.iconSizeSetting"),
-        "large")
-# The widget is the ONLY validator this setting has - `kempt config set` stores whatever it is
-# handed - so a value it does not know must land on `auto` rather than on an undefined size.
-open(SIZE, "w").write("gargantuan")
-ev("root.readIconSize()")
-p.wait_for(ev, "root.iconSizeSetting", "auto")
-p.check("a value the widget does not know falls back to automatic", ev("root.iconSizeSetting"),
-        "auto")
-# An empty answer is an OLDER CLI that has never heard of the key, and that must leave the
-# widget's current setting alone rather than reset it.
-open(SIZE, "w").write("medium")
-ev("root.readIconSize()")
-p.wait_for(ev, "root.iconSizeSetting", "medium")
-open(SIZE, "w").write("")
-ev("root.readIconSize()")
-p.pump(400)
-p.check("an older CLI that answers with nothing does not reset the setting",
-        ev("root.iconSizeSetting"), "medium")
 
 sys.exit(p.done())

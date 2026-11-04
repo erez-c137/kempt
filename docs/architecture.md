@@ -675,7 +675,6 @@ Three settings put Kempt in the system tray, and each fails silently when wrong:
 
 `KPlugin.EnabledByDefault: true` makes it appear unasked. The compact representation's
 `Layout.minimumWidth/Height` follow the shell's `DefaultCompactRepresentation.qml`.
-`Logic.resolveIconSize` falls back to automatic when a chosen size does not fit the tray cell.
 
 ### Why the widget is testable at all
 

@@ -138,8 +138,6 @@ KCM.SimpleKCM {
         setIfChanged("auto_accept", autoAccept.checked ? "true" : "false");
         setIfChanged("surface", page.selectedSurface());
         setIfChanged("refresh_interval_min", String(interval.value));
-        setIfChanged("widget_icon_size", page.iconSizeKey);
-        setIfChanged("restart_reminder", restartReminder.checked ? "true" : "false");
         setIfChanged("notify_startup", notifyStartup.checked ? "true" : "false");
         setIfChanged("reclaim", page.reclaimKey);
         finishWrite();      // release the sentinel
@@ -226,16 +224,9 @@ KCM.SimpleKCM {
         page.surfaceKey = Logic.resolveSurface(key);
     }
 
-    // The chosen panel icon size, held here for the same reason surfaceKey is: a Repeater whose
+    // The unused-runtimes setting, held here for the same reason as surfaceKey: a Repeater whose
     // delegates are not currently realised reports nothing as checked, and Apply would then write
     // this file's first option over whatever the user has stored.
-    property string iconSizeKey: "auto"
-
-    function applyIconSize(key) {
-        page.iconSizeKey = Logic.resolveIconSizeSetting(key);
-    }
-
-    // The unused-runtimes setting, held here for the same reason as surfaceKey and iconSizeKey.
     property string reclaimKey: "ask"
 
     // Whether flatpak is installed, asked the way the CLI's flatpak_present asks. True until the
@@ -393,26 +384,7 @@ KCM.SimpleKCM {
             if (n < interval.from) interval.from = n;
             interval.value = n;
         });
-        readKey("widget_icon_size", function (v) { page.applyIconSize(v); });
-        // The one read on this page with a guard of its own, and it is about the `kempt` that is
-        // actually first on PATH rather than about this key. `kempt config get` prints an empty
-        // line and exits 0 for a key it has never heard of, so a CLI older than this release
-        // answers "" - and Logic.isTrue("") is false, the opposite of the CLI's own default. Taken
-        // at face value that shows the reminder as off on a box where it is on, and the next Apply
-        // writes the off back, because "" is not equal to "true" either. Recording it as readFailed
-        // says the true thing - this key's stored value is unknown - and setIfChanged already knows
-        // to leave that alone unless the user moves the control. main.qml's readRestartReminder
-        // guards its own copy of this read the same way. The other booleans here are read without
-        // it because they are as old as `kempt config`; this key is not.
-        readKey("restart_reminder", function (v) {
-            // The empty answer described above: it means unknown, and unknown is not false.
-            if (v === "") {
-                page.readFailed["restart_reminder"] = true;
-                return;
-            }
-            restartReminder.checked = Logic.isTrue(v);
-        });
-        // Newer still, so the same guard: "" is an older CLI that does not know the key.
+        // Newer than `kempt config`: "" is an older CLI that does not know the key, which is unknown, not false.
         readKey("notify_startup", function (v) {
             if (v === "") {
                 page.readFailed["notify_startup"] = true;
@@ -587,11 +559,11 @@ KCM.SimpleKCM {
                 // Exclusivity here is the `checked` binding below and NOTHING else, so QQC2's own
                 // must be turned off. A RadioButton with autoExclusive left on joins the group of
                 // its PARENT - and a Repeater reparents its delegates to the Repeater's parent, so
-                // these four and the four panel-icon-size buttons further down are all children of
-                // the same Kirigami.FormLayout and would be treated as ONE group of eight.
+                // these and the unused-runtimes buttons further down are all children of the same
+                // Kirigami.FormLayout and would be treated as ONE group.
                 // Whichever group's `checked` binding evaluates second wins: QQC2 unchecks every
                 // other button in the group, and unchecking one is a WRITE that overrides its
-                // binding for good - a fresh install then opens with "Panel icon size" showing
+                // binding for good - a fresh install then opens with one group showing
                 // nothing at all.
                 autoExclusive: false
                 // A view of page.surfaceKey, and the only writer of it is a click.
@@ -599,7 +571,7 @@ KCM.SimpleKCM {
                 onToggled: {
                     // autoExclusive is off, so a click can uncheck the selected radio. Flip it back the
                     // way the click did, from C++: assigning true from here would end the binding and
-                    // leave it lit after page.iconSizeKey moves on.
+                    // leave it lit after page.surfaceKey moves on.
                     if (!checked) { toggle(); return; }
                     page.surfaceKey = surfaceKey;
                     page.markChanged("surface");
@@ -639,90 +611,6 @@ KCM.SimpleKCM {
         }
 
         Item { Kirigami.FormData.isSection: true }
-
-        // --- how big the panel icon is --------------------------------------------------------------
-        // Automatic is the shipping answer and matches what the system tray draws at ordinary panel
-        // thicknesses; the three named sizes are for panels where that judgement is wrong.
-        Repeater {
-            id: iconSizeRepeater
-            // The form label, said once beside the first radio and in each radio's accessible name.
-            readonly property string groupLabel: i18n("Panel icon size:")
-            model: [
-                { key: "auto",   label: i18n("Automatic") },
-                { key: "small",  label: i18n("Small") },
-                { key: "medium", label: i18n("Medium") },
-                { key: "large",  label: i18n("Large") }
-            ]
-
-            QQC2.RadioButton {
-                required property var modelData
-                required property int index
-                readonly property string sizeKey: modelData.key
-
-                Kirigami.FormData.label: index === 0 ? iconSizeRepeater.groupLabel : ""
-                text: modelData.label
-                // A screen reader hears the group as well as the option: "Small" alone says
-                // nothing about what is small.
-                Accessible.name: i18nc("@info:whatsthis a radio button's setting, then its option",
-                                       "%1 %2", iconSizeRepeater.groupLabel, text)
-                // Off for the same reason as the surface radios above: these share a FormLayout
-                // parent with them, and QQC2 would otherwise run all eight as one exclusive group.
-                autoExclusive: false
-                checked: page.iconSizeKey === sizeKey
-                enabled: !page.loading
-                onToggled: {
-                    // autoExclusive is off, so a click can uncheck the selected radio. Flip it back the
-                    // way the click did, from C++: assigning true from here would end the binding and
-                    // leave it lit after page.reclaimKey moves on.
-                    if (!checked) { toggle(); return; }
-                    page.iconSizeKey = sizeKey;
-                    page.markChanged("widget_icon_size");
-                }
-            }
-        }
-
-        QQC2.Label {
-            text: i18n("Inside the system tray the tray sets the space, so a size larger than it allows is ignored.")
-            wrapMode: Text.WordWrap
-            font: Kirigami.Theme.smallFont
-            opacity: 0.8
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
-        }
-
-        Item { Kirigami.FormData.isSection: true }
-
-        // --- the restart reminder -------------------------------------------------------------------
-        // Here, with the panel icon above it, because both are settings about what the WIDGET does
-        // on the user's screen - the three groups above are about the update run itself, and the
-        // buttons below are actions rather than settings.
-        //
-        // What this key can and cannot reach is worth being exact about, because it looks like a
-        // switch on the restart and is not one. Whether a restart is owed is a fact the CLI measures
-        // (the state file's reboot_needed); this decides only whether the popup brings it up. Off,
-        // logic.js drops the message and its button and pushes the two-word `restart pending` onto
-        // the status line instead. And in neither state does anything restart on its own: the button
-        // the message carries opens KDE's own logout prompt and waits for the user.
-        QQC2.CheckBox {
-            id: restartReminder
-            Kirigami.FormData.label: i18n("Restart reminders:")
-            text: i18n("Remind me when a restart is needed")
-            // Ticked before anything has been read, unlike the two booleans at the top of the page,
-            // and deliberately: this is the CLI's own default for the key, so the window between
-            // the dialog opening and the read landing shows the likely truth rather than its
-            // opposite. Nothing is written off the back of it - saveConfig refuses to run while
-            // pendingReads is non-zero, and an unread key stays unwritten after that.
-            checked: true
-            enabled: !page.loading
-            onToggled: page.markChanged("restart_reminder")
-        }
-
-        QQC2.Label {
-            text: i18n("When this is off, there is no message or button, and the status line ends \"restart pending\" when a restart is needed. Kempt never restarts your computer on its own.")
-            wrapMode: Text.WordWrap
-            font: Kirigami.Theme.smallFont
-            opacity: 0.8
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
-        }
 
         // --- services that stop starting after an update ------------------------------------------
         // notify_startup: on by default, like the CLI's own default. The CLI does the looking and

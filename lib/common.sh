@@ -526,13 +526,11 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_startup"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min risky_regex reclaim notify_startup"
 
 # The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
-# worked example), and `widget_icon_size` is validated by the WIDGET, the half that can actually see
-# the panel - a CLI that rejected a size would be a second opinion about a Plasma detail it cannot
-# observe. A table, so a second enum is one line rather than a new branch.
+# worked example). A table, so a second enum is one line rather than a new branch.
 config_enum_values() {  # key → accepted values, space separated, or nothing
   case "$1" in
     surface) printf '%s\n' "terminal popup offline" ;;
@@ -589,7 +587,6 @@ kempt_default() {  # key → default ("" if unknown)
     # VALUE is deliberately not validated: the widget turns anything it does not recognise into
     # `auto` rather than refusing to draw, and a CLI that rejected values would be a second opinion
     # about a Plasma detail it cannot see.
-    widget_icon_size) echo auto ;;
     # Whether the widget's popup offers to open KDE's restart prompt when a restart is owed -
     # another widget setting kept here so `kempt config` stays the one way in and out.
     # The DEFAULT is the whole point of the entry: the widget asks the CLI for the key and runs the
@@ -597,7 +594,6 @@ kempt_default() {  # key → default ("" if unknown)
     # is_true reads as false. A missing entry here would not mean "no opinion" - it would silently
     # switch the reminder OFF on every box whose config file has never named it. Same failure mode
     # as a missing include_<backend> default (docs/architecture.md, the backend wiring table).
-    restart_reminder) echo true ;;
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction, so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;

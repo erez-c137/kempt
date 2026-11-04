@@ -248,9 +248,8 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
 
   The restart message ships now and consumes it, so the fixture's job is no longer to prove that
   nothing reads it. It is the state the restart assertions are driven from - `probe_popup.py`
-  points the stubbed CLI at it to put the message on screen, then switches `restart_reminder`
-  off, then closes the message, and checks each time that the fact moves into the footer's
-  `restart pending` rather than disappearing. Paired with state-live.json it is also still the
+  points the stubbed CLI at it to put the message on screen, then closes the message, and
+  checks that the fact moves into the footer's `restart pending` rather than disappearing. Paired with state-live.json it is also still the
   controlled experiment it was built as: `tests/test_widget_logic.sh` compares the two whole view
   models with `rebootNeeded` and `restartMessageVisible` deleted and requires them identical, so
   the key is held to moving the restart surfaces and nothing else.

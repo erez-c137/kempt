@@ -724,7 +724,7 @@ PlasmaExtras.Representation {
                 // on every button here when accessibility was active before construction.
                 Accessible.name: text
                 // ...and what is behind it, which the label cannot say.
-                Accessible.description: i18n("Check interval, where updates run, restart reminders, and the packages you hold.")
+                Accessible.description: i18n("Check interval, where updates run, and the packages you hold.")
                 PlasmaComponents.ToolTip.text: text
                 PlasmaComponents.ToolTip.visible: hovered || visualFocus
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
@@ -811,9 +811,7 @@ PlasmaExtras.Representation {
 
         // The restart. Shown in EVERY state, including up to date: you can owe a restart and have
         // twelve updates pending at once, and you can owe one with nothing pending at all.
-        // Bound to vm.restartMessageVisible, which has already folded in the
-        // `restart_reminder` setting and this session's dismissal - binding it to either half
-        // separately would be a second copy of that rule.
+        // Bound to vm.restartMessageVisible, which has already folded in this session's dismissal.
         Kirigami.InlineMessage {
             id: restartMessage
             Layout.fillWidth: true
@@ -862,7 +860,7 @@ PlasmaExtras.Representation {
             // flag, and THAT is the load-bearing part: this handler also fires when an ancestor
             // hides, which happens every time a run starts. A guard that only asked "does the view
             // model still want this?" would read a run beginning as the user closing the message,
-            // and an update would quietly switch the reminder off for the rest of the session.
+            // and an update would quietly take the message away for the rest of the session.
             onVisibleChanged: {
                 if (visible) return;
                 if (!popup.closedByButton(restartMessage, "restart")) return;

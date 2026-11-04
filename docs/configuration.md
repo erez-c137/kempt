@@ -1,6 +1,6 @@
 # Configuring Kempt
 
-![The widget's settings page: updates, unused Flatpak runtimes, where updates run, check interval, panel icon size, restart reminders, holds, Discover and password prompts](images/kempt-settings.png)
+![The widget's settings page: updates, unused Flatpak runtimes, where updates run, check interval, holds, Discover and password prompts](images/kempt-settings.png)
 
 *Most controls on the widget's settings page set one of the keys below. **Held**, **Discover** and
 **Password prompts** run commands instead. A change made in either place shows up in the other.*
@@ -36,8 +36,6 @@ half a minute.
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). When off, the run always uses the `terminal` surface with live output, because no other surface can answer a prompt. |
 | `surface` | `terminal`, `popup`, `offline` | `popup` | Where `kempt run` sends the update. `kempt config set surface widget` stores `popup`. A config that still names `background`, from an older version, reads as `popup`. An unrecognised value logs a warning and falls back to `terminal`. |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
-| `widget_icon_size` | `auto`, `small`, `medium`, `large` | `auto` | The size of the widget's panel icon. `auto` matches the system tray: 22 px on panels from 22 to 47 px thick, and 48 or 64 px on a thick or HiDPI panel. `small`, `medium` and `large` are 16, 22 and 32 px, but `large` is never smaller than `auto`. A size the panel cannot fit falls back to `auto`, so inside the system tray the tray's size wins. The widget validates this key: an unrecognised value means `auto`. |
-| `restart_reminder` | boolean | `true` | Whether the widget offers a restart when one is needed. When on, it shows a message with a **Restart…** button that opens KDE's restart prompt; closing the message hides it until the next Plasma session. When off, there is no message or button, and the status line ends `restart pending` when a restart is needed. Nothing restarts on its own either way. |
 | `notify_startup` | boolean | `true` | Whether Kempt tells you when a service that started before an update fails after it. Kempt only looks. It never turns anything on or off, and the update count never includes this. Each check asks systemd which services failed. See [kempt startup](usage.md#startup). |
 | `reclaim` | `ask`, `off` | `ask` | What to do with Flatpak runtimes no installed app uses. See [Unused Flatpak runtimes](#unused-flatpak-runtimes). |
 | `risky_regex` | POSIX extended regex | `^(kernel\|systemd\|glibc\|dbus\|mesa\|qt6\|kf6\|plasma-workspace\|kwin)` | Which package names count as session-critical. This drives the advice to install on the next restart and `risky_pending`. |
@@ -53,7 +51,7 @@ kempt config set surfce terminal
 ```
 
 ```
-warning: unknown setting 'surfce'. Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, widget_icon_size, restart_reminder, risky_regex, reclaim, notify_startup
+warning: unknown setting 'surfce'. Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, risky_regex, reclaim, notify_startup
 ```
 
 ```bash
@@ -65,8 +63,7 @@ warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, off
 ```
 
 The warning goes to stderr. The value is still written and the command still exits 0, because a
-newer widget or Kempt may read a key this version does not know. Booleans and `widget_icon_size`
-get no warning. `kempt hold` and `kempt unhold` print nothing on success.
+newer widget or Kempt may read a key this version does not know. Booleans get no warning. `kempt hold` and `kempt unhold` print nothing on success.
 
 `risky_regex` is matched against dnf package names only. Build and documentation packages never
 count as session-critical, whatever the pattern says: names with a `-devel`, `-headers`, `-static`,

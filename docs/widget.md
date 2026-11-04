@@ -27,12 +27,10 @@ Using both gives you two icons.
 | Spinner | Updating | A run started from the widget is in progress. |
 | Dimmed, no badge | No data yet | The first check has not answered. If another check was running, as is common right after login, it asks again a few times, about ten seconds apart. |
 
-The badge counts up to `999`, then shows `999+`. On a panel thinner than 22 px, or with **Small**
-chosen, there is no badge, but the icon still changes and the tooltip has the count.
+The badge counts up to `999`, then shows `999+`. On a panel thinner than 22 px there is no badge, but the icon still changes and the tooltip has the count.
 
-**Panel icon size**, under **Configure Kempt…**, offers **Automatic** (the default), **Small**,
-**Medium** and **Large**. The sizes are under `widget_icon_size` in
-[configuration.md](configuration.md#keys).
+The icon sizes itself to match the system tray: 22 px on panels from 22 to 47 px thick, and 48 or
+64 px on a thick or HiDPI panel.
 
 ## Inside the widget
 
@@ -337,8 +335,7 @@ cannot open, the message says why.
 The updates are already installed. Running programs and the kernel keep the old versions until
 they restart. A staged update is the other way round: it installs during the restart.
 
-The **x** hides the message until your next Plasma login. **Restart reminders** turns it off
-for good.
+The **x** hides the message until your next Plasma login.
 
 ### The Startup report
 
@@ -375,12 +372,8 @@ or **On the next restart**.
 **Check every** (`refresh_interval_min`, 60 minutes by default) sets how often the widget checks.
 The lowest value it offers is 15 minutes.
 
-**Restart reminders** (`restart_reminder`, on by default) controls the restart message and its
-**Restart…** button. With it off, the footer still says `restart pending`. Kempt never restarts on
-its own either way.
-
-**Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default) or **Never**. It is greyed out without Flatpak, or when Flatpak apps are left out of
-updates.
+**Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default) or **Never**. It is greyed
+out without Flatpak, or when Flatpak apps are left out of updates.
 
 **Password prompts** has **Allow without password…** and **Require a password…**. Each asks for
 your password and shows the result under the buttons. Which is active cannot be shown: only

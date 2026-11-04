@@ -75,7 +75,7 @@ var COPY = {
     checkForUpdatesDescription:
         "Asks dnf and flatpak what is pending now, instead of waiting for the timer.",
     configureDescription:
-        "Check interval, where updates run, restart reminders, and the packages you hold.",
+        "Check interval, where updates run, and the packages you hold.",
 
     // --- the pin ---------------------------------------------------------------------------------
     // The name carries the STATE, with a residual: a `checkable: false` button exposes no checked
@@ -708,9 +708,6 @@ function backendActionable(state, key) {
 }
 
 // --- how big the panel icon is asked to be -----------------------------------------------------
-// snapIconSize answers "how big when nobody said" (the `auto` setting); resolveIconSize answers
-// "how big, given what the user asked for".
-//
 // The hinted sizes an icon theme actually draws, smallest first. Breeze ships 16px and 22px
 // symbolics as SEPARATE artwork, each aligned to the pixel grid AT THAT SIZE, so asking for 15 or
 // 24 scales one by a fraction and every hinted stroke lands between pixels. Every size below is
@@ -725,7 +722,7 @@ var ICON_STEPS = [16, 22, 32, 48, 64];
 // asks for 22. 48 is where a panel stops being an ordinary panel.
 var ICON_CELL_MIN = [16, 22, 48, 96, 192];
 
-// snapIconSize(cell, steps) -> the hinted size an `auto` icon asks for in a cell this thick.
+// snapIconSize(cell, steps) -> the hinted size the icon asks for in a cell this thick.
 // Below the first rung there is no hinted size to snap to, so it falls back to a whole number of
 // pixels: scaling is the only option left, but it can at least be scaled to an integer.
 function snapIconSize(cell, steps) {
@@ -751,49 +748,10 @@ function usableSteps(steps) {
     return out.length ? out : ICON_STEPS.slice();
 }
 
-// The `widget_icon_size` values the settings page offers, and the step each names. INDEXES into
-// the step list rather than pixel counts, so a theme whose "small" is not 16 still gets its own
-// hinted artwork rather than a number this file invented.
-var ICON_SIZE_SETTINGS = { auto: -1, small: 0, medium: 1, large: 2 };
-
-// ...and the ones that must never come out SMALLER than `auto` would have drawn. Only the largest
-// option, and the asymmetry is the point: see resolveIconSize.
-var ICON_SIZE_FLOOR_AT_AUTO = { large: true };
-
-// resolveIconSizeSetting(value) -> a setting the widget recognises; anything unknown is `auto`.
-// This is the ONLY validation `widget_icon_size` gets - the CLI stores whatever it is handed
-// (config_set checks the key's shape, not the value's meaning), so a typo, an older CLI's empty
-// line and a future version's value all land here and all mean: decide automatically, say nothing.
-function resolveIconSizeSetting(value) {
-    var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
-    return Object.prototype.hasOwnProperty.call(ICON_SIZE_SETTINGS, s) ? s : "auto";
-}
-
 // resolveReclaimSetting(value) -> ask | off, read as the CLI's reclaim_mode reads it: case-folded,
 // and anything that is not exactly off is ask.
 function resolveReclaimSetting(value) {
     return String(value === undefined || value === null ? "" : value).toLowerCase() === "off" ? "off" : "ask";
-}
-
-// resolveIconSize(setting, cell, steps) -> the pixel size the icon is actually asked for.
-// A chosen size the cell cannot hold falls back to `auto` rather than overflowing: inside the tray
-// the cell is the tray's to decide, and 32px in a 22px slot pushes every other entry around.
-function resolveIconSize(setting, cell, steps) {
-    var list = usableSteps(steps), c = Number(cell);
-    var auto = snapIconSize(c, list);
-    if (!isFinite(c) || c <= 0) return auto;          // no cell yet: nothing to draw into
-    var key = resolveIconSizeSetting(setting);
-    var idx = ICON_SIZE_SETTINGS[key];
-    if (idx < 0) return auto;
-    var want = Number(list[idx]);
-    if (!isFinite(want) || want <= 0) return auto;    // a step list too short to name it
-    // "Large" is a promise about size, and on a big cell the named step breaks it: auto reaches 48
-    // at a 96px cell and 64 at 192, while `large` names the third step (32) - so on a vertical dock
-    // or a HiDPI panel, Large would draw SMALLER than Automatic. Floored rather than relabelling
-    // the options as pixel counts, which would make every label a number the user must translate.
-    // Small and Medium are deliberately NOT floored: going below Automatic is why they exist.
-    if (ICON_SIZE_FLOOR_AT_AUTO[key]) want = Math.max(want, auto);
-    return want > c ? auto : want;
 }
 
 // --- the watcher stamp -----------------------------------------------------------------------
@@ -1760,7 +1718,7 @@ function stagedOthersOf(staged, fpPending) {
 }
 
 // stagedVariantOf(staged, heldDnf[, fpPending]) -> which of the three banners this stage gets, and its words:
-//   { type: "positive" | "warning", message, banner, conflictNames: [...], stagedAt: "" }
+//   { type: "positive" | "warning", message, banner, stagedAt: "" }
 // banner is set on the plain variant only; viewModel shows a warning's whole message.
 //
 // THE PROBLEM IT EXISTS FOR: stage 83 updates with a kernel among them, press the pin on
@@ -1785,7 +1743,7 @@ function stagedOthersOf(staged, fpPending) {
 // deliberate: a well-formed list of names warns whether or not names_source is readable, because
 // names may CONFIRM a conflict and may never DENY one.
 function stagedVariantOf(staged, heldDnf, fpPending) {
-    var plain = { type: "positive", message: stagedMessageOf(staged), banner: "", conflictNames: [],
+    var plain = { type: "positive", message: stagedMessageOf(staged), banner: "",
                   stagedAt: "" };
     if (plain.message === "") return plain;
     // The plain banner sits under a header that already gives the count, so it shows only the
@@ -1820,12 +1778,12 @@ function stagedVariantOf(staged, heldDnf, fpPending) {
                      : fill(fill(COPY.stagedConflictMore, "%1", names[0]),
                             "%2", String(names.length - 1)))
                      + " " + COPY.stagedDiscardCost,
-                 conflictNames: names, stagedAt: plain.stagedAt };
+                 stagedAt: plain.stagedAt };
     }
     if (staged.names_source === "none" && heldDnf) {
         return { type: "warning",
                  message: COPY.stagedConflictUnknown + " " + COPY.stagedDiscardCost,
-                 conflictNames: [], stagedAt: plain.stagedAt };
+                 stagedAt: plain.stagedAt };
     }
     return plain;
 }
@@ -2667,9 +2625,6 @@ function staleAnswerOf(state, nowMs) {
 // the facts that are not in the state file:
 //   nowMs            - the clock. Absent means every relative time falls back to its absolute
 //                      stamp rather than guessing.
-//   restartReminder  - the `restart_reminder` config value. ABSENT is not false: the caller did
-//                      not say, and the CLI's default is true. Read with isTrue, because config
-//                      values arrive as text.
 //   restartDismissed - closed in THIS plasmashell session. Nothing persists it, by design.
 //   reclaimDismissed - the reclaim digest whose offer was closed in this session, or "". A new
 //                      digest (a different set of runtimes) shows the offer again.
@@ -3084,10 +3039,7 @@ function viewModel(state, updating, cliError, opts) {
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
     // `rebootNeeded` itself is derived above, next to the tooltip that reads it.
-    // Absent is not false: the caller simply did not say, and the CLI's default is true.
-    var restartReminder = (opts.restartReminder === undefined || opts.restartReminder === null)
-        ? true : isTrue(opts.restartReminder);
-    var restartMessageVisible = rebootNeeded && restartReminder && !isTrue(opts.restartDismissed);
+    var restartMessageVisible = rebootNeeded && !isTrue(opts.restartDismissed);
 
     // --- unused Flatpak runtimes ------------------------------------------------------------------
     var reclaim = usable ? state.reclaim : null;
@@ -3236,16 +3188,12 @@ function viewModel(state, updating, cliError, opts) {
         tooltipMain: tooltipMain,
         tooltipSub: subParts.join(DOT),
         headerText: headerText,
-        sections: counted.sections,
-        heldItems: counted.heldItems,
         rows: rowsOf(counted.sections, counted.heldItems),
         actionable: actionable,
-        heldTotal: heldTotal,
         stale: stale,
         // "" when fine; otherwise the CLI's own error text, so the popup says what actually went
         // wrong instead of a generic apology.
         staleReason: staleReason,
-        cliError: cliError,
         // The fact, then what to do about it, on two lines. Empty means there is nothing to say,
         // and that empty string is the popup's only gate - exactly how riskyMessage and
         // stagedMessage already work. The other two follow it: the clipboard payload the button
@@ -3257,7 +3205,6 @@ function viewModel(state, updating, cliError, opts) {
         emptyStateText: emptyStateText,
         // The tool's own line under a plain emptyStateText, and whether it was a network failure.
         problemDetail: problemDetail,
-        problemNetwork: problemNetwork,
         // The line under emptyStateText: what to do about it. Check Installation's when it is offered.
         problemHint: remedyCommand !== "" ? COPY.checkFailedHint
             : (problemNetwork || problemNoCache ? problemHint : ""),
@@ -3297,13 +3244,11 @@ function viewModel(state, updating, cliError, opts) {
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.
         stagedArmed: staged,
-        securityCount: security.count,
         // "positive" for the ordinary armed stage, "warning" once a hold has landed behind it. A
         // string rather than a boolean because the QML binds it to a Kirigami.MessageType, and a
         // third spelling is a plausible next state for this banner rather than an exotic one.
         stagedType: (stageBlocked || restartHeldBanner) ? "warning" : stagedVariant.type,
         // The blocked stage above: in the staged slot, with no action of its own.
-        stageBlocked: stageBlocked,
         // Never two Restart… buttons in one popup: the restart Warning already carries one
         // whenever it is on screen.
         // ...and never a Restart… on a warning variant at all, which is the stricter rule and the
@@ -3332,11 +3277,8 @@ function viewModel(state, updating, cliError, opts) {
         // set to offline, pressing it runs exactly the command the CLI turns down. Hidden rather
         // than left to fail, on the same rule as everything else here.
         updateOffered: !imageBased && !(releaseUpgrade && stagesByDefault),
-        // The footer button's words. The QML writes both literals for i18n and picks one with
-        // updateStages; the text and tooltip are published so a test can pin the pair.
+        // The footer button's words: the QML writes both literals for i18n and picks one with this.
         updateStages: updateButton.stages,
-        updateButtonText: updateButton.text,
-        updateButtonTooltip: updateButton.tooltip,
         stageTooltipNamesFlatpak: flatpakPending,
         imageBasedMessage: imageBasedMessage,
         foldersPausedMessage: foldersPausedMessage,
@@ -3345,11 +3287,6 @@ function viewModel(state, updating, cliError, opts) {
         // can be consumed by a restart, replaced or cleaned away. "" means there is nothing to compare, which the re-verify reads as "do not
         // act".
         stagedStagedAt: stagedVariant.stagedAt,
-        // The names behind the sentence. The banner shows the first and a count; anything that has
-        // to say them again takes them from here rather than parsing them out of the sentence.
-        stagedConflictNames: stagedVariant.conflictNames,
-        lastSuccessText: lastSuccessText,
-        rebootNeeded: rebootNeeded,
         restartMessageVisible: restartMessageVisible,
         // ...and whether that message may carry its own Restart button. Everywhere else it may: a
         // restart applies updates that are already installed. NOT while the staged banner is a
@@ -3379,7 +3316,6 @@ function viewModel(state, updating, cliError, opts) {
         checkAnswerText: checkAnswerText,
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.
-        downloadText: downloadText,
         // The relative time in footerText is the convenience; this is the truth, and people
         // compare the two. Empty rather than "never" when there has been no successful check: the
         // footer already says so in words.
@@ -3469,8 +3405,7 @@ if (typeof module !== "undefined" && module.exports) {
         discoverSettingOf: discoverSettingOf,
         lastLinesOf: lastLinesOf,
         snapIconSize: snapIconSize,
-        resolveIconSize: resolveIconSize,
-        resolveIconSizeSetting: resolveIconSizeSetting,
+        collectItems: collectItems,
         resolveReclaimSetting: resolveReclaimSetting,
         ICON_STEPS: ICON_STEPS,
         watchChange: watchChange,

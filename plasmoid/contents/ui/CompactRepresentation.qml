@@ -20,7 +20,6 @@ Item {
 
     required property PlasmoidItem plasmoidItem   // for expanding the popup on click
     required property var vm                      // the derived view model, never null
-    required property string iconSizeSetting      // `widget_icon_size`, straight from `kempt config`
 
     readonly property string iconState: compactRoot.vm.iconState
     readonly property string badgeText: compactRoot.vm.badgeText
@@ -53,10 +52,9 @@ Item {
     // Icon themes hint their glyphs at specific pixel sizes - Breeze ships 16px and 22px symbolics
     // as separate artwork, each aligned to the pixel grid at that size - so an icon handed a
     // fraction of a cell lands every hinted stroke between pixels and goes soft exactly where it is
-    // smallest. Which step it lands on is Logic.resolveIconSize. Kirigami's own values are passed
+    // smallest. Which step it lands on is Logic.snapIconSize. Kirigami's own values are passed
     // in so a theme whose steps are not Breeze's still gets its own artwork.
-    readonly property int iconSize: Logic.resolveIconSize(compactRoot.iconSizeSetting,
-                                                          compactRoot.shortSide, [
+    readonly property int iconSize: Logic.snapIconSize(compactRoot.shortSide, [
         Kirigami.Units.iconSizes.small,        // 16
         Kirigami.Units.iconSizes.smallMedium,  // 22
         Kirigami.Units.iconSizes.medium,       // 32

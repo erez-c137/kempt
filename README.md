@@ -85,7 +85,7 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
 *After staging, the widget says what installs on the next restart. Restart when you are ready, or
 discard the staged update and keep working.*
 
-![Kempt's settings page: updates, unused Flatpak runtimes, where updates run, check interval, panel icon size, restart reminders, holds, Discover and password prompts](docs/images/kempt-settings.png)
+![Kempt's settings page: updates, unused Flatpak runtimes, where updates run, check interval, holds, Discover and password prompts](docs/images/kempt-settings.png)
 
 *The settings page edits the same config file the command line reads.
 [docs/configuration.md](docs/configuration.md) lists every setting.*

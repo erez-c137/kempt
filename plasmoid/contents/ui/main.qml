@@ -124,29 +124,10 @@ PlasmoidItem {
     readonly property string effectiveSurface: Logic.effectiveSurfaceOf(surface, autoAccept)
     property string logTail: ""
     property string logPath: ""
-    // `auto`, or one of the three named steps. Validated HERE, not by the CLI: `kempt config set`
-    // checks that a key looks like a key and stores whatever value it is handed, so a typo, an
-    // older CLI's empty line and a future version's value all arrive the same way.
-    // Logic.resolveIconSizeSetting turns every one of them into `auto` without complaint, which is
-    // right for a panel icon: it draws, at a sensible size, whatever the file says.
-    property string iconSizeSetting: "auto"
-    // Whether the popup may REMIND the user that a restart is owed (`restart_reminder`, default
-    // true). Not whether one is owed - that is the state file's `reboot_needed`, a fact rather
-    // than a reminder: with this off the message and its button go and the status line still ends
-    // "restart pending".
-    property bool restartReminder: true
-
-    // ...and whether the user closed that message in THIS plasmashell session. Deliberately not
+    // Whether the user closed the restart message in THIS plasmashell session. Deliberately not
     // persisted: a dismissal written to disk is a promise to remember across a restart, and a
-    // restart is the exact event that makes the underlying fact go away. Somebody who never wants
-    // the message turns the setting off; that IS the durable answer.
+    // restart is the exact event that makes the underlying fact go away.
     property bool restartDismissed: false
-
-    // Switching the reminder OFF and back ON is a person saying "show me this again". Only on the
-    // TRANSITION, which is what a property change signal is: the config file is polled every 30
-    // seconds, so a handler that fired whenever the value was simply true would revoke a dismissal
-    // within half a minute of it being made.
-    onRestartReminderChanged: if (restartReminder) restartDismissed = false;
 
     // The reclaim digest whose offer was closed in this session. Per digest, so a different set of
     // unused runtimes is offered again; not persisted, like restartDismissed.
@@ -296,7 +277,6 @@ PlasmoidItem {
                                               { nowMs: nowMs,
                                                 refreshAskedMs: refreshAskedMs,
                                                 refreshCheckStamp: refreshCheckStamp,
-                                                restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
                                                 reclaimDismissed: reclaimDismissed,
                                                 fetchMissedDismissed: fetchMissedClosedFor > 0
@@ -717,8 +697,7 @@ PlasmoidItem {
             // the line above, so it falls past this and gets the full re-read.)
             if (root.updating) {
                 if (delta.config) {
-                    root.readInterval(); root.readSurface(); root.readIconSize();
-                    root.readRestartReminder();
+                    root.readInterval(); root.readSurface();
                 }
                 return;
             }
@@ -727,8 +706,6 @@ PlasmoidItem {
             // file. include_flatpak can change what is pending, so the check below happens anyway.
             root.readInterval();
             root.readSurface();
-            root.readIconSize();
-            root.readRestartReminder();
 
             // ...and the check itself, unless this change is still the wake of the last one.
             // Logic.watcherCheckDue carries the rule and the trade it makes. One exemption:
@@ -793,23 +770,6 @@ PlasmoidItem {
         });
     }
 
-    // The panel icon's size preference, on the same schedule and under the same empty-answer rule.
-    // Anything it does answer goes through the validator before it can reach a binding.
-    function readIconSize() {
-        executor.run(kemptCmd + " config get widget_icon_size", 10000, function(stdout, stderr, rc) {
-            var v = Logic.firstLineOf(stdout);
-            if (rc === 0 && v !== "") root.iconSizeSetting = Logic.resolveIconSizeSetting(v);
-        });
-    }
-
-    // Whether the popup may remind the user about an owed restart. Same rule as readSurface.
-    function readRestartReminder() {
-        executor.run(kemptCmd + " config get restart_reminder", 10000, function(stdout, stderr, rc) {
-            var v = Logic.firstLineOf(stdout);
-            if (rc === 0 && v !== "") root.restartReminder = Logic.isTrue(v);
-        });
-    }
-
     // --- the Startup page ---------------------------------------------------------------------
     // Gathered when the page opens and on its own Refresh, and by nothing else: the journal and
     // crontab reads are the costly part, and nobody needs them unless looking. What comes back is
@@ -856,17 +816,9 @@ PlasmoidItem {
                   + (vm.heldLiveSurface !== "" ? " --surface=" + vm.heldLiveSurface : ""));
     }
 
-    // `kempt run`, with the options Update Now or Install Now chose. An engine older than this
-    // widget (0.1.7) has no --risky-ok and refuses it with exit 2 before launching anything, so
-    // that one refusal is asked again once without the option: the person has already chosen,
-    // and the only cost is the notification the option would have left out.
+    // `kempt run`, with the options Update Now or Install Now chose.
     function launchRun(options) {
         executor.run(kemptCmd + " run" + options, 15000, function(stdout, stderr, rc) {
-            if (options !== "" && rc === 2
-                    && String(stderr).indexOf("unknown option: --risky-ok") >= 0) {
-                root.launchRun(options.replace(" --risky-ok", ""));
-                return;
-            }
             root.runRequested = false;
             if (rc === 0) {
                 // The surface the CLI just launched, remembered for the pane. Read here rather
@@ -1474,7 +1426,6 @@ PlasmoidItem {
     compactRepresentation: CompactRepresentation {
         plasmoidItem: root
         vm: root.vm
-        iconSizeSetting: root.iconSizeSetting
     }
     fullRepresentation: FullRepresentation {
         plasmoidItem: root
@@ -1654,8 +1605,6 @@ PlasmoidItem {
         readDiscoverAnswered();
         readInterval();
         readSurface();
-        readIconSize();
-        readRestartReminder();
         // Before any run happens in this session, so the popup's Last update row has something
         // true to say the first time it is opened.
         loadLastRun();

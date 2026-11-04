@@ -50,8 +50,7 @@ open(os.path.join(p.state, "logs", "20260825T000000.log"), "w").write(
 STATE_JSON = os.path.join(p.state, "state.json")
 RUNRC = os.path.join(p.sandbox, "runrc")
 AUTO = os.path.join(p.sandbox, "auto_accept")
-# Which state fixture `kempt check` serves, what `kempt config get restart_reminder` answers, and
-# what `kempt summary --json` prints. Files rather than constants because every one of them is a
+# Which state fixture `kempt check` serves, and what `kempt summary --json` prints. Files rather than constants because every one of them is a
 # world the widget has to react to a CHANGE in, and rewriting a file is how this probe changes the
 # world under a running widget.
 CHECKSRC = os.path.join(p.sandbox, "checksrc")
@@ -62,14 +61,9 @@ open(CHECKRC, "w").write("")
 # Seconds `kempt check` takes before it answers (empty: none).
 CHECKSLEEP = os.path.join(p.sandbox, "checksleep")
 open(CHECKSLEEP, "w").write("")
-RR = os.path.join(p.sandbox, "restart_reminder")
 RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNRC, "w").write("0")
-# Non-empty: `kempt run` answers as a 0.1.7 engine does to an option it does not know.
-OLDRUN = os.path.join(p.sandbox, "oldrun")
-open(OLDRUN, "w").write("")
 open(AUTO, "w").write("true\n")
-open(RR, "w").write("true\n")
 # What `kempt config get surface` answers, and the status `config set` fails with (empty: it works).
 SURF = os.path.join(p.sandbox, "surface")
 CFGSETRC = os.path.join(p.sandbox, "cfgsetrc")
@@ -192,12 +186,9 @@ case "$1" in
           [[ -s %(CHKRC)s ]] && { echo "kempt: the check could not run" >&2; exit "$(cat %(CHKRC)s)"; }
           cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    # A 0.1.7 engine, while this file holds anything: it has no --risky-ok, and says so.
-          [[ "$2" == --risky-ok && -s %(OLDRUN)s ]] && { echo "unknown option: --risky-ok" >&2; exit 2; }
           rc="$(cat %(RUNRC)s)"
           # 3 is cmd_run's up-front refusal while another update holds the lock, in its words.
           [[ "$rc" == 3 ]] && { echo "An update is already running." >&2; exit 3; }
-          # "2u": exit 2 with the refusal's own words, on a run that had no option to refuse.
-          [[ "$rc" == 2u ]] && { echo "unknown option: --risky-ok" >&2; exit 2; }
           [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2; exit "$rc"; }
           exit 0 ;;
   update) exit 0 ;;
@@ -220,9 +211,8 @@ case "$1" in
           cat %(DOUT)s; cat %(DERR)s >&2; exit "$(cat %(DRC)s)" ;;
 esac
 """ % {"DWAIT": DOCTORWAIT, "DOUT": DOCTOROUT, "DERR": DOCTORERR, "DRC": DOCTORRC,
-       "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
-                                restart_reminder="cat %s" % RR),
-       "CHKRC": CHECKRC, "CHKSLEEP": CHECKSLEEP, "OLDRUN": OLDRUN, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
+       "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO),
+       "CHKRC": CHECKRC, "CHKSLEEP": CHECKSLEEP, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
@@ -752,41 +742,14 @@ settle()
 p.check("...and the next attempt that works clears it", ev("root.restartError"), "")
 
 # --- the reminder setting, and closing the message ------------------------------------------------
-# The message is a REMINDER and a person can turn it off; the fact that a restart is owed is not
-# a reminder and never goes away.
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-reboot-needed.json"))
 ev("root.doCheck()")
 settle()
-p.check("a state that says a restart is owed reaches the view model",
-        ev("root.vm.rebootNeeded"), True)
-p.check("...and with the reminder on, the popup offers the message",
+p.check("a state that says a restart is owed offers the message",
         ev("root.vm.restartMessageVisible"), True)
 p.check("...which is the only place the fact is stated - not twice in one window",
         "restart pending" in str(ev("root.vm.footerText")), False)
 
-open(RR, "w").write("false\n")
-ev("root.readRestartReminder()")
-settle()
-p.check("the reminder setting is read from the CLI like every other setting",
-        ev("root.restartReminder"), False)
-p.check("...and switching it off takes the message off the screen",
-        ev("root.vm.restartMessageVisible"), False)
-p.check("...while the status line keeps saying a restart is pending",
-        "restart pending" in str(ev("root.vm.footerText")), True)
-
-# An older CLI that has never heard of the key prints an empty line and exits 0. Read as "false"
-# that would silently switch the reminder off on a box whose setting is true - the same trap
-# auto_accept carries, and the same guard.
-open(RR, "w").write("")
-ev("root.restartReminder = true")
-ev("root.readRestartReminder()")
-p.wait_idle(ev, "executor")
-p.check("an empty answer changes nothing rather than being read as false",
-        ev("root.restartReminder"), True)
-open(RR, "w").write("true\n")
-ev("root.readRestartReminder()")
-settle()
-p.check("...and the reminder is back on", ev("root.vm.restartMessageVisible"), True)
 
 # Closing the message. Nothing is written, and the fact moves into the status line.
 before_cfg = p.call_count("config")
@@ -1360,7 +1323,7 @@ settle()
 p.check("held: the banner is up, with Restart",
         [lev("stagedMessage.visible"), ev("root.vm.stagedShowRestart")], [True, True])
 p.check("...in the copy's words", lev("stagedMessage.text"), ev("Logic.COPY.restartHeldBanner"))
-p.check("...and the footer button says Update Now", ev("root.vm.updateButtonText"), "Update Now")
+p.check("...and the footer button says Update Now", lev("updateButton.text"), "Update Now")
 _held_runs = p.call_count("run")
 ev("root.startUpdate()")
 settle()
@@ -2152,7 +2115,7 @@ p.check("...one that fetches fresh metadata first", p.calls_matching("check")[-1
 compact_comp = QQmlComponent(p.engine, QUrl.fromLocalFile(
     os.path.join(harness.UI, "CompactRepresentation.qml")))
 compact = compact_comp.createWithInitialProperties(
-    {"plasmoidItem": root, "vm": root.property("vm"), "iconSizeSetting": "auto"})
+    {"plasmoidItem": root, "vm": root.property("vm")})
 p.check("the panel icon builds against the same root", compact is not None, True)
 if compact is None:
     sys.exit(p.done())
@@ -2906,22 +2869,7 @@ ev('root.postRunLine = ""')
 p.check("...and Update Now back on the footer once the run is over",
         lev("updateButton.visible"), True)
 
-# ...on an engine older than this widget, which refuses --risky-ok with exit 2 and launches
-# nothing. The person has chosen, so the run is asked for once more without the option.
-open(OLDRUN, "w").write("old")
-lev("updateButton.clicked()")
-p.pump(100)
-p.clear_calls()
-lev("riskyMessage.actions[1].trigger()")
-p.wait_for(ev, "root.updating", True, timeout_ms=8000)
-settle()
-p.check("Install Now on an engine without --risky-ok runs plain `kempt run` once after the refusal",
-        p.calls_matching("run"), ["run --risky-ok", "run"])
-p.check("...and says nothing about an unknown option", ev("root.actionMessage"), "")
-ev("root.leaveUpdating()")
-settle()
-ev('root.postRunLine = ""')
-# ...and a plain run that fails after it reports that failure, once, and asks nothing again.
+# A run that fails after the choice reports that failure, once, and asks nothing again.
 open(RUNRC, "w").write("4")
 lev("updateButton.clicked()")
 p.pump(100)
@@ -2929,24 +2877,13 @@ p.clear_calls()
 lev("riskyMessage.actions[1].trigger()")
 p.wait_for(ev, "root.runRequested", False, timeout_ms=8000)
 settle()
-p.check("...a plain run that then fails is not asked again",
-        p.calls_matching("run"), ["run --risky-ok", "run"])
+p.check("...a run that fails is not asked again",
+        p.calls_matching("run"), ["run --risky-ok"])
 p.check("...and its own failure is what the popup reports",
         "konsole" in str(ev("root.actionMessage")), True)
 open(RUNRC, "w").write("0")
-open(OLDRUN, "w").write("")
 ev('root.actionMessage = ""')
 ev("root.riskyChoiceOpen = false")
-# Plain Update Now asked for no option, so even exit 2 with the refusal's words is not retried.
-state(fixture("state-live.json"))
-open(RUNRC, "w").write("2u")
-p.clear_calls()
-lev("updateButton.clicked()")
-p.wait_for(ev, "root.runRequested", False, timeout_ms=8000)
-settle()
-p.check("plain Update Now that exits 2 is not asked again", p.calls_matching("run"), ["run"])
-open(RUNRC, "w").write("0")
-ev('root.actionMessage = ""')
 state(fixture("state-risky-heavy.json"))
 
 # Install on Next Restart from the choice stages, as it does from the plain message.
