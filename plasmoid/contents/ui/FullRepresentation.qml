@@ -1062,51 +1062,25 @@ PlasmaExtras.Representation {
             ]
         }
 
-        // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr,
-        // dnf is not how the machine updates, and `kempt update` aborts in pre-flight. Those images
-        // ship dnf5 and plasma-workspace, so Kempt installs cleanly and everything here fills in
-        // with dnf's answers - which is exactly why this has to be said outright rather than left
-        // to a button press to discover.
-        //
-        // Information: the machine is not broken and neither is Kempt, it is the wrong tool for
-        // this box. No action of its own - Discover is where this belongs, and an update widget
-        // launching another updater is not a button anybody asked for.
+        // Why Kempt cannot go ahead on this box: logic.js picks the cause and words it. No button of
+        // its own on an image-based box, where Discover is the answer and an update widget launching
+        // another updater is not a button anybody asked for.
         Kirigami.InlineMessage {
-            id: imageBasedMessage
+            id: blockedMessage
             Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: popup.vm.imageBasedMessage
+            type: popup.vm.blockedWarns ? Kirigami.MessageType.Warning : Kirigami.MessageType.Information
+            text: popup.vm.blockedMessage
             Accessible.name: text
-            visible: popup.shows("imageBased")
-        }
-
-        // The last check found a dnf folder other users can change, so the root helper refuses updates.
-        Kirigami.InlineMessage {
-            id: foldersPausedMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: popup.vm.foldersPausedMessage
-            Accessible.name: text
-            visible: popup.shows("foldersPaused")
-        }
-
-        // A Fedora release upgrade staged outside Kempt. dnf5 keeps ONE stored transaction for that
-        // and for an ordinary offline update alike, so staging updates for a restart would cancel it
-        // - and re-downloading a release upgrade is gigabytes. The CLI refuses the press; this is
-        // what makes the popup stop offering it, so nobody presses a button to be told no.
-        //
-        // Information, and no action of its own: nothing here is broken, there is nothing to fix,
-        // and the two things a person might want to do about it - restart, or drop the upgrade -
-        // are theirs to choose rather than a button in an update widget. It displaces the kernel
-        // recommendation deliberately (logic.js, messageStack), because that message recommends the
-        // one thing this state does not allow.
-        Kirigami.InlineMessage {
-            id: releaseUpgradeMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: popup.vm.releaseUpgradeMessage
-            Accessible.name: text
-            visible: popup.shows("releaseUpgrade")
+            visible: popup.shows("blocked")
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Check Installation")
+                    icon.name: "tools-report-bug"
+                    visible: popup.vm.blockedOffersDoctor
+                    enabled: visible
+                    onTriggered: source => popup.plasmoidItem.runDoctor()
+                }
+            ]
         }
 
         // The one-time offer to turn off Discover's own update notifier, which counts updates on

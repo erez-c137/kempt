@@ -22,7 +22,7 @@ if command -v node >/dev/null 2>&1; then
     // The sentences the view model builds out of the copy, for every state fixture, idle and
     // updating, plus the no-data state.
     const FIELDS = ["tooltipMain", "tooltipSub", "headerText", "emptyStateText",
-      "questionMessage", "stagedMessage", "releaseUpgradeMessage", "imageBasedMessage", "foldersPausedMessage", "footerText",
+      "questionMessage", "stagedMessage", "blockedMessage", "footerText",
       "footerTooltip", "reclaimMessage", "engineFaultMessage"];
     const states = [["null", null]];
     for (const f of fs.readdirSync(process.argv[2]).filter((f) => /^state-.*\.json$/.test(f)))
@@ -174,8 +174,7 @@ assert_contains "$HELPER_TEXT" "Kempt does not update atomic Fedora (Kinoite, Si
 assert_contains "$(cut -f2- "$TEXT")" "The staged update was left in place. Run kempt doctor." "the clean unwind's sentence is collected"
 if command -v node >/dev/null 2>&1; then
   PAUSED="$(node -e 'console.log(require(process.argv[1]).COPY.updatesPausedFolder)' "$UI/logic.js")"
-  assert_eq "$PAUSED" "Updates paused: a system folder has unsafe permissions. Run kempt doctor." "the widget's short form"
-  assert_eq "$(( ${#PAUSED} < 80 ))" "1" "...fits its row: ${#PAUSED} characters"
+  assert_eq "$PAUSED" "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." "the widget's own form"
 fi
 
 # --- the allowlist ------------------------------------------------------------------------------

@@ -982,9 +982,7 @@ UPTODATE_REBOOT = uptodate_from("state-reboot-needed.json", "state-uptodate-rebo
 MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("restartMessage", "the restart message"),
             ("stagedMessage", "the staged-transaction message"),
-            ("releaseUpgradeMessage", "the staged Fedora release upgrade"),
-            ("imageBasedMessage", "the rpm-ostree message"),
-            ("foldersPausedMessage", "updates paused over a system folder"),
+            ("blockedMessage", "why Kempt cannot go ahead"),
             ("questionMessage", "the question Update Now asks"),
             ("discoverOfferMessage", "the offer to turn off Discover's notifier"),
             ("reportMessage", "the report of the last thing that happened"),
@@ -2696,19 +2694,22 @@ _rupath = os.path.join(p.sandbox, "state-release-upgrade.json")
 open(_rupath, "w").write(json.dumps(_ru))
 state(_rupath)
 # The status line keeps the risk on screen beside the live button.
-stack("with a Fedora release upgrade staged", "releaseUpgradeMessage")
+stack("with a Fedora release upgrade staged", "blockedMessage")
 p.check("...with the risk on the status line", "including a new kernel" in str(ev("root.vm.headerText")), True)
 p.check("...naming the release the machine is about to move to",
-        "Fedora 45" in str(lev("releaseUpgradeMessage.text")), True)
+        "Fedora 45" in str(lev("blockedMessage.text")), True)
 p.check("...carrying logic.js's sentence rather than a second copy of it",
-        lev("releaseUpgradeMessage.text"), ev("root.vm.releaseUpgradeMessage"))
+        lev("blockedMessage.text"), ev("root.vm.blockedMessage"))
 p.check("...as Information: a release upgrade waiting to install is not a fault",
-        lev("releaseUpgradeMessage.type"), lev("Kirigami.MessageType.Information"))
+        lev("blockedMessage.type"), lev("Kirigami.MessageType.Information"))
 p.check("...announced to a screen reader in the same words",
-        lev("releaseUpgradeMessage.Accessible.name"), lev("releaseUpgradeMessage.text"))
-# No action of its own: restarting, or dropping the upgrade, are the person's to choose rather
-# than a button in an update widget.
-p.check("...and it asks for nothing", lev("releaseUpgradeMessage.actions.length"), 0)
+        lev("blockedMessage.Accessible.name"), lev("blockedMessage.text"))
+p.check("...and Check Installation is there, for the commands",
+        lev("blockedMessage.actions[0].visible"), True)
+_doctor_ru = p.call_count("doctor")
+lev("blockedMessage.actions[0].trigger()")
+settle()
+p.check("...and it runs doctor", p.call_count("doctor") - _doctor_ru, 1)
 # ...and the press is unreachable, which is the point of the whole exercise.
 _before_ru = p.call_count("update")
 p.check("Update Now asks no question offering Install on Next Restart", ev("root.vm.updateAsksFirst"), False)
@@ -2735,19 +2736,19 @@ _fppath = os.path.join(p.sandbox, "state-unsafe-folder.json")
 open(_fppath, "w").write(json.dumps(_fp))
 state(_fppath)
 p.check("a check that found an unsafe folder says updates are paused",
-        lev("foldersPausedMessage.text"), ev("root.vm.foldersPausedMessage"))
-p.check("...as a warning", lev("foldersPausedMessage.type"), lev("Kirigami.MessageType.Warning"))
-p.check("...and it is drawn", lev("foldersPausedMessage.visible"), True)
+        lev("blockedMessage.text"), ev("Logic.COPY.updatesPausedFolder"))
+p.check("...as a warning", lev("blockedMessage.type"), lev("Kirigami.MessageType.Warning"))
+p.check("...and it is drawn", lev("blockedMessage.visible"), True)
 state(_ibpath)
-stack("on an image-based Fedora", "imageBasedMessage")
+stack("on an image-based Fedora", "blockedMessage")
 p.check("...naming the tool that does update this machine",
-        "rpm-ostree" in str(lev("imageBasedMessage.text")), True)
+        "rpm-ostree" in str(lev("blockedMessage.text")), True)
 p.check("...carrying logic.js's sentence rather than a second copy of it",
-        lev("imageBasedMessage.text"), ev("root.vm.imageBasedMessage"))
+        lev("blockedMessage.text"), ev("root.vm.blockedMessage"))
 p.check("...as Information: neither the machine nor Kempt is broken",
-        lev("imageBasedMessage.type"), lev("Kirigami.MessageType.Information"))
+        lev("blockedMessage.type"), lev("Kirigami.MessageType.Information"))
 p.check("...and asks for nothing, because Discover is where this belongs",
-        lev("imageBasedMessage.actions.length"), 0)
+        lev("blockedMessage.actions[0].visible"), False)
 # The two buttons that would abort in pre-flight are gone rather than greyed.
 p.check("Update Now is not offered on a machine dnf cannot update",
         lev("updateButton.visible"), False)
@@ -2776,6 +2777,7 @@ _lead = ev("Logic.COPY.riskyAskLead")
 p.check("...and gives the reason on screen", lev("questionMessage.text"), ev("Logic.COPY.kernelRestart"))
 p.check("...with Update Now off the footer while the question is open",
         lev("updateButton.visible"), False)
+p.pump(700)  # the question's focus retry speaks when it ends, and there is no real window here
 p.check("...and out loud, once, saying first that nothing is installed yet",
         said(), [_lead + " " + ev("Logic.COPY.kernelRestart")])
 p.check("...and opens the choice instead", ev("root.riskyChoiceOpen"), True)
@@ -3429,7 +3431,7 @@ _ASSEMBLED_IN_LOGIC = {
     "userAppsUncheckedShort",  # -> vm.footerText and vm.tooltipSub
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
-    "updatesPausedFolder",  # -> postRunLine, for a run the helper refused over a system folder, and vm.foldersPausedMessage
+    "updatesPausedFolder",  # -> postRunLine, for a run the helper refused over a system folder, and vm.blockedMessage
     "stagedNothingHeld",    # -> postRunLine, for a staging run that staged nothing
     "stagedNothingNonePending",  # -> postRunLine, the other reason it can have staged nothing
     "lastRunNothingStaged",  # -> lastRunText, the past-tense row for the same run
@@ -3459,17 +3461,10 @@ _ASSEMBLED_IN_LOGIC = {
     "engineUnrunnableFix",  # -> vm.engineFaultMessage
     "engineCopyCommands",   # -> vm.engineFaultActionLabel: the button's label follows its payload
     "engineCopyCommand",    # -> vm.engineFaultActionLabel
-    "releaseUpgradeStaged",  # -> vm.releaseUpgradeMessage (the release number goes into the %1)
-    "releaseUpgradeNoStage",  # -> vm.releaseUpgradeMessage, joined onto it as its second sentence
-    "releaseUpgradeReady",  # -> vm.releaseUpgradeMessage, for the downloaded-but-not-armed state
-    "releaseUpgradeForeign",  # -> vm.releaseUpgradeMessage, behind another updater's restart
-    "releaseUpgradeStranded",  # -> vm.releaseUpgradeMessage, for `ready` with the boot symlink gone
-    "releaseUpgradeIncomplete",  # -> vm.releaseUpgradeMessage, for a transaction that did not finish
-    "releaseUpgradeLiveStillWorks",  # -> vm.releaseUpgradeMessage, on a box that updates live
-    "releaseUpgradeNoRoute",  # -> vm.releaseUpgradeMessage, on a box configured to stage
-    "imageBased",           # -> vm.imageBasedMessage, and vm.tooltipSub is not given it: the panel
+    "releaseUpgradeArmed",  # -> vm.blockedMessage (the release number goes into the %1)
+    "releaseUpgradeWaiting",  # -> vm.blockedMessage, for every other state
+    "imageBased",           # -> vm.blockedMessage, and vm.tooltipSub is not given it: the panel
                             #    hover is not where a person learns what kind of Fedora they run
-    "imageBasedUse",        # -> vm.imageBasedMessage, joined onto it as its second sentence
     "doctorPassed",         # -> doctorOutcomeOf -> root.doctorSummary
     "doctorFoundOne",       # -> doctorOutcomeOf, with doctor's FAIL line in the %1
     "doctorFoundMore",      # -> doctorOutcomeOf, with the count and the first FAIL line

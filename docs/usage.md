@@ -801,7 +801,7 @@ when neither exists.
 | `info  dnf5 still keeps what is left of a staged update that was only partly installed ...` | It will not run again, and a later stage replaces it. `kempt unstage` removes it. If another updater holds the next restart, restart first. |
 | `WARN  staged update: another updater has prepared the next restart ...` | The update Kempt staged will not install on that restart. |
 | `WARN  another updater has prepared the next restart: /system-update points to ...` | Normal while Discover's notifier has an update ready. Kempt will not stage until you have restarted. `is not dnf5's` in place of `points to` means a plain file. |
-| `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is ready. `kempt update --surface=offline` stops while it is there. |
+| `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is ready. `sudo dnf5 offline clean` removes it. `kempt update --surface=offline` stops while it is there. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | No restart installs it yet. `sudo dnf5 system-upgrade reboot` starts it, `sudo dnf5 offline clean` drops it. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was set to install, but the restart marker /system-update is not in place ...` | A restart already skipped it. See the FAIL row above. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and did not finish ...` | `sudo dnf5 offline log` says why. |

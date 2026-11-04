@@ -4622,9 +4622,9 @@ doctor_offline_rows() {
       # happens to be Kempt's own.
       case "$(offline_release_upgrade_state)" in
         armed)
-          doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart. Kempt will not stage updates over it, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart. Remove it with: sudo dnf5 offline clean. Kempt will not stage updates over it, because that would cancel it" ;;
         foreign)
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and set to install, but another updater has prepared the next restart, so it will not install then. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and set to install, but another updater has prepared the next restart, so it will not install then. After that restart, install it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
         stranded)
           # `ready` with no boot symlink. Its own state, because the other sentences each say
           # something this one disproves: it is not waiting for a restart, and "downloaded but not

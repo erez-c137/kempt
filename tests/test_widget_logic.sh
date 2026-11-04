@@ -586,48 +586,32 @@ assert_eq "$(js "$ru.offlineStageOffered")" "false" \
   "with a release upgrade stored, staging for a restart is not offered at all"
 assert_eq "$(js "$noru.offlineStageOffered")" "true" \
   "...and on an ordinary box it is offered exactly as before"
-assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Fedora 45\") >= 0")" "true" \
+assert_eq "$(js "$ru.blockedMessage.indexOf(\"Fedora 45\") >= 0")" "true" \
   "the message names the release the machine is about to move to"
-# ARMED is a separate question and the one the sentence turns on. `dnf5 system-upgrade download`
-# stops at downloaded: no restart installs anything until `dnf5 system-upgrade reboot`, and a box
-# can sit there for days. The first version of this message promised a restart in both states.
+# ARMED is the question the sentence turns on. `dnf5 system-upgrade download` stops at downloaded:
+# no restart installs anything until `dnf5 system-upgrade reboot`, and a box can sit there for days.
 ruA="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"armed\"}})"
 ruD="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"downloaded\"}})"
 ruS="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"stranded\"}})"
+ruF="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}})"
+ruI="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"incomplete\"}})"
 ruN="($RU)({release_upgrade:{from:\"44\",to:\"45\"}})"
-assert_eq "$(js "$ruA.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "true" \
+assert_eq "$(js "$ruA.blockedMessage")" \
+  "A Fedora 45 upgrade installs on the next restart, so Install on Next Restart is off until then." \
   "an ARMED upgrade is the one that installs on the next restart"
-assert_eq "$(js "$ruD.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "false" \
-  "...and a downloaded one never claims a restart will install it"
-assert_eq "$(js "$ruD.releaseUpgradeMessage.indexOf(\"downloaded but not started\") >= 0")" "true" \
-  "...it says what state it is actually in"
-assert_eq "$(js "$ruN.releaseUpgradeMessage")" "$(js "$ruD.releaseUpgradeMessage")" \
-  "...and a state file with no state key at all reads as the downloaded case, promising nothing"
+for _ru in "$ruD" "$ruS" "$ruF" "$ruI" "$ruN"; do
+  assert_eq "$(js "$_ru.blockedMessage")" \
+    "A Fedora 45 upgrade is on this computer and waits for you to finish or remove it, so Install on Next Restart is off." \
+    "...and every other state, or none, promises no restart"
+done
 # Single-quoted JS string literals: a bash-escaped \" inside the expression this helper builds
 # reaches node as a backslash, not a quote.
 for _bad in "'ARMED'" 'true' '1' 'null'; do
-  assert_eq "$(js "($RU)({release_upgrade:{from:\"44\",to:\"45\",state:$_bad}}).releaseUpgradeMessage")" \
-    "$(js "$ruD.releaseUpgradeMessage")" "...as does a state of $_bad, which this file does not know"
+  assert_eq "$(js "($RU)({release_upgrade:{from:\"44\",to:\"45\",state:$_bad}}).blockedMessage")" \
+    "$(js "$ruD.blockedMessage")" "...as does a state of $_bad, which this file does not know"
 done
-# The THIRD state, which reads as neither of the others: `ready` with the boot symlink gone. A
-# restart has already been past it. Saying "installs on the next restart" promises something no
-# restart will do; saying "not started yet" quotes a status word that says the opposite.
-assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"a restart went by without installing it\") >= 0")" "true" \
-  "a stranded upgrade says a restart went by without installing it"
-assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"installs on the next restart\") >= 0")" "false" \
-  "...and never promises the next restart will install it"
-# The FIFTH: dnf5 says ready, and the boot symlink is another updater's. The CLI publishes it as
-# "foreign". Read as downloaded it would tell a person to run system-upgrade reboot now, which the
-# other updater's restart would win.
-ruF="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}})"
-assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"another updater has prepared the next restart\") >= 0")" "true" \
-  "an upgrade behind another updater's restart says so"
-assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"After that restart, sudo dnf5 system-upgrade reboot\") >= 0")" "true" \
-  "...and says its own command works only after that restart"
-assert_eq "$(js "$ruF.releaseUpgradeMessage.indexOf(\"downloaded but not started\") >= 0")" "false" \
-  "...and is not read as a downloaded one"
-assert_eq "$(js "$ruS.releaseUpgradeMessage.indexOf(\"not started\") >= 0")" "false" \
-  "...nor calls a transaction that WAS armed one that was never started"
+assert_eq "$(js "$ruA.blockedOffersDoctor")" "true" "...with Check Installation beside it, where the commands are"
+assert_eq "$(js "$ruA.blockedWarns")" "false" "...and as information: nothing is wrong"
 assert_eq "$(js "$ruS.offlineStageOffered")" "false" \
   "...and staging stays refused, because staging cancels a stored transaction in any state"
 
@@ -640,12 +624,6 @@ assert_eq "$(js "($RUSURF)(\"background\").updateOffered")" "true" \
   "a box that updates live keeps Update Now while an upgrade is stored"
 assert_eq "$(js "($RUSURF)(\"offline\").updateOffered")" "false" \
   "...and a box that stages by default does not, because that press is the refusal"
-assert_eq "$(js "($RUSURF)(\"background\").releaseUpgradeMessage.indexOf(\"Updating now still works\") >= 0")" "true" \
-  "...with the message saying so on the first"
-assert_eq "$(js "($RUSURF)(\"offline\").releaseUpgradeMessage.indexOf(\"Updating now still works\") >= 0")" "false" \
-  "...and never on the second, where it would be false"
-assert_eq "$(js "($RUSURF)(\"offline\").releaseUpgradeMessage.indexOf(\"nothing to press\") >= 0")" "true" \
-  "...which says instead that there is nothing to press until the upgrade is dealt with"
 # An unstated or unrecognised surface reads as the widget, the CLI's own fallback - never as offline,
 # which would take the button away from a box that can still use it.
 for _s in "''" 'undefined' '42' "'nonsense'"; do
@@ -660,15 +638,13 @@ assert_eq "$(js "($RUSURF)(' OFFLINE ').updateOffered")" "false" \
   "a padded, upper-case offline is still offline to the widget, as every surface value here is"
 assert_eq "$(js "$ruD.offlineStageOffered")" "false" \
   "...while staging stays refused either way, because staging cancels a downloaded one too"
-assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"cancel\") >= 0")" "true" \
+assert_eq "$(js "$ru.blockedMessage.indexOf(\"Install on Next Restart is off\") >= 0")" "true" \
   "...and says why the button is missing rather than leaving it a mystery"
-assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Updating now still works\") >= 0")" "true" \
-  "...and what still does work, because only the staged path is affected"
-assert_eq "$(js "$noru.releaseUpgradeMessage")" "" "no upgrade stored, nothing said about one"
+assert_eq "$(js "$noru.blockedMessage")" "" "no upgrade stored, nothing said about one"
 # The kernel slot stays, and what it CARRIES changes. Its recommendation is "install this on the
 # next restart instead", which is the one thing this state does not allow. The status line keeps
 # the risk on screen beside the live button.
-assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade"]' \
+assert_eq "$(js "$ru.messageSlots")" '["blocked"]' \
   "only the release upgrade is said in a message"
 assert_contains "$(js "$ru.headerText")" "including a new kernel" \
   "...and the status line keeps the risk on screen"
@@ -695,7 +671,7 @@ assert_eq "$(js "($RUS)().stagedMessage")" "" \
 for _bad in 'null' 'true' '"44 -> 45"' '{}' '{from:"44"}' '{to:"45"}' '{from:44,to:45}'; do
   assert_eq "$(js "($RU)({release_upgrade:$_bad}).offlineStageOffered")" "true" \
     "a release_upgrade of $_bad is not an upgrade, and takes nothing away"
-  assert_eq "$(js "($RU)({release_upgrade:$_bad}).releaseUpgradeMessage")" "" \
+  assert_eq "$(js "($RU)({release_upgrade:$_bad}).blockedMessage")" "" \
     "...and says nothing about one"
 done
 
@@ -710,14 +686,11 @@ assert_eq "$(js "$ib.updateOffered")" "false" "on an image-based system Update N
 assert_eq "$(js "($IB)().updateOffered")" "true" "...and on an ordinary Fedora it is, exactly as before"
 assert_eq "$(js "$ib.offlineStageOffered")" "false" \
   "...and neither is staging, because the run aborts in pre-flight whatever surface it was asked for"
-assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"rpm-ostree\") >= 0")" "true" \
-  "the message names the tool that DOES update this machine"
-assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"Discover\") >= 0")" "true" \
-  "...and where somebody who does not use a terminal should go"
-assert_eq "$(js "$ib.imageBasedMessage.indexOf(\"is planned\") >= 0")" "true" \
-  "...and that this is a not-yet rather than a never"
-assert_eq "$(js "($IB)().imageBasedMessage")" "" "an ordinary box says nothing about rpm-ostree"
-assert_eq "$(js "$ib.messageSlots[0]")" "imageBased" \
+assert_eq "$(js "$ib.blockedMessage")" "This computer updates through rpm-ostree, so use Discover to install these updates." \
+  "the message names the tool that updates this machine and where to go"
+assert_eq "$(js "$ib.blockedOffersDoctor")" "false" "...and offers no button: Discover is the answer"
+assert_eq "$(js "($IB)().blockedMessage")" "" "an ordinary box says nothing about rpm-ostree"
+assert_eq "$(js "$ib.messageSlots[0]")" "blocked" \
   "it leads the stack: every message under it presumes a box Kempt can update"
 # ...and here too the kernel FACT survives, without the recommendation it cannot honour.
 # ...and the session-critical warning is NOT raised here, unlike the release-upgrade case. There
@@ -729,14 +702,20 @@ assert_eq "$(js "$ib.headerText.indexOf(\"including\")")" "-1" \
 assert_eq "$(js "$ib.updateAsksFirst")" "false" "...and no question either"
 # A check that found an unsafe folder says updates are paused, before anyone presses a button.
 FP='function (v) { var s = S("risky-heavy"); if (v !== undefined) s.unsafe_folder = v; return L.viewModel(s, false, "", {}); }'
-assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").foldersPausedMessage")" \
-  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." "an unsafe folder puts the paused message up"
-assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").messageSlots.indexOf(\"foldersPaused\") >= 0")" "true" "...in its slot"
-assert_eq "$(js "($FP)().foldersPausedMessage")" "" "...and an ordinary box says nothing"
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedMessage")" \
+  "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." "an unsafe folder puts the paused message up"
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").messageSlots.indexOf(\"blocked\") >= 0")" "true" "...in its slot"
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedWarns")" "true" "...as a warning"
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedOffersDoctor")" "true" "...with Check Installation, which names the folder"
+assert_eq "$(js "($FP)().blockedMessage")" "" "...and an ordinary box says nothing"
+# One cause at a time, worst first.
+BOTH='function (ib) { var s = S("risky-heavy"); s.image_based = ib; s.unsafe_folder = "/x"; s.release_upgrade = {from:"44",to:"45",state:"armed"}; return L.viewModel(s, false, "", {}); }'
+assert_eq "$(js "($BOTH)(true).blockedMessage.indexOf(\"rpm-ostree\") >= 0")" "true" "an image-based box says that first"
+assert_eq "$(js "($BOTH)(false).blockedMessage.indexOf(\"unsafe permissions\") >= 0")" "true" "...then the folder, over a stored upgrade"
 for _bad in '""' 7 true null; do
-  assert_eq "$(js "($FP)($_bad).foldersPausedMessage")" "" "...and neither does an unsafe_folder of $_bad"
+  assert_eq "$(js "($FP)($_bad).blockedMessage")" "" "...and neither does an unsafe_folder of $_bad"
 done
-assert_eq "$(js "$ib.messageSlots")" '["imageBased"]' \
+assert_eq "$(js "$ib.messageSlots")" '["blocked"]' \
   "...so the one message about what this machine is stands alone"
 # The counts and the list are NOT suppressed. They are what dnf can see, the message says so, and
 # blanking them would replace a true-but-incomplete answer with no answer at all.
@@ -746,7 +725,7 @@ assert_eq "$(js "$ib.actionable")" "$(js "($IB)().actionable")" \
 for _bad in 'false' '"true"' '1' 'null' '{}'; do
   assert_eq "$(js "($IB)($_bad).updateOffered")" "true" \
     "an image_based of $_bad is not an image-based system, and takes no button away"
-  assert_eq "$(js "($IB)($_bad).imageBasedMessage")" "" "...and says nothing about one"
+  assert_eq "$(js "($IB)($_bad).blockedMessage")" "" "...and says nothing about one"
 done
 
 # --- shellQuote: the widget's one injection surface --------------------------------------------
@@ -1748,11 +1727,11 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\"}"))')" \
 # in its short form, and the row offers Check Installation, where doctor prints the fix.
 UNSAFE_RUN='{\"status\":\"failed\",\"error\":\"nothing was installed, because other users can change files in /usr/lib/sysimage/libdnf5. See: kempt doctor\"}'
 assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), '')")" \
-  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." \
+  "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." \
   "a run the helper refused over an unsafe dnf folder says so on the Last update row"
 HELPER_RUN='{\"status\":\"failed\",\"error\":\"Updates paused for safety: users other than root can change /var/lib. Run kempt doctor for the fix.\"}'
 assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$HELPER_RUN\"))")" \
-  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." \
+  "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." \
   "...and so does the helper's own sentence"
 assert_eq "$(js "L.mentionsDoctor(L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), ''))")" "true" \
   "...and the row offers Check Installation"
@@ -1888,9 +1867,9 @@ assert_eq "$(js "L.discardStagedMessage(9, '', '')")" \
 
 # --- Check Installation: `kempt doctor`, run from the widget -------------------------------------
 # Every widget sentence that names kempt doctor names the button too. None of them sends anybody
-# to a terminal any more. One sentence keeps the CLI's words on purpose, with the button beside it.
+# to a terminal any more.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /kempt doctor/.test(L.COPY[k]) && L.COPY[k].indexOf("Check Installation") < 0; })')" \
-  '["updatesPausedFolder","engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
+  '["engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /doctor in a terminal/.test(L.COPY[k]); })')" \
   "[]" "...and none of them asks for a terminal"
 assert_eq "$(js 'L.COPY.doctorAction')" "Check Installation" "the button's label"
@@ -2709,7 +2688,7 @@ assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1
 assert_eq "$(held "$PEND" '{}' updateAsksHeld)" "true" "held with system updates: Update Now asks"
 assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' updateAsksHeld)" "false" "...but not with updates paused, when the helper refuses the run"
 assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{heldChoiceOpen:true}' 'messageSlots.indexOf("question")')" "-1" "...and a question already open goes"
-assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' 'messageSlots.slice(0, 2).join()')" "foldersPaused,staged" "...while the pause and the held restart both stay said, the pause first"
+assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' 'messageSlots.slice(0, 2).join()')" "blocked,staged" "...while the pause and the held restart both stay said, the pause first"
 assert_eq "$(free "$PEND,$DU,image_based:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and not on an image-based Fedora, which is told to use Discover"
 assert_eq "$(free "$PEND,discover_offer:true,image_based:true" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...nor the plain offer"
 assert_eq "$(free "$PEND,discover_offer:true" '{}' 'messageSlots.indexOf("discoverOffer") >= 0')" "true" "...which other systems still get"
@@ -3403,7 +3382,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldLiveSurface","iconState","imageBasedMessage","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","blockedMessage","blockedOffersDoctor","blockedWarns","checkAnswerText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldLiveSurface","iconState","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

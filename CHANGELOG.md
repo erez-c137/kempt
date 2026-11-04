@@ -10,6 +10,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Changed
 
 - **A kernel, NVIDIA driver or desktop update now says so on the status line.** The message that used to sit in the widget before you pressed anything is gone. The status line reads "23 updates available, including a new kernel", and Update Now asks its question only when pressed. That question and the one about another updater's restart now share one message.
+- **One message says why Kempt cannot go ahead:** an image-based Fedora, a system folder with unsafe permissions, or a stored Fedora release upgrade. It shows one cause at a time. The commands for a release upgrade moved to **Check Installation**, whose full report now gives them for every state.
 
 ### Removed
 

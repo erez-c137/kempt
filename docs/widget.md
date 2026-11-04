@@ -116,14 +116,10 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    starts. A report that something worked also goes when a check starts. The note about a failed
    check goes when fresh counts arrive, or when you ask for a check. Other reports stay until your
    next press.
-3. **This system updates with rpm-ostree**, on an image-based Fedora such as Kinoite. It points at
-   Discover or `rpm-ostree upgrade` (`bootc upgrade` on a bootc image). **Update Now** is hidden.
-4. **A Fedora release upgrade is stored.** It names the upgrade's state and the next step.
-   If it is staged, restart to install it. If it is downloaded but not started, or a restart
-   skipped it, `sudo dnf5 system-upgrade reboot` installs it. If it did not finish,
-   `sudo dnf5 offline log` shows why. Behind another updater's restart, it waits for that one.
-   `sudo dnf5 offline clean` always removes it. While it is stored, Kempt will not stage updates,
-   and **Update Now** updates live.
+3. **Why Kempt cannot go ahead**, one cause at a time. On an image-based Fedora such as Kinoite, it
+   says to use Discover, and **Update Now** is hidden. With a system folder other users can change,
+   updates are paused. With a Fedora release upgrade stored, **Install on Next Restart** is off.
+   The last two have **Check Installation**, which names the folder or gives the upgrade's commands.
 5. **What the next restart will install**, when an update is staged. See
    [The staged banner](#the-staged-banner).
 6. **A service did not start after the update.** *"Bluetooth service didn't start after the

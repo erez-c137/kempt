@@ -261,7 +261,7 @@ var COPY = {
     updateFailed: "Update failed",
     // The root helper refused because a folder of dnf's, or one above it, is not root's alone. A
     // short form of the CLI's reason; the row offers Check Installation, where doctor has the fix.
-    updatesPausedFolder: "Updates paused: a system folder has unsafe permissions. Run kempt doctor.",
+    updatesPausedFolder: "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed.",
 
     // THREE spellings, because two things vary independently: the count can be unknown (a marker
     // written before the CLI recorded one), and one update is not the plural with a 1 in it: noun
@@ -440,42 +440,16 @@ var COPY = {
     // transaction for that and for an ordinary offline update alike, so staging updates for a
     // restart would cancel it - and re-downloading a release upgrade is gigabytes. The CLI refuses
     // to; this is the popup saying so before the press rather than after it.
-    // Two entries, joined: what is true and the commands that install or remove it, then what it
-    // means for this widget. Text only: a Copy button cannot offer two commands with one payload.
-    releaseUpgradeStaged: "A Fedora %1 upgrade is staged and installs on the next restart. To remove it, run sudo dnf5 offline clean.",
-    // ...and the state a release upgrade actually spends most of its life in: downloaded, and not
-    // started. Nothing installs on any restart until somebody arms it, so saying it does would send
-    // a person to restart a machine that comes back exactly as it was.
-    releaseUpgradeReady: "A Fedora %1 upgrade has been downloaded but not started, so no restart installs it yet. To install it, restart with sudo dnf5 system-upgrade reboot. To remove it, run sudo dnf5 offline clean.",
-    // The third state, which reads as neither of the others: it WAS armed, and a restart has
-    // already been past it without running it. Nothing further will until somebody arms it again,
-    // so "installs on the next restart" and "not started yet" are both false here.
-    releaseUpgradeStranded: "A Fedora %1 upgrade was set to install, but a restart went by without installing it. To install it, restart with sudo dnf5 system-upgrade reboot. To remove it, run sudo dnf5 offline clean.",
-    // The fourth: dnf5 says the transaction did not finish - download-incomplete, or one that
-    // started during a restart and stopped part way. "Downloaded" would say the opposite of the
-    // word dnf5 recorded, and pointing at `system-upgrade reboot` would be advice dnf5 declines.
-    releaseUpgradeIncomplete: "A Fedora %1 upgrade is stored but did not finish, so no restart installs it. Run sudo dnf5 offline log to see what happened. To remove it, run sudo dnf5 offline clean.",
-    // The fifth: dnf5 says ready, but /system-update points at another updater's prepared update,
-    // so the next restart runs that instead. The upgrade's own commands work only after it.
-    releaseUpgradeForeign: "A Fedora %1 upgrade is stored, but another updater has prepared the next restart, so it will not install then. After that restart, sudo dnf5 system-upgrade reboot installs the upgrade and sudo dnf5 offline clean removes it.",
-    releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it.",
-    // ...and only where it is true. A box configured to run updates on the next reboot has no
-    // "update now" to fall back on: staging IS what its button does, and that is the thing being
-    // refused. Saying otherwise would send a person to press it and watch the run decline.
-    releaseUpgradeLiveStillWorks: "Updating now still works.",
-    releaseUpgradeNoRoute: "This computer is set to install updates on the next restart, so there is nothing to press until the upgrade is installed or removed.",
+    // One sentence each. The commands that install or remove it are doctor's, behind the button:
+    // only an armed transaction may be said to install on a restart.
+    releaseUpgradeArmed: "A Fedora %1 upgrade installs on the next restart, so Install on Next Restart is off until then.",
+    releaseUpgradeWaiting: "A Fedora %1 upgrade is on this computer and waits for you to finish or remove it, so Install on Next Restart is off.",
 
     // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr and
     // dnf is not how the machine updates - but those images ship dnf5 and plasma-workspace, so
     // Kempt installs cleanly, the widget appears and every list here fills in. Nothing about the
     // box gives it away, which is why this has to be said outright.
-    // Two entries, joined, on the pattern the engine messages use: what is true, then what to do.
-    imageBased: "This system updates with rpm-ostree, so Kempt cannot install updates on it. Support for these images is planned.",
-    // Names bootc as well, because bootc images set the same marker and `rpm-ostree upgrade` is not
-    // their command. And it points at Discover for the Flatpak rows, which are the one thing on
-    // this list somebody CAN act on - saying nothing about them next to a list of them would be
-    // its own small lie.
-    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal (bootc upgrade on a bootc image). Discover also updates the Flatpak apps listed below.",
+    imageBased: "This computer updates through rpm-ostree, so use Discover to install these updates.",
 
     // --- unused Flatpak runtimes (`kempt reclaim`) ---------------------------------------------
     // The offer, assembled by reclaimMessageOf. The size is formatDownload's "~" figure: the CLI's
@@ -1166,8 +1140,7 @@ var MESSAGE_CAP = 2;
 // `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
-// `foldersPaused` sits under imageBased: every button below it ends in the helper's refusal.
-var MESSAGE_ORDER = ["question", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "discoverUnattended", "startup",
+var MESSAGE_ORDER = ["question", "report", "blocked", "staged", "discoverUnattended", "startup",
                      "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed",
                      "discoverOffer", "reclaim"];
 
@@ -2325,10 +2298,12 @@ function answerOutcomeOf(rc, stdout, stderr, fallback, timedOut) {
 var DOCTOR_TIMEOUT_MS = 60000;
 
 // mentionsDoctor(text) -> does this message tell the person to run `kempt doctor`? The CLI's own
-// refusals end "See: kempt doctor", and so do the copy table's fallbacks. Each one gets the button.
+// refusals end "See: kempt doctor", and so do the copy table's fallbacks. Each one gets the button,
+// as does the paused report, which says what is wrong and leaves the how to the button.
 function mentionsDoctor(text) {
     return typeof text === "string"
-        && (/\bkempt doctor\b/.test(text) || text.indexOf(COPY.doctorAction) >= 0);
+        && (/\bkempt doctor\b/.test(text) || text.indexOf(COPY.doctorAction) >= 0
+            || text === COPY.updatesPausedFolder);
 }
 
 // The longest result sentence. Longer ones end at a word, with the full report one press away.
@@ -2698,7 +2673,6 @@ function viewModel(state, updating, cliError, opts) {
     // Strictly `=== true`: absent in every state file written before this existed, and it takes the
     // primary button off the screen, so nothing unexpected may switch it on.
     var imageBased = usable && state.image_based === true;
-    var imageBasedMessage = imageBased ? COPY.imageBased + "\n" + COPY.imageBasedUse : "";
     var foldersPausedMessage = usable && !imageBased && typeof state.unsafe_folder === "string"
         && state.unsafe_folder !== "" ? COPY.updatesPausedFolder : "";
 
@@ -2729,14 +2703,12 @@ function viewModel(state, updating, cliError, opts) {
     var updateButton = updateButtonOf(
         restartHeld ? "popup" : runSurface,
         usable ? backendActionable(state, "dnf") : 0, flatpakPending);
-    var releaseUpgradeMessage = !releaseUpgrade ? ""
-        : (relState === "armed"      ? COPY.releaseUpgradeStaged.replace("%1", relTo)
-         : relState === "stranded"   ? COPY.releaseUpgradeStranded.replace("%1", relTo)
-         : relState === "incomplete" ? COPY.releaseUpgradeIncomplete.replace("%1", relTo)
-         : relState === "foreign"    ? COPY.releaseUpgradeForeign.replace("%1", relTo)
-                                     : COPY.releaseUpgradeReady.replace("%1", relTo))
-          + " " + COPY.releaseUpgradeNoStage
-          + " " + (stagesByDefault ? COPY.releaseUpgradeNoRoute : COPY.releaseUpgradeLiveStillWorks);
+    // Why Kempt cannot go ahead on this box, one cause at a time, worst first: a box it cannot
+    // update at all, then a pause every button would end in, then the one route an upgrade closes.
+    var blockedMessage = imageBased ? COPY.imageBased
+        : foldersPausedMessage !== "" ? foldersPausedMessage
+        : !releaseUpgrade ? ""
+        : (relState === "armed" ? COPY.releaseUpgradeArmed : COPY.releaseUpgradeWaiting).replace("%1", relTo);
 
     var heldDnf = false;
     for (var h = 0; h < counted.heldItems.length; h++) {
@@ -3028,13 +3000,10 @@ function viewModel(state, updating, cliError, opts) {
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
         staged: staged || stageBlocked || restartHeldBanner,
-        // Above everything except a report of something that just happened: it is the one message
-        // that says what this machine is, and every other message here presumes a box Kempt can
-        // update. The status line says nothing of the set either (riskyIsMoot above): with no
-        // button of any kind on offer, a count of session-critical packages has nowhere to go.
-        imageBased: imageBasedMessage !== "",
-        foldersPaused: foldersPausedMessage !== "",
-        releaseUpgrade: releaseUpgradeMessage !== "",
+        // Above everything except a report of something that just happened: every message under it
+        // presumes a box Kempt can update. On an image-based box the status line says nothing of the
+        // set either (riskyIsMoot above): with no button on offer, the set has nowhere to go.
+        blocked: blockedMessage !== "",
         question: riskyChoice || heldChoice,
         discoverUnattended: discoverUnattended,
         // The same offer with the reason that matters while something is staged, and higher up.
@@ -3201,7 +3170,11 @@ function viewModel(state, updating, cliError, opts) {
         // Install on Next Restart in the widget's menus, for the box whose footer says Update Now.
         stageMenuOffered: !updating && !staged && !stageBlocked && !noOfflineRoute
             && !updateButton.stages && usable && backendActionable(state, "dnf") > 0,
-        releaseUpgradeMessage: releaseUpgradeMessage,
+        blockedMessage: blockedMessage,
+        // A warning for the one cause that needs fixing, and the button for every cause Kempt can
+        // explain: doctor names the folder, and the upgrade's commands for the state it is in.
+        blockedWarns: !imageBased && foldersPausedMessage !== "",
+        blockedOffersDoctor: !imageBased && blockedMessage !== "",
         // ...and the same for Update Now, which is the primary button. HIDDEN rather than
         // disabled, exactly as it is for a box with nothing pending: there is no action to offer
         // here, and a greyed primary button with its explanation elsewhere is a puzzle.
@@ -3212,8 +3185,6 @@ function viewModel(state, updating, cliError, opts) {
         // The footer button's words: the QML writes both literals for i18n and picks one with this.
         updateStages: updateButton.stages,
         stageTooltipNamesFlatpak: flatpakPending,
-        imageBasedMessage: imageBasedMessage,
-        foldersPausedMessage: foldersPausedMessage,
         // The stamp this banner was derived from, for main.qml's click-time re-verify. Consent is
         // given to a BANNER, and a banner describes ONE transaction: between render and click it
         // can be consumed by a restart, replaced or cleaned away. "" means there is nothing to compare, which the re-verify reads as "do not
