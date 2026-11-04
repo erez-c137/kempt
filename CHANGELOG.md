@@ -94,6 +94,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the setting off and on again warns again. `kempt discover-notifier on` says automatic updates resume
   if the setting is still on, and `kempt discover-notifier status` shows the setting. An image-based
   Fedora gets neither this warning nor the offer to turn off the notifier.
+- **The package recommends `rpm-plugin-systemd-inhibit`,** which holds off a shutdown while packages
+  are changing.
 
 ## [0.2.0] - 2026-11-02
 
