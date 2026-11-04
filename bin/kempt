@@ -4932,15 +4932,18 @@ doctor_offline_rows() {
   # either, so a dangling one detours the boot exactly as a live one does.
   # Another updater's symlink is that updater's business: PackageKit points it at its own prepared
   # update, and the restart installs that. What it changes for Kempt is said here, once.
-  if [[ "$dr_link" == other ]]; then
-    local dr_target
+  # A plain file or a dangling link holds it just the same, and a plain file points nowhere.
+  if [[ "$dr_holder" == other ]]; then
+    local dr_target dr_where
     dr_target="$(readlink "$KEMPT_OFFLINE_LINK" 2>/dev/null || true)"
+    dr_where="$KEMPT_OFFLINE_LINK points to $dr_target"
+    [[ -n "$dr_target" ]] || dr_where="$KEMPT_OFFLINE_LINK is not dnf5's"
     if [[ -n "$dr_marker" && "$dr_toml" == ready && "$dr_done" == false ]]; then
-      doctor_info "staged update: another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to $dr_target), so the update Kempt staged will not install then"
-    elif [[ "$dr_toml" == ready && "$dr_done" == false ]] && ! offline_release_upgrade >/dev/null; then
-      doctor_info "another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to $dr_target), so the transaction dnf5 holds will not install then"
+      doctor_warn "staged update: another updater has prepared the next restart ($dr_where), so the update Kempt staged will not install then"
+    elif [[ "$dr_toml" == ready && "$dr_done" == false && "$dr_partial" == false ]] && ! offline_release_upgrade >/dev/null; then
+      doctor_warn "another updater has prepared the next restart ($dr_where), so the transaction dnf5 holds will not install then"
     else
-      doctor_info "another updater has prepared the next restart: $KEMPT_OFFLINE_LINK points to $dr_target"
+      doctor_warn "another updater has prepared the next restart: $dr_where"
     fi
   elif [[ "$dr_link" == dnf5 && "$dr_toml" != ready ]]; then
     if [[ "$dr_toml" == absent ]]; then

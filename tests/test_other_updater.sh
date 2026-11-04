@@ -318,6 +318,18 @@ assert_contains "$(cat "$WORLD/notifications")" "can no longer install" "a trans
 assert_eq "$(entries)" "0" "...with no history"
 rm -f "$marker" "$pre"
 
+# --- doctor while another updater holds it -------------------------------------------------------
+foreign_link
+drep="$(KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "WARN  another updater has prepared the next restart" "doctor warns about a foreign link"
+assert_not_contains "$drep" "info  another updater has prepared the next restart" "...and no longer as a note"
+rm -f "$LINK"; : > "$LINK"
+drep="$(KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "WARN  another updater has prepared the next restart" "...and about a plain file"
+assert_contains "$drep" "is not dnf5's" "...which points nowhere, and it says so"
+assert_not_contains "$drep" "is gone" "...and is not called gone"
+no_link
+
 # --- Discover's setting ---------------------------------------------------------------------------
 ENTRY=org.kde.discover.notifier.desktop
 SYS="$TESTTMP/xdg-autostart"; mkdir -p "$SYS"; export KEMPT_XDG_AUTOSTART_DIR="$SYS"
