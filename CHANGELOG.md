@@ -28,7 +28,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The footer no longer cuts off "restart pending".** It takes a second line when it needs one.
 - **A stored offline state that cannot be read no longer loses a staged update.** Kempt used to treat
   it as gone, which could drop its note of an armed stage or claim that a restart had installed
-  updates. It now does nothing until the state can be read, and `kempt unstage` refuses.
+  updates. It now does nothing until the state can be read. `kempt doctor` says it cannot tell what the stored
+  update will do and how to clear it, and `kempt unstage` works when root can read the state.
 - **A restart that installed none of a staged update is now a failed run.** It gets a history entry,
   and `kempt status` stops saying the update is staged.
 - **Discover's automatic updates get a plainer warning, higher up.** It sits right after the staged

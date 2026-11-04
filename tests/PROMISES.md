@@ -24,8 +24,8 @@ watches it finish. Closing a real terminal needs real systemd and a real window,
 checks that dnf5 starts as a service of its own.
 
 **Promise 5, "cannot tell".** When dnf5's stored state cannot be read, Kempt keeps quiet and leaves
-everything as it was. Saying "cannot tell" needs a message Kempt has yet to add. `kempt doctor` is
-silent there too, so a stage whose state stays unreadable keeps its note with no explanation.
+everything as it was. Only `kempt doctor` says so, with how to clear it. Saying "cannot tell"
+anywhere else needs a message Kempt has yet to add.
 
 **Promise 11, the armed stage.** The notification count holds. An armed stage drops off the screen
 once the state folder is gone, because it is read from Kempt's own note and dnf5 is never asked.

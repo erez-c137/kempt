@@ -1629,7 +1629,7 @@ cmd_update() {
         armed)      preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart. Staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
         foreign)    preflight_abort "a Fedora release upgrade ($relup) is stored, and another updater has prepared the next restart. Staging updates would cancel the upgrade. Remove it with: sudo dnf5 offline clean" ;;
         stranded)   preflight_abort "a Fedora release upgrade ($relup) is stored but no longer set to install, so no restart installs it. Staging updates would cancel it. Set it to install again with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
-        incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish (dnf5 says \"$(offline_system_status)\"). Staging updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
+        incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish. Staging updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
         *)          preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started. Staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
       esac
     fi
@@ -3465,11 +3465,6 @@ cmd_unstage() {
   local marker pre status
   marker="$(offline_marker_read)"
   status="$(offline_system_status)"
-  if [[ "$status" == unknown ]]; then
-    echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
-    log_event "unstage refused (the stored transaction could not be read)"
-    exit 5
-  fi
   # Nothing stored. Either a marker is left over and this tidies it, or there is nothing at all;
   # neither is a failure and neither needs root, so neither raises an authentication dialog.
   if [[ "$status" == absent ]]; then
@@ -3524,8 +3519,10 @@ cmd_unstage() {
   # mentions - the same failure the harvest's own clearing rule avoids from the other side.
   status="$(offline_system_status)"
   if [[ "$status" != absent ]]; then
-    echo "The staged update was not fully discarded: dnf5 still reports a stored transaction (status \"$status\"). Kempt's record of it has been kept. See: kempt doctor" >&2
-    log_event "unstage left a transaction behind (status $status)"
+    local left="dnf5 still reports a stored transaction (status \"$status\")"
+    [[ "$status" != unknown ]] || left="the stored transaction is still there and cannot be read"
+    echo "The staged update was not fully discarded: $left. Kempt's record of it has been kept. See: kempt doctor" >&2
+    log_event "unstage left a transaction behind (status ${status/#unknown/could not be read})"
     cmd_check >/dev/null 2>&1 || true
     exit 1
   fi
@@ -5343,7 +5340,8 @@ doctor_offline_rows() {
       absent)
         # Nothing for anyone to do: harvest_offline clears a marker with no transaction under it.
         doctor_info "staged update: the transaction is gone, so the next check clears the marker ($OFFLINE_MARKER)" ;;
-      unknown) : ;;
+      unknown)
+        doctor_warn "staged update: Kempt cannot tell what the stored update will do, because $KEMPT_OFFLINE_TOML cannot be read. It may be a Fedora release upgrade. See it with: sudo dnf5 offline status. Clear it with: sudo dnf5 offline clean" ;;
       transaction-incomplete)
         # Only when nothing of it can be shown to have changed, or that is not known: the harvest
         # clears the marker over a partial install.
@@ -5385,7 +5383,7 @@ doctor_offline_rows() {
           # one that gives the remedy - two rows repeating the same two commands is one too many.
           doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was set to install, but the restart marker $KEMPT_OFFLINE_LINK is not in place. A restart went by without installing it, and no restart will install it now. Kempt will not stage updates while it is there, because that would cancel it" ;;
         incomplete)
-          # `absent` here is a readable file with no `status` key, not a missing one - a missing one
+          # `unknown` here is a readable file with no `status` key, not an unreadable one - that
           # never reaches this branch, because offline_release_upgrade cannot read its releasevers.
           local dr_word="status \"$dr_toml\""
           [[ "$dr_toml" == unknown ]] && dr_word="no status recorded"

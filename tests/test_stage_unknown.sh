@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dnf5's stored offline state has three answers: armed, not armed, and cannot tell. A stored state
-# that cannot be read is the third, and over it Kempt acts on nothing and says nothing: the note of
-# a stage stays, no notification goes out, and no history entry claims anything was installed.
+# that cannot be read is the third, and over it Kempt acts on nothing and notifies nobody: the note
+# of a stage stays and no history entry claims anything was installed. Only `kempt doctor` speaks.
 source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"
 
@@ -138,21 +138,38 @@ check_on boot-before
 assert_exit 0 "the partly-installed note outlives a read that failed" -- test -f "$note"
 rm -f "$note"
 
-# --- discard refuses, without asking for a password ---------------------------------------------
-armed_world; : > "$TOML"; : > "$WORLD/calls"
-rc=0; out="$("$KEMPT" unstage 2>&1)" || rc=$?
-assert_eq "$rc" "5" "discard over an unreadable state refuses"
-assert_contains "$out" "Nothing was discarded" "...and says so"
-assert_eq "$(cat "$WORLD/calls")" "" "...without running the root helper"
+# --- discard is the root helper's call, because root may read what this user cannot ------------------
+unstage_with() {  # the helper's script
+  mk apply-stub "echo \"APPLY \$*\" >> \"$WORLD/calls\"; $1"
+  armed_world; : > "$TOML"; : > "$WORLD/calls"
+  rc=0; out="$("$KEMPT" unstage 2>&1)" || rc=$?
+}
+unstage_with 'echo "kempt-apply: refusing dnf-offline-clean: the stored offline transaction cannot be read, so it may be a Fedora release upgrade" >&2; exit 3'
+assert_eq "$rc" "5" "the helper refuses: discard over an unreadable state refuses"
+assert_contains "$out" "Nothing was discarded, because the stored offline transaction could not be read" "...and says why"
+assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-offline-clean" "...which the helper decided"
 assert_exit 0 "...and the note stays" -- test -f "$marker"
 
-# --- doctor does not make a claim about it either ----------------------------------------------------
+unstage_with 'exit 0'
+assert_eq "$rc" "1" "the helper reports success over a state still there: not called discarded"
+assert_contains "$out" "cannot be read" "...and says what it can tell"
+assert_not_contains "$out" 'status "unknown"' "...without quoting Kempt's word as dnf5's"
+assert_exit 0 "...and the note stays" -- test -f "$marker"
+
+unstage_with "rm -f \"$TOML\" \"$TX\" \"$LINK\"; exit 0"
+assert_eq "$rc" "0" "a state root can read is discarded by root"
+assert_exit 1 "...and the note goes" -- test -f "$marker"
+mk apply-stub "echo \"APPLY \$*\" >> \"$WORLD/calls\"; exit 0"
+
+# --- doctor says it cannot tell, and makes no other claim -------------------------------------------
 armed_world; : > "$TOML"
 drep="$(KEMPT_BOOT_ID=boot-before KEMPT_RPM_QA_CMD="cat $WORLD/qa" "$KEMPT" doctor 2>&1 || true)"
 assert_not_contains "$drep" "staged outside Kempt" "doctor over an unreadable state: not a stage made elsewhere"
 assert_not_contains "$drep" "can never install" "...not one that can never install"
 assert_not_contains "$drep" "boot symlink is live" "...not a live symlink over a bad status"
 assert_not_contains "$drep" "status unknown" "...and the word is never quoted as dnf5's"
+assert_contains "$drep" "Kempt cannot tell what the stored update will do" "...and it says it cannot tell"
+assert_contains "$drep" "Clear it with: sudo dnf5 offline clean" "...and how to clear it"
 
 rm -f "$marker"
 drep="$(KEMPT_BOOT_ID=boot-before KEMPT_RPM_QA_CMD="cat $WORLD/qa" "$KEMPT" doctor 2>&1 || true)"
