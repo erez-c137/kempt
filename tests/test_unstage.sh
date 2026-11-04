@@ -151,6 +151,18 @@ rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-check" "$KEMPT" unstage >/dev/nul
 assert_eq "$rc" "5" "a clean refused over the folders is a refusal"
 assert_eq "$(cat "$TESTTMP/err")" "The staged update was left in place. $S_CHECK" "...in the helper's sentence, once, with nothing about what is stored"
 
+# Any other failure keeps what the helper said.
+stage_real
+apply_stub clean-fails 'dnf-offline-clean) echo "dnf5 said why" >&2; exit 1 ;;'
+reset_run
+rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-fails" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_contains "$(cat "$TESTTMP/err")" "dnf5 said why" "a clean that fails still shows what the helper said"
+stage_real
+apply_stub clean-stored 'dnf-offline-clean) echo "kempt-apply: refusing dnf-offline-clean: something stored" >&2; exit 3 ;;'
+reset_run
+rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-stored" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_contains "$(cat "$TESTTMP/err")" "refusing dnf-offline-clean: something stored" "...and so does a refusal over something other than the folders"
+
 # --- a marker with no transaction under it ---------------------------------------------------------
 # Nothing for root to do: the transaction is already gone, and all that is left is Kempt's record
 # of it. Cleared without an authentication dialog nobody needed to see.

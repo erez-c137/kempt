@@ -281,6 +281,13 @@ KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean" "$KEMPT" update --surface=background
 assert_contains "$(cat "$TESTTMP/err")" "this update superseded the staged transaction. The staged update was left in place. $S_CHECK" \
   "a clean refused over the folders says the helper's sentence"
 no_clean_advice "...and does not advise a clean"
+# ...with a stored record it cannot read by then: the helper's word still stands.
+stage_real
+apply_stub w-clean-unread "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) sed -i '/releasever/d' '$TOML'; $(says "$S_CHECK") ;;"
+reset_run
+KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean-unread" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
+assert_contains "$(cat "$TESTTMP/err")" "The staged update was left in place. $S_CHECK" "an unreadable record is not blamed when the helper named the folders"
+assert_not_contains "$(cat "$TESTTMP/err")" "could not be read" "...and is not mentioned"
 
 # dnf_status starts unknown and every path names it. A run that reached history says ok or failed.
 assert_eq "$(cat "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | jq -r 'select(.dnf != null) | .dnf.status' | grep -vxE 'ok|failed' | sort -u)" "" \
