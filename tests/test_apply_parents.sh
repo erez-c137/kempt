@@ -295,6 +295,8 @@ assert_contains "$OUT" "$HOLD" "...and what stops"
 doctor_in_ns 'export KEMPT_FIND="$(fail_stub "$R/var/lib" find "Stale file handle")"'
 assert_contains "$OUT" "Kempt could not check $R/var/lib (Stale file handle)" "doctor gives the could-not-check words for an error"
 assert_not_contains "$OUT" "other users can change $R/var/lib" "...and not the unsafe ones"
+doctor_in_ns 'rm -rf usr/lib/sysimage/libdnf5; ln -s libdnf5 usr/lib/sysimage/libdnf5'
+assert_contains "$OUT" "Too many levels of symbolic links" "doctor says a link loop on the way is too many links"
 doctor_in_ns 'ln -s "mnt:[1]" ns1' KEMPT_MNT_NS_INIT="$R/ns1"
 assert_contains "$OUT" "FAIL  " "premise: doctor reports a problem on another mount namespace"
 assert_contains "$OUT" "mount namespace" "...in those words"
@@ -346,6 +348,9 @@ find EACCES on a parent|export KEMPT_FIND="$(fail_stub "$R/var/lib" find "Permis
 find ENOENT on the leaf|export KEMPT_FIND="$(fail_stub "$R/var/lib/dnf/offline" find "No such file or directory")"
 getfacl EIO on a parent|export KEMPT_GETFACL="$(fail_stub "$R/var/lib" getfacl "Input/output error")"
 getfacl absent|export KEMPT_GETFACL="$R/no-such-getfacl"
+find ESTALE on the state folder|export KEMPT_FIND="$(fail_stub "$R/usr/lib/sysimage/libdnf5" find "Stale file handle")"
+find ESTALE on the staged folder|export KEMPT_FIND="$(fail_stub "$R/var/lib/dnf/offline" find "Stale file handle")"
+find ESTALE on the cache folder|export KEMPT_FIND="$(fail_stub "$R/var/cache/libdnf5" find "Stale file handle")"
 find EACCES in the trees|export KEMPT_FIND="$(fail_stub -ignore_readdir_race find "Permission denied")"
 find silent in the trees|export KEMPT_FIND="$(fail_stub -ignore_readdir_race find "")"
 getfacl EACCES in the trees|export KEMPT_GETFACL="$(fail_stub -R getfacl "Permission denied")"
