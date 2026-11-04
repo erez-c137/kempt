@@ -418,6 +418,8 @@ plain_in=(
   "run failed rc=1: authentication cancelled" "offline staged 12" "offline restage (holds: a)"
   "offline restage failed (previous stage intact)" "offline stage dropped (superseded by live update)"
   "offline stage cannot install (status x) - announced" "offline stage found nothing to stage"
+  "offline stage did not finish on the restart (status transaction-incomplete) - announced"
+  "offline stage partly installed on a restart that did not finish (3 updated)"
   "offline stage cannot install (status ready, but the restart marker is gone) - announced"
   "offline stage installed by another updater (3 updated)" "offline marker cleared (stage gone)"
   "offline stage partly installed outside Kempt (3 updated)" "offline stage partly installed outside Kempt, after it was announced as lost" "offline stage result unknown"

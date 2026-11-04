@@ -308,7 +308,7 @@ assert_contains "$(grep -c 'offline stage partly installed outside Kempt' "$KEMP
 
 # Doctor over what is left. Reads with the same dnf5 files, so the row is about this copy.
 drep="$(KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
-assert_contains "$drep" "partly installed outside Kempt" "doctor explains the leftover"
+assert_contains "$drep" "what is left of a staged update that was only partly installed" "doctor explains the leftover"
 assert_contains "$drep" "To remove it, run: kempt unstage" "...naming unstage"
 assert_contains "$drep" "A later stage replaces it" "...and that a later stage replaces it"
 assert_not_contains "$drep" "staged outside Kempt" "...and not as somebody else's"
@@ -320,7 +320,7 @@ assert_contains "$drep" "restart first, then run: kempt unstage" "...and with th
 no_link
 cp "$FIXTURES/offline-ready.toml" "$TESTTMP/later.toml"; echo '# later' >> "$TESTTMP/later.toml"
 drep="$(KEMPT_OFFLINE_TOML="$TESTTMP/later.toml" KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
-assert_not_contains "$drep" "partly installed outside Kempt" "...and a later stage retires the row"
+assert_not_contains "$drep" "only partly installed" "...and a later stage retires the row"
 KEMPT_OFFLINE_TOML="$TESTTMP/later.toml" KEMPT_RPM_QA_CMD="cat $qa" KEMPT_DNF_INSTALLED_CMD="cat $after_tsv" "$KEMPT" check >/dev/null 2>&1 || true
 staged_marker "$NAMES"
 : > "$WORLD/notifications"
@@ -440,13 +440,147 @@ jq -c 'del(.staged_names)' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
 harvest
 cannot_tell "a marker that names nothing"
 
-# transaction-incomplete stays the detour, whatever moved.
+# The count said to the person is never more than the count Kempt gave when it staged, and new
+# dependencies are not part of that count.
+newdep_marker() { jq -c --arg n zz-new-dep '.staged_names += [$n]' "$marker" > "$marker.t"; mv "$marker.t" "$marker"; }
+staged_marker "$NAMES"; newdep_marker
+moved $'aardvark-dns\t2:1.18.0-1.fc44' $'zz-new-dep\t1.0-1.fc44'; qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 1 of your staged updates was installed outside Kempt." "a new dependency does not raise the count"
+assert_eq "$(entry '.backends.dnf.added | length')" "1" "...and history still records it"
+rm -f "$marker" "$pre"
+staged_marker "$NAMES"; jq -c '.staged = 1' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
+moved $'librepo\t1.20.9-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 1 of your staged updates was installed outside Kempt." "the count stops at what was staged"
+rm -f "$marker" "$pre"
+staged_marker "$NAMES"; jq -c 'del(.staged)' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
+moved $'librepo\t1.20.9-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 2 of your staged updates were installed outside Kempt." "...and a marker with no count still gives one"
+rm -f "$marker" "$pre"
+staged_marker "$NAMES"; newdep_marker
+moved $'zz-new-dep\t1.0-1.fc44'; qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Part of your staged update was installed outside Kempt." "only a new dependency: no count of zero"
+rm -f "$marker" "$pre"
+
+# A transaction dnf5 left incomplete. A package's script failed part way through a restart, and the
+# packages before it are installed.
 sed 's/^status *=.*/status = "transaction-incomplete"/' "$FIXTURES/offline-ready.toml" > "$TESTTMP/incomplete.toml"
+staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44' $'librepo\t1.20.9-1.fc44'; qa_from_after
+KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 2 of your staged updates were installed, but the install did not finish on the restart. Kempt's update list shows what is still waiting." \
+  "some of an unfinished restart: says how many, and where the rest is"
+assert_eq "$(entries)" "1" "...with one history entry"
+assert_eq "$(entry .surface)" "offline (restart did not finish)" "...which says what happened"
+assert_eq "$(entry .status)" "failed" "...as a failed run"
+assert_eq "$(entry .backends.dnf.status)" "failed" "...on the system half"
+assert_eq "$(entry .error)" "the install did not finish on the restart" "...with the reason"
+assert_eq "$(entry '[.backends.dnf.updated[] | "\(.name) \(.to)"] | join(", ")')" "aardvark-dns 2:1.18.0-1.fc44, librepo 1.20.9-1.fc44" \
+  "...and the real versions"
+assert_contains "$("$KEMPT" history | awk 'NR==1')" "staged update (restart did not finish)" "...and history reads in words"
+assert_contains "$(cat "$(entry .log)")" "dnf5 stopped before the end of the install during the restart" "...and so does its log"
+assert_contains "$(grep -c 'offline stage partly installed on a restart that did not finish' "$KEMPT_STATE_DIR/events.log")" "1" "...and one event records it"
+assert_exit 0 "...and the marker goes" -- test ! -f "$marker"
+drep="$(KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "only partly installed" "...and doctor explains the leftover"
+assert_not_contains "$drep" "partly installed outside Kempt" "...without saying it happened outside Kempt"
+assert_not_contains "$drep" "never set to install" "...nor that it was never set to install"
+rm -f "$KEMPT_STATE_DIR/offline-partial"
+
+# Told about, once, and the next check is quiet.
 staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_contains "$(cat "$WORLD/notifications")" "can no longer install" "a transaction dnf5 left incomplete keeps its own path"
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 1 of your staged updates was installed, but the install did not finish on the restart. Kempt's update list shows what is still waiting." \
+  "one of an unfinished restart: in the singular"
+KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
+assert_eq "$(cat "$WORLD/notifications")" "" "...and only once"
+rm -f "$KEMPT_STATE_DIR/offline-partial"
+
+# ...and the count holds here too.
+staged_marker "$NAMES"; newdep_marker
+moved $'aardvark-dns\t2:1.18.0-1.fc44' $'zz-new-dep\t1.0-1.fc44'; qa_from_after
+KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
+assert_contains "$(cat "$WORLD/notifications")" "1 of your staged updates was installed, but" "an unfinished restart does not count a new dependency either"
+rm -f "$KEMPT_STATE_DIR/offline-partial"
+
+# None of it changed, with the set as it was.
+staged_marker "$NAMES"; cp "$pre" "$after_tsv"; qa_from_after
+KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
+assert_contains "$(cat "$WORLD/notifications")" "Your staged update did not finish installing on the restart, and none of it was installed." "none of an unfinished restart: says so"
+assert_not_contains "$(cat "$WORLD/notifications")" "can no longer install" "...and not that it can no longer install"
+assert_eq "$(entries)" "0" "...with no history"
+assert_contains "$(tail -n 4 "$KEMPT_STATE_DIR/events.log")" "offline stage did not finish on the restart (status transaction-incomplete) - announced" "...and the log agrees"
+assert_eq "$(jq -r .lost_announced "$marker")" "true" "...and it is said once"
+drep="$(KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "FAIL  staged update did not finish: dnf5 started it on a restart and stopped before the end" "...and doctor tells it the same way"
+assert_contains "$drep" "sudo dnf5 offline clean" "...with the way to clear it"
+assert_not_contains "$drep" "never set to install" "...and not as never set to install"
+assert_not_contains "$drep" "can never install" "...nor as unable to"
+rm -f "$marker" "$pre"
+
+# None of it, with other things moved.
+staged_marker "$NAMES"; moved $'zzz-unrelated\t1.0-1.fc44'
+grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"; qa_from_after
+KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
+assert_contains "$(cat "$WORLD/notifications")" "did not finish installing on the restart, and none of it was installed" "none of it, whatever else moved"
 assert_eq "$(entries)" "0" "...with no history"
 rm -f "$marker" "$pre"
+
+# Cannot tell: says it did not finish, with nothing about how much.
+staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
+jq -c 'del(.staged_names)' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
+KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
+assert_contains "$(cat "$WORLD/notifications")" "Your staged update did not finish installing on the restart." "cannot tell how much: says it did not finish"
+assert_not_contains "$(cat "$WORLD/notifications")" "none of it" "...and nothing about how much"
+assert_not_contains "$(cat "$WORLD/notifications")" "of your staged updates" "...either way"
+assert_eq "$(entries)" "0" "...with no history"
+rm -f "$marker" "$pre"
+
+# All of it, with dnf5 still calling it incomplete: there is nothing left to say but that.
+staged_marker "$NAMES"
+moved $'librepo\t1.21.0-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'7zip\t26.03-1.fc44'
+grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"; qa_from_after
+KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your staged updates are installed." "all of an unfinished restart: installed, with no count to get wrong"
+rm -f "$marker" "$pre"
+
+
+# --- a user's mount, in the words the helper and doctor use ------------------------------------------
+_mfolder="$TESTTMP/users-mount"; mkdir -p "$_mfolder/repo"; chmod 777 "$_mfolder/repo"
+_mi="$TESTTMP/mountinfo-users"
+{ cat "$KEMPT_MOUNTINFO"; printf '90 1 0:50 / %s rw - fuse.sshfs u@h:/d rw,user_id=1000,group_id=1000\n' "$_mfolder"; } > "$_mi"
+KEMPT_MOUNTINFO="$_mi" KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" check >/dev/null 2>&1 || true
+srep="$(KEMPT_MOUNTINFO="$_mi" KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" status 2>&1 || true)"
+assert_contains "$srep" "Updates paused for safety: $_mfolder is on a mount made by a user other than root. Run kempt doctor for the fix." "status names a user's mount"
+assert_not_contains "$srep" "other users can change files in $_mfolder" "...and does not call it something else"
+drep="$(KEMPT_MOUNTINFO="$_mi" KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "is a mount made by" "doctor names it too"
+assert_contains "$drep" "FAIL  dnf cache: other users can change files in $_mfolder" "...and still has the cache row"
+assert_not_contains "$drep" "Kempt 0.1.7 or earlier" "...which does not blame an old Kempt for a mount"
+for _row in KEMPT_DNF_SYSIMAGE_DIR KEMPT_DNF_OFFLINE_PKG_DIR; do
+  drep="$(env KEMPT_MOUNTINFO="$_mi" "$_row=$_mfolder" "$KEMPT" doctor 2>&1 || true)"
+  assert_not_contains "$drep" "Kempt 0.1.7 or earlier" "...nor does $_row's row"
+done
+drep="$(KEMPT_DNF_OFFLINE_PKG_DIR="$_mfolder" KEMPT_MOUNTINFO="$_mi" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "A changed package there installs as root at the next restart" "...and the staged row still says what is at stake"
+for _row in KEMPT_DNF_CACHE_DIR KEMPT_DNF_SYSIMAGE_DIR KEMPT_DNF_OFFLINE_PKG_DIR; do
+  drep="$(env "$_row=$_mfolder" "$KEMPT" doctor 2>&1 || true)"
+  assert_contains "$drep" "Kempt 0.1.7 or earlier may have left them that way" "$_row with no mount: it can be true, so it is said"
+done
+KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" check >/dev/null 2>&1 || true
+srep="$(KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" status 2>&1 || true)"
+assert_contains "$srep" "Updates paused for safety: other users can change files in $_mfolder. Run kempt doctor for the fix." "...and without one, status says what it always did"
+rm -rf "$_mfolder"; "$KEMPT" check >/dev/null 2>&1 || true
+
+# --- the last run, while another updater holds the restart ------------------------------------------
+_hd="$KEMPT_STATE_DIR/history"; rm -rf "$_hd"; mkdir -p "$_hd"
+jq -n '{timestamp:"2026-11-04T10:00:00+02:00", surface:"offline", status:"ok", staged:256, reboot_needed:false, log:"",
+        backends:{dnf:{updated:[],added:[],removed:[],status:"ok"},flatpak:{updated:[],added:[],removed:[],status:"skipped"}}}' > "$_hd/20261104T100000.json"
+srep="$("$KEMPT" status 2>&1 || true)"
+assert_contains "$srep" "staged 256 updates for a restart" "a stage reads as itself"
+foreign_link
+srep="$("$KEMPT" status 2>&1 || true)"
+assert_contains "$srep" "staged 256 updates, but another updater has since prepared the next restart" "...and held, it says what became of the restart"
+assert_not_contains "$srep" "for a restart" "...and not that it is for one"
+no_link; rm -rf "$_hd"
 
 # --- doctor while another updater holds it -------------------------------------------------------
 foreign_link
