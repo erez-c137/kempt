@@ -326,8 +326,9 @@ node_facts() {  # state file → the same, from logic.js
     const vm = L.viewModel(st, false, "", { nowMs: Number(process.argv[3]) * 1000 });
     const usable = vm.actionable !== null;  // null exactly when the state is not one it can read
     console.log(JSON.stringify({ header: vm.headerText,
-      sections: usable ? vm.sections.map((s) => [s.title, s.items.length]) : [],
-      held: usable ? vm.heldTotal : 0, security: vm.securityCount }));
+      sections: usable ? L.collectItems(st).sections.map((s) => [s.title, s.items.length]) : [],
+      held: Number((/(\d+) held/.exec(vm.footerText) || [0, 0])[1]),
+      security: Number((/(\d+) security update/.exec(vm.tooltipSub) || [0, 0])[1]) }));
   ' "$LOGIC" "$1" "$NOW"
 }
 for f in "$PAR"/*.json; do

@@ -103,7 +103,7 @@ assert_eq "$(js 'L.viewModel(null,false).badgeText')" "" "unknown state shows NO
 assert_eq "$(js 'L.viewModel(null,false).badgeVisible')" "false" "unknown state hides the badge"
 assert_eq "$(js 'L.viewModel(null,false).tooltipSub.indexOf("no data until the first check finishes") >= 0')" "true" "unknown tooltip says there is no data yet"
 assert_eq "$(js 'L.viewModel(null,false).headerText.indexOf("0 update") >= 0')" "false" "unknown state never claims zero updates"
-assert_eq "$(js 'L.viewModel(null,false).lastSuccessText')" "" "unknown state has no last-success text to show"
+assert_eq "$(js 'L.viewModel(null,false).footerTooltip')" "" "unknown state has no last-success stamp to show"
 
 # --- the download figure: what "Update Now" is about to cost ------------------------------------
 # "~", never "up to". The estimate is wrong in BOTH directions - dnf pulls in dependencies
@@ -140,7 +140,6 @@ assert_eq "$(js "L.viewModel($dl_state,false).footerText.indexOf(\"~140 MB\") >=
   "the footer beside Update Now says what it will cost"
 assert_eq "$(js "L.viewModel($dl_state,false).tooltipSub.indexOf(\"~140 MB to download\") >= 0")" "true" \
   "the tooltip spells out what the figure means"
-assert_eq "$(js "L.viewModel($dl_state,false).downloadText")" "~140 MB" "the vm publishes the words once"
 # Nothing actionable, nothing to download: on an up-to-date box the figure would be describing
 # bytes no run is going to fetch, and next to a held-only list it would be describing a run the
 # button will not offer.
@@ -156,7 +155,6 @@ assert_eq "$(js "L.viewModel($dl_staged,false).footerText.indexOf(\"MB\") >= 0")
   "while a stage is armed, no download figure in the footer"
 assert_eq "$(js "L.viewModel($dl_staged,false).tooltipSub.indexOf(\"download\") >= 0")" "false" \
   "...and none in the tooltip"
-assert_eq "$(js "L.viewModel($dl_staged,false).downloadText")" "" "...and none published"
 
 # --- the tooltip names what is pending ------------------------------------------------------------
 # A count says how many, not what. Three names are enough to recognise a kernel or a browser from
@@ -177,7 +175,6 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("live"),{offline_staged:{staged_at:
   "false" "...and nothing is named while a stage waits for the restart"
 # A state written before this feature existed has no such key, and must render exactly as it did.
 nokey='{schema:1,status:"ok",actionable:3,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2026-08-24T23:59:00+03:00",backends:{}}'
-assert_eq "$(js "L.viewModel($nokey,false).downloadText")" "" "a state with no download_bytes shows nothing"
 # Against the SAME state carrying the key, not against itself: the previous form compared one
 # expression with the identical expression, so it passed however the footer rendered - including
 # if a state with no download_bytes had started showing a figure, which is the whole claim.
@@ -187,8 +184,7 @@ assert_eq "$(js "L.viewModel(Object.assign({}, $nokey, {download_bytes:12345678}
   "Checked 2026-08-24 23:59 +03:00 $(printf '\xc2\xb7') ~12.3 MB" \
   "...while the same state WITH the field does show one, so the difference is the field"
 # Every captured fixture predates the field, so this pins the no-regression claim to real files.
-assert_eq "$(js 'V("live",false).downloadText')" "" "the captured live state renders no figure"
-assert_eq "$(js 'V("held-only",false).downloadText')" "" "nor does the held-only one"
+assert_eq "$(js 'V("live",false).tooltipSub.indexOf("to download") >= 0')" "false" "the captured live state renders no figure"
 
 # --- updating wins over everything, and the pending count stays truthful while it runs ---
 assert_eq "$(js 'L.viewModel(null,true).iconState')" "updating" "null state + updating => updating"
@@ -239,9 +235,9 @@ assert_eq "$(js 'const s = S("held-only"); s.offline_staged = {staged_at: "2026-
 assert_eq "$(js 'V("live",false).tooltipSub.indexOf("held")')" "-1" "...and with nothing held, nothing is said"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:3,held_total:2,backends:{}},false).tooltipSub')" "2 held" \
   "...while a count of pending updates leaves the held count to the line under it"
-assert_eq "$(js 'V("held-only",false).heldItems.length')" "10" "every held item is listed for the Held section"
-assert_eq "$(js 'V("held-only",false).sections.length')" "0" "a held-only state renders no pending sections"
-assert_eq "$(js 'V("live",false).heldItems.length')" "0" "nothing held => an empty Held list"
+assert_eq "$(js 'L.collectItems(S("held-only")).heldItems.length')" "10" "every held item is listed for the Held section"
+assert_eq "$(js 'L.collectItems(S("held-only")).sections.length')" "0" "a held-only state renders no pending sections"
+assert_eq "$(js 'L.collectItems(S("live")).heldItems.length')" "0" "nothing held => an empty Held list"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:2,backends:{}},false).headerText')" \
   "Up to date · 2 held" \
   "the header stays up to date when only held items are pending, and says how many they are"
@@ -262,11 +258,10 @@ assert_eq "$(js 'V("stale",false).tooltipSub')" "aajohan-comfortaa-fonts, bash, 
   "the stale tooltip carries BOTH what went wrong and the last SUCCESSFUL check"
 assert_eq "$(js 'V("stale",false).tooltipSub.indexOf(V("stale",false).staleReason) >= 0')" "true" \
   "...and the reason it carries is the CLI's own staleReason, verbatim"
-assert_eq "$(js 'V("stale",false).lastSuccessText')" "$ls_stale" "lastSuccessText is the formatted last success"
+assert_eq "$(js 'V("stale",false).footerTooltip')" "$ls_stale" "the footer's tooltip is the formatted last success"
 assert_eq "$(js 'V("stale",false).staleReason')" "dnf check failed" "the stale reason is the CLI's own error text"
 assert_eq "$(js 'V("never",false).tooltipSub.indexOf("No successful check yet") >= 0')" "true" \
   "a box that has never had a successful check says so, not Invalid Date"
-assert_eq "$(js 'V("never",false).lastSuccessText')" "never" "...and lastSuccessText says never too"
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"",actionable:1,held_total:0,backends:{}},false).staleReason')" \
   "the last check failed" "a stale state with no error text still explains itself"
 # Belt and braces on the same rule: stamps render to the minute, so a fixture whose two stamps
@@ -301,7 +296,7 @@ assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,b
 # check found; only a state we genuinely cannot read earns the warning treatment.
 assert_eq "$(js 'V("stale",false).iconState')" "stale" "a failed check is its own state, not an error"
 assert_eq "$(js 'V("stale",false).badgeVisible')" "true" "a stale state still shows its last known count"
-assert_eq "$(js 'V("stale",false).cliError')" "" "the CLI answered, so there is no CLI error"
+assert_eq "$(js 'V("stale",false).remedyCommand')" "" "the CLI answered, so nothing points at the installation"
 assert_eq "$(js 'V("stale",false).emptyStateText')" "" "...and there are rows to show, so no empty state"
 # Calm-stale needs something to BE calm about. A box that once succeeded and now flaps keeps its
 # last known "nothing pending"; the boundary below is what separates that from knowing nothing.
@@ -372,7 +367,7 @@ assert_eq "$(js "$cli_err.badgeVisible")" "false" "...and it badges nothing"
 assert_eq "$(js "$cli_err.headerText")" "Kempt cannot check for updates" "the popup header names the problem"
 assert_eq "$(js "$cli_err.emptyStateText")" "The check failed" "the popup headline is plain words"
 assert_eq "$(js "$cli_err.problemDetail")" "kempt: command not found" "...with the CLI's own words under it"
-assert_eq "$(js "$cli_err.problemNetwork")" "false" "...which are not about the network"
+assert_eq "$(js "$cli_err.problemHint !== L.COPY.checkNetworkHint")" "true" "...which are not about the network"
 assert_eq "$(js "$cli_err.tooltipSub")" "Open Kempt to see why" "...and the tooltip gives a short reason"
 assert_eq "$(js "$cli_err.remedyCommand")" "kempt doctor" "...and points at the command that diagnoses it"
 assert_eq "$(js 'L.viewModel(null,false,"").iconState')" "unknown" \
@@ -391,29 +386,28 @@ nc_state() { printf '{schema:1,status:"stale",error:"%s",last_success:null,actio
 net="L.viewModel($(nc_state ",refresh_error:$(printf '%s' "$neterr" | jq -Rs .)"),false)"
 assert_eq "$(js "$net.emptyStateText")" "Kempt could not reach the update servers" \
   "no dnf cache after a refresh that could not resolve the mirror gets the network headline"
-assert_eq "$(js "$net.problemNetwork + \"|\" + $net.problemHint")" "true|Check your network connection." \
-  "...is marked as a network failure, with the network hint"
+assert_eq "$(js "$net.problemHint")" "Check your network connection." "...with the network hint"
 assert_eq "$(js "$net.problemDetail.indexOf(\"no cache for repository\") >= 0")" "true" "...keeps the raw text as the detail"
 assert_eq "$(js "$net.remedyCommand")" "" "...and offers no Check Installation, since nothing is broken"
 assert_eq "$(js "$net.tooltipMain + \" | \" + $net.tooltipSub")" \
   "Cannot check for updates | Could not reach the update servers" "...and the tooltip says the same in short"
 r404="L.viewModel($(nc_state ",refresh_error:$(printf '%s' "$err404" | jq -Rs .)"),false)"
-assert_eq "$(js "$r404.emptyStateText + \"|\" + $r404.problemNetwork")" \
-  "The package lists have not been downloaded yet|false" \
+assert_eq "$(js "$r404.emptyStateText")" \
+  "The package lists have not been downloaded yet" \
   "a refresh that reached a server answering 404 is not a network failure"
 assert_eq "$(js "$r404.problemDetail + \"|\" + $r404.problemHint")" \
   "$err404|dnf could not download them. Its error is below." "...and shows dnf's refresh error under it"
 assert_eq "$(js "$r404.remedyCommand")" "" "...with no Check Installation, which would find nothing wrong"
 r_empty="L.viewModel($(nc_state ',refresh_error:""'),false)"
-assert_eq "$(js "$r_empty.emptyStateText + \"|\" + $r_empty.problemNetwork")" \
-  "The package lists have not been downloaded yet|false" "a refresh that failed silently claims no network cause"
+assert_eq "$(js "$r_empty.emptyStateText")" \
+  "The package lists have not been downloaded yet" "a refresh that failed silently claims no network cause"
 r_to="L.viewModel($(nc_state ',refresh_error:"dnf makecache timed out"'),false)"
-assert_eq "$(js "$r_to.emptyStateText + \"|\" + $r_to.problemNetwork + \"|\" + $r_to.problemHint")" \
-  "The package lists have not been downloaded yet|false|dnf could not download them. Its error is below." \
+assert_eq "$(js "$r_to.emptyStateText + \"|\" + $r_to.problemHint")" \
+  "The package lists have not been downloaded yet|dnf could not download them. Its error is below." \
   "a refresh that timed out is not called a network failure, and the hint says a refresh ran"
 old="L.viewModel($(nc_state ''),false)"
-assert_eq "$(js "$old.emptyStateText + \"|\" + $old.problemNetwork + \"|\" + $old.remedyCommand")" \
-  "The package lists have not been downloaded yet|false|" \
+assert_eq "$(js "$old.emptyStateText + \"|\" + $old.remedyCommand")" \
+  "The package lists have not been downloaded yet|" \
   "no dnf cache with no failed refresh on record claims no network cause, as with an older engine's state"
 assert_eq "$(js "$old.problemHint")" "Press Check for Updates to download them." \
   "...and says how to download them"
@@ -688,18 +682,16 @@ assert_eq "$(js "$noru.messageSlots")" '["kernel"]' \
   "...while an ordinary risky transaction still gets the full recommendation"
 assert_eq "$(js "$noru.riskyMessage.indexOf(\"next restart\") >= 0")" "true" \
   "...naming the safer route, because on that box the route exists"
-assert_eq "$(js "$ru.stagedShowRebuild")" "false" \
-  "and a rebuild is not offered either: it runs the same verb, so it would cancel it too"
 # dnf5 has ONE transaction slot, and a transaction whose target release differs from the system's
 # cannot be one Kempt built - so a marker alongside a release upgrade describes a transaction that
 # is gone. A current CLI stops publishing offline_staged there; this is the older file, where the
 # staged banner would otherwise sit under the release-upgrade one telling the reader to press a
-# Rebuild button that is no longer on the screen.
+# Discard button that is no longer on the screen.
 RUS='function () { var s = S("risky-heavy"); s.offline_staged = {staged_at:"2026-09-09T09:00:00+03:00", count:61, armed:true, holds_conflict:["kernel-core"], names_source:"transaction"}; s.release_upgrade = {from:"44",to:"45",armed:true}; return L.viewModel(s,false,"",{}); }'
 assert_eq "$(js "($RUS)().messageSlots.indexOf(\"staged\")")" "-1" \
   "a stale staged banner is not shown beside a release upgrade that replaced it"
 assert_eq "$(js "($RUS)().stagedMessage")" "" \
-  "...so nothing tells the reader to rebuild a transaction dnf5 no longer has"
+  "...so nothing tells the reader to discard a transaction dnf5 no longer has"
 # Read the way every optional key is read. A state file written before this existed carries none of
 # it, and one edited by hand can carry anything at all.
 for _bad in 'null' 'true' '"44 -> 45"' '{}' '{from:"44"}' '{to:"45"}' '{from:44,to:45}'; do
@@ -831,32 +823,6 @@ assert_eq "$(js 'L.COPY.installNow')" "Install Now" "the second answer is Instal
 assert_eq "$(js 'L.COPY.installNowTooltip')" "Installs the update now, while your desktop is running." \
   "...with a tooltip, as its sibling has"
 
-# --- the one offer of the popup default ---------------------------------------------------------
-offer_vm() {  # extra opts → JS for a state carrying surface_offer, on a box that updates in the terminal
-  local o="${1:-}"; [[ -n "$o" ]] || o='{}'
-  printf 'L.viewModel(Object.assign(S("live"), {surface_offer: true}), false, "", Object.assign({surface: "terminal", configuredSurface: "terminal", autoAccept: true}, %s))' "$o"
-}
-assert_eq "$(js "$(offer_vm).messageSlots")" '["surfaceOffer"]' "an install the migration kept on the terminal is offered the popup"
-assert_eq "$(js 'L.viewModel(S("live"), false, "", {surface: "terminal", configuredSurface: "terminal"}).messageSlots')" '[]' \
-  "no surface_offer in the state, no offer"
-assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {surface_offer: "true"}), false, "", {configuredSurface: "terminal"}).messageSlots')" '[]' \
-  "...and only a real true counts"
-assert_eq "$(js "$(offer_vm '{surfaceOfferAnswered: true}').messageSlots")" '[]' "answered in this session, it is gone at once"
-assert_eq "$(js "$(offer_vm '{configuredSurface: "popup", surface: "popup"}').messageSlots")" '[]' \
-  "a surface chosen in Settings answers it before the next check does"
-assert_eq "$(js "$(offer_vm '{autoAccept: false}').messageSlots")" '[]' \
-  "with confirmation on the popup cannot run updates, so it is not offered"
-assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {surface_offer: true}), true, "", {configuredSurface: "terminal"}).messageSlots')" '[]' \
-  "...nor during a run"
-assert_eq "$(js 'L.messageStack({kernel: true, surfaceOffer: true, reclaim: true})')" '["kernel","surfaceOffer"]' \
-  "it waits below the risky advice and above the reclaim offer"
-assert_eq "$(js '[L.COPY.surfaceOfferUse, L.COPY.surfaceOfferKeep].join("|")')" "Use This Widget|Keep the Terminal Window" \
-  "its two answers, in the words Settings uses for the two choices"
-assert_eq "$(js 'L.COPY.surfaceOffer')" "Updates can now run in this widget instead of a terminal window." \
-  "...and its sentence, which does not say popup either"
-assert_eq "$(js "$(offer_vm '{surfaceKnown: false}').messageSlots")" '[]' \
-  "not before the widget has read the setting, when its surface is only the default"
-
 # --- the one offer to turn off Discover's notifier ------------------------------------------------
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).messageSlots')" '["discoverOffer"]' \
   "a notifier that starts with the session is offered once"
@@ -867,14 +833,6 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), f
   "answered in this session, it is gone at once"
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), true, "", {}).messageSlots')" '[]' \
   "...and it waits out a run"
-assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, discover_offer: true}), false, \"\", {surface: \"terminal\", configuredSurface: \"terminal\", autoAccept: true}).messageSlots")" \
-  '["surfaceOffer"]' "one offer at a time: it waits while the surface offer shows"
-assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, discover_offer: true}), false, \"\", {surface: \"terminal\", configuredSurface: \"terminal\", autoAccept: true, surfaceOfferAnswered: true}).messageSlots")" \
-  '["discoverOffer"]' "...and comes once the surface offer is answered"
-assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, discover_offer: true}), false, \"\", {surfaceKnown: false}).messageSlots")" \
-  '[]' "...and waits while the surface offer is undecided, so the two never swap under the pointer"
-assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {discover_offer: true}), false, \"\", {surfaceKnown: false}).messageSlots")" \
-  '["discoverOffer"]' "...a wait only a pending surface offer causes"
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {discoverAnswerKnown: false}).messageSlots')" '[]' \
   "it waits until the widget has looked for the CLI's answered marker"
 assert_eq "$(js 'L.messageStack({kernel: true, discoverOffer: true, reclaim: true})')" '["kernel","discoverOffer"]' \
@@ -953,26 +911,25 @@ done
 # The view model keys on the CONFIGURED surface: with confirmation on, the run opens a terminal,
 # and `kempt update` on a terminal still stages when offline is configured (bin/kempt cmd_update).
 UB='function (surf, conf, edit) { var s = S("risky-heavy"); if (edit) edit(s); var o = {surface: surf}; if (conf !== undefined) o.configuredSurface = conf; return L.viewModel(s, false, "", o); }'
-assert_eq "$(js "[($UB)('offline', 'offline').updateStages, ($UB)('offline', 'offline').updateButtonText]")" \
-  '[true,"Install on Next Restart"]' "the view model publishes the restart label on the offline surface"
-assert_eq "$(js "[($UB)(L.effectiveSurfaceOf('offline', false), 'offline').updateStages, ($UB)(L.effectiveSurfaceOf('offline', false), 'offline').updateButtonText]")" \
-  '[true,"Install on Next Restart"]' "...and when confirmation sends the run to a terminal, which still stages"
-assert_eq "$(js "($UB)('popup', 'popup').updateButtonText")" "Update Now" "...and Update Now on any other surface"
-assert_eq "$(js "($UB)(undefined).updateButtonText")" "Update Now" "...and before the surface is known"
-assert_eq "$(js "[($UB)('offline', 'offline').stageTooltipNamesFlatpak, ($UB)('offline', 'offline').updateButtonTooltip]")" \
-  '[true,"Installs system updates during the next restart. Flatpak apps update now."]' \
+assert_eq "$(js "($UB)('offline', 'offline').updateStages")" "true" "the view model stages on the offline surface"
+assert_eq "$(js "($UB)(L.effectiveSurfaceOf('offline', false), 'offline').updateStages")" \
+  "true" "...and when confirmation sends the run to a terminal, which still stages"
+assert_eq "$(js "($UB)('popup', 'popup').updateStages")" "false" "...and does not on any other surface"
+assert_eq "$(js "($UB)(undefined).updateStages")" "false" "...or before the surface is known"
+assert_eq "$(js "($UB)('offline', 'offline').stageTooltipNamesFlatpak")" \
+  "true" \
   "with Flatpak apps waiting, the tooltip says they update now"
 FPOFF='function (s) { s.backends.flatpak.enabled = false; }'
 FPNONE='function (s) { s.backends.flatpak.actionable = 0; s.backends.flatpak.items = []; }'
 DNFHELD='function (s) { s.backends.dnf.actionable = 0; s.backends.dnf.held = 20; s.backends.dnf.items.forEach(function (i) { i.held = true; }); }'
 DNFNONE='function (s) { s.backends.dnf.actionable = 0; s.backends.dnf.items = []; }'
 for _e in FPOFF FPNONE; do
-  assert_eq "$(js "[($UB)('offline', 'offline', ${!_e}).stageTooltipNamesFlatpak, ($UB)('offline', 'offline', ${!_e}).updateButtonTooltip]")" \
-    '[false,"Installs system updates during the next restart."]' "$_e: the tooltip leaves Flatpak out"
+  assert_eq "$(js "($UB)('offline', 'offline', ${!_e}).stageTooltipNamesFlatpak")" \
+    "false" "$_e: the tooltip leaves Flatpak out"
 done
 for _e in DNFHELD DNFNONE; do
-  assert_eq "$(js "[($UB)('offline', 'offline', ${!_e}).updateStages, ($UB)('offline', 'offline', ${!_e}).updateButtonText]")" \
-    '[false,"Update Now"]' "$_e: nothing stages, so the button keeps Update Now"
+  assert_eq "$(js "($UB)('offline', 'offline', ${!_e}).updateStages")" \
+    "false" "$_e: nothing stages, so the button keeps Update Now"
 done
 assert_eq "$(js "L.backendActionable({backends: {dnf: {items: [{held: false}, {held: true}, {}]}}}, 'dnf')")" "2" \
   "backendActionable counts the unheld items when a backend publishes no count"
@@ -980,7 +937,7 @@ assert_eq "$(js "[L.backendActionable(null, 'dnf'), L.backendActionable({backend
   "...and 0 for no state or no backend"
 
 # --- resolveSurface: unknown means terminal, exactly as bin/kempt decides ---------------------
-for s in terminal popup background offline; do
+for s in terminal popup offline; do
   assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
 done
 assert_eq "$(js 'L.resolveSurface("nonsense")')" "terminal" "an unknown surface falls back to terminal"
@@ -1035,13 +992,13 @@ assert_eq "$(js 'L.firstLineOf(null)')" "" "nor a missing string"
 # --- backend routing: the half of every hold command that decides WHICH package manager --------
 # A dnf hardcode here is invisible in the rendered popup and catastrophic in the command: pinning
 # a Flatpak app would run `kempt hold dnf:org.gimp.GIMP`, holding nothing and reporting success.
-assert_eq "$(js 'V("live",false).sections[1].items[0].backend')" "flatpak" \
+assert_eq "$(js 'L.collectItems(S("live")).sections[1].items[0].backend')" "flatpak" \
   "a row in the Apps group carries the flatpak backend, not dnf"
-assert_eq "$(js 'V("live",false).sections.map(function (s) { return s.items[0].backend; })')" \
+assert_eq "$(js 'L.collectItems(S("live")).sections.map(function (s) { return s.items[0].backend; })')" \
   '["dnf","flatpak"]' "each group's rows carry that group's own backend"
 assert_eq "$(js 'V("live",false).rows.filter(function (r) { return r.kind === "item"; }).map(function (r) { return r.backend; }).filter(function (b, i, a) { return a.indexOf(b) === i; }).sort()')" \
   '["dnf","flatpak"]' "...and the flat model keeps both backends, not one repeated"
-assert_eq "$(js 'V("held-only",false).heldItems.map(function (h) { return h.backend; }).filter(function (b, i, a) { return a.indexOf(b) === i; }).sort()')" \
+assert_eq "$(js 'L.collectItems(S("held-only")).heldItems.map(function (h) { return h.backend; }).filter(function (b, i, a) { return a.indexOf(b) === i; }).sort()')" \
   '["dnf","flatpak"]' "held rows keep both backends too - unpinning must undo the right hold"
 assert_eq "$(js 'V("held-only",false).rows.filter(function (r) { return r.kind === "item" && r.name.indexOf("org.") === 0; })[0].backend')" \
   "flatpak" "a held Flatpak app is still a flatpak hold, not a dnf one"
@@ -1076,36 +1033,36 @@ assert_eq "$(jq -r '.backends.dnf.items[] | select(.name=="bash") | .to | contai
   "true" "fixture guard: the captured bash entry really is a comma-joined multilib set"
 # $NF, not -f2: the set size is a property of the box (a multilib pair here, three kernels
 # elsewhere), and the rule under test is "the LAST one", not "the second one".
-assert_eq "$(js 'V("live",false).sections[0].items.filter(i => i.name === "bash")[0].to')" \
+assert_eq "$(js 'L.collectItems(S("live")).sections[0].items.filter(i => i.name === "bash")[0].to')" \
   "$(awk -F, '{print $NF}' <<<"$bash_to")" "a multilib set is rendered the CLI's way in the popup row"
-assert_eq "$(js 'V("live",false).sections[0].items.filter(i => i.name === "brandnew")[0].from')" \
+assert_eq "$(js 'L.collectItems(S("live")).sections[0].items.filter(i => i.name === "brandnew")[0].from')" \
   "?" "a package that is not installed yet keeps its ? on the from side"
 
 # --- sections: grouping, the disabled backend, and forward compatibility ---
-assert_eq "$(js 'V("live",false).sections.map(s => s.title)')" '["System (dnf)","Apps (flatpak)"]' \
+assert_eq "$(js 'L.collectItems(S("live")).sections.map(s => s.title)')" '["System (dnf)","Apps (flatpak)"]' \
   "pending updates group as System / Apps, dnf first"
-assert_eq "$(js 'V("live",false).sections[0].items[0].backend')" "dnf" \
+assert_eq "$(js 'L.collectItems(S("live")).sections[0].items[0].backend')" "dnf" \
   "every row carries its backend, which is half of the hold/unhold argument"
 # Row order is the CLI's, not something the widget re-sorts or reverses. The CLI hands items over
 # sorted by name; a popup that showed them backwards would be a different list from `kempt check`.
-assert_eq "$(js 'V("live",false).sections[0].items.map(function (i) { return i.name; })')" \
+assert_eq "$(js 'L.collectItems(S("live")).sections[0].items.map(function (i) { return i.name; })')" \
   "$(jq -c '[.backends.dnf.items[].name]' "$FIXTURES/state-live.json")" \
   "pending rows keep the CLI's own order"
-assert_eq "$(js 'V("held-only",false).heldItems.map(function (i) { return i.name; }).slice(0,3)')" \
+assert_eq "$(js 'L.collectItems(S("held-only")).heldItems.map(function (i) { return i.name; }).slice(0,3)')" \
   "$(jq -c '[.backends.dnf.items[].name][0:3]' "$FIXTURES/state-held-only.json")" \
   "...and so do held rows"
-assert_eq "$(js 'V("flatpak-disabled",false).sections.map(s => s.title)')" '["System (dnf)"]' \
+assert_eq "$(js 'L.collectItems(S("flatpak-disabled")).sections.map(s => s.title)')" '["System (dnf)"]' \
   "a disabled backend renders no section at all, not an empty one"
 assert_eq "$(js 'V("flatpak-disabled",false).badgeText')" "7" "a disabled backend contributes nothing to the badge"
-assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:1,backends:{flatpak:{enabled:false,items:[{name:"x",from:"1",to:"2",held:true}]}}},false).heldItems.length')" \
+assert_eq "$(js 'L.collectItems({schema:1,status:"ok",actionable:0,held_total:1,backends:{flatpak:{enabled:false,items:[{name:"x",from:"1",to:"2",held:true}]}}}).heldItems.length')" \
   "0" "a disabled backend contributes no held items either"
 # The captured fixture cannot tell "skipped because disabled" from "skipped because empty" - the
 # CLI empties a disabled backend's items. Only leftover items prove the enabled flag is honoured.
-assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{flatpak:{enabled:false,items:[{name:"x",from:"1",to:"2",held:false}]}}},false).sections.length')" \
+assert_eq "$(js 'L.collectItems({schema:1,status:"ok",actionable:0,held_total:0,backends:{flatpak:{enabled:false,items:[{name:"x",from:"1",to:"2",held:false}]}}}).sections.length')" \
   "0" "a disabled backend with leftover items STILL renders no section"
-assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{apt:{enabled:true,items:[{name:"x",from:"1",to:"2",held:false}]}}},false).sections.map(s => s.title)')" \
+assert_eq "$(js 'L.collectItems({schema:1,status:"ok",actionable:1,held_total:0,backends:{apt:{enabled:true,items:[{name:"x",from:"1",to:"2",held:false}]}}}).sections.map(s => s.title)')" \
   '["apt"]' "a future backend key gets its own section instead of being dropped (architecture: readers ignore what they do not know)"
-assert_eq "$(js 'V("held-only",false).heldItems[0].backend')" "dnf" \
+assert_eq "$(js 'L.collectItems(S("held-only")).heldItems[0].backend')" "dnf" \
   "held rows carry their backend too (the unhold argument)"
 
 # --- Flatpak runtimes: their own section, under the apps ----------------------------------------
@@ -1117,18 +1074,18 @@ RT='{schema:1,status:"ok",actionable:4,held_total:0,backends:{flatpak:{enabled:t
   {name:"org.freedesktop.Platform.GL.default",branch:"24.08",kind:"runtime",from:"26.1.8",to:"26.1.9",held:false},
   {name:"org.freedesktop.Platform.GL.default",branch:"24.08extra",kind:"runtime",from:"26.1.8",to:"26.2.0",held:false},
   {name:"org.kde.Platform",branch:"5.15-24.08",kind:"runtime",from:"?",to:"?",held:false}]}}}'
-assert_eq "$(js "L.viewModel($RT,false).sections.map(function (s) { return s.title; })")" \
+assert_eq "$(js "L.collectItems($RT).sections.map(function (s) { return s.title; })")" \
   '["Apps (flatpak)","Flatpak runtimes"]' "runtimes get their own heading, under the apps"
-assert_eq "$(js "L.viewModel($RT,false).sections[0].items.length")" "1" "the app section holds only the app"
-assert_eq "$(js "L.viewModel($RT,false).sections[1].items.length")" "3" "...and the runtime section the runtimes"
-assert_eq "$(js "L.viewModel($RT,false).sections[1].kind")" "runtime" \
+assert_eq "$(js "L.collectItems($RT).sections[0].items.length")" "1" "the app section holds only the app"
+assert_eq "$(js "L.collectItems($RT).sections[1].items.length")" "3" "...and the runtime section the runtimes"
+assert_eq "$(js "L.collectItems($RT).sections[1].kind")" "runtime" \
   "the runtime section says which kind it is, rather than leaving its title to be parsed"
 # The badge counts them: that is the promise the whole change exists to keep.
 assert_eq "$(js "L.viewModel($RT,false).badgeText")" "4" "the badge counts runtimes alongside apps"
 assert_eq "$(js "L.viewModel($RT,false).headerText")" "4 updates available" "...and so does the header"
 # THE two-branch case. Two rows sharing a name, told apart by the branch beside it: without this the
 # popup draws what looks like the same runtime twice at two different versions.
-GL="L.viewModel($RT,false).sections[1].items.filter(function (i) { return i.name.indexOf('GL.default') >= 0; })"
+GL="L.collectItems($RT).sections[1].items.filter(function (i) { return i.name.indexOf('GL.default') >= 0; })"
 assert_eq "$(js "$GL.length")" "2" "one runtime on two branches is two rows"
 assert_eq "$(js "$GL.map(function (i) { return i.branch; })")" '["24.08","24.08extra"]' \
   "...each carrying the branch that tells it from the other"
@@ -1136,9 +1093,9 @@ assert_eq "$(js "$GL.map(function (i) { return i.to; })")" '["26.1.9","26.2.0"]'
   "...and its own pending version"
 # No padlock on a runtime row. `kempt hold` refuses one, so a padlock would report a refusal every
 # time it was pressed - worse than not being there.
-assert_eq "$(js "L.viewModel($RT,false).sections[1].items.map(function (i) { return i.holdable; })")" \
+assert_eq "$(js "L.collectItems($RT).sections[1].items.map(function (i) { return i.holdable; })")" \
   '[false,false,false]' "no runtime row offers a hold"
-assert_eq "$(js "L.viewModel($RT,false).sections[0].items[0].holdable")" "true" \
+assert_eq "$(js "L.collectItems($RT).sections[0].items[0].holdable")" "true" \
   "...while the app beside them still does"
 assert_eq "$(js "L.viewModel($RT,false).rows.filter(function (r) { return r.kind === 'header'; }).map(function (r) { return r.title; })")" \
   '["Apps (flatpak)","Flatpak runtimes"]' "the flat model carries both headings, in that order"
@@ -1146,22 +1103,22 @@ assert_eq "$(js "L.viewModel($RT,false).rows.filter(function (r) { return r.kind
   "...and the rows under the second one are the unholdable three"
 # A runtime flatpak publishes no version for: both halves unknown, which the row renders as no
 # version line at all rather than an arrow pointing at nothing.
-assert_eq "$(js "L.viewModel($RT,false).sections[1].items[2].from")" "?" \
+assert_eq "$(js "L.collectItems($RT).sections[1].items[2].from")" "?" \
   "a runtime with no version keeps the not-known sentinel on the from side"
-assert_eq "$(js "L.viewModel($RT,false).sections[1].items[2].to")" "?" "...and on the to side"
+assert_eq "$(js "L.collectItems($RT).sections[1].items[2].to")" "?" "...and on the to side"
 # A held runtime cannot arrive from today's CLI, but a reader must not invent a rule: a held item
 # goes to the Held group whatever its kind, exactly as it always did.
 RT_HELD="$(js "JSON.stringify({schema:1,status:'ok',actionable:0,held_total:1,backends:{flatpak:{enabled:true,items:[{name:'org.kde.Platform',branch:'5.15-24.08',kind:'runtime',from:'1',to:'2',held:true}]}}})")"
-assert_eq "$(js "L.viewModel($RT_HELD,false).heldItems.length")" "1" "a held runtime still lands in the Held group"
-assert_eq "$(js "L.viewModel($RT_HELD,false).sections.length")" "0" "...and raises no runtime section of its own"
+assert_eq "$(js "L.collectItems($RT_HELD).heldItems.length")" "1" "a held runtime still lands in the Held group"
+assert_eq "$(js "L.collectItems($RT_HELD).sections.length")" "0" "...and raises no runtime section of its own"
 # Forward compatibility, the same rule an unknown backend key gets: a kind this build has never
 # heard of is shown under a heading built from its own words, never dropped - the badge has already
 # counted it.
 RT_NEW='{schema:1,status:"ok",actionable:1,held_total:0,backends:{flatpak:{enabled:true,items:[{name:"x",kind:"extension",from:"1",to:"2",held:false}]}}}'
-assert_eq "$(js "L.viewModel($RT_NEW,false).sections.map(function (s) { return s.title; })")" \
+assert_eq "$(js "L.collectItems($RT_NEW).sections.map(function (s) { return s.title; })")" \
   '["flatpak extension"]' "an unknown kind gets a section rather than being dropped"
 
-# --- notify_security: the row token, the tooltip count and the panel's attention ----------------
+# --- the security block: the row token and the tooltip count -------------------------------------
 assert_eq "$(js "V('security').rows.filter(function (r) { return r.kind === 'item' && r.security; }).map(function (r) { return r.name; })")" \
   '["curl","git-core","tar"]' "the rows the security block names carry the Security token"
 assert_eq "$(js "V('security').rows.filter(function (r) { return r.backend === 'flatpak' && r.security; }).length")" "0" \
@@ -1171,23 +1128,13 @@ assert_contains "$(js "V('security').tooltipSub")" "3 security updates" "the too
 assert_eq "$(js "var t = V('security').tooltipSub; t.indexOf('3 security updates') > t.indexOf('curl')")" "true" \
   "...after the pending names"
 assert_eq "$(js "L.COPY.securityToken + '|' + L.COPY.securityCountOne")" "Security|1 security update" "the copy, with its singular"
-ONE_SEC="$(jq -c '.security = {count:1, packages:["curl"], advisories:["FEDORA-2026-c1"], attention:false, digest:"0123456789abcdef"}' "$FIXTURES/state-security.json")"
+ONE_SEC="$(jq -c '.security = {count:1, packages:["curl"]}' "$FIXTURES/state-security.json")"
 assert_contains "$(js "L.viewModel($ONE_SEC,false).tooltipSub")" "1 security update" "one is singular"
-assert_eq "$(js "V('security').needsAttention")" "true" "a set nobody has seen makes the panel ask for attention"
-assert_eq "$(js "V('security').securityDigest")" "0123456789abcdef" "...with the digest the popup acknowledges"
-assert_eq "$(js "V('security', true).needsAttention")" "false" "...but not during an update"
-assert_eq "$(js "L.viewModel($ONE_SEC,false).needsAttention")" "false" "an acknowledged set does not ask"
-assert_eq "$(js "L.viewModel($ONE_SEC,false).securityDigest")" "" "...and offers nothing to acknowledge"
-assert_eq "$(js "V('live').needsAttention")" "false" "no block, no attention"
 STAGED_SEC="$(jq -c '.offline_staged = {staged_at:"2026-08-25T11:00:00+03:00", count:7, armed:true}' "$FIXTURES/state-security.json")"
 assert_eq "$(js "L.viewModel($STAGED_SEC,false).stagedArmed")" "true" "(premise: the stage is armed)"
-assert_eq "$(js "L.viewModel($STAGED_SEC,false).needsAttention")" "false" "an armed stage does not ask"
 assert_not_contains "$(js "L.viewModel($STAGED_SEC,false).tooltipSub")" "security update" "...and the tooltip leaves the count out, like the names"
-NODIGEST="$(jq -c '.security.digest = "nope"' "$FIXTURES/state-security.json")"
-assert_eq "$(js "L.viewModel($NODIGEST,false).needsAttention")" "false" "a block without a usable digest cannot ask, since nothing could acknowledge it"
-assert_eq "$(js "L.viewModel($NODIGEST,false).engineFault")" "undefined" "(and is otherwise read as usual)"
-assert_eq "$(js "var a = V('live'), b = V('security'); ['tooltipSub','needsAttention','securityDigest','securityCount'].forEach(function (k) { delete a[k]; delete b[k]; }); var drop = function (k, v) { return k === 'security' ? undefined : v; }; JSON.stringify(a, drop) === JSON.stringify(b, drop)")" \
-  "true" "the block moves the token, the tooltip and the attention, and nothing else"
+assert_eq "$(js "var a = V('live'), b = V('security'); ['tooltipSub'].forEach(function (k) { delete a[k]; delete b[k]; }); var drop = function (k, v) { return k === 'security' ? undefined : v; }; JSON.stringify(a, drop) === JSON.stringify(b, drop)")" \
+  "true" "the block moves the token and the tooltip, and nothing else"
 
 # --- notify_startup: services that stopped starting after an update ------------------------------
 # The CLI's state.json `startup` block, as bin/kempt writes it. The banner, its buttons and the
@@ -1255,15 +1202,15 @@ assert_eq "$(su "announced:[$SU_USR], $REC" 'messageSlots')" '["startup"]' "...o
 assert_eq "$(su "announced:[$SU_USR], $REC" 'startupAckDigest')" "0123456789abcdef" "...and acknowledged there too"
 assert_eq "$(su "$REC" 'startupAckDigest')" "0123456789abcdef" "...with the digest the popup acknowledges"
 assert_eq "$(su "recovered:[$SU_BT], recovered_digest:'nope'" 'startupAckDigest')" "" "a digest of the wrong shape is never sent"
-assert_eq "$(su "$REC" 'startupAckDigest' '{reportShown: true, restartReminder: true, doctorShown: false}')" "0123456789abcdef" "(a report beside it leaves room)"
+assert_eq "$(su "$REC" 'startupAckDigest' '{reportShown: true, doctorShown: false}')" "0123456789abcdef" "(a report beside it leaves room)"
 assert_eq "$(js "var s = $(su_state "$REC"); s.reboot_needed = true; s.offline_staged = {staged_at:'2026-09-09T09:00:00+03:00', count:2, armed:true}; L.viewModel(s, false, '', {}).startupAckDigest")" "" \
   "...and a line the cap keeps off the screen is not acknowledged"
 assert_eq "$(su "recovered:[], recovered_digest:''" 'startupRecoveredText' "{startupRecoveredKept: [$SU_BT]}")" \
   "Bluetooth service is running again." "acknowledged, the line stays until the widget closes"
 assert_eq "$(su "recovered:[], recovered_digest:''" 'startupAckDigest' "{startupRecoveredKept: [$SU_BT]}")" "" "...with nothing left to acknowledge"
 # Never in the count, the badge, the icon or the attention.
-assert_eq "$(js "var a = V('live'), b = L.viewModel($(su_state "announced:[$SU_BT, $SU_USR], $REC"), false); ['badgeText','badgeVisible','iconState','actionable','needsAttention','tooltipMain','tooltipSub','headerText'].map(function (k) { return a[k] === b[k]; }).join(',')")" \
-  "true,true,true,true,true,true,true,true" "the panel's count, icon, attention and tooltip ignore all of it"
+assert_eq "$(js "var a = V('live'), b = L.viewModel($(su_state "announced:[$SU_BT, $SU_USR], $REC"), false); ['badgeText','badgeVisible','iconState','actionable','tooltipMain','tooltipSub','headerText'].map(function (k) { return a[k] === b[k]; }).join(',')")" \
+  "true,true,true,true,true,true,true" "the panel's count, icon and tooltip ignore all of it"
 # Settings: the muted list, from `kempt startup --json`.
 assert_eq "$(js "JSON.stringify(L.startupMutedOf('{\"notify\":true,\"muted\":[{\"unit\":\"plasma-foo.service\",\"scope\":\"user\",\"description\":\"Plasma Foo\"}]}'))")" \
   '[{"unit":"plasma-foo.service","scope":"user","name":"Plasma Foo"}]' "the settings page lists the muted services by name"
@@ -1410,7 +1357,7 @@ assert_eq "$(js '[typeof L.COPY.startupPageSetting, typeof L.COPY.startupPageBut
 UFP='{schema:1,status:"ok",actionable:2,held_total:0,backends:{flatpak:{enabled:true,items:[
   {name:"net.mkiol.SpeechNote",from:"4.8.4",to:"4.8.5",held:false},
   {name:"net.mkiol.SpeechNote",from:"4.8.0",to:"4.9.0",held:false,scope:"user"}]}}}'
-assert_eq "$(js "L.viewModel($UFP,false).sections[0].items.map(function (i) { return i.forYouOnly; })")" \
+assert_eq "$(js "L.collectItems($UFP).sections[0].items.map(function (i) { return i.forYouOnly; })")" \
   '[false,true]' "a per-user app's row is marked for you only, the system copy beside it is not"
 assert_eq "$(js "L.viewModel($UFP,false).rows.filter(function (r) { return r.kind === 'item'; }).map(function (r) { return r.forYouOnly; })")" \
   '[false,true]' "...and the flat model the list draws carries the mark"
@@ -1426,7 +1373,7 @@ assert_eq "$(js "L.viewModel($RT,false).rows.filter(function (r) { return r.kind
 # files render must be the popup they always rendered.
 assert_eq "$(jq '[.backends[].items[] | select(has("kind") or has("branch"))] | length' "$FIXTURES/state-live.json")" \
   "0" "fixture guard: the captured state really does predate both keys"
-assert_eq "$(js 'V("live",false).sections.map(function (s) { return s.title; })')" \
+assert_eq "$(js 'L.collectItems(S("live")).sections.map(function (s) { return s.title; })')" \
   '["System (dnf)","Apps (flatpak)"]' "a state with no kind anywhere renders the two headings it always did"
 assert_eq "$(js 'V("live",false).rows.filter(function (r) { return r.kind === "item" && !r.holdable; }).length')" "0" \
   "...and every one of its rows still offers a hold"
@@ -2184,7 +2131,7 @@ assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:5,held_total:0,bac
   "" "...and it badges nothing at all"
 assert_eq "$(js 'V("live",false).iconState')" "updates" "schema 1 is of course still read normally"
 assert_eq "$(js 'L.viewModel({hello:"world"},false).badgeVisible')" "false" "...and it badges nothing"
-assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...and lists nothing"
+assert_eq "$(js 'L.viewModel({hello:"world"},false).rows.length')" "0" "...and lists nothing"
 
 # --- reboot_needed: the additive key, now that it has readers ---------------------------------
 # state-reboot-needed.json is state-live.json plus that one key, which makes the pair a controlled
@@ -2195,7 +2142,7 @@ assert_eq "$(js 'L.viewModel({hello:"world"},false).sections.length')" "0" "...a
 # tooltipSub is on the list now, and it is a surface rather than a casualty: a pending restart used
 # to be invisible from the panel, so the one fact that needs an action from the person could only
 # be found by opening the popup. It is compared with the two words removed.
-STRIP='function (v) { delete v.rebootNeeded; delete v.restartMessageVisible; delete v.restartShowAction; delete v.tooltipSub; delete v.messageSlots; return JSON.stringify(v); }'
+STRIP='function (v) { delete v.restartMessageVisible; delete v.restartShowAction; delete v.tooltipSub; delete v.messageSlots; return JSON.stringify(v); }'
 assert_eq "$(js "($STRIP)(V(\"reboot-needed\",false)) === ($STRIP)(V(\"live\",false))")" \
   "true" "the additive key moves the restart surfaces and leaves the rest of the view model alone"
 assert_eq "$(js 'V("reboot-needed",false).tooltipSub.indexOf(L.COPY.restartPending) >= 0')" "true" \
@@ -2204,7 +2151,7 @@ assert_eq "$(js 'V("reboot-needed",false).tooltipSub.replace(/(^| · )restart pe
   "$(js 'V("live",false).tooltipSub')" \
   "...appended, changing nothing else that was already in it"
 # ...and the pinned surfaces by name too, so a failure above says WHICH one moved.
-for _prop in badgeText badgeVisible iconState tooltipMain headerText actionable heldTotal; do
+for _prop in badgeText badgeVisible iconState tooltipMain headerText actionable; do
   assert_eq "$(js "V(\"reboot-needed\",false).$_prop")" "$(js "V(\"live\",false).$_prop")" \
     "reboot_needed does not disturb $_prop"
 done
@@ -2213,14 +2160,14 @@ assert_eq "$(js 'V("reboot-needed",false).rows.length')" "$(js 'V("live",false).
 # The fixture must really carry the key, or every assertion above passes vacuously.
 assert_eq "$(jq -r '.reboot_needed' "$FIXTURES/state-reboot-needed.json")" "true" \
   "fixture guard: state-reboot-needed.json really does carry the key"
-assert_eq "$(js 'V("reboot-needed",false).rebootNeeded')" "true" \
+assert_eq "$(js 'V("reboot-needed",false).restartMessageVisible')" "true" \
   "...and the popup now reads it: a restart really is owed on that box"
-assert_eq "$(js 'V("live",false).rebootNeeded')" "false" \
+assert_eq "$(js 'V("live",false).restartMessageVisible')" "false" \
   "...while the same state without the key owes nothing"
 
 # --- the fourth argument: an OPTIONS object, and three-argument callers keep working -----------
 # viewModel(state, updating, cliError) is what main.qml and every assertion above call. The popup's
-# new surfaces need three more facts - the clock, and the two halves of the restart reminder - and
+# new surfaces need three more facts - the clock, and the restart dismissal - and
 # they arrive in ONE optional object rather than as three more positional arguments, so a caller
 # that wants only the clock does not have to know what comes after it.
 LIVE3='L.viewModel(S("live"),false,"")'
@@ -2242,51 +2189,35 @@ assert_eq "$(js "JSON.stringify($LIVE3) === JSON.stringify(L.viewModel(S(\"live\
 st() { echo "{schema:1,status:\"ok\",actionable:0,held_total:${2:-0},last_success:\"2026-08-26T12:00:00+03:00\",backends:{}${1:-}}"; }
 vm() { js "L.viewModel($(st "${2:-}" "${3:-0}"),false,\"\",${1:-{\}}).$4"; }
 
-# --- vm.rebootNeeded: strictly the boolean ------------------------------------------------------
+# --- reboot_needed: strictly the boolean ---------------------------------------------------------
 # `false` in this schema means "nothing to say", NEVER "no restart needed". backends/dnf.sh's
 # dnf_reboot_needed answers false plus a warning whenever the command could not work the verdict
 # out at all - rc 1 with an empty stdout (a cold user cache, which is the default on a fresh
 # install) and any unexpected rc both land there - so a false is indistinguishable from "we could
 # not tell", and nothing may render an affirmative from it. Same rule as the state schema table in
 # docs/architecture.md.
-assert_eq "$(vm '{}' ',reboot_needed:true' 0 'rebootNeeded')" "true" "the boolean true means a restart is owed"
-assert_eq "$(vm '{}' ',reboot_needed:false' 0 'rebootNeeded')" "false" "the boolean false says nothing"
-assert_eq "$(vm '{}' '' 0 'rebootNeeded')" "false" "an absent key says nothing either"
-assert_eq "$(vm '{}' ',reboot_needed:null' 0 'rebootNeeded')" "false" "...nor does null"
-assert_eq "$(vm '{}' ',reboot_needed:"true"' 0 'rebootNeeded')" "false" \
+assert_eq "$(vm '{}' ',reboot_needed:true' 0 'restartMessageVisible')" "true" "the boolean true means a restart is owed"
+assert_eq "$(vm '{}' ',reboot_needed:false' 0 'restartMessageVisible')" "false" "the boolean false says nothing"
+assert_eq "$(vm '{}' '' 0 'restartMessageVisible')" "false" "an absent key says nothing either"
+assert_eq "$(vm '{}' ',reboot_needed:null' 0 'restartMessageVisible')" "false" "...nor does null"
+assert_eq "$(vm '{}' ',reboot_needed:"true"' 0 'restartMessageVisible')" "false" \
   "the STRING \"true\" is not the boolean, and must not raise a restart message"
-assert_eq "$(vm '{}' ',reboot_needed:1' 0 'rebootNeeded')" "false" "neither is 1"
-assert_eq "$(vm '{}' ',reboot_needed:"yes"' 0 'rebootNeeded')" "false" "nor yes"
+assert_eq "$(vm '{}' ',reboot_needed:1' 0 'restartMessageVisible')" "false" "neither is 1"
+assert_eq "$(vm '{}' ',reboot_needed:"yes"' 0 'restartMessageVisible')" "false" "nor yes"
 # A state this build cannot read is not a state to take a restart claim from either: the same
 # reason the badge refuses a future schema, applied to the one key that would still parse.
-assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:0,held_total:0,backends:{},reboot_needed:true},false).rebootNeeded')" \
+assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:0,held_total:0,backends:{},reboot_needed:true},false).restartMessageVisible')" \
   "false" "a schema this build does not know contributes no restart claim"
 
 # --- the restart message, and closing it --------------------------------------------------------
-# On: the message shows, and the footer does NOT repeat it - one fact, one place on the screen.
-# Off, or dismissed for this session: no message, and the footer picks the fact up instead, because
-# a popup that hides a pending restart is lying to the person looking at it.
+# The message shows, and the footer does NOT repeat it - one fact, one place on the screen.
+# Dismissed for this session: no message, and the footer picks the fact up instead, because a
+# popup that hides a pending restart is lying to the person looking at it.
 RB=',reboot_needed:true'
-assert_eq "$(vm '{}' "$RB" 0 'restartMessageVisible')" "true" "reminder on: the message shows"
-assert_eq "$(vm '{restartReminder:false}' "$RB" 0 'restartMessageVisible')" "false" "reminder off: no message"
+assert_eq "$(vm '{}' "$RB" 0 'restartMessageVisible')" "true" "a restart owed: the message shows"
 assert_eq "$(vm '{restartDismissed:true}' "$RB" 0 'restartMessageVisible')" "false" \
   "dismissed this session: no message"
 assert_eq "$(vm '{}' '' 0 'restartMessageVisible')" "false" "no restart owed: nothing to show"
-assert_eq "$(vm '{restartReminder:true,restartDismissed:true}' "$RB" 0 'restartMessageVisible')" "false" \
-  "a dismissal beats the setting for this session"
-# The reminder arrives from `kempt config get`, which prints TEXT. "false" is what the widget will
-# actually be holding, and reading it as truthy would leave the message on for somebody who turned
-# it off - the exact bug is_true/isTrue exist to prevent.
-assert_eq "$(vm '{restartReminder:"false"}' "$RB" 0 'restartMessageVisible')" "false" \
-  "the setting is read the way the CLI writes it, as text"
-assert_eq "$(vm '{restartReminder:"true"}' "$RB" 0 'restartMessageVisible')" "true" "...in both directions"
-assert_eq "$(vm '{restartReminder:"nonsense"}' "$RB" 0 'restartMessageVisible')" "false" \
-  "...and anything that is not a yes is a no, exactly like the CLI's is_true"
-# Absent is not false. A missing option means the caller did not say, and the CLI's default for
-# restart_reminder is true - so an unstated reminder is ON, or the widget would ship with the
-# setting silently inverted.
-assert_eq "$(vm '{restartReminder:undefined}' "$RB" 0 'restartMessageVisible')" "true" \
-  "an unstated reminder follows the CLI's default, which is on"
 
 # --- the count and the list under it are one answer ---------------------------------------------
 # The CLI's own totals used to win outright, on the reasoning that the badge should come from the
@@ -2306,14 +2237,14 @@ OVERCOUNT='{schema:1,status:"ok",actionable:9,held_total:0,backends:{dnf:{enable
 assert_eq "$(js "L.viewModel($OVERCOUNT,false).actionable")" "2" \
   "...and it works the other way too: nine claimed, two listed, two shown"
 HELD_DIVERGENT='{schema:1,status:"ok",actionable:0,held_total:0,backends:{dnf:{enabled:true,items:[{name:"a",held:true}]}}}'
-assert_eq "$(js "L.viewModel($HELD_DIVERGENT,false).heldTotal")" "1" \
+assert_eq "$(js "L.viewModel($HELD_DIVERGENT,false).footerText.indexOf(\"1 held\") >= 0")" "true" \
   "the held count comes from the held rows for the same reason"
 # ...and the totals are still the answer when there is nothing to walk. A state that carries counts
 # and no items at all is not a disagreement, it is a state with no list - and reading it as zero
 # would be the confident-zero mistake rule 1 of the schema exists to prevent.
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:7,held_total:2,backends:{}},false).actionable')" "7" \
   "a state with counts and no items keeps its counts"
-assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:7,held_total:2,backends:{}},false).heldTotal')" "2" \
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:7,held_total:2,backends:{}},false).footerText.indexOf("2 held") >= 0')" "true" \
   "...both of them"
 
 # --- vm.footerText: the status line -------------------------------------------------------------
@@ -2609,27 +2540,19 @@ assert_eq "$(js "L.viewModel($UNDATED,false,\"\",{nowMs:$NOW}).footerText")" "2 
 assert_eq "$(js "L.viewModel($UNDATED,false,\"\",{nowMs:$NOW}).footerTooltip")" "not a date" \
   "...with the raw stamp still one hover away, which is where a verbatim value belongs"
 
-# All three cases, explicitly. `restart pending` appears when the fact is true and the MESSAGE
+# Each case, explicitly. `restart pending` appears when the fact is true and the MESSAGE
 # is not carrying it - never both at once, and never neither.
 assert_eq "$(vm "{nowMs:$NOW}" "$RB" 1 'footerText')" "Checked 4 min ago · 1 held" \
-  "reminder ON: the message carries the restart, so the footer does not repeat it"
-assert_eq "$(vm "{nowMs:$NOW,restartReminder:false}" "$RB" 1 'footerText')" \
-  "Checked 4 min ago · 1 held · restart pending" \
-  "reminder OFF: no message, so the footer carries the fact - the popup never hides it"
+  "the message carries the restart, so the footer does not repeat it"
 assert_eq "$(vm "{nowMs:$NOW,restartDismissed:true}" "$RB" 1 'footerText')" \
   "Checked 4 min ago · 1 held · restart pending" \
-  "reminder on but DISMISSED this session: the fact stays, the nagging goes"
-assert_eq "$(vm "{nowMs:$NOW,restartReminder:false}" '' 1 'footerText')" "Checked 4 min ago · 1 held" \
-  "...and with no restart owed, switching the reminder off adds nothing at all"
-assert_eq "$(vm "{nowMs:$NOW,restartReminder:false}" "$RB" 1 'footerText')" \
-  "$(js "L.viewModel($(st "$RB" 1),false,\"\",{nowMs:$NOW,restartReminder:false}).footerText")" \
-  "the footer is built once and read the same way twice"
+  "DISMISSED this session: the fact stays, the nagging goes"
+assert_eq "$(vm "{nowMs:$NOW}" '' 1 'footerText')" "Checked 4 min ago · 1 held" \
+  "...and with no restart owed, nothing is added"
 
 # --- vm.footerTooltip: the exact stamp under the convenient one ---------------------------------
 # The relative time is the convenience; the stamp is the truth, and people compare the two.
 assert_eq "$(vm "{nowMs:$NOW}" '' 0 'footerTooltip')" "2026-08-26 12:00 +03:00" "the tooltip is the absolute stamp"
-assert_eq "$(vm "{nowMs:$NOW}" '' 0 'footerTooltip')" "$(vm "{nowMs:$NOW}" '' 0 'lastSuccessText')" \
-  "...the same one the tooltip and the stale banner already use"
 assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{}},false,\"\",{nowMs:$NOW}).footerTooltip")" \
   "" "no successful check, no stamp to show - never the word never in a tooltip with no context"
 assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerTooltip")" "" "...and nothing at all with no state"
@@ -2715,24 +2638,6 @@ assert_eq "$(vm '{}' "$STG" 0 'stagedShowRestart')" "true" \
 assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
   "...and stands down when the restart message is already offering it"
 
-# --- vm.stageRestorableAt: a stage that lost its restart step and can have it back ---------------
-RST=',offline_stage_restorable:{staged_at:"2026-09-02T10:31:00+03:00",count:61}'
-assert_eq "$(vm '{}' "$RST" 0 'stageRestorableAt')" "2026-09-02T10:31:00+03:00" "a stage that can be put back is read"
-assert_eq "$(vm '{}' '' 0 'stageRestorableAt')" "" "...and no key is nothing to offer"
-assert_eq "$(vm '{}' ',offline_stage_restorable:"yes"' 0 'stageRestorableAt')" "" "...nor is a key of the wrong type"
-assert_eq "$(vm '{}' ',offline_stage_restorable:{count:1}' 0 'stageRestorableAt')" "" "...nor one with no stage named"
-assert_eq "$(js "L.restoreStageMessage(0, 'Put back. The next restart installs your 61 staged updates.\\n', '')")" \
-  "Put back. The next restart installs your 61 staged updates." "a restore that worked reports the CLI's own sentence"
-assert_eq "$(js "L.restoreStageMessage(0, '', '')")" "Put back. The next restart installs your staged updates." \
-  "...and a silent one still says so"
-assert_eq "$(js "L.restoreStageMessage(5, '', 'cannot be put back\\nmore\\n')")" "cannot be put back" "a refusal is the CLI's first line"
-assert_eq "$(js "L.restoreStageMessage(5, '', '') === L.COPY.stageRestoreRefused")" "true" "...or its own sentence"
-assert_eq "$(js "L.restoreStageMessage(3, '', '') === L.COPY.stageRestoreBusy")" "true" "another update running has one too"
-assert_eq "$(js "L.restoreStageMessage(124, '', 'timeout after 300000ms') === L.COPY.stageRestoreTimedOut")" "true" \
-  "the widget giving up is a sentence, not a log line"
-assert_eq "$(js "L.restoreStageMessage(1, '', '')")" \
-  "The staged update could not be put back (exit 1). Press Check Installation to find out why." "...and any other failure names its status"
-
 # --- the Discover offer while something is staged ----------------------------------------------
 assert_eq "$(js 'L.COPY.stageDiscoverWarning.indexOf("—")')" "-1" "the staged Discover warning has no long dash"
 assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, restart: true})')" '["staged","restart"]' \
@@ -2742,28 +2647,24 @@ assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, start
 assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, fetchMissed: true})')" '["staged","stageDiscoverWarning"]' \
   "...and the warning still outranks calmer news"
 
-# --- vm.stageBlocked: a stage another updater's restart stands in front of ----------------------
+# --- a stage another updater's restart stands in front of ---------------------------------------
 # Discover, through PackageKit, prepared the next restart: dnf5 will not run behind its symlink, so
 # Kempt's stage does not install then. The CLI publishes offline_stage_blocked and never
 # offline_staged for it. The staged slot carries it as a warning, and offers no action at all.
 BLK=',offline_stage_blocked:{staged_at:"2026-09-02T10:31:00+03:00",count:61}'
-assert_eq "$(vm '{}' "$BLK" 0 'stageBlocked')" "true" "a blocked stage is read"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedBanner')" \
   "The next restart belongs to another updater, so the updates Kempt staged will not install then. Restart when you're ready. Kempt then shows what is still pending." \
   "...and says the next restart installs something else"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedMessage')" "$(vm '{}' "$BLK" 0 'stagedBanner')" "...as its whole sentence"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedType')" "warning" "...as a warning"
 assert_eq "$(vm '{}' "$BLK" 0 'messageSlots.indexOf("staged") >= 0')" "true" "...in the staged slot"
-assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowRebuild, v.stagedShowDiscard, v.stagedArmed].join(); })(L.viewModel($(st "$BLK"),false,\"\",{}))")" \
-  "true,false,false,false" "...with Restart, since restarting is what is left to do, no rebuild or discard, and nothing armed"
+assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowDiscard, v.stagedArmed].join(); })(L.viewModel($(st "$BLK"),false,\"\",{}))")" \
+  "true,false,false" "...with Restart, since restarting is what is left to do, no discard, and nothing armed"
 assert_eq "$(vm '{}' "$BLK" 0 'headerText.indexOf("staged") < 0')" "true" "...and the header promises nothing"
 assert_eq "$(vm '{}' "$STG$BLK" 0 'stagedBanner')" "They install when you restart." \
   "an armed stage wins over a stray blocked key"
-assert_eq "$(vm '{}' "$BLK,release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}" 0 'stageBlocked')" "false" \
+assert_eq "$(vm '{}' "$BLK,release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}" 0 'stagedBanner')" "" \
   "...and so does a stored release upgrade, which has its own message"
-assert_eq "$(vm '{}' ',offline_stage_blocked:"yes"' 0 'stageBlocked')" "false" "a blocked key of the wrong type is ignored"
-assert_eq "$(vm '{}' ',offline_stage_blocked:[1]' 0 'stageBlocked')" "false" "...an array included"
-assert_eq "$(vm '{}' '' 0 'stageBlocked')" "false" "...and no key is no blocked stage"
 assert_eq "$(js "L.viewModel($(st "$BLK"),false,\"\",{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf(\"report\")")" "-1" \
   "a staging run's report gives way to the blocked stage it would contradict"
 
@@ -2782,8 +2683,8 @@ assert_eq "$(held "$PEND" "$OFFL" 'messageSlots.indexOf("staged") >= 0')" "true"
 assert_eq "$(held "$PEND" "$OFFL" stagedBanner)" "The next restart belongs to another updater. Restart when you're ready. Kempt then shows what is still pending." "...in these words"
 assert_eq "$(held "$PEND" "$OFFL" stagedMessage)" "$(held "$PEND" "$OFFL" stagedBanner)" "...as its whole sentence"
 assert_eq "$(held "$PEND" "$OFFL" stagedType)" "warning" "...as a warning"
-assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowRebuild, v.stagedShowDiscard, v.stagedArmed, v.offlineStageOffered].join(); })(L.viewModel({schema:1,status:\"ok\",restart_holder:\"other\",$PEND},false,\"\",$OFFL))")" \
-  "true,false,false,false,false" "...with Restart, and no rebuild, discard, or staging route"
+assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowDiscard, v.stagedArmed, v.offlineStageOffered].join(); })(L.viewModel({schema:1,status:\"ok\",restart_holder:\"other\",$PEND},false,\"\",$OFFL))")" \
+  "true,false,false,false" "...with Restart, and no discard or staging route"
 assert_eq "$(held "$PEND,reboot_needed:true" "$OFFL" stagedShowRestart)" "false" "...and no second Restart when the restart message shows one"
 assert_eq "$(held "$PEND" "$OFFL" 'stagedBanner.indexOf("Install on")')" "-1" "...and the banner offers no install"
 assert_eq "$(held 'actionable:0,backends:{}' '{}' 'messageSlots.indexOf("staged") >= 0')" "true" "...and it is there with nothing pending too"
@@ -2791,11 +2692,10 @@ assert_eq "$(held "$PEND,release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\
 
 # The footer button is Update Now, whatever the setting says.
 assert_eq "$(held "$PEND" "$OFFL" updateStages)" "false" "the footer button does not stage"
-assert_eq "$(held "$PEND" "$OFFL" updateButtonText)" "Update Now" "...and says Update Now"
 assert_eq "$(held "$PEND" "$OFFL" updateOffered)" "true" "...and is offered"
 assert_eq "$(held "$PEND" "$OFFL" heldLiveSurface)" "popup" "a box set to stage runs it live, naming the surface"
 assert_eq "$(held "$PEND" '{surface:"terminal",configuredSurface:"offline",autoAccept:false}' heldLiveSurface)" "terminal" "...the terminal, with confirmation on"
-assert_eq "$(held "$PEND" '{surface:"background",configuredSurface:"background"}' heldLiveSurface)" "background" "...and the surface already chosen, when that is live"
+assert_eq "$(held "$PEND" '{surface:"popup",configuredSurface:"popup"}' heldLiveSurface)" "popup" "...and the surface already chosen, when that is live"
 assert_eq "$(free "$PEND" "$OFFL" heldLiveSurface)" "" "...and no surface is named when nobody holds it"
 
 # Its own question with system updates, none for Flatpak alone.
@@ -2813,9 +2713,23 @@ assert_eq "$(held "$PEND$RISK" '{surface:"popup",configuredSurface:"popup"}' ris
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' 'riskyMessage.indexOf("restart")')" "-1" "...which advises nothing"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' 'messageSlots.indexOf("kernel") >= 0')" "true" "...and is never silent"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' offlineStageOffered)" "false" "...with no staging button"
+assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' stageMenuOffered)" "false" "...and none in the menus"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' updateAsksFirst)" "false" "...and no question offering one"
 assert_eq "$(free "$PEND$RISK" '{surface:"popup"}' updateAsksFirst)" "true" "...which is there when nobody holds it"
 assert_contains "$(held "$PEND$RISK" '{surface:"popup"}' heldChoiceMessage)" "1 pending update touches a package your running session depends on (the Linux kernel)." "the question names the risk too"
+
+# Install on Next Restart in the menus: where staging is possible and the footer does not offer it.
+assert_eq "$(free "$PEND" '{surface:"popup",configuredSurface:"popup"}' stageMenuOffered)" "true" "the menus offer staging when the footer says Update Now"
+assert_eq "$(free "$PEND" '{surface:"terminal",configuredSurface:"terminal"}' stageMenuOffered)" "true" "...on the terminal surface too"
+assert_eq "$(free "$PEND" '{surface:"offline",configuredSurface:"offline"}' stageMenuOffered)" "false" "...not when the footer already is Install on Next Restart"
+assert_eq "$(free 'backends:{flatpak:{actionable:2,status:"ok"}},actionable:2' '{surface:"popup"}' stageMenuOffered)" "false" "...not for Flatpak alone, which never stages"
+assert_eq "$(free 'backends:{dnf:{actionable:0,status:"ok"}},actionable:0' '{surface:"popup"}' stageMenuOffered)" "false" "...not with nothing pending"
+assert_eq "$(free "$PEND,offline_staged:{staged_at:\"2026-08-26T12:00:00+03:00\",count:3,armed:true}" '{surface:"popup"}' stageMenuOffered)" "false" "...not over a stage"
+assert_eq "$(free "$PEND,offline_stage_blocked:{staged_at:\"2026-08-26T12:00:00+03:00\",count:3}" '{surface:"popup"}' stageMenuOffered)" "false" "...not while another updater stands in front of a stage"
+assert_eq "$(free "$PEND,release_upgrade:{state:\"armed\",from:\"44\",to:\"45\"}" '{surface:"popup"}' stageMenuOffered)" "false" "...not over a stored release upgrade"
+assert_eq "$(free "$PEND,image_based:true" '{surface:"popup"}' stageMenuOffered)" "false" "...not on an image-based box"
+assert_eq "$(held "$PEND" '{surface:"popup"}' stageMenuOffered)" "false" "...not while another updater holds the restart"
+assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",last_success:\"2026-08-26T12:00:00+03:00\",$PEND},true,\"\",{surface:\"popup\"}).stageMenuOffered")" "false" "...not during a run"
 
 # A stage already made, then held.
 assert_eq "$(held "$PEND$BLK" "$OFFL" stagedBanner)" "$(js 'L.COPY.stageBlocked')" "a blocked stage keeps its own banner"
@@ -2823,7 +2737,6 @@ assert_eq "$(held "$PEND$BLK" "$OFFL" stagedShowRestart)" "true" "...with Restar
 assert_eq "$(held "$PEND$BLK,reboot_needed:true" "$OFFL" stagedShowRestart)" "false" "...unless the restart message has one"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",restart_holder:"other",actionable:3,backends:{dnf:{actionable:3}}},false,"",{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf("report")')" "-1" \
   "a report repeating a stage gives way to the banner it contradicts"
-assert_eq "$(held "$PEND,offline_stage_restorable:{staged_at:\"2026-09-02T10:31:00+03:00\"}" "$OFFL" stageRestorableAt)" "" "Put It Back is not offered behind it"
 
 # The footer.
 LAST='{when:"2026-08-26T11:00:00+03:00",surface:"offline",failed:false,stagedNothing:null}'
@@ -2838,7 +2751,7 @@ assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverUnattended") >
 assert_eq "$(js 'L.COPY.discoverUnattended')" "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates." "...in one plain sentence"
 assert_eq "$(js 'L.messageStack({staged: true, discoverUnattended: true, startup: true, restart: true})')" '["staged","discoverUnattended"]' \
   "...ranked right after what is staged, above a service failure and a restart"
-assert_eq "$(js 'L.messageStack({discoverUnattended: true, stageRestorable: true, startup: true})')" '["discoverUnattended","stageRestorable"]' \
+assert_eq "$(js 'L.messageStack({discoverUnattended: true, startup: true, restart: true})')" '["discoverUnattended","startup"]' \
   "...and before everything under it with nothing staged"
 assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...over the plain offer"
 # Held with updates paused too: both are true, so both show, and the question has nothing to warn about.
@@ -2855,10 +2768,8 @@ assert_eq "$(free "$PEND,discover_unattended:true" '{discoverWarningKept:true}' 
 assert_eq "$(free "$PEND,$DU" '{discoverTurnedOff:true}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and Turn Off hides it at once"
 assert_eq "$(free "$PEND,discover_unattended:false,discover_unattended_warn:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and a setting reading false never warns"
 assert_eq "$(js 'L.COPY.restartHeldBanner + L.COPY.restartHeldAsk + L.COPY.discoverUnattended + L.COPY.restartHeld + L.COPY.stageBlocked' | grep -c -E '—| - |popup' || true)" "0" "the new copy has no dashes and no popup"
-assert_eq "$(vm '{restartReminder:false}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
-  "...and takes it back when that message is switched off"
 assert_eq "$(vm '{restartDismissed:true}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
-  "...or dismissed for this session"
+  "...and takes it back when that message is dismissed for this session"
 assert_eq "$(vm '{}' '' 0 'stagedShowRestart')" "false" "nothing staged offers no restart"
 
 # THE DOUBLE-PRESS. With a transaction already staged, offering "Install on Next Restart" again is
@@ -2914,8 +2825,6 @@ assert_eq "$(sv "$ARMED" "$NOBK" 'stagedMessage')" \
   "61 updates are staged and install on the next restart" \
   "...saying the same sentence, word for word"
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedShowRestart')" "true" "...still offering the restart"
-assert_eq "$(sv "$ARMED" "$NOBK" 'stagedShowRebuild')" "false" "...and offering no rebuild"
-assert_eq "$(sv "$ARMED" "$NOBK" 'stagedConflictNames')" "[]" "...with no names to warn about"
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedStagedAt')" "2026-09-02T10:31:00+03:00" \
   "...and publishing the stamp the click-time re-verify compares against"
 
@@ -2925,31 +2834,22 @@ assert_eq "$(sv "$ARMED" "$NOBK" 'stagedStagedAt')" "2026-09-02T10:31:00+03:00" 
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedType')" "warning" \
   "a hold on a package the staged update contains flips the banner to a warning"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core after the update was staged, so it still installs. Rebuild the staged update to skip kernel-core, or stop holding kernel-core to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
+  "You held kernel-core after the update was staged, so it still installs. To skip kernel-core, discard the staged update and use Install on Next Restart again, or stop holding kernel-core to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...naming the package, what the next restart will do with it, both remedies and the cost"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
   "...and the Restart… button goes away: offering it here is offering the thing they feared"
-assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRebuild')" "true" \
-  "...replaced by the one action that changes the outcome"
-assert_eq "$(sv "$CONF1" "$NOBK" 'stagedRebuildTooltip')" \
-  "$(js 'L.COPY.stagedRebuildTooltip')" \
-  "...whose tooltip discloses the authorization and the discard cost before it is pressed"
-assert_eq "$(sv "$CONF1" "$NOBK" 'stagedConflictNames')" '["kernel-core"]' \
-  "...and the names are published, for the probes and for anything that has to say them again"
 
 # THREE names: first name, then "and N more". Not familiesOf - that collapses kernel-core and
 # kernel-modules into one decision, which is right for "what is risky about this transaction" and
 # wrong here, where the person is owed the count of packages their holds did not stop.
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core and 2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
+  "You held kernel-core and 2 more after the update was staged, so they still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "three held packages read as the first one and a count, with every word moved to the plural"
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedType')" "warning" "...still a warning"
-assert_eq "$(sv "$CONF3" "$NOBK" 'stagedConflictNames')" \
-  '["kernel-core","kernel-modules","systemd"]' "...and all three are published, not just the named one"
 # Two is the boundary the singular must not catch: one other package is "and 1 more", not a second
 # whole sentence, and it is still the plural everywhere else.
 assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","systemd"],names_source:"transaction"}' "$NOBK" 'stagedMessage')" \
-  "You held glibc and 1 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
+  "You held glibc and 1 more after the update was staged, so they still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...and two is the plural with a 1 in it, not the singular"
 
 # names_source "none" means the staged package list could not be read AT ALL - an older stage, or a
@@ -2959,13 +2859,9 @@ assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","syst
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedType')" "warning" \
   "an unreadable staged list over a held dnf package warns rather than reassuring"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedMessage')" \
-  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for your password. If it fails, nothing stays staged." \
+  "You added holds after the update was staged, so it may still install held packages. To apply your holds, discard the staged update and use Install on Next Restart again. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...saying may, because that is what is known"
-assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedShowRebuild')" "true" \
-  "...and offering the same rebuild, which applies every current hold whatever the list said"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedShowRestart')" "false" "...with no restart offered"
-assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedConflictNames')" "[]" \
-  "...and no names invented to fill the sentence"
 
 # ...and with nothing held there is nothing to be vague ABOUT. An unreadable list is not a reason
 # to worry a box that is holding nothing.
@@ -2978,17 +2874,14 @@ assert_eq "$(sv "$GENERIC" "$PENDDNF" 'stagedType')" "positive" \
 assert_eq "$(sv "$GENERIC" "$HELDFP" 'stagedType')" "positive" \
   "a held flatpak is not a conflict: the offline surface stages dnf only"
 
-# --- the way out of a staged update that is not a restart and not a rebuild ---------------------
+# --- the way out of a staged update that is not a restart ---------------------------------------
 # Someone who staged an update from the popup must be able to undo it there. It is offered on BOTH
-# banners, which is the difference between it and the rebuild: the rebuild only makes sense where
-# there is something to change, while "install nothing at all" is an answer to either banner - and
-# on a warning the person has just told Kempt they did not want one of those packages.
+# banners: "install nothing at all" is an answer to either - and on a warning the person has just
+# told Kempt they did not want one of those packages.
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedShowDiscard')" "true" \
   "the plain armed banner offers a way to discard the staged update"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowDiscard')" "true" \
-  "...and so does the conflict banner, beside the rebuild rather than instead of it"
-assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRebuild')" "true" \
-  "...which is still offered there, because discarding must never take the remedy's place"
+  "...and so does the conflict banner"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedShowDiscard')" "true" \
   "...and the vague warning offers it too"
 # The restart rules are untouched by it: a warning still offers no Restart…, because the sentence
@@ -2999,7 +2892,7 @@ assert_eq "$(vm '{}' '' 0 'stagedShowDiscard')" "false" \
   "nothing staged, nothing to discard"
 assert_eq "$(js 'L.viewModel(null,false).stagedShowDiscard')" "false" \
   "...and no state at all offers it either"
-# The same guard the rebuild carries, for the same reason: `kempt unstage` refuses with exit 5
+# Never where it would be refused: `kempt unstage` refuses with exit 5
 # while a Fedora release upgrade is stored, because dnf5 has one slot and discarding what is in it
 # would cancel the upgrade. A button the CLI turns down is not offered.
 RUD='function () { var s = {schema:1,status:"ok",actionable:0,held_total:0,backends:{},offline_staged:{staged_at:"2026-09-09T09:00:00+03:00",count:61,armed:true},release_upgrade:{from:"44",to:"45",state:"armed"}}; return L.viewModel(s,false,"",{}); }'
@@ -3040,11 +2933,8 @@ assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["kernel-core"
 # Nothing staged at all: every one of these fields has to have an answer anyway, because a QML
 # binding to an undefined property is a blank in the panel rather than an error anyone sees.
 assert_eq "$(js 'L.viewModel(null,false).stagedType')" "positive" "no state at all is not a warning"
-assert_eq "$(js 'L.viewModel(null,false).stagedShowRebuild')" "false" "...and offers no rebuild"
-assert_eq "$(js 'L.viewModel(null,false).stagedConflictNames')" "[]" "...and names nothing"
 assert_eq "$(js 'L.viewModel(null,false).stagedStagedAt')" "" "...and has no stamp to re-verify against"
 assert_eq "$(vm '{}' '' 0 'stagedType')" "positive" "an ordinary state with nothing staged is not a warning either"
-assert_eq "$(vm '{}' '' 0 'stagedShowRebuild')" "false" "...and offers no rebuild"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{},offline_staged:"yes"},false).stagedType')" \
   "positive" "an offline_staged of the wrong type raises no warning to go with the message it raises no"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{},offline_staged:"yes"},false).stagedStagedAt')" \
@@ -3145,13 +3035,13 @@ CONF1='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict
 CONF3='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:["dbus","glibc","systemd"],names_source:"transaction"}'
 CONFU='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:[],names_source:"none"}'
 assert_eq "$(js "L.stagedVariantOf($CONF1,true).message")" \
-  "You held dbus after the update was staged, so it still installs. Rebuild the staged update to skip dbus, or stop holding dbus to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
+  "You held dbus after the update was staged, so it still installs. To skip dbus, discard the staged update and use Install on Next Restart again, or stop holding dbus to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "one held package: the user's order of events, both remedies, and the cost as a second sentence"
 assert_eq "$(js "L.stagedVariantOf($CONF3,true).message")" \
-  "You held dbus and 2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan. Rebuilding may ask for your password. If it fails, nothing stays staged." \
+  "You held dbus and 2 more after the update was staged, so they still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...three of them: the first named, the rest counted, and every word moving with the number"
 assert_eq "$(js "L.stagedVariantOf($CONFU,true).message")" \
-  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for your password. If it fails, nothing stays staged." \
+  "You added holds after the update was staged, so it may still install held packages. To apply your holds, discard the staged update and use Install on Next Restart again. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...and a list that could not be read says may, and still carries the cost"
 # %1 appears three times in the singular template, so a replace() that stops at the first one would
 # ship a banner reading "Rebuild it to skip %1".
@@ -3161,7 +3051,7 @@ assert_eq "$(js "L.stagedVariantOf($CONF1,true).message.indexOf(\"%1\")")" "-1" 
 ARMED_PLAIN='{staged_at:"x",count:61,armed:true}'
 assert_eq "$(js "L.stagedVariantOf($ARMED_PLAIN,false).message")" \
   "61 updates are staged and install on the next restart" \
-  "an ordinary armed stage still says what the restart will do, and nothing about rebuilding"
+  "an ordinary armed stage still says what the restart will do, and nothing about staging again"
 # Updates the stage leaves out ride the plain banner: dnf ones the CLI counted, plus Flatpak apps,
 # which never stage. Absent, zero or malformed counts add nothing.
 assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,0).banner")" \
@@ -3220,8 +3110,8 @@ STAGED_OK='{"status":"ok","surface":"offline","duration_sec":28,"timestamp":"202
 assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('$STAGED_OK'))")" "true" "a clean staging run's report repeats the staged message"
 assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"x\"}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"staged_nothing\":\"held\"}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"background\"}'))+'|'+L.reportRepeatsStaged(null)")" \
   "false|false|false|false" "...and a failed run, one that staged nothing, a live run and no run do not"
-assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-09-05T12:00:00+03:00\",\"backends\":{\"flatpak\":{\"reclaimed\":{\"status\":\"removed\",\"refs\":[\"a//1\"],\"in_use\":[\"a//1\"]}}}}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\"}'))")" \
-  "false|false" "...nor one whose report adds the in-use note, nor one with no time the Last update row could show"
+assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\"}'))")" \
+  "false" "...nor one with no time the Last update row could show"
 assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots")" \
   '["staged","restart"]' "...so the staged message stands alone and the report's slot goes to the next message"
 assert_eq "$(js "L.viewModel(Object.assign({}, $STACK_ALL, {offline_staged:null}),false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf('report')")" \
@@ -3246,15 +3136,15 @@ assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).riskyMessa
 # The CLI's `reclaim` block, rendered as an Information message LAST in the stack. An empty digest
 # is no offer (nothing unused, or part of the list is younger than an hour), and so is an offer
 # under the size threshold. A size the CLI could not work out still shows, without a number.
-RC_OFFER='{mode:"ask",refs:[{ref:"runtime/org.kde.Platform/x86_64/5.15-23.08",commit:"a",since:"2026-09-29T08:00:00Z",eol:"org.kde.Platform 5.15 is no longer supported"},{ref:"runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",commit:"b",since:"2026-09-29T08:00:00Z",eol:null}],offerable_bytes:1530000000,digest:"0123456789abcdef",status:"ok"}'
-assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "100000000" "the threshold is 100 MB, in the SI bytes the footer uses"
+RC_OFFER='{refs:[{ref:"runtime/org.kde.Platform/x86_64/5.15-23.08",commit:"a",since:"2026-09-29T08:00:00Z",eol:"org.kde.Platform 5.15 is no longer supported"},{ref:"runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",commit:"b",since:"2026-09-29T08:00:00Z",eol:null}],offerable_bytes:1530000000,digest:"0123456789abcdef",status:"ok"}'
+assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "1000000000" "the threshold is 1 GB, in the SI bytes the footer uses"
 assert_eq "$(js "L.reclaimOffered($RC_OFFER)")" "true" "an offer with a digest and 1.5 GB is shown"
-assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:99999999}))")" "false" \
-  "...one under 100 MB is not worth the room in a popup that fits two messages"
-assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:100000000}))")" "true" \
-  "...and exactly 100 MB is"
-assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:null}))")" "true" \
-  "...a size the CLI could not work out still shows"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:999999999}))")" "false" \
+  "...one under 1 GB is not worth the room in a popup that fits two messages"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:1000000000}))")" "true" \
+  "...and exactly 1 GB is"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:null}))")" "false" \
+  "...and a size the CLI could not work out is no offer"
 assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{digest:''}))")" "false" \
   "an empty digest is no offer, whatever else the block says"
 assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{digest:42}))")" "false" \
@@ -3265,15 +3155,6 @@ assert_eq "$(js 'L.reclaimOffered("x")')" "false" "...and a block of the wrong t
 assert_eq "$(js "L.reclaimMessageOf($RC_OFFER)")" \
   "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
   "the line says how much, with the download footer's ~, and why it is safe"
-assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{offerable_bytes:null}))")" \
-  "Space can be freed. No installed app uses these Flatpak runtimes." \
-  "...and without a number when the size is unknown"
-assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{mode:'automatic'}))")" \
-  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes. Kempt removes them after the next update." \
-  "with reclaim=automatic it says the next update removes them"
-assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{mode:'automatic',status:'needs_auth'}))")" \
-  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
-  "...but not when the last automatic try needed an administrator: the next update skips this set"
 
 assert_eq "$(js "L.reclaimRefLineOf({ref:'runtime/org.freedesktop.Platform.GL.default/x86_64/24.08',eol:null})")" \
   "org.freedesktop.Platform.GL.default 24.08" "a ref reads as its id and branch"
@@ -3299,12 +3180,6 @@ assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimLines")" \
   "...one line per runtime for Show Runtimes"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimDigest")" "0123456789abcdef" \
   "...and the digest the button hands back to the CLI"
-assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimAutomatic")" "false" "...in ask mode"
-RC_AUTO_STATE="$(printf '%s' "$RC_STATE" | sed 's/mode:"ask"/mode:"automatic"/')"
-assert_eq "$(js "L.viewModel($RC_AUTO_STATE,false).reclaimAutomatic")" "true" \
-  "in automatic mode the button is Free Up Space Now"
-assert_eq "$(js "[L.viewModel($(printf '%s' "$RC_AUTO_STATE" | sed 's/digest:"0123456789abcdef",status:"ok"/digest:"0123456789abcdef",status:"failed"/'),false).reclaimAutomatic, L.viewModel($(printf '%s' "$RC_AUTO_STATE" | sed 's/digest:"0123456789abcdef",status:"ok"/digest:"0123456789abcdef",status:"needs_auth"/'),false).reclaimAutomatic].join()")" \
-  "false,false" "...but not after the automatic try failed or needed an administrator: the next update skips this set"
 assert_eq "$(js "L.viewModel($RC_STATE,false,'',{reclaimDismissed:'0123456789abcdef'}).messageSlots")" '[]' \
   "closed for this digest, it stays closed"
 assert_eq "$(js "L.viewModel($RC_STATE,false,'',{reclaimDismissed:'ffffffffffffffff'}).messageSlots")" '["reclaim"]' \
@@ -3313,93 +3188,19 @@ assert_eq "$(js "L.viewModel($RC_STATE,true).messageSlots")" '[]' "a run in flig
 assert_eq "$(js 'L.viewModel(S("live"),false).reclaimMessage')" "" \
   "a state without the block (flatpak off or absent, reclaim=off) has no offer"
 
-# --- reclaimOutcomeOf: what the popup says after Free Up Space ---------------------------------
-# The widget runs `kempt reclaim -y --expect=<digest>`. The size comes from
-# reclaim.last, which that run writes, so it is formatted the way the offer was ("~1.5 GB") rather
-# than the CLI's "about". A last record older than the press is some other removal: `kempt reclaim`
-# writes none when nothing at all is unused, so an old one must not be read as this press's.
-RC_PRESS=$(( $(date +%s) * 1000 ))
-RC_AT="$(date -Iseconds)"
-RC_LAST="{at:'$RC_AT',via:'widget',result:'removed',refs:['runtime/org.kde.Platform/x86_64/5.15-23.08'],bytes:1530000000,digest:'0123456789abcdef'}"
-RC_OUT='No installed app uses these Flatpak runtimes:\n  org.kde.Platform 5.15\nRemoving them frees about 1.5 GB.\nFreed about 1.5 GB.\n'
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(0, '$RC_OUT', '', $RC_LAST, $RC_PRESS))")" \
-  '{"ok":true,"text":"Freed ~1.5 GB."}' "a removal says how much it freed, in the offer's own spelling"
-assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
-  "Freed about 1.5 GB." "...a last record older than the press is not this press: the CLI's own last line is"
-assert_eq "$(js "L.reclaimOutcomeOf(0, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{bytes:null}), $RC_PRESS).text")" \
-  "Removed 2 runtimes." "...with no size, the CLI's count"
-# Flatpak removed extensions an app had just started using (reclaim.last.in_use): said after it.
-assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{in_use:['org.freedesktop.Platform.Locale//24.08']}), $RC_PRESS).text")" \
-  "Freed ~1.5 GB. Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back." \
-  "a removal that took an extension an app had just started using says so, and how to put it back"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null,in_use:['a//1','b//2']}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimPartialUnsized') Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." \
-  "...in the plural, after a partial removal too"
-assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{in_use:[],at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
-  "Freed about 1.5 GB." "...and says nothing of it for an empty list or an older record"
-# The same sentences as the terminal's.
-assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimInUseOne')" "...the singular in the CLI's words"
-# shellcheck disable=SC2016  # the CLI's source spells the count $k
-assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimInUseMore' | sed 's/%1/$k/')" "...and the plural"
-assert_eq "$(js "L.reclaimOutcomeOf(0, 'Nothing to remove. Every installed Flatpak runtime is in use.\n', '', null, $RC_PRESS).text")" \
-  "Nothing to remove. Every installed Flatpak runtime is in use." "...and nothing unused at all, as the CLI says it"
-assert_eq "$(js "L.reclaimOutcomeOf(0, '', '', null, $RC_PRESS).text")" "$(js 'L.COPY.reclaimNothing')" \
-  "...a success with nothing said still says something"
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(6, '', 'What Flatpak can remove changed since this was shown. Nothing was removed.\n', null, $RC_PRESS))")" \
+# --- reclaimSaid: what the popup says after Free Up Space ---------------------------------------
+# The widget runs `kempt reclaim -y --expect=<digest>` and repeats what the CLI said.
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(0, 'Removing them frees about 1.5 GB.\\nFreed about 1.5 GB.\\n', ''))")" \
+  '{"ok":true,"text":"Freed about 1.5 GB."}' "a removal says the CLI's last line"
+assert_eq "$(js "L.reclaimSaid(0, 'Freed about 1.5 GB.\\n', 'Flatpak also removed an extension an app uses.\\nsecond line\\n').text")" \
+  "Freed about 1.5 GB. Flatpak also removed an extension an app uses." "...and the first line of its note, on the same line"
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(0, '', ''))")" '{"ok":true,"text":"Nothing to remove. Every installed Flatpak runtime is in use."}' \
+  "a CLI that said nothing is nothing to remove"
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(6, '', 'What Flatpak can remove changed since this was shown. Nothing was removed.\\nmore\\n'))")" \
   '{"ok":false,"text":"What Flatpak can remove changed since this was shown. Nothing was removed."}' \
-  "exit 6: the set changed after it was shown, so nothing was removed"
-assert_eq "$(js "L.reclaimOutcomeOf(6, '', '', null, $RC_PRESS).text")" \
-  "What Flatpak can remove changed since this was shown. Nothing was removed." "...in those words when the CLI said nothing"
-# The CLI asks polkit without a dialog, so where an administrator is needed the press ends in exit 5
-# with this press's record saying needs_auth.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(5, '', '', Object.assign($RC_LAST,{result:'needs_auth',refs:[],bytes:null}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Removing these needs an administrator. Nothing was removed."}' \
-  "exit 5 with needs_auth says an administrator is needed and nothing was removed"
-assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Removing these needs an administrator. Nothing was removed.\n', Object.assign($RC_LAST,{result:'needs_auth',refs:[],bytes:null,error:'error: Failed to uninstall x: Flatpak system operation Uninstall not allowed for user'}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimNeedsAuth')" "...also when flatpak's helper refused after the check said yes"
-# A failed uninstall that removed nothing comes back as exit 1 with reclaim.last saying failed.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Could not free the space. Nothing was removed."}' \
-  "a failed uninstall that removed nothing says so"
-# Flatpak stopped part-way: what went is said, and so is that it was not everything. Never a success.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', 'Flatpak could not remove all of them: error: Failed to uninstall x\n', Object.assign($RC_LAST,{partial:true,error:'error: Failed to uninstall x'}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Freed ~1.5 GB. Flatpak could not remove all of them."}' \
-  "a partial removal says what it freed and that flatpak could not remove all of them"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimPartialUnsized')" "...and with no size, that some but not all went"
-# The list between the passes failed (reclaim.last.skipped): the extensions were left in place and
-# nothing was refused. What went comes first, as the CLI prints it.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', '', Object.assign($RC_LAST,{partial:true,skipped:true,error:'Flatpak did not answer when asked what is unused'}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Freed ~1.5 GB. Some extensions were left in place because Flatpak did not answer when asked what is unused. This widget offers them again if they take 100 MB or more."}' \
-  "a second pass skipped for a failed list says the extensions were left in place, not that Flatpak refused"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
-  "Removed 2 runtimes. $(js 'L.COPY.reclaimSkipped')" "...with no size, the CLI's count first"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimPartialUnsized') $(js 'L.COPY.reclaimSkipped')" "...and with no count either, that some went"
-assert_not_contains "$(js 'L.COPY.reclaimSkipped')" "kempt" "...never sending the person to the terminal"
-assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "100000000" "...and the 100 MB it names is the offer's floor"
-assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimSkipped' | sed 's/\. .*/./')" \
-  "...the reason in the CLI's words"
-# Flatpak failed and what is left could not be read: never "Nothing was removed".
-RC_UNKNOWN="Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null,partial:true})"
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak stopped with an error: error: x\n', $RC_UNKNOWN, $RC_PRESS))")" \
-  '{"ok":false,"text":"Flatpak stopped with an error, so the removal may be partial. Press Check for Updates to see what is left."}' \
-  "a removal whose outcome is unknown says it may be partial"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null}), $RC_PRESS).text.indexOf('Nothing was removed')")" \
-  "-1" "...and a record with refs null never reads as nothing removed"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them: error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,error:'error: Failed to uninstall'}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimNothingRemoved')" "...also when the record carries flatpak's error line"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
-  "Flatpak could not remove them. See: kempt log" "...but an older failure is not this press's: the CLI's words"
-assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Nothing was removed. Removing unused runtimes is turned off (reclaim is off).\n', null, $RC_PRESS).text")" \
-  "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." "...any other refusal in the CLI's words"
-assert_eq "$(js "L.reclaimOutcomeOf(3, '', 'another kempt update is running\n', null, $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimBusy')" "exit 3: an update holds the lock"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'No installed app uses these Flatpak runtimes:\n', 'Flatpak could not remove them. See: kempt log\n', null, $RC_PRESS).text")" \
-  "Flatpak could not remove them. See: kempt log" "a failure is stderr's first line, never the list on stdout"
-assert_eq "$(js "L.reclaimOutcomeOf(124, '', '', null, $RC_PRESS).text")" "Could not free the space (exit 124)." \
-  "...and a failure with nothing said names its exit code"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', null, $RC_PRESS).ok")" "false" "...and is not a success"
+  "a refusal is the first line of what the CLI said, not a success"
+assert_eq "$(js "L.reclaimSaid(1, '', '').text === L.COPY.reclaimFailed.replace('%1', '1') && L.reclaimSaid(1, '', '').ok === false")" "true" \
+  "...and a failure with no words has the widget's own sentence"
 
 # The widget must outwait the engine. Killing `kempt reclaim` releases the update lock while its
 # `timeout flatpak uninstall` child keeps going, and Update Now would come back mid-removal. The
@@ -3418,88 +3219,11 @@ assert_eq "$(( _ck / 1000 >= _ls + _du ))" "1" "premise: the check allowance cov
 assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_pk + $_un + 5 * $_ls + 2 * $_du + $_lw) * 1000 + $_ck")" "true" \
   "Free Up Space waits longer than the engine's worst case for kempt reclaim"
 # ...and if it still stops waiting, the removal may be running: say that, not the executor's words.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms', null, $RC_PRESS))")" \
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms'))")" \
   '{"ok":false,"text":"Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes."}' \
   "the widget giving up says the removal may still finish"
-assert_eq "$(js "L.reclaimOutcomeOf(124, '', 'Flatpak could not remove them. See: kempt log', null, $RC_PRESS).text")" \
+assert_eq "$(js "L.reclaimSaid(124, '', 'Flatpak could not remove them. See: kempt log').text")" \
   "Flatpak could not remove them. See: kempt log" "...but an exit 124 the CLI explained keeps its words"
-
-# --- the last update row carries what an automatic reclaim freed -------------------------------
-RC_RUN='{timestamp:"2026-09-29T10:00:00+03:00",surface:"popup",status:"ok",backends:{dnf:{updated:[{name:"a",from:"1",to:"2"}]},flatpak:{updated:[],reclaimed:{refs:["runtime/x/x86_64/1","runtime/y/x86_64/2"],bytes:1530000000,status:"removed"}}}}'
-assert_eq "$(js "JSON.stringify([L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedBytes, L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedCount])")" \
-  "[1530000000,2]" "the run's entry says what automatic reclaim removed"
-assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_RUN)).changedCount")" "1" "...and the removed runtimes are not package changes"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_RUN)))")" "Updated 1 package · ~1.5 GB freed" \
-  "the line after the run says how much it freed"
-assert_eq "$(js "L.lastRunText(L.lastRunOf(JSON.stringify($RC_RUN)), Date.parse('2026-09-29T11:00:00+03:00'))")" \
-  "Last update 1 hour ago · 1 package · ~1.5 GB freed" "...and so does the Last update row"
-RC_NOSIZE="$(printf '%s' "$RC_RUN" | sed 's/bytes:1530000000/bytes:null/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_NOSIZE)))")" "Updated 1 package · 2 unused runtimes removed" \
-  "...without a size it says how many went"
-RC_ONE="$(printf '%s' "$RC_NOSIZE" | sed 's/refs:\["runtime\/x\/x86_64\/1","runtime\/y\/x86_64\/2"\]/refs:["runtime\/x\/x86_64\/1"]/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_ONE)))")" "Updated 1 package · 1 unused runtime removed" \
-  "...in the singular for one"
-RC_FAILED="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"failed"/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_FAILED)))")" "Updated 1 package" \
-  "...and a reclaim that did not remove anything is not mentioned: it never fails the run"
-assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_FAILED)).reclaimedCount")" "0" "...and counts nothing"
-
-# --- ...and extensions that removal took from an app, once per run --------------------------------
-RC_INUSE1="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"removed",in_use:["org.freedesktop.Platform.Locale\/\/24.08"]/')"
-RC_INUSE2="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"removed",in_use:["a\/\/1","b\/\/2"]/')"
-RC_NOW="Date.parse('2026-09-29T11:00:00+03:00')"
-assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_INUSE2)).reclaimedInUse")" "2" "the run's entry says how many extensions went that an app uses"
-assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedInUse")" "0" "...and none when it does not say"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE1)))")" \
-  "Updated 1 package · ~1.5 GB freed $(js 'L.COPY.reclaimInUseOne')" \
-  "the line after the run says an extension an app uses went, and how to put it back"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE2)))")" \
-  "Updated 1 package · ~1.5 GB freed Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." \
-  "...in the plural"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '')")" "$(js 'L.COPY.reclaimInUseOne')" \
-  "the Last update row says it too, for a run the popup did not watch"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE2)), '')")" \
-  "$(js "L.COPY.reclaimInUseMore.replace('%1', '2')")" "...in the plural"
-assert_eq "$(js "L.lastRunText(L.lastRunOf(JSON.stringify($RC_INUSE1)), $RC_NOW)")" \
-  "Last update 1 hour ago · 1 package · ~1.5 GB freed" "...under a title that stays as it was"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '2026-09-29T10:00:00+03:00')")" "" \
-  "...and not again once the popup has shown it for that run"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '2026-09-28T10:00:00+03:00')")" \
-  "$(js 'L.COPY.reclaimInUseOne')" "...while an earlier run's showing does not silence this one"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_RUN)), '')")" "" \
-  "a removal that took nothing an app uses adds nothing to the row"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_RUN)))")" "Updated 1 package · ~1.5 GB freed" \
-  "...or to the line after the run"
-RC_INUSE_FAILED="$(printf '%s' "$RC_INUSE1" | sed 's/status:"ok"/status:"failed",error:"dnf failed"/')"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_FAILED)), '')")" "Update failed: dnf failed" \
-  "a failed run's row still says why it failed, and nothing else"
-assert_eq "$(js "L.lastRunSubtitle(null, '')")" "" "...and no run, no line"
-# Install on Next Restart: Flatpak still updates live, so its removal can take an extension too.
-RC_INUSE_OFF="$(printf '%s' "$RC_INUSE1" | sed 's/surface:"popup"/surface:"offline"/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_OFF)))")" \
-  "$(js 'L.COPY.stagedUnknownCount') $(js 'L.COPY.reclaimInUseOne')" "a staging run's line says it too"
-RC_INUSE_OFF_HELD="$(printf '%s' "$RC_INUSE_OFF" | sed 's/status:"ok"/status:"ok",staged_nothing:"held"/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_OFF_HELD)))")" \
-  "$(js 'L.COPY.stagedNothingHeld') $(js 'L.COPY.reclaimInUseOne')" "...and one that staged nothing"
-# An entry with no stamp has no row and could never be marked seen: it says nothing of it.
-RC_INUSE_NOWHEN="$(printf '%s' "$RC_INUSE1" | sed 's/timestamp:"2026-09-29T10:00:00+03:00",//')"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_NOWHEN)), '')")" "" \
-  "an entry with no timestamp does not show the sentence under the row"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_NOWHEN)))")" "Updated 1 package · ~1.5 GB freed" \
-  "...or in the line after the run"
-# Marked seen only when it was on screen as the popup closed.
-RC_R1="L.lastRunOf(JSON.stringify($RC_INUSE1))"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, false, '')")" "true" \
-  "on screen: under the Last update row, with no report over it"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, true, L.postRunLine($RC_R1))")" "true" \
-  "...or in the post-run line that hides the row"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, true, 'Could not start the update (exit 2).')")" "false" \
-  "not on screen: a failed press's report hides the row"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', true, false, '')")" "false" "...nor while the updating pane replaces it"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '2026-09-29T10:00:00+03:00', false, false, '')")" "false" \
-  "...nor once already seen"
-assert_eq "$(js "L.reclaimInUseOnScreen(L.lastRunOf(JSON.stringify($RC_RUN)), '', false, false, '')")" "false" \
-  "...nor for a run without it"
 
 # --- the footer carries the staleness the message used to ---------------------------------------
 # The stale box was raw CLI text in a blue "i" whose first word was "failed", with no next step -
@@ -3554,8 +3278,6 @@ assert_eq "$(js 'L.COPY.updateNow')" "Update Now" "copy: the primary action"
 # terminal run that aborted or was closed, with no list, no Update Now and a disabled Refresh.
 assert_eq "$(js 'L.COPY.updatingTerminal')" "Updating in a terminal window…" \
   "copy: the pane names the window the update is actually running in"
-assert_eq "$(js 'L.COPY.updatingBackground')" "Updating in the background…" \
-  "copy: ...or says there is no window to look for"
 assert_eq "$(js 'L.COPY.updatingHere')" "Updating…" \
   "copy: ...or nothing at all, when the output is arriving right here"
 assert_eq "$(js 'L.COPY.updatingOffline')" "Staging updates for the next restart…" \
@@ -3563,13 +3285,14 @@ assert_eq "$(js 'L.COPY.updatingOffline')" "Staging updates for the next restart
 assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not Updating? Check for Updates" \
   "copy: the way out of a pane that is waiting for a run nobody is running any more"
 # One surface, one sentence, and no surface without one: the pane switches on the running surface
-# and a fifth value would draw an empty label.
-assert_eq "$(js 'L.SURFACES.length')" "4" "premise: the CLI knows four surfaces"
+# and a fourth value would draw an empty label.
+assert_eq "$(js 'L.SURFACES.length')" "3" "premise: the CLI knows three surfaces"
 assert_eq "$(js 'L.SURFACES.map(function (s) { return L.updatingLabelOf(s); }).filter(function (t) { return t === ""; })')" \
   "[]" "every surface the CLI knows has a sentence for the pane"
 assert_eq "$(js 'L.updatingLabelOf("terminal")')" "$(js 'L.COPY.updatingTerminal')" "terminal names its window"
 assert_eq "$(js 'L.updatingLabelOf("popup")')" "$(js 'L.COPY.updatingHere')" "the in-widget run says nothing extra"
-assert_eq "$(js 'L.updatingLabelOf("background")')" "$(js 'L.COPY.updatingBackground')" "background says so"
+assert_eq "$(js '[L.resolveSurface("background"), L.updatingLabelOf("background") === L.COPY.updatingHere].join("|")')" "popup|true" \
+  "a config from when background was a surface reads as the widget"
 assert_eq "$(js 'L.updatingLabelOf("offline")')" "$(js 'L.COPY.updatingOffline')" "offline is a preparation, not an update"
 # Anything else is terminal, which is what the CLI itself falls back to (resolve_surface).
 assert_eq "$(js 'L.updatingLabelOf("wat")')" "$(js 'L.COPY.updatingTerminal')" \
@@ -3620,27 +3343,19 @@ assert_eq "$(js 'L.COPY.stagedHeaderUnknown')" "Updates staged for the next rest
 # and left "Staged" with no antecedent once the green banner was gone, and the second way out -
 # stop holding the package and the plan stands - was offered nowhere at all.
 assert_eq "$(js 'L.COPY.stagedConflictOne')" \
-  "You held %1 after the update was staged, so it still installs. Rebuild the staged update to skip %1, or stop holding %1 to keep the current plan." \
+  "You held %1 after the update was staged, so it still installs. To skip %1, discard the staged update and use Install on Next Restart again, or stop holding %1 to keep the current plan." \
   "copy: the staged banner when one held package is in the transaction anyway"
 assert_eq "$(js 'L.COPY.stagedConflictMore')" \
-  "You held %1 and %2 more after the update was staged, so they still install. Rebuild the staged update to skip them, or stop holding them to keep the current plan." \
+  "You held %1 and %2 more after the update was staged, so they still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan." \
   "copy: ...and when there are more of them, named first and counted after"
 assert_eq "$(js 'L.COPY.stagedConflictUnknown')" \
-  "You added holds after the update was staged, so it may still install held packages. Rebuild the staged update to apply your holds." \
+  "You added holds after the update was staged, so it may still install held packages. To apply your holds, discard the staged update and use Install on Next Restart again." \
   "copy: ...and when the staged list could not be read, which is a may and not a does"
 # The cost, as the banner's SECOND SENTENCE rather than as a tooltip nobody has hovered. It is the
 # one fact that decides whether pressing the button is a good idea.
-assert_eq "$(js 'L.COPY.stagedRebuildCost')" \
-  "Rebuilding may ask for your password. If it fails, nothing stays staged." \
-  "copy: what pressing Rebuild Staged Update costs, in the banner itself"
-assert_eq "$(js 'L.COPY.stagedRebuildAction')" "Rebuild Staged Update" \
-  "copy: the one action a conflict banner offers"
-assert_eq "$(js 'L.COPY.stagedRebuildTooltip')" \
-  "Builds the staged update again with your current holds. May ask for your password. If the rebuild fails, the current staged update is removed." \
-  "copy: ...disclosing the authorization and the discard cost, which is what makes it consent"
-assert_eq "$(js 'L.COPY.stagedChanged')" \
-  "The staged update changed since this was offered. Nothing was rebuilt; check the banner above." \
-  "copy: what a rebuild clicked over a stage that had already moved says instead of acting"
+assert_eq "$(js 'L.COPY.stagedDiscardCost')" \
+  "Discarding deletes the downloaded packages, so staging again downloads them again." \
+  "copy: what discarding and staging again costs, in the banner itself"
 # --- discarding the staged update, from the popup instead of from a terminal --------------------
 # The CLI's own verb, all the way through: `kempt unstage` prints "Discarded the staged update",
 # docs/usage.md says discard, so the button says Discard. "Cancel Staged Update" was the other
@@ -3648,9 +3363,8 @@ assert_eq "$(js 'L.COPY.stagedChanged')" \
 # "close this message", which is the one thing it does not do.
 assert_eq "$(js 'L.COPY.stagedDiscardAction')" "Discard Staged Update" \
   "copy: the banner's way out of a staged update, in the CLI's own verb"
-# The tooltip is the disclosure, and it carries the ONE fact that separates this from a rebuild: a
-# rebuild reuses dnf5's package cache, and this deletes it. Stated as what happens next time
-# rather than as a warning, because the cost is only paid by someone who stages again.
+# The tooltip is the disclosure: this deletes dnf5's downloaded packages. Stated as what happens next
+# time rather than as a warning, because the cost is only paid by someone who stages again.
 assert_eq "$(js 'L.COPY.stagedDiscardTooltip')" \
   "Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again." \
   "copy: ...disclosing the authorization and the downloads, which is what makes it consent"
@@ -3671,11 +3385,9 @@ assert_eq "$(js 'L.COPY.stagedDiscardFailed')" \
 assert_eq "$(js 'L.COPY.stagedDiscardChanged')" \
   "The staged update changed since this was offered. Nothing was discarded; check the banner above." \
   "copy: what a discard clicked over a stage that had already moved says instead of acting"
-# "re-downloads" is measurably false and must never appear: a replace-stage reuses dnf5's package
-# cache (re-staging with an exclude transferred 0.0 B, ">>> Already downloaded"). And
-# "unstage" is not the vocabulary either: the CLI's remedy REMOVES the staged update.
+# "unstage" is not the vocabulary: the CLI's remedy REMOVES the staged update.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /re-?downloads?|unstage/i.test(L.COPY[k]); })')" \
-  "[]" "no copy string claims a rebuild re-downloads anything, or calls removing it unstaging"
+  "[]" "no copy string calls removing a staged update unstaging"
 # --- the pin, restated --------------------------------------------------------------------------
 # The name carries the STATE, because a `checkable: false` button exposes no checked state to
 # AT-SPI on Qt 6.11 and the alternative - the CheckBox role - would draw Breeze's sunken checked
@@ -3707,7 +3419,7 @@ assert_eq "$(js 'L.COPY.checkForUpdatesDescription')" \
   "Asks dnf and flatpak what is pending now, instead of waiting for the timer." \
   "copy: what the refresh icon does, rather than its own name again"
 assert_eq "$(js 'L.COPY.configureDescription')" \
-  "Check interval, where updates run, restart reminders, and the packages you hold." \
+  "Check interval, where updates run, and the packages you hold." \
   "copy: ...and what is behind the gear"
 
 # The hold round trip's own three sentences. Two are ANNOUNCED rather than shown - the popup speaks
@@ -3753,7 +3465,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldItems","heldLiveSurface","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldLiveSurface","iconState","imageBasedMessage","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -3800,10 +3512,7 @@ unset EVIL
 assert_exit 0 "none of those substitutions ran either" -- test ! -e "$TESTTMP/PWNED"
 unset HOSTILE
 
-# --- the panel icon's size: `auto`, and the setting that overrides it ---------------------------
-# Two rules, and they answer different questions. snapIconSize is `auto` - how big should this be
-# when nobody said - and resolveIconSize is the whole answer, including what the user asked for.
-#
+# --- the panel icon's size ------------------------------------------------------------------------
 # The rungs are pinned to what the SYSTEM TRAY draws, not to "the largest that fits". That is the
 # change: a 44px panel fits a 32px icon, so the widget asked for 32 and stood in a row of 22px tray
 # entries looking like a mistake. The tray does not fill its cell either. Anything from a 22px
@@ -3834,61 +3543,12 @@ assert_eq "$(js "L.snapIconSize(0, $STEPS)")" "0" "a cell with no size asks for 
 assert_eq "$(js "L.snapIconSize(-5, $STEPS)")" "0" "...and neither does a negative one"
 assert_eq "$(js "L.snapIconSize(undefined, $STEPS)")" "0" "a missing size is not an error"
 
-# The named sizes are INDEXES into the theme's own step list, never literal pixel counts - a theme
-# whose "small" is not 16 still gets its own hinted artwork rather than a number logic.js invented.
-assert_eq "$(js 'L.resolveIconSize("small", 44)')" "16" "Small on an ordinary panel is the 16px step"
-assert_eq "$(js 'L.resolveIconSize("medium", 44)')" "22" "Medium is 22, the same size the tray draws"
-assert_eq "$(js 'L.resolveIconSize("large", 44)')" "32" "Large is 32 - what the widget used to do by accident"
-assert_eq "$(js 'L.resolveIconSize("auto", 44)')" "22" "Automatic defers to the ladder"
-assert_eq "$(js 'L.resolveIconSize("small", 44, [10,20,30,40,50])')" "10" \
-  "a theme with its own steps supplies the pixels, not this file"
-# A chosen size the cell cannot hold falls back to automatic rather than overflowing. This is what
-# makes the system tray's cell win: the tray hands each entry a slot at ITS icon size, and an
-# entry that drew 32px into a 22px slot would push every other tray icon around.
-assert_eq "$(js 'L.resolveIconSize("large", 22)')" "22" "Large in a 22px tray slot gives way to the slot"
-assert_eq "$(js 'L.resolveIconSize("medium", 16)')" "16" "...and Medium does the same in a 16px one"
-assert_eq "$(js 'L.resolveIconSize("small", 22)')" "16" "a size that DOES fit is honoured, tray or panel"
-assert_eq "$(js 'L.resolveIconSize("large", 0)')" "0" "before the panel has sized us, nothing is drawn"
-# ...but a chosen size must never come out SMALLER than the one Automatic would have drawn, which
-# is what `large` did on any cell the ladder had already climbed past. A 96px cell (a vertical dock,
-# a HiDPI panel) autos to 48 while `large` names the 32px step, so picking Large made the icon
-# smaller - the option contradicting its own label. Floored against auto; Small and Medium are not,
-# because asking for less than Automatic is exactly what they are for.
-assert_eq "$(js 'L.resolveIconSize("auto", 96)')" "48" "a 96px cell autos to the 48px step"
-assert_eq "$(js 'L.resolveIconSize("large", 96)')" "48" "...and Large there is 48 too, never the 32 it names"
-assert_eq "$(js 'L.resolveIconSize("auto", 192)')" "64" "a 192px cell autos to the largest step"
-assert_eq "$(js 'L.resolveIconSize("large", 192)')" "64" "...and Large follows it up rather than dropping to 32"
-assert_eq "$(js 'L.resolveIconSize("large", 96) >= L.resolveIconSize("auto", 96)')" "true" \
-  "Large is never smaller than Automatic on a 96px cell"
-assert_eq "$(js 'L.resolveIconSize("large", 192) >= L.resolveIconSize("auto", 192)')" "true" \
-  "...nor on a 192px one"
-assert_eq "$(js 'L.resolveIconSize("small", 96)')" "16" "Small on a big cell still means small"
-assert_eq "$(js 'L.resolveIconSize("medium", 192)')" "22" "...and Medium still means the tray's own size"
-assert_eq "$(js 'L.resolveIconSize("large", 64)')" "32" "the floor changes nothing where auto is already below it"
-# The widget is the only validator this setting has: `kempt config set` stores whatever it is
-# handed. Every unrecognised value means the same thing - decide it automatically, say nothing.
-assert_eq "$(js 'L.resolveIconSize("bogus", 44)')" "22" "a value the widget does not know falls back to automatic"
-assert_eq "$(js 'L.resolveIconSize("", 44)')" "22" "...and so does an empty answer from an older CLI"
-assert_eq "$(js 'L.resolveIconSizeSetting("auto")')" "auto" "the four settings survive the validator"
-assert_eq "$(js 'L.resolveIconSizeSetting("small")')" "small" "...small"
-assert_eq "$(js 'L.resolveIconSizeSetting("medium")')" "medium" "...medium"
-assert_eq "$(js 'L.resolveIconSizeSetting("large")')" "large" "...large"
-assert_eq "$(js 'L.resolveIconSizeSetting("  LARGE  ")')" "large" "...case and whitespace and all"
-assert_eq "$(js 'L.resolveIconSizeSetting("enormous")')" "auto" "an unknown value is auto"
-assert_eq "$(js 'L.resolveIconSizeSetting("")')" "auto" "an empty value is auto"
-assert_eq "$(js 'L.resolveIconSizeSetting(null)')" "auto" "a missing value is auto"
-assert_eq "$(js 'L.resolveIconSizeSetting(undefined)')" "auto" "...and so is no value at all"
-# The reclaim setting, read the way the CLI's reclaim_mode reads it: only automatic and off are
-# themselves, case-folded, and anything else is ask - a typo must never read as automatic.
-assert_eq "$(js '["ask","automatic","off","OFF","Automatic"].map(L.resolveReclaimSetting).join(",")')" \
-  "ask,automatic,off,off,automatic" "the three reclaim settings survive, case-folded as the CLI does"
-assert_eq "$(js '["","auto","always",null,undefined,"toString"].map(L.resolveReclaimSetting).join(",")')" \
-  "ask,ask,ask,ask,ask,ask" "...and anything else is ask, never automatic"
-# Object.prototype keys are not settings. `toString` is a property of every object in JavaScript,
-# so a naive `key in table` lookup answers yes for it - and the index it would then read is a
-# function, which reaches Kirigami as an icon size.
-assert_eq "$(js 'L.resolveIconSizeSetting("toString")')" "auto" "an inherited property name is not a setting"
-assert_eq "$(js 'L.resolveIconSize("toString", 44)')" "22" "...and does not reach the icon as a size"
+# The reclaim setting, read the way the CLI's reclaim_mode reads it: only off is itself,
+# case-folded, and anything else is ask.
+assert_eq "$(js '["ask","off","OFF"].map(L.resolveReclaimSetting).join(",")')" \
+  "ask,off,off" "the two reclaim settings survive, case-folded as the CLI does"
+assert_eq "$(js '["automatic","Automatic","","auto","always",null,undefined,"toString"].map(L.resolveReclaimSetting).join(",")')" \
+  "ask,ask,ask,ask,ask,ask,ask,ask" "...and anything else is ask, a saved automatic included"
 
 # --- the watcher stamp: WHICH path moved, not merely that one did -------------------------------
 # main.qml polls FIVE mtimes every 30 seconds: /var/lib/rpm/rpmdb.sqlite, /var/lib/rpm,
@@ -4075,12 +3735,11 @@ assert_eq "${helper_bound#* }" "${cli_refresh_s:-missing}" \
   "...and the root helper stops dnf5's makecache after the same ${cli_refresh_s:-?} s"
 assert_eq "$(js "L.CHECK_TIMEOUT_MS >= L.CHECK_BODY_MS + 3 * ${cli_refresh_s:-999} * 1000 + ${helper_bound%% *}000")" "true" \
   "...with room for its ${helper_bound%% *} s grace before SIGKILL"
-# ...and the check without its fetch covers what notify_security adds to it: the advisory query,
-# two waits for the writers' lock and the notification, read from lib/common.sh, on top of the
+# ...and the check without its fetch covers the rest of it: the advisory query, two waits for the writers' lock and the notification, read from lib/common.sh, on top of the
 # 120 s the check's own queries had before.
 _sq="$(sed -n 's/^SECURITY_QUERY_TIMEOUT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
-_sl="$(sed -n 's/^SECURITY_LOCK_WAIT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
-_sn="$(sed -n 's/^SECURITY_NOTIFY_TIMEOUT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
+_sl="$(sed -n 's/^WRITER_LOCK_WAIT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
+_sn="$(sed -n 's/^NOTIFY_TIMEOUT=\([0-9]*\)$/\1/p' "$REPO_ROOT/lib/common.sh")"
 assert_eq "$(js "L.CHECK_BODY_MS >= 120000 + (${_sq:-999} + 2 * ${_sl:-999} + ${_sn:-999}) * 1000")" "true" \
   "the check without its fetch leaves room for the security query (${_sq:-?} s), two lock waits (${_sl:-?} s) and the notification (${_sn:-?} s)"
 assert_exit 0 "...one timeout for every check, fetching or not" -- \
@@ -4137,8 +3796,8 @@ assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint + \"|\"
   "battery|Plug in, then press Check for Updates.|Curl error (22): 404" \
   "a skip on battery over an older refresh error keeps the hint and Download Anyway, with the error as the detail"
 skip_old="L.viewModel($(nc_skip_err metered "$neterr"),false)"
-assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint + \"|\" + $skip_old.problemNetwork")" \
-  "metered|Switch to an unmetered connection, then press Check for Updates.|false" \
+assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint")" \
+  "metered|Switch to an unmetered connection, then press Check for Updates." \
   "...and a metered skip over an older network error is not called a network failure"
 assert_eq "$(js "L.viewModel($(nc_skip_err off 'Curl error (22): 404'),false).problemHint")" \
   "dnf could not download them. Its error is below." \
@@ -4298,11 +3957,6 @@ for key in $PAGE_KEYS; do
     && echo "ok: $key is read back before it is written" \
     || { echo "FAIL: $key is written but never read"; _fail=1; }
 done
-# The panel icon's size is the one setting BOTH files need: the page writes it, and main.qml has
-# to re-read it or the icon would not change until plasmashell restarted.
-grep -q "config get widget_icon_size" "$REPO_ROOT/plasmoid/contents/ui/main.qml" \
-  && echo "ok: the panel icon re-reads its own size setting" \
-  || { echo "FAIL: main.qml never reads widget_icon_size"; _fail=1; }
 
 # --- the system tray entry ----------------------------------------------------------------------
 # What makes the widget offerable INSIDE the system tray rather than only as a standalone panel
@@ -4380,7 +4034,7 @@ assert_eq "$(ui_grep 'i18n\("Stop holding %1", ' | wc -l)" "2" \
 assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
   "...and nothing in the widget tells a person their packages are being held BACK"
 
-# --- the rebuild action's words are the copy table's words --------------------------------------
+# --- the discard action's words are the copy table's words --------------------------------------
 # COPY is the SPECIFICATION and the QML repeats each literal, because i18n() extracts literals and
 # i18n(someVariable) extracts nothing at all (see the copy table's own header). That duplication is
 # deliberate and it is exactly the kind that drifts, so the two halves are tied together here: the
@@ -4388,9 +4042,8 @@ assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
 # ui_grep is deliberately NOT the tool here: it walks logic.js too, and logic.js is where these
 # literals are DECLARED - so it would answer "found it" for a QML file that never wrote them. The
 # .qml files alone are the question.
-for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedDiscardTooltip \
-            stageRestoreAction stageRestoreTooltip \
-            reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
+for _lit in stagedDiscardAction stagedDiscardTooltip \
+                        reclaimAction reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
             installOnNextRestartTooltip installOnNextRestartSystemTooltip \
             startupMute startupMuting startupMuteTooltip startupSetting startupSettingNote \
             startupStopMutingDescription startupNothingMuted; do
@@ -4400,8 +4053,8 @@ done
 # The tooltip is the accessible description as well, and that is the load-bearing half: a polkit
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
 # the authorization and the discard cost by then hears them never.
-assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "6" \
-  "...and both banner actions, Put It Back, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
+assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "4" \
+  "...and Discard Staged Update, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting

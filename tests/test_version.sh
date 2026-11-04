@@ -69,7 +69,7 @@ assert_exit 0 "...and the ways to ask for this list" -- grep -qw -- '-h' "$TESTT
 # go through the same line of the dispatcher; they are left out here so that no test can ever start
 # a run if that line goes.
 # What it prints is that command's own usage, never the whole list.
-for sub in check summary history log doctor config hold unhold holds unstage restore-stage reclaim discover-notifier \
+for sub in check summary history log doctor config hold unhold holds unstage reclaim discover-notifier \
            enable-passwordless disable-passwordless; do
   for flag in --help -h; do
     assert_exit 0 "kempt $sub $flag prints its usage and exits 0" "$KEMPT" "$sub" "$flag"
@@ -91,12 +91,8 @@ assert_contains "$("$KEMPT" summary --help)" "usage: kempt summary [N | --json]"
   "summary's help is one synopsis, so each description belongs to it"
 assert_contains "$("$KEMPT" help enable-passwordless)" "an administrator's password once" \
   "enable-passwordless says whose password it asks for"
-# security-ack is the widget's: its --help answers, and the full usage leaves it out.
-assert_contains "$("$KEMPT" security-ack --help)" "usage: kempt security-ack --expect=DIGEST" \
-  "the internal security-ack still answers --help, without running"
-assert_not_contains "$("$KEMPT" --help)" "security-ack" "...and stays out of the full usage"
 assert_contains "$("$KEMPT" check --help)" "Flatpak apps installed" "check's help names the Flatpak apps installed for you only"
-assert_contains "$("$KEMPT" config --help)" "terminal, widget, background" "config's help lists the surface values"
+assert_contains "$("$KEMPT" config --help)" "terminal, widget or offline" "config's help lists the surface values"
 assert_contains "$("$KEMPT" enable-passwordless --help)" "without a password" "enable-passwordless says what it does"
 assert_contains "$("$KEMPT" disable-passwordless --help)" "ask for a password again" "...and so does disable-passwordless"
 assert_not_contains "$("$KEMPT" help)" "popup" "the usage list never says popup"

@@ -745,7 +745,7 @@ assert_exit 2 "check refuses --anyway with a value" "$KEMPT" check --anyway=yes
 # may export a variable that carries it.
 internal_calls="$(grep -nE '(^|[^_a-z])cmd_check( |$)' "$REPO_ROOT/bin/kempt" | grep -v 'cmd_check()' \
                   | grep -vF 'check)   shift; cmd_check "$@" ;;' | grep -v '^[0-9]*: *#')"
-assert_eq "$(grep -c . <<<"$internal_calls")" "11" "bin/kempt has its eleven internal checks (premise)"
+assert_eq "$(grep -c . <<<"$internal_calls")" "8" "bin/kempt has its eight internal checks (premise)"
 assert_eq "$(grep -cvE 'cmd_check >/dev/null 2>&1 \|\| true$' <<<"$internal_calls")" "0" \
   "...and every one runs cmd_check with no arguments, so none can pass --anyway"
 assert_eq "$(grep -ciE 'export[^#]*anyway|KEMPT_ANYWAY' "$REPO_ROOT/bin/kempt" "$REPO_ROOT/lib/common.sh" \
@@ -923,7 +923,7 @@ pre="$KEMPT_STATE_DIR/snapshots/offline-pre-t4.tsv"
 # The baseline has to be the snapshot the check itself takes, byte for byte: the harvest decides
 # "still pending" with cmp, and a hand-built file would differ for reasons that have nothing to
 # do with what is being tested (the fixture goes through sort_name_version and collapse_versions).
-snapshot_now() { bash -c 'source "$1/lib/common.sh"; source "$1/backends/dnf.sh"; dnf_snapshot' _ "$REPO_ROOT"; }
+snapshot_now() { bash -c 'source "$1/lib/common.sh"; source "$1/backends/dnf.sh"; dnf_installed_lookup' _ "$REPO_ROOT"; }
 stage_marker() {  # boot_id staged-count-or-null → a marker as cmd_update would have written it
   mkdir -p "$KEMPT_STATE_DIR/snapshots"
   snapshot_now > "$pre"
@@ -1924,23 +1924,11 @@ chmod +x "$TESTTMP/dies"
 before="$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")"
 rc=0
 out="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/dies" KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/dies" \
-       KEMPT_DU_CMD="$TESTTMP/dies" KEMPT_GETENT_CMD="$TESTTMP/dies" "$KEMPT" check 2>/dev/null)" || rc=$?
+       KEMPT_DU_CMD="$TESTTMP/dies" "$KEMPT" check 2>/dev/null)" || rc=$?
 assert_eq "$rc" "0" "a reclaim listing that fails never fails the check"
 assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "failed" "...it is reported inside the block instead"
 assert_eq "$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")" "$before" "...and the rest of the state is unchanged"
 assert_eq "$(jq -r '.reclaim.status' "$STATE_FILE")" "failed" "...and written"
-
-# --- surface_offer: the popup's one offer of the popup default ---------------------------------------
-# This sandbox has run checks, so it is an install that has run Kempt before. Drop the record that
-# the migration ran and any surface key, and the next run is the first run of the new version.
-assert_eq "$(jq -c 'has("surface_offer")' <<<"$out")" "false" "a new install is offered nothing"
-rm -f "$SURFACE_MIGRATED_FILE"; sed -i '/^surface=/d' "$CONFIG_FILE"
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c '.surface_offer' <<<"$out")" "true" "an install the migration kept on the terminal is offered the popup"
-assert_eq "$(jq -c '.surface_offer' "$STATE_FILE")" "true" "...and the state file says so"
-"$KEMPT" config set surface terminal
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c 'has("surface_offer")' <<<"$out")" "false" "...until a surface is chosen"
 
 # --- discover_offer: the widget's one offer to turn off Discover's notifier --------------------------
 assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "with no Discover notifier installed, nothing is offered"
@@ -1960,9 +1948,9 @@ out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "a notifier that is off is not offered"
 export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-system-autostart"
 
-# --- notify_security: one notification per new set of security updates --------------------------
+# --- the security block: which pending system updates fix a security advisory ---------------------
 # The advisory stub records how it was called and answers from two files, so each case below sets
-# what dnf5 says and how it exits. The notifier is a recorder: nothing reaches a real desktop.
+# what dnf5 says and how it exits.
 cat > "$TESTTMP/advisory-stub" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$TESTTMP/advisory-calls"
@@ -1970,223 +1958,64 @@ cat "$TESTTMP/advisory-out"
 exit "\$(cat "$TESTTMP/advisory-rc")"
 STUB
 chmod +x "$TESTTMP/advisory-stub"
-cat > "$TESTTMP/notify-recorder" <<STUB
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$TESTTMP/notified"
-STUB
-chmod +x "$TESTTMP/notify-recorder"
-export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/advisory-stub" KEMPT_NOTIFY="$TESTTMP/notify-recorder"
-export DBUS_SESSION_BUS_ADDRESS="unix:path=$TESTTMP/no-bus-needed"
-export KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/no-system-cache"
+export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/advisory-stub" KEMPT_DNF_CACHE_DIR="$TESTTMP/no-system-cache"
 echo 0 > "$TESTTMP/advisory-rc"
 # Duplicates, a second arch of one package, an epoch, an arch nobody has heard of, a package that is
-# not pending, and an id that is not an advisory id (markup, which must never reach a notification).
+# not pending, and an id that is not an advisory id.
 adv_row() { printf '{"name":"%s","type":"security","severity":"Important","nevra":"%s","buildtime":1791422147}' "$1" "$2"; }
 adv_set() { { printf '['; local first=1 r; for r in "$@"; do [[ -n "$first" ]] || printf ','; first=""; printf '%s' "$r"; done; printf ']\n'; } > "$TESTTMP/advisory-out"; }
-base_rows=("$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.x86_64)" "$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.x86_64)"
-           "$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.i686)" "$(adv_row FEDORA-2026-t1 tar-2:1.35-9.fc44.x86_64)"
-           "$(adv_row FEDORA-2026-g1 git-core-2.55.1-1.fc44.zz9)" "$(adv_row FEDORA-2026-n1 notpending-1.0-1.fc44.noarch)"
-           "$(adv_row '<b>x</b>' bash-5.3.10-1.fc44.x86_64)")
-adv_set "${base_rows[@]}"
-notes() { if [[ -f "$TESTTMP/notified" ]]; then grep -c . "$TESTTMP/notified"; else echo 0; fi; }
-sec_seen() { jq -c ".$1" "$KEMPT_STATE_DIR/security-seen.json"; }
-rm -f "$KEMPT_STATE_DIR/security-seen.json"
+adv_set "$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.x86_64)" "$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.x86_64)" \
+  "$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.i686)" "$(adv_row FEDORA-2026-t1 tar-2:1.35-9.fc44.x86_64)" \
+  "$(adv_row FEDORA-2026-g1 git-core-2.55.1-1.fc44.zz9)" "$(adv_row FEDORA-2026-n1 notpending-1.0-1.fc44.noarch)" \
+  "$(adv_row '<b>x</b>' bash-5.3.10-1.fc44.x86_64)"
 
 out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$([[ -e "$TESTTMP/advisory-calls" ]] && echo asked || echo never)" "never" "with notify_security off, dnf is never asked about advisories"
-assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "...and the state carries no security block"
-assert_eq "$("$KEMPT" config get notify_security)" "false" "notify_security is off by default"
-
-"$KEMPT" config set notify_security true
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c '.security | {count, packages, advisories, attention}' <<<"$out")" \
-  '{"count":3,"packages":["curl","git-core","tar"],"advisories":["FEDORA-2026-c1","FEDORA-2026-g1","FEDORA-2026-t1"],"attention":true}' \
+assert_eq "$(jq -c '.security' <<<"$out")" \
+  '{"count":3,"packages":["curl","git-core","tar"]}' \
   "the block names each pending package once, whatever its arch, epoch or duplicate rows"
-assert_eq "$(jq -r '.security.digest | test("^[0-9a-f]{16}$")' <<<"$out")" "true" "...with a 16-character digest"
 assert_eq "$(jq -c '.security' "$STATE_FILE")" "$(jq -c '.security' <<<"$out")" "...and it is written"
 assert_eq "$(jq -r .schema <<<"$out")" "1" "...additively: the schema does not move"
 assert_contains "$(cat "$TESTTMP/advisory-calls")" "-C -q advisory list --security --updates --json" "the query is cache-only and asks for security updates as JSON"
 assert_not_contains "$(cat "$TESTTMP/advisory-calls")" "cachedir" "...and names no cache directory it cannot read"
-assert_eq "$(notes)" "1" "a new set sends one notification"
-assert_eq "$(cat "$TESTTMP/notified")" "Kempt Security updates are waiting for curl, git-core and tar." "...naming the packages"
-assert_eq "$(events_since 'security notified count=3')" "1" "...and the event log says so"
-assert_eq "$(sec_seen notified)" '["FEDORA-2026-c1","FEDORA-2026-g1","FEDORA-2026-t1"]' "...and the advisories are recorded as announced"
-
-"$KEMPT" check >/dev/null 2>&1
-assert_eq "$(notes)" "1" "the same set again sends nothing"
-
 mkdir -p "$TESTTMP/readable-cache"
-KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/readable-cache" "$KEMPT" check >/dev/null 2>&1
+KEMPT_DNF_CACHE_DIR="$TESTTMP/readable-cache" "$KEMPT" check >/dev/null 2>&1
 assert_contains "$(tail -1 "$TESTTMP/advisory-calls")" "--setopt=cachedir=$TESTTMP/readable-cache" "a readable system cache is the one asked"
 
-# A hold takes curl out of the block, and letting go brings it back: the same advisory, not news.
 "$KEMPT" hold dnf:curl >/dev/null 2>&1
 out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c '.security.packages' <<<"$out")" '["git-core","tar"]' "a held package drops out of the block"
-assert_contains "$(sec_seen notified)" "FEDORA-2026-c1" "...but its advisory stays on record while the package is pending"
 "$KEMPT" unhold dnf:curl >/dev/null 2>&1
-"$KEMPT" check >/dev/null 2>&1
-assert_eq "$(notes)" "1" "a set that shrinks and grows back sends nothing"
 
-adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-b2 bash-5.3.10-1.fc44.x86_64)"
-"$KEMPT" check >/dev/null 2>&1
-assert_eq "$(notes)" "2" "a new advisory sends a notification again"
-assert_eq "$(tail -1 "$TESTTMP/notified")" "Kempt Security updates are waiting for bash, curl, git-core and tar." "...naming the whole set"
-
-# The widget's acknowledgement: only for the set it showed.
-digest="$(jq -r '.security.digest' "$STATE_FILE")"
-assert_exit 2 "security-ack refuses a digest that is not one" -- "$KEMPT" security-ack --expect=nope
-assert_exit 6 "security-ack refuses a set it was not shown" -- "$KEMPT" security-ack --expect=0123456789abcdef
-assert_eq "$(jq -r '.security.attention' "$STATE_FILE")" "true" "...and records nothing"
-assert_exit 0 "security-ack takes the digest the check published" -- "$KEMPT" security-ack --expect="$digest"
-assert_eq "$(jq -r '.security.attention' "$STATE_FILE")" "false" "...and the panel stops asking at once"
-assert_eq "$(sec_seen acknowledged)" '["FEDORA-2026-b2","FEDORA-2026-c1","FEDORA-2026-g1","FEDORA-2026-t1"]' "...because the set is recorded as seen"
+# A question nobody answered must not read as "no security updates": no block, and a working check.
+echo 1 > "$TESTTMP/advisory-rc"
 out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -r '.security.attention' <<<"$out")" "false" "...and the next check keeps it, so a restart does not ask again"
-assert_eq "$(jq -r '.security.count' <<<"$out")" "4" "...while the count stays until they are installed"
-adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-b2 bash-5.3.10-1.fc44.x86_64)" "$(adv_row FEDORA-2026-b3 brandnew-1.0-1.fc44.x86_64)"
+assert_eq "$(jq -c '[.status, has("security")]' <<<"$out")" '["ok",false]' "a query that failed publishes no block, and the check still works"
+echo 0 > "$TESTTMP/advisory-rc"
+echo '[{"name":"FEDORA-2026-c1"}]' > "$TESTTMP/advisory-out"
 out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -r '.security.attention' <<<"$out")" "true" "an advisory nobody has seen asks again"
-
-# No session bus (a timer with no desktop): nothing is sent, nothing is recorded, and the next check
-# that has one says it.
-adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-b4 aajohan-comfortaa-fonts-3.106-1.fc44.noarch)"
-n_before="$(notes)"
-env -u DBUS_SESSION_BUS_ADDRESS XDG_RUNTIME_DIR="$TESTTMP/no-runtime" "$KEMPT" check >/dev/null 2>&1
-assert_eq "$(notes)" "$n_before" "with no session bus nothing is sent"
-assert_not_contains "$(sec_seen notified)" "FEDORA-2026-b4" "...and the advisory is not recorded as announced"
-"$KEMPT" check >/dev/null 2>&1
-assert_eq "$(notes)" "$(( n_before + 1 ))" "...so the next check with a session bus announces it"
-
-# An armed stage: the person already chose to install them.
-adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-s5 brandnew-1.0-1.fc44.x86_64)" "$(adv_row FEDORA-2026-s6 bash-5.3.10-1.fc44.x86_64)"
-rm -f "$KEMPT_STATE_DIR/security-seen.json"
-stage_marker boot-t4 7
-n_before="$(notes)"
+assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "a row without a nevra refuses the whole answer"
+echo '[]' > "$TESTTMP/advisory-out"
 out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -r '.offline_staged.armed' <<<"$out")" "true" "(a stage is armed)"
-assert_eq "$(notes)" "$n_before" "an armed stage sends no notification"
-assert_eq "$(jq -r '.security.attention' <<<"$out")" "false" "...and the panel does not ask"
-rm -f "$marker"
-"$KEMPT" check >/dev/null 2>&1
-assert_eq "$(notes)" "$(( n_before + 1 ))" "...and with the stage gone the set is announced"
+assert_eq "$(jq -c '.security.count' <<<"$out")" "0" "no advisories is an answer: a count of zero"
 
-# A package that is installed takes its advisory off the record.
-cat > "$TESTTMP/refresh-no-curl" <<STUB
+# Nothing to install: no question at all, so an idle check does not pay for the query.
+: > "$TESTTMP/advisory-calls"
+cat > "$TESTTMP/refresh-nothing-pending" <<'STUB'
 #!/usr/bin/env bash
-case "\$1" in
-  check) grep -v '^curl' "$FIXTURES/dnf-check-update.txt"; exit 100 ;;
-esac
+exit 0
 STUB
-chmod +x "$TESTTMP/refresh-no-curl"
-KEMPT_REFRESH_HELPER="$TESTTMP/refresh-no-curl" "$KEMPT" check >/dev/null 2>&1
-assert_not_contains "$(sec_seen notified)" "FEDORA-2026-c1" "an advisory whose package is no longer pending leaves the seen file"
-
-# Failures publish nothing, send nothing and leave the seen file alone.
-seen_before="$(cat "$KEMPT_STATE_DIR/security-seen.json")"
-n_before="$(notes)"
-echo 'Error: something dnf5 said' > "$TESTTMP/advisory-out"
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c '[.status, has("security")]' <<<"$out")" '["ok",false]' "unreadable output publishes no block and the check stays ok"
-assert_eq "$(events_since 'security check failed')" "1" "...and the event log says the security check failed"
-assert_eq "$(cat "$KEMPT_STATE_DIR/security-seen.json")" "$seen_before" "...and the seen file is untouched"
-echo '[{"name":"FEDORA-2026-x","nevra":7}]' > "$TESTTMP/advisory-out"
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "a row of the wrong shape refuses the whole answer"
-adv_set "${base_rows[@]}"; echo 1 > "$TESTTMP/advisory-rc"
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "a non-zero exit publishes no block"
-assert_eq "$(events_since 'security check failed')" "1" "...and is logged once a day, not at every check"
-assert_eq "$(notes)" "$n_before" "...and no failure sends anything"
-touch -d '25 hours ago' "$KEMPT_STATE_DIR/last_security_fail"
+chmod +x "$TESTTMP/refresh-nothing-pending"
+out="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-nothing-pending" "$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '[.status, has("security")]' <<<"$out")" '["ok",false]' "with nothing pending there is no block"
+assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "...and advisories are not asked about"
 "$KEMPT" check >/dev/null 2>&1
-assert_eq "$(events_since 'security check failed')" "2" "...and again the next day"
-echo 0 > "$TESTTMP/advisory-rc"; echo '[]' > "$TESTTMP/advisory-out"
+adv_names="$(jq -r '.backends.dnf.items[].name' "$STATE_FILE")"
+: > "$TESTTMP/advisory-calls"
+for n in $adv_names; do "$KEMPT" hold "dnf:$n" >/dev/null 2>&1; done
 out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c '.security | {count, attention, digest}' <<<"$out")" '{"count":0,"attention":false,"digest":""}' "nothing due is a block with nothing in it"
-assert_eq "$([[ -e "$KEMPT_STATE_DIR/last_security_fail" ]] && echo kept || echo gone)" "gone" \
-  "a query that works clears the stamp, so the next failure is logged at once"
-
-# More open advisories than the 200 the state publishes. Every open one stays on record, so a new
-# one is announced once and nothing that is still open is announced again.
-many=(); for i in $(seq -w 0 229); do many+=("$(adv_row "FEDORA-2026-a$i" curl-8.18.0-9.fc44.x86_64)"); done
-adv_set "${many[@]}"
-rm -f "$KEMPT_STATE_DIR/security-seen.json"
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c '[.security.count, (.security.advisories | length)]' <<<"$out")" "[1,200]" \
-  "(230 open advisories on one package: the state publishes 200 of them)"
-assert_eq "$(sec_seen 'notified | length')" "230" "...and records all 230 as announced"
-n_before="$(notes)"
-adv_set "${many[@]}" "$(adv_row FEDORA-2026-zz1 tar-2:1.35-9.fc44.x86_64)"
-for _ in 1 2 3 4 5; do "$KEMPT" check >/dev/null 2>&1; done
-assert_eq "$(( $(notes) - n_before ))" "1" "one new advisory over 5 checks is one notification, though it sorts past the 200"
-assert_eq "$(sec_seen 'notified | length')" "231" "...and every open advisory is still on record"
-
-# A notification that was not delivered is taken off the record, so the next check tries again.
-cat > "$TESTTMP/notify-fails" <<STUB
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$TESTTMP/notify-failed"
-exit 1
-STUB
-chmod +x "$TESTTMP/notify-fails"
-adv_set "${base_rows[@]}"
-rm -f "$KEMPT_STATE_DIR/security-seen.json" "$TESTTMP/notify-failed"
-n_before="$(notes)"
-KEMPT_NOTIFY="$TESTTMP/notify-fails" "$KEMPT" check >/dev/null 2>&1
-assert_eq "$(grep -c . "$TESTTMP/notify-failed")" "1" "(the notifier was tried and failed)"
-assert_eq "$(sec_seen notified)" "[]" "a notification that failed leaves nothing recorded as announced"
-"$KEMPT" check >/dev/null 2>&1
-assert_eq "$(( $(notes) - n_before ))" "1" "...so the next check announces the set"
-
-# A seen file that cannot be written announces nothing, rather than the same set at every check.
-rm -f "$KEMPT_STATE_DIR/security-seen.json"; mkdir "$KEMPT_STATE_DIR/security-seen.json"
-n_before="$(notes)"
-out="$("$KEMPT" check 2>/dev/null)"; "$KEMPT" check >/dev/null 2>&1
-assert_eq "$(jq -r '.security.count' <<<"$out")" "3" "a seen path that is a directory still publishes the block"
-assert_eq "$(notes)" "$n_before" "...and announces nothing, at any check"
-assert_eq "$(find "$KEMPT_STATE_DIR/security-seen.json" -mindepth 1 | wc -l)" "0" "...and writes nothing into the directory"
-rmdir "$KEMPT_STATE_DIR/security-seen.json"
-
-# A wedged writers' lock: a check with notify_security on waits for it briefly, publishes the block
-# and announces nothing. One with the setting off does not wait at all. This shell holds the lock.
-"$KEMPT" check >/dev/null 2>&1
-adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-w1 brandnew-1.0-1.fc44.x86_64)"
-seen_before="$(cat "$KEMPT_STATE_DIR/security-seen.json")"
-n_before="$(notes)"
-exec {wfd}>>"$KEMPT_STATE_DIR/writer.lock"; flock "$wfd"
-t0="$(date +%s)"
-out="$("$KEMPT" check 2>/dev/null)"
-took=$(( $(date +%s) - t0 ))
-assert_eq "$(( took >= 4 && took <= 15 ))" "1" "a wedged lock costs a check its short wait, not 30 s (took ${took} s)"
-assert_eq "$(jq -r '.security.packages | index("brandnew") != null' <<<"$out")" "true" "...the block is still published"
-assert_eq "$(notes)" "$n_before" "...nothing is announced, since nothing could be recorded"
-assert_eq "$(cat "$KEMPT_STATE_DIR/security-seen.json")" "$seen_before" "...and the seen file is untouched"
-flock -u "$wfd"; exec {wfd}>&-
-"$KEMPT" config set notify_security false
-exec {wfd}>>"$KEMPT_STATE_DIR/writer.lock"; flock "$wfd"
-t0="$(date +%s)"
-"$KEMPT" check >/dev/null 2>&1
-took=$(( $(date +%s) - t0 ))
-flock -u "$wfd"; exec {wfd}>&-
-assert_eq "$(( took < 4 ))" "1" "with notify_security off a check does not wait for the writers' lock (took ${took} s)"
-"$KEMPT" config set notify_security true
-
-# An acknowledgement and a run publishing its stage: the ack reads and patches state.json under
-# state.lock, so the stage written while it waits is not undone by its patch of the older file.
-adv_set "${base_rows[@]}" "$(adv_row FEDORA-2026-r1 brandnew-1.0-1.fc44.x86_64)"
-"$KEMPT" check >/dev/null 2>&1
-digest="$(jq -r '.security.digest' "$STATE_FILE")"
-assert_eq "$(jq -c '[.security.attention, has("offline_staged")]' "$STATE_FILE")" "[true,false]" "(a set to acknowledge, nothing staged)"
-exec {sfd}>>"$KEMPT_STATE_DIR/state.lock"; flock "$sfd"
-"$KEMPT" security-ack --expect="$digest" >/dev/null 2>&1 & ack_pid=$!
-sleep 1
-assert_eq "$(kill -0 "$ack_pid" 2>/dev/null && echo waiting || echo done)" "waiting" "security-ack waits for state.lock"
-publish_staged_state_write '{"staged_at":"2026-10-09T12:00:00+03:00","count":7,"armed":true}' ""
-flock -u "$sfd"; exec {sfd}>&-
-ack_rc=0; wait "$ack_pid" || ack_rc=$?
-assert_eq "$ack_rc" "0" "...then acknowledges"
-assert_eq "$(jq -c '[.security.attention, .offline_staged.count]' "$STATE_FILE")" "[false,7]" \
-  "...and the stage published while it waited survives its patch"
+assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "with every pending package held, advisories are not asked about either"
+assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "...and there is no block"
+for n in $adv_names; do "$KEMPT" unhold "dnf:$n" >/dev/null 2>&1; done
 
 # dnf not answering, or an image-based system: no question at all.
 : > "$TESTTMP/advisory-calls"
@@ -2200,9 +2029,8 @@ assert_eq "$(jq -c '[.status, has("security")]' <<<"$out")" '["stale",false]' "w
 assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "...and advisories are not asked about"
 KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" check >/dev/null 2>&1
 assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "an image-based system is never asked"
-"$KEMPT" config set notify_security false
-export KEMPT_NOTIFY="true" KEMPT_DNF_ADVISORY_CMD="$TESTTMP/UNSTUBBED-dnf-advisory"
-unset DBUS_SESSION_BUS_ADDRESS KEMPT_DNF_SYSTEM_CACHE
+export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/UNSTUBBED-dnf-advisory"
+unset KEMPT_DNF_CACHE_DIR
 
 # --- per-user Flatpak apps -------------------------------------------------------------------------
 # Apps installed with --user are outside every --system listing, so a box with only those said

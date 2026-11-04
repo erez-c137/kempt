@@ -248,20 +248,17 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
 
   The restart message ships now and consumes it, so the fixture's job is no longer to prove that
   nothing reads it. It is the state the restart assertions are driven from - `probe_popup.py`
-  points the stubbed CLI at it to put the message on screen, then switches `restart_reminder`
-  off, then closes the message, and checks each time that the fact moves into the footer's
-  `restart pending` rather than disappearing. Paired with state-live.json it is also still the
+  points the stubbed CLI at it to put the message on screen, then closes the message, and
+  checks that the fact moves into the footer's `restart pending` rather than disappearing. Paired with state-live.json it is also still the
   controlled experiment it was built as: `tests/test_widget_logic.sh` compares the two whole view
   models with `rebootNeeded` and `restartMessageVisible` deleted and requires them identical, so
   the key is held to moving the restart surfaces and nothing else.
 
 - **state-security.json** - **derived**, `jq '. + {security: {...}}'` over state-live.json: the
-  block a check publishes for notify_security, naming three of the pending dnf packages, with an
-  advisory nobody has seen (`attention: true`) and a digest. Derived for the reason
-  state-reboot-needed.json is: paired with state-live.json it differs by that one key, so the view
-  model tests can say exactly what the block moves (the row token, the tooltip count and the
-  panel's attention) and that nothing else changes. `probe_state.py` drives the panel status from
-  it. Re-derive it from state-live.json at every re-capture.
+  block a check publishes, naming three of the pending dnf packages. Derived for the
+  reason state-reboot-needed.json is: paired with state-live.json it differs by that one key, so
+  the view model tests can say exactly what the block moves (the row token and the tooltip count)
+  and that nothing else changes. Re-derive it from state-live.json at every re-capture.
 
 - **state-empty.json** (zero bytes) and **state-garbage.json** (a truncated document,
   `{"schema": 1, "last_check": "2026-08-2`) - **hand-written**, because no CLI can produce them:

@@ -56,7 +56,7 @@ render() {  # status link → sets $R_STATE $R_REFUSE $R_DOCTOR $R_JSON $R_WIDGE
   R_WIDGET="$(node -e '
     const L = require(process.argv[1]);
     const st = JSON.parse(require("fs").readFileSync(process.argv[2], "utf8"));
-    process.stdout.write(L.viewModel(st, false, "", {surface: "background"}).releaseUpgradeMessage);
+    process.stdout.write(L.viewModel(st, false, "", {surface: "popup"}).releaseUpgradeMessage);
   ' "$REPO_ROOT/plasmoid/contents/ui/logic.js" "$KEMPT_STATE_DIR/state.json" 2>/dev/null)"
 }
 

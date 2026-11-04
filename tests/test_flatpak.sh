@@ -434,48 +434,6 @@ assert_eq "$(fp_calls | wc -c)" "0" "...updating nothing at all"
 assert_exit 0 "an installed runtime id is recognised" flatpak_id_is_runtime org.kde.Platform
 assert_exit 1 "an app id is not a runtime" flatpak_id_is_runtime net.mkiol.SpeechNote
 assert_exit 1 "...and neither is a name nothing answers to" flatpak_id_is_runtime org.example.Nothing
-# --- end-of-life notices ---------------------------------------------------------------------------
-# flatpak 1.18 names the id only; other versions add `//branch`. A `.Locale` extension folds into
-# its runtime, a repeat from the per-app update loop is one entry, and a rebase notice (no reason)
-# still counts.
-eol_ids="$(printf '%s\n' \
-  "Info: org.kde.Platform is end-of-life, with reason: Move to 6.9" \
-  "Info: org.kde.Platform.Locale is end-of-life, with reason: Move to 6.9" \
-  "Info: org.kde.Platform is end-of-life, with reason: Move to 6.9" \
-  "Info: (pinned) org.gnome.Platform//44 is end-of-life, with reason: Old" \
-  "Info: org.old.App is end-of-life, in favor of org.new.App" \
-  "Updating org.kde.Platform is end-of-life soon" | flatpak_eol_ids)"
-assert_eq "$eol_ids" "$(printf 'org.kde.Platform\t-\tMove to 6.9\norg.gnome.Platform\t44\tOld\norg.old.App\t-\t')" \
-  "end-of-life notices: id, branch or -, reason; Locale folded, repeats dropped"
-assert_eq "$(printf 'Nothing to update.\n' | flatpak_eol_notices)" "[]" "no notice, no lookups, no notes"
-
-printf 'net.mkiol.SpeechNote\tSpeech Note\torg.kde.Platform/x86_64/5.15-24.08\norg.kde.kate\tKate\torg.kde.Platform/x86_64/6.9\norg.old.App\t\torg.gnome.Platform/x86_64/48\n' \
-  > "$TESTTMP/eol-apps.tsv"
-printf 'org.kde.Platform\t5.15-24.08\t\norg.kde.Platform\t6.9\t\norg.gnome.Platform\t44\t\n' > "$TESTTMP/eol-rts.tsv"
-# flatpak info stand-in: only the 5.15 branch is end-of-life.
-cat > "$TESTTMP/eol-info" <<'STUB'
-#!/usr/bin/env bash
-[[ "$1" == "org.kde.Platform//5.15-24.08" ]] && echo "   End-of-life: Move to 6.9"
-exit 0
-STUB
-chmod +x "$TESTTMP/eol-info"
-eol_json="$(printf '%s\n' \
-  "Info: org.kde.Platform is end-of-life, with reason: Move to 6.9" \
-  "Info: org.gnome.Platform//44 is end-of-life, with reason: Old" \
-  "Info: org.old.App is end-of-life, in favor of org.new.App" \
-  | KEMPT_FLATPAK_APP_RUNTIME_CMD="cat $TESTTMP/eol-apps.tsv" KEMPT_FLATPAK_LIST_RUNTIME_CMD="cat $TESTTMP/eol-rts.tsv" \
-    KEMPT_FLATPAK_INFO_CMD="$TESTTMP/eol-info" flatpak_eol_notices)"
-assert_eq "$(jq -c '.[0]' <<<"$eol_json")" \
-  '{"id":"org.kde.Platform","branch":"5.15-24.08","kind":"runtime","apps":["Speech Note"],"reason":"Move to 6.9"}' \
-  "two branches installed: flatpak info picks the end-of-life one, and Kate on 6.9 is not blamed"
-assert_eq "$(jq -c '.[1] | [.branch, .apps]' <<<"$eol_json")" '["44",[]]' \
-  "a runtime no app uses is reported with no apps"
-assert_eq "$(jq -c '.[2] | [.kind, .apps]' <<<"$eol_json")" '["app",["org.old.App"]]' \
-  "an end-of-life app is its own note, named by id when it has no name"
-assert_exit 1 "a failed app lookup fails the notes, not silently empties them" \
-  bash -c 'source "$1/lib/common.sh"; source "$1/backends/flatpak.sh"
-           echo "Info: org.x.Y is end-of-life, with reason: z" | KEMPT_FLATPAK_APP_RUNTIME_CMD=false flatpak_eol_notices' _ "$REPO_ROOT"
-
 # --- the per-user installation ---------------------------------------------------------------------
 # Apps installed with `flatpak install --user` are invisible to every --system command, so a box
 # with only per-user apps said "Everything is up to date" over pending updates. Each user twin is
@@ -485,19 +443,18 @@ _fp_user_defaults="$(
   trap - EXIT
   unset KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_REFRESH_CMD KEMPT_FLATPAK_LIST_CMD \
         KEMPT_FLATPAK_REMOTE_RUNTIME_CMD KEMPT_FLATPAK_LIST_RUNTIME_CMD KEMPT_FLATPAK_SNAP_CMD \
-        KEMPT_FLATPAK_SNAP_RUNTIME_CMD KEMPT_FLATPAK_UPDATE_CMD KEMPT_FLATPAK_APP_RUNTIME_CMD \
-        KEMPT_FLATPAK_INFO_CMD
+        KEMPT_FLATPAK_SNAP_RUNTIME_CMD KEMPT_FLATPAK_UPDATE_CMD
   for n in REMOTE_CMD REFRESH_CMD LIST_CMD REMOTE_RUNTIME_CMD LIST_RUNTIME_CMD SNAP_CMD \
-           SNAP_RUNTIME_CMD UPDATE_CMD APP_RUNTIME_CMD INFO_CMD; do unset "KEMPT_FLATPAK_USER_$n"; done
+           SNAP_RUNTIME_CMD UPDATE_CMD; do unset "KEMPT_FLATPAK_USER_$n"; done
   source "$REPO_ROOT/lib/common.sh"
   source "$REPO_ROOT/backends/flatpak.sh"
   for n in REMOTE_CMD REFRESH_CMD LIST_CMD REMOTE_RUNTIME_CMD LIST_RUNTIME_CMD SNAP_CMD \
-           SNAP_RUNTIME_CMD UPDATE_CMD APP_RUNTIME_CMD INFO_CMD; do
+           SNAP_RUNTIME_CMD UPDATE_CMD; do
     s="KEMPT_FLATPAK_$n"; u="KEMPT_FLATPAK_USER_$n"
     [[ " ${!s} " == *" --system "* && "${!s/ --system/ --user}" == "${!u}" ]] && echo "ok $n" || echo "BAD $n: ${!u}"
   done
 )"
-assert_eq "$(grep -c '^ok ' <<<"$_fp_user_defaults")" "10" \
+assert_eq "$(grep -c '^ok ' <<<"$_fp_user_defaults")" "8" \
   "every per-user command is its system twin with --user in place of --system"
 assert_eq "$(grep '^BAD' <<<"$_fp_user_defaults" || true)" "" "...with none that differ"
 
@@ -623,14 +580,8 @@ assert_eq "$(cat "$TESTTMP/u-calls")" "USER UPDATE_CMD --noninteractive -y" "...
 flatpak_apply --user -y com.brave.Browser
 assert_eq "$(cat "$TESTTMP/u-calls")" "USER UPDATE_CMD --noninteractive -y com.brave.Browser" "...and per app, for holds"
 
-# hold refuses a runtime from either installation, and the end-of-life notes name per-user apps.
+# hold refuses a runtime from either installation.
 export KEMPT_FLATPAK_LIST_RUNTIME_CMD="true"
 assert_exit 0 "a per-user runtime id is recognised as a runtime" flatpak_id_is_runtime org.mozilla.Locale
-printf 'org.mozilla.thunderbird\tThunderbird\torg.gnome.Platform/x86_64/46\n' > "$TESTTMP/u-eol-apps.tsv"
-export KEMPT_FLATPAK_APP_RUNTIME_CMD="true" KEMPT_FLATPAK_INFO_CMD="true"
-u_eol="$(printf 'Info: org.gnome.Platform//46 is end-of-life, with reason: Old\n' \
-  | KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="cat $TESTTMP/u-eol-apps.tsv" KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="true" \
-    flatpak_eol_notices)"
-assert_eq "$(jq -c '.[0].apps' <<<"$u_eol")" '["Thunderbird"]' "an end-of-life note names the per-user app behind it"
 export KEMPT_FLATPAK_USER_DIR="$TESTTMP/no-user-flatpak"
 finish

@@ -84,14 +84,16 @@ Requires:       (flatpak-libs if flatpak)
 # new user to run.
 Recommends:     libnotify
 Recommends:     konsole
+# Blocks a shutdown while rpm is changing packages, so a restart pressed during an update waits.
+Recommends:     rpm-plugin-systemd-inhibit
 
 # The widget package is described here, not named. rpmlint's dictionary does not know the second
 # half of its name and reports it as a spelling error on this package and the source package.
 %description
 Kempt shows which dnf5 and Flatpak updates are pending with the version each
 package moves from and to, counts only the updates you have not held, and
-applies them in the panel widget, in a terminal, in the background, or staged
-for the next restart.
+applies them in the panel widget, in a terminal, or staged for the next
+restart.
 The Plasma panel widget is a separate package, which dnf5 adds by default on a
 system that has Plasma, so installing this package on a server or in a
 container does not pull in the desktop.

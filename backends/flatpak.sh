@@ -79,17 +79,6 @@ KEMPT_FLATPAK_SNAP_RUNTIME_CMD="${KEMPT_FLATPAK_SNAP_RUNTIME_CMD:-flatpak list -
 #     headless. Untested; SSH was never a supported surface.
 KEMPT_FLATPAK_UPDATE_CMD="${KEMPT_FLATPAK_UPDATE_CMD:-flatpak update --system}"
 
-# The two lookups behind a run's end-of-life notes (flatpak_eol_notices). Read only when flatpak
-# printed an end-of-life notice during the run, so an ordinary run pays for neither.
-# The app list carries `runtime` because that is the only place flatpak says which app depends on
-# which runtime, and `name` because the note is for a person, who knows "Speech Note" and not
-# net.mkiol.SpeechNote.
-KEMPT_FLATPAK_APP_RUNTIME_CMD="${KEMPT_FLATPAK_APP_RUNTIME_CMD:-flatpak list --system --app --columns=application,name,runtime}"
-# `flatpak info` is the one command that says whether a given BRANCH is end-of-life. The notice
-# names only the id, so when two branches of one runtime are installed this is how the note avoids
-# blaming the apps on the branch that is still supported.
-KEMPT_FLATPAK_INFO_CMD="${KEMPT_FLATPAK_INFO_CMD:-flatpak info --system}"
-
 # --- the per-user installation: the same commands with --user ------------------------------------
 # Apps installed with `flatpak install --user` live in the person's home and are invisible to every
 # --system command above. Each twin runs as the person, with no root helper and no polkit action.
@@ -107,17 +96,15 @@ KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="${KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD:-flat
 KEMPT_FLATPAK_USER_SNAP_CMD="${KEMPT_FLATPAK_USER_SNAP_CMD:-flatpak list --user --app --columns=application,version,active}"
 KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD="${KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD:-flatpak list --user --runtime --columns=application,branch,version,active}"
 KEMPT_FLATPAK_USER_UPDATE_CMD="${KEMPT_FLATPAK_USER_UPDATE_CMD:-flatpak update --user}"
-KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="${KEMPT_FLATPAK_USER_APP_RUNTIME_CMD:-flatpak list --user --app --columns=application,name,runtime}"
-KEMPT_FLATPAK_USER_INFO_CMD="${KEMPT_FLATPAK_USER_INFO_CMD:-flatpak info --user}"
 
 # Whether the person has a working per-user installation. Nothing is asked of it otherwise.
 # repo/config is what makes the directory an ostree repo: flatpak fails on a bare repo dir.
 flatpak_user_found() { [[ -f "$KEMPT_FLATPAK_USER_DIR/repo/config" ]]; }
 # ...and whether to use it. Never as root: a `sudo -E` or pkexec run keeps the person's HOME, and
 # `flatpak update --user` would leave root-owned files in their installation (as reclaim_as_root).
-# Never once this run found it unreadable either: KEMPT_FLATPAK_USER_SKIP drops the user side only.
+# Never once this run found it unreadable either: FLATPAK_USER_SKIP drops the user side only.
 flatpak_user_present() {
-  [[ $EUID -ne 0 && -z "${SUDO_UID:-}" && -z "${PKEXEC_UID:-}" && -z "${KEMPT_FLATPAK_USER_SKIP:-}" ]] \
+  [[ $EUID -ne 0 && -z "${SUDO_UID:-}" && -z "${PKEXEC_UID:-}" && -z "${FLATPAK_USER_SKIP:-}" ]] \
     && flatpak_user_found
 }
 
@@ -522,87 +509,4 @@ flatpak_apply() {  # [--user] [-y] [--runtime] [app-id...] → 0, or non-zero (p
     done
   fi
   return $rc
-}
-
-# End-of-life notices, read out of what `flatpak update` printed during the run. flatpak prints
-#   Info: org.kde.Platform is end-of-life, with reason: We strongly recommend moving to ...
-# on EVERY update while an installed ref is end-of-life, whether or not anything updated, and says
-# neither which app is behind it nor whether anything needs doing. These two functions turn the
-# notice into that answer, for the summary and the history entry.
-# The text is matched in English on purpose: lib/common.sh pins LC_ALL for the whole CLI.
-# A `.Locale` extension is folded into its runtime - it is end-of-life because the runtime is, and
-# one note per runtime is what the reader needs. `//branch` is optional because the id-only form is
-# what flatpak 1.18 prints and some versions add the branch.
-# An unknown branch is printed as `-`, never as an empty field: tab is whitespace to `read`, so two
-# tabs in a row collapse and the reason would be read as the branch.
-flatpak_eol_ids() {  # stdin: flatpak output → id<TAB>branch-or-`-`<TAB>reason-or-empty, deduplicated
-  sed -nE 's#^Info: (\(pinned\) )?([A-Za-z0-9._-]+)(//([^ ,]*))? is end-of-life(, with reason: (.*))?.*$#\2\t\4\t\6#p' \
-    | sed -E 's/\.Locale\t/\t/' \
-    | awk -F'\t' -v OFS='\t' '!seen[$1 FS $2]++ { if ($2 == "") $2 = "-"; print }'
-}
-
-flatpak_ref_is_eol() {  # id branch → 0 when flatpak info reports that installed ref end-of-life
-  local scope cmd
-  for scope in $(flatpak_scopes); do
-    cmd="$(flatpak_cmd "$scope" INFO_CMD)"
-    $cmd "$1//$2" 2>/dev/null </dev/null | grep -qE '^[[:space:]]*End-of-life:' && return 0
-  done
-  return 1
-}
-
-# One lookup across both installations, for the notes below: a notice names an id, never the
-# installation, so the apps behind it may be in either.
-flatpak_eol_lookup() {  # APP_RUNTIME_CMD|LIST_RUNTIME_CMD → the rows of every installation
-  local scope cmd out all=""
-  for scope in $(flatpak_scopes); do
-    cmd="$(flatpak_cmd "$scope" "$1")"
-    # A per-user lookup that fails costs only the per-user apps' names in the notes.
-    out="$($cmd 2>/dev/null)" || { [[ "$scope" == user ]] && continue; return 1; }
-    all+="$out"$'\n'
-  done
-  printf '%s' "$all" | awk 'NF'
-}
-
-# One entry per end-of-life ref: {id, branch, kind, apps, reason}. kind is "app" when the ref is an
-# installed app (apps is then that app), "runtime" otherwise (apps is every installed app on that
-# branch, possibly none). Returns non-zero only when a lookup failed, and the caller treats that as
-# "no notes": a missing note costs nothing, a crash after the update costs the history entry.
-flatpak_eol_notices() {  # stdin: flatpak output → JSON array
-  local ids app_rows rt_rows id branch reason name b branches entries=""
-  ids="$(flatpak_eol_ids)"
-  [[ -n "$ids" ]] || { echo '[]'; return 0; }
-  app_rows="$(flatpak_eol_lookup APP_RUNTIME_CMD)" || return 1
-  rt_rows="$(flatpak_eol_lookup LIST_RUNTIME_CMD)" || return 1
-  while IFS=$'\t' read -r id branch reason; do
-    [[ -n "$id" ]] || continue
-    [[ "$branch" == "-" ]] && branch=""
-    name="$(awk -F'\t' -v id="$id" '$1 == id { print ($2 != "" ? $2 : $1); exit }' <<<"$app_rows")"
-    if [[ -n "$name" ]]; then
-      entries+="$(jq -cn --arg id "$id" --arg name "$name" --arg reason "$reason" \
-        '{id:$id, branch:"", kind:"app", apps:[$name], reason:$reason}')"$'\n'
-      continue
-    fi
-    if [[ -n "$branch" ]]; then
-      branches="$branch"
-    else
-      branches="$(awk -F'\t' -v id="$id" '$1 == id { print $2 }' <<<"$rt_rows")"
-      # Two or more branches installed: keep the ones flatpak itself calls end-of-life. If it
-      # confirms none, keep them all - an extra note is better than hiding the real one.
-      if [[ "$(grep -c . <<<"$branches")" -gt 1 ]]; then
-        local confirmed=""
-        while IFS= read -r b; do
-          flatpak_ref_is_eol "$id" "$b" && confirmed+="$b"$'\n'
-        done <<<"$branches"
-        [[ -n "$confirmed" ]] && branches="${confirmed%$'\n'}"
-      fi
-    fi
-    while IFS= read -r b; do
-      entries+="$(awk -F'\t' -v id="$id" -v br="$b" '
-          { n = split($3, r, "/") }
-          n == 3 && r[1] == id && (br == "" || r[3] == br) { print ($2 != "" ? $2 : $1) }' <<<"$app_rows" \
-        | jq -cRn --arg id "$id" --arg branch "$b" --arg reason "$reason" \
-            '{id:$id, branch:$branch, kind:"runtime", apps:[inputs], reason:$reason}')"$'\n'
-    done <<<"${branches:-}"
-  done <<<"$ids"
-  jq -cs '.' <<<"$entries"
 }

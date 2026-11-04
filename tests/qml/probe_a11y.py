@@ -414,19 +414,6 @@ lev("popup.focusPrimary()")
 p.pump(20)
 p.check("...and backwards the same way", walk(len(expected), back=True), reverse_of(expected))
 
-# Actions that ask for a password: polkit takes the focus the instant one is pressed, so the words
-# have to be on the button Kirigami draws, not just on the action behind it.
-_doc = json.load(open(fixture("state-risky-heavy.json")))
-_doc.pop("offline_staged", None)
-_doc["offline_stage_restorable"] = {"staged_at": "2026-09-02T10:31:00+03:00", "count": 61}
-_path = os.path.join(p.sandbox, "state-restorable.json")
-json.dump(_doc, open(_path, "w"))
-state(_path)
-p.pump(150)
-p.check("Put It Back's button says it may ask for a password",
-        "password" in str(lev("popup.buttonFor(stageRestorableMessage, "
-                              "stageRestorableMessage.actions[0]).Accessible.description")), True)
-
 # The state this widget is actually FOR. A weekly Fedora update is fifty to two hundred packages,
 # and a ListView only builds the delegates near its viewport - so before the scroll-into-view,
 # the focus chain simply ended at whichever row happened to exist and Tab jumped out of the list.
@@ -594,7 +581,7 @@ p.check("the Refresh icon also says what pressing it does",
         lev("refreshButton.Accessible.description"),
         "Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
 p.check("...and the gear says what is behind it", lev("configureButton.Accessible.description"),
-        "Check interval, where updates run, restart reminders, and the packages you hold.")
+        "Check interval, where updates run, and the packages you hold.")
 p.check("...neither of them repeating its own label",
         [lev("refreshButton.Accessible.description") == lev("refreshButton.text"),
          lev("configureButton.Accessible.description") == lev("configureButton.text")],
@@ -629,10 +616,10 @@ p.check("...and the reason a person has to act on is on the button that acts",
 # Unused Flatpak runtimes: an offer, last in the stack. Derived from the up-to-date state with a
 # reclaim block added, in the shape cmd_check writes, so nothing else in the stack competes for
 # the two slots.
-def reclaim_from(source, name, mode="ask"):
+def reclaim_from(source, name):
     doc = json.load(open(source))
     doc["reclaim"] = {
-        "mode": mode, "status": "ok", "offerable_bytes": 1530000000,
+        "status": "ok", "offerable_bytes": 1530000000,
         "digest": "0123456789abcdef",
         "refs": [{"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
                   "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"},
@@ -864,31 +851,24 @@ def _code(name):
 # icon-only button arrived with no description, because some unrelated description elsewhere was
 # already covering for it.
 #
-# FullRepresentation.qml has two. The Rebuild Staged Update action is a labelled button, not an
-# icon-only one, and it carries a description anyway: its tooltip discloses that the rebuild asks
-# for authorization and that a failed rebuild removes the current staged update, and a polkit
-# dialog takes the focus the instant it is pressed. A disclosure that has not been heard by then is
-# never heard, so the same words are bound to Accessible.description. The second is the updating
-# pane's escape hatch, which is text-only and says what pressing it does - it is the ONLY control
-# in that pane, so a person who cannot see the label has nothing else to go on.
+# FullRepresentation.qml has several. The first is the updating pane's escape hatch, which is
+# text-only and says what pressing it does - it is the ONLY control in that pane, so a person who
+# cannot see the label has nothing else to go on.
 #
-# The third is Discard Staged Update, on the same banner and for the same reason: its tooltip
-# discloses the authorization and that the downloaded packages go with the transaction, and polkit
-# takes the focus the instant it is pressed.
+# The second is Discard Staged Update, a labelled button that carries a description anyway: its
+# tooltip discloses the authorization and that the downloaded packages go with the transaction, and
+# polkit takes the focus the instant it is pressed.
 #
-# The fourth is Free Up Space on the reclaim offer: Flatpak's polkit dialog can take the focus the
+# The third is Free Up Space on the reclaim offer: Flatpak's polkit dialog can take the focus the
 # same way, so the tooltip that says so is its description too.
 #
-# The fifth is the footer button when updates run on the next restart: it reads Install on Next
+# The fourth is the footer button when updates run on the next restart: it reads Install on Next
 # Restart, and its tooltip says the press downloads now and installs at the restart.
 #
-# The sixth and seventh are the startup banner's Copy Command and Mute Until It Starts: one pair
+# The fifth and sixth are the startup banner's Copy Command and Mute Until It Starts: one pair
 # per service, so the description (the command, and what muting does) tells them apart by ear.
-# The eighth is popup.speakActionsAs binding those two actions' spoken descriptions onto the
+# The seventh is popup.speakActionsAs binding those two actions' spoken descriptions onto the
 # buttons Kirigami draws for them, since an action cannot reach its own button's.
-#
-# The ninth is Put It Back: its tooltip says it may ask for a password, and polkit takes the focus
-# the instant it is pressed.
 #
 # configGeneral.qml has one: Undo beside a service just unmuted names the service it mutes again.
 #
@@ -896,7 +876,7 @@ def _code(name):
 # copies, so one service's button is told from the next by ear, and Refresh's tooltip reads its
 # description back rather than repeating the literal. The fourth is Show All and Hide, which carry
 # the folded list's count, and the whole list once it is open.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 9, "configGeneral.qml": 1, "StartupPage.qml": 4}
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 7, "configGeneral.qml": 1, "StartupPage.qml": 4}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)

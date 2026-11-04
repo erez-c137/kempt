@@ -24,40 +24,24 @@ p = harness.Probe("probe-state")
 os.makedirs(p.state)
 MODE = os.path.join(p.sandbox, "mode")
 IVAL = os.path.join(p.sandbox, "interval")
-SIZE = os.path.join(p.sandbox, "iconsize")
 # The first check answers with NOTHING - another check holding the lock, which is the ordinary
 # state of a fresh login and the case the bounded retry below exists for.
 open(MODE, "w").write("empty")
 open(IVAL, "w").write("15")
-open(SIZE, "w").write("auto")
 STATE_JSON = os.path.join(p.state, "state.json")
 # What `kempt summary --json` answers: the newest history entry, or nothing at all on a box that
 # has never run an update. Absent until section 8e, which is about a run that wrote one.
 SUMMARY = os.path.join(p.sandbox, "summary")
-# What `kempt security-ack` answers (section 9), and the CLI's memory of an acknowledged set.
-ACKRC = os.path.join(p.sandbox, "ackrc")
-ACKED = os.path.join(p.sandbox, "acked")
 
 p.stub("""
 mode="$(cat %(MODE)s)"
 if [[ "$1 $2" == "config get" ]]; then
   [[ "$3" == refresh_interval_min ]] && cat %(IVAL)s
-  [[ "$3" == widget_icon_size ]] && cat %(SIZE)s
   exit 0
 fi
 if [[ "$1 $2" == "summary --json" ]]; then
   cat %(SUM)s 2>/dev/null
   exit 0
-fi
-# The acknowledgement: the rc comes from a file, and a 0 does what the CLI does, which is to clear
-# the attention in state.json and remember the set, so the next check keeps it cleared.
-if [[ "$1" == security-ack ]]; then
-  rc="$(cat %(ACKRC)s 2>/dev/null || echo 0)"
-  if [[ "$rc" == 0 ]]; then
-    jq -c '.security.attention = false' %(ST)s > %(ST)s.tmp && mv %(ST)s.tmp %(ST)s
-    touch %(ACKED)s
-  fi
-  exit "$rc"
 fi
 if [[ "$1" == check ]]; then
   # The real CLI PERSISTS state.json and then prints it. The stub must do the same, or the
@@ -67,8 +51,6 @@ if [[ "$1" == check ]]; then
     slow)        sleep 1; cp %(FIX)s/state-live.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     slownever)   sleep 1; cp %(FIX)s/state-never.json %(ST)s; touch %(ST)s; cat %(ST)s ;;
     never)       cp %(FIX)s/state-never.json %(ST)s; cat %(ST)s ;;
-    security)    if [[ -e %(ACKED)s ]]; then jq -c '.security.attention = false' %(FIX)s/state-security.json
-                 else cat %(FIX)s/state-security.json; fi > %(ST)s; cat %(ST)s ;;
     empty)       exit 0 ;;                                   # lock timeout: no data, exit 0
     # What `sh -c "kempt check"` really answers on a box that has the widget and not the CLI.
     # Both the rc and the sentence are the shell's, verbatim.
@@ -79,8 +61,8 @@ if [[ "$1" == check ]]; then
   esac
   exit 0
 fi
-""" % {"MODE": MODE, "IVAL": IVAL, "SIZE": SIZE, "FIX": harness.FIXTURES,
-       "ST": STATE_JSON, "SUM": SUMMARY, "ACKRC": ACKRC, "ACKED": ACKED})
+""" % {"MODE": MODE, "IVAL": IVAL, "FIX": harness.FIXTURES,
+       "ST": STATE_JSON, "SUM": SUMMARY})
 
 root, ev = p.create("main.qml")
 p.wait_for(ev, "root.checking", False)
@@ -214,7 +196,7 @@ open(MODE, "w").write("answerfirst")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False)
 p.check("stdout is used even when the CLI exits non-zero", ev("root.vm.badgeText"), "7")
-p.check("...and the disabled backend drops out of the popup", ev("root.vm.sections.length"), 1)
+p.check("...and the disabled backend drops out of the popup", ev("root.vm.rows.filter(function (r) { return r.kind === 'header' && !r.held; }).length"), 1)
 
 # --- 4. garbage: leave the last good state alone ----------------------------------------------
 open(MODE, "w").write("garbage")
@@ -411,7 +393,7 @@ open(MODE, "w").write("live")
 open(MODE, "w").write("never")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
-p.check("the state says no check has ever succeeded", ev("root.vm.lastSuccessText"), "never")
+p.check("the state says no check has ever succeeded", ev("root.vm.tooltipSub.indexOf('No successful check yet') >= 0"), True)
 before = p.call_count("check")
 for _ in range(3):
     ev("root.popupOpened()")
@@ -494,7 +476,7 @@ p.check("a watcher tick after the window checks again", p.call_count("check") - 
 # is pending, so re-reading the settings is not enough on its own.
 CONFIG_FILE = os.path.join(p.config, "config")
 os.makedirs(p.config, exist_ok=True)
-open(CONFIG_FILE, "w").write("surface=background\n")
+open(CONFIG_FILE, "w").write("surface=offline\n")
 ev("root.watchStamp = ''; root.pollWatch(false)")      # learn the config file's mtime
 # NOT a fixed pump. An empty baseline learns and fires nothing (main.qml: `previous === ""`), so a
 # stat that has not come back yet turns this assertion into its own opposite: the touch below is
@@ -525,7 +507,7 @@ p.check("a settings apply inside the window is still acted on at once",
 # to throw away as superseded. The one press the staged state exists to prevent.
 #
 # So the file that moved is read directly, here, instead of waiting to be told about it. One
-# `cat`, no lock: the same trade rebuildStaged and discardStaged make before they act on a banner.
+# `cat`, no lock: the same trade discardStaged makes before it acts on a banner.
 STAGED = json.load(open(os.path.join(harness.FIXTURES, "state-live.json")))
 STAGED["offline_staged"] = {"staged_at": "2026-09-02T10:31:00+03:00", "count": 7, "armed": True}
 open(MODE, "w").write("live")
@@ -887,45 +869,6 @@ p.check("a watch poll already queued is not queued again",
 p.wait_idle(ev, "executor")
 p.check("...and the count goes back to zero once it has run", ev("root.watchPolls"), 0)
 
-# --- 9. a new set of security updates: the panel asks once, and opening the popup answers ------
-# The tray shows an entry asking for attention, and Plasma keeps one the user set to "Always
-# hidden" in the hidden list. The status is assigned in a try like the presence claim above, so the
-# witness is what proves the attention branch ran rather than throwing into the catch.
-ev("root.popupClosed()")
-open(MODE, "w").write("security")
-open(ACKRC, "w").write("6")
-ev("root.doCheck()")
-p.wait_for(ev, "root.checking", False)
-p.wait_idle(ev, "executor")
-p.check("premise: the check reported a set nobody has seen", ev("root.vm.needsAttention"), True)
-p.check("the panel icon asks for attention", ev("root.trayStatusShown"), "attention")
-p.check("...and nothing is acknowledged while the popup is closed", p.call_count("security-ack"), 0)
-
-# A CLI that refuses (the set changed under it) leaves the request standing, and does not retry
-# while the popup stays open.
-ev("root.popupOpened()")
-p.wait_idle(ev, "executor")
-p.check("opening the popup acknowledges the set it saw, by its digest",
-        p.calls_matching("security-ack"), ["security-ack --expect=0123456789abcdef"])
-p.check("...and a refused acknowledgement leaves the request standing",
-        ev("root.trayStatusShown"), "attention")
-ev("root.popupClosed()")
-
-open(ACKRC, "w").write("0")
-ev("root.popupOpened()")
-p.wait_for(ev, "root.trayStatusShown", "active", timeout_ms=4000)
-p.wait_idle(ev, "executor")
-p.check("the next open tries again, and an accepted one clears the request",
-        [p.call_count("security-ack"), ev("root.trayStatusShown")], [2, "active"])
-ev("root.popupClosed()")
-ev("root.doCheck()")
-p.wait_for(ev, "root.checking", False)
-p.wait_idle(ev, "executor")
-p.check("a later check of the same set does not ask again", ev("root.trayStatusShown"), "active")
-ev("root.popupOpened()")
-p.wait_idle(ev, "executor")
-p.check("...and the popup has nothing more to acknowledge", p.call_count("security-ack"), 2)
-ev("root.popupClosed()")
 open(MODE, "w").write("live")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False)
@@ -942,10 +885,8 @@ PlasmoidItem {
     id: shell
     width: %d; height: %d
     property var vm: ({ iconState: "updates", badgeText: "%s", badgeVisible: true })
-    property string sizeSetting: "%s"
     CompactRepresentation {
         id: cr; anchors.fill: parent; plasmoidItem: shell; vm: shell.vm
-        iconSizeSetting: shell.sizeSetting
     }
     function badge() {
         for (var i = 0; i < cr.children.length; i++)
@@ -976,9 +917,9 @@ PlasmoidItem {
 _serial = [0]
 
 
-def cell(size, text="7", setting="auto"):
+def cell(size, text="7"):
     _serial[0] += 1
-    return p.create_inline(CELL % (size, size, text, setting),
+    return p.create_inline(CELL % (size, size, text),
                            "cell-%d-%d.qml" % (size, _serial[0]))
 
 
@@ -996,7 +937,7 @@ for size in (22, 32, 44, 64):
 p.check("the badge fits its count and stays inside the panel cell at every size", overflow, 0)
 
 # The icon is requested at a size the theme hints, so a hinted symbolic renders 1:1 instead of
-# being scaled by a fraction and going soft. WHICH step it lands on is Logic.resolveIconSize, and
+# being scaled by a fraction and going soft. WHICH step it lands on is Logic.snapIconSize, and
 # its ladder is pinned to what the system tray draws rather than to "the largest that fits" - a
 # real tray drew a 32px Kempt icon standing in a row of 22px entries. This proves
 # the binding actually feeds Kirigami.Icon the laddered number at real panel thicknesses.
@@ -1024,10 +965,6 @@ for txt in ("7", "347"):
     p.check("a 16px cell draws the icon at 16", cev("cr.iconSize"), 16)
     p.check("...and drops the %s badge rather than drawing an unreadable one" % txt,
             cev("badge().visible"), False)
-obj, cev = cell(44, "347", "small")
-p.pump(60)
-p.check("choosing Small on an ordinary panel puts the icon on the 16px step", cev("cr.iconSize"), 16)
-p.check("...so the badge goes with it", cev("badge().visible"), False)
 obj, cev = cell(22, "347")
 p.pump(60)
 p.check("the 22px step is where the badge comes back", cev("cr.iconSize"), 22)
@@ -1041,29 +978,6 @@ p.pump(40)
 p.check("a cell smaller than the smallest hinted icon still gets a whole number of pixels",
         cev("cr.iconSize"), 12)
 
-# --- the widget_icon_size setting, bound ------------------------------------------------------
-# The three named sizes and the automatic one, on the SAME 44px panel - the ordinary Plasma
-# default, and the thickness this was found at on a real box.
-for setting, want in (("auto", smallmed), ("small", small), ("medium", smallmed),
-                      ("large", medium)):
-    obj, cev = cell(44, "7", setting)
-    p.pump(40)
-    p.check("widget_icon_size=%s on a 44px panel draws at %d px" % (setting, want),
-            cev("cr.iconSize"), want)
-    p.check("...and the Kirigami.Icon is given exactly that", cev("mainIcon().width"), want)
-# A value the widget does not recognise must draw, not vanish or throw: `kempt config set` stores
-# whatever it is handed, so this is the only place a typo is ever caught.
-obj, cev = cell(44, "7", "enormous")
-p.pump(40)
-p.check("an unrecognised setting falls back to automatic rather than breaking the icon",
-        cev("cr.iconSize"), smallmed)
-# ...and a size the cell cannot hold gives way to the cell. This is what makes the system tray's
-# slot win over the setting: the tray hands each entry a square at its own icon size.
-obj, cev = cell(22, "7", "large")
-p.pump(40)
-p.check("a chosen size larger than the cell gives way to the cell", cev("cr.iconSize"), smallmed)
-p.check("...and never overflows it", cev("cr.iconSize") <= 22, True)
-
 # The badge is drawn against the ICON now, not the cell. While the icon filled its cell the two
 # were the same thing; on a 44px panel the icon is 22, and a cell-anchored badge sat eleven pixels
 # away from the glyph it belongs to, at nearly the glyph's own size.
@@ -1076,32 +990,5 @@ p.check("...and sits at the icon's corner, not the cell's",
 p.check("...with a pill tall enough to read a count in", cev("badge().height") >= 12, True)
 p.check("the busy spinner is sized off the icon too",
         cev("busyWidth()") <= cev("cr.iconSize"), True)
-
-# ...and main.qml really reads the setting out of the CLI. Everything above proves the compact
-# representation obeys the value it is handed; this proves where that value comes from. A widget
-# that never re-read it would keep whatever it had at startup until plasmashell restarted.
-p.check("a fresh widget starts on the CLI's default", ev("root.iconSizeSetting"), "auto")
-open(SIZE, "w").write("large")
-ev("root.readIconSize()")
-p.wait_for(ev, "root.iconSizeSetting", "large")
-p.check("changing widget_icon_size in the CLI reaches the panel icon", ev("root.iconSizeSetting"),
-        "large")
-# The widget is the ONLY validator this setting has - `kempt config set` stores whatever it is
-# handed - so a value it does not know must land on `auto` rather than on an undefined size.
-open(SIZE, "w").write("gargantuan")
-ev("root.readIconSize()")
-p.wait_for(ev, "root.iconSizeSetting", "auto")
-p.check("a value the widget does not know falls back to automatic", ev("root.iconSizeSetting"),
-        "auto")
-# An empty answer is an OLDER CLI that has never heard of the key, and that must leave the
-# widget's current setting alone rather than reset it.
-open(SIZE, "w").write("medium")
-ev("root.readIconSize()")
-p.wait_for(ev, "root.iconSizeSetting", "medium")
-open(SIZE, "w").write("")
-ev("root.readIconSize()")
-p.pump(400)
-p.check("an older CLI that answers with nothing does not reset the setting",
-        ev("root.iconSizeSetting"), "medium")
 
 sys.exit(p.done())

@@ -50,8 +50,7 @@ open(os.path.join(p.state, "logs", "20260825T000000.log"), "w").write(
 STATE_JSON = os.path.join(p.state, "state.json")
 RUNRC = os.path.join(p.sandbox, "runrc")
 AUTO = os.path.join(p.sandbox, "auto_accept")
-# Which state fixture `kempt check` serves, what `kempt config get restart_reminder` answers, and
-# what `kempt summary --json` prints. Files rather than constants because every one of them is a
+# Which state fixture `kempt check` serves, and what `kempt summary --json` prints. Files rather than constants because every one of them is a
 # world the widget has to react to a CHANGE in, and rewriting a file is how this probe changes the
 # world under a running widget.
 CHECKSRC = os.path.join(p.sandbox, "checksrc")
@@ -62,14 +61,9 @@ open(CHECKRC, "w").write("")
 # Seconds `kempt check` takes before it answers (empty: none).
 CHECKSLEEP = os.path.join(p.sandbox, "checksleep")
 open(CHECKSLEEP, "w").write("")
-RR = os.path.join(p.sandbox, "restart_reminder")
 RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNRC, "w").write("0")
-# Non-empty: `kempt run` answers as a 0.1.7 engine does to an option it does not know.
-OLDRUN = os.path.join(p.sandbox, "oldrun")
-open(OLDRUN, "w").write("")
 open(AUTO, "w").write("true\n")
-open(RR, "w").write("true\n")
 # What `kempt config get surface` answers, and the status `config set` fails with (empty: it works).
 SURF = os.path.join(p.sandbox, "surface")
 CFGSETRC = os.path.join(p.sandbox, "cfgsetrc")
@@ -91,13 +85,6 @@ UNSTAGEERR = os.path.join(p.sandbox, "unstageerr")
 open(UNSTAGERC, "w").write("0")
 open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart installs nothing.\n")
 open(UNSTAGEERR, "w").write("")
-# ...and `kempt restore-stage`, which the Put It Back action runs.
-RESTORERC = os.path.join(p.sandbox, "restorerc")
-RESTOREOUT = os.path.join(p.sandbox, "restoreout")
-RESTOREERR = os.path.join(p.sandbox, "restoreerr")
-open(RESTORERC, "w").write("0")
-open(RESTOREOUT, "w").write("Put back. The next restart installs your 61 staged updates.\n")
-open(RESTOREERR, "w").write("")
 # `kempt reclaim`, which Free Up Space runs: status, both streams, and the state the CLI leaves
 # behind (a path, copied over state.json with @NOW@ stamped as `date -Iseconds`, or empty to leave
 # state.json alone). The real command rewrites state.json before it exits, with reclaim.last.
@@ -199,13 +186,10 @@ case "$1" in
           [[ -s %(CHKRC)s ]] && { echo "kempt: the check could not run" >&2; exit "$(cat %(CHKRC)s)"; }
           cp "$(cat %(SRC)s)" %(ST)s; cat %(ST)s; exit 0 ;;
   run)    # A 0.1.7 engine, while this file holds anything: it has no --risky-ok, and says so.
-          [[ "$2" == --risky-ok && -s %(OLDRUN)s ]] && { echo "unknown option: --risky-ok" >&2; exit 2; }
           rc="$(cat %(RUNRC)s)"
           # 3 is cmd_run's up-front refusal while another update holds the lock, in its words.
           [[ "$rc" == 3 ]] && { echo "An update is already running." >&2; exit 3; }
-          # "2u": exit 2 with the refusal's own words, on a run that had no option to refuse.
-          [[ "$rc" == 2u ]] && { echo "unknown option: --risky-ok" >&2; exit 2; }
-          [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)" >&2; exit "$rc"; }
+          [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2; exit "$rc"; }
           exit 0 ;;
   update) exit 0 ;;
   discover-notifier)
@@ -220,7 +204,6 @@ case "$1" in
            else echo "Kempt - 2026-08-25T01:00:00 (terminal, 42s) ok"; echo "more detail"; fi
            exit 0 ;;
   unstage) cat %(UOUT)s; cat %(UERR)s >&2; exit "$(cat %(URC)s)" ;;
-  restore-stage) cat %(BOUT)s; cat %(BERR)s >&2; exit "$(cat %(BRC)s)" ;;
   reclaim) src="$(cat %(RST)s)"
            if [[ -n "$src" ]]; then sed "s/@NOW@/$(date -Iseconds)/" "$src" > %(ST)s; fi
            cat %(ROUT)s; cat %(RERR)s >&2; exit "$(cat %(RRC)s)" ;;
@@ -228,10 +211,9 @@ case "$1" in
           cat %(DOUT)s; cat %(DERR)s >&2; exit "$(cat %(DRC)s)" ;;
 esac
 """ % {"DWAIT": DOCTORWAIT, "DOUT": DOCTOROUT, "DERR": DOCTORERR, "DRC": DOCTORRC,
-       "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO,
-                                restart_reminder="cat %s" % RR),
-       "CHKRC": CHECKRC, "CHKSLEEP": CHECKSLEEP, "OLDRUN": OLDRUN, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
-       "RUNJSON": RUNJSON, "BOUT": RESTOREOUT, "BERR": RESTOREERR, "BRC": RESTORERC, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
+       "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO),
+       "CHKRC": CHECKRC, "CHKSLEEP": CHECKSLEEP, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
+       "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
 # The human `kempt summary` branch above is kept deliberately, with the exact ISO line the popup
 # used to paste into actionMessage. Nothing calls it any more, and that is the point: a widget
@@ -451,7 +433,7 @@ p.check("...and it refuses when nothing is running, rather than checking twice f
         (lambda before: (ev("root.checkAgain()"), p.call_count("check") - before)[1])(
             p.call_count("check")), 0)
 
-# --- Stage offline and a rebuild are not terminal runs, whatever the setting says ---------------
+# --- Stage offline is not a terminal run, whatever the setting says ----------------------------
 before_update = p.call_count("update")
 ev("root.stageOffline()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
@@ -468,7 +450,7 @@ open(RUNRC, "w").write("4")
 ev("root.startUpdate()")
 p.wait_for(ev, 'String(root.actionMessage).indexOf("konsole") >= 0', True, timeout_ms=8000)
 p.check("a failed launch reports the CLI's own remedy", ev("root.actionMessage"),
-        "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface background (Settings > Run updates in > In the background)")
+        "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)")
 p.check("...and does NOT pretend an update is running", ev("root.updating"), False)
 open(RUNRC, "w").write("0")
 
@@ -759,42 +741,15 @@ ev("root.promptRestart()")
 settle()
 p.check("...and the next attempt that works clears it", ev("root.restartError"), "")
 
-# --- the reminder setting, and closing the message ------------------------------------------------
-# The message is a REMINDER and a person can turn it off; the fact that a restart is owed is not
-# a reminder and never goes away.
+# --- closing the restart message ------------------------------------------------------------------
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-reboot-needed.json"))
 ev("root.doCheck()")
 settle()
-p.check("a state that says a restart is owed reaches the view model",
-        ev("root.vm.rebootNeeded"), True)
-p.check("...and with the reminder on, the popup offers the message",
+p.check("a state that says a restart is owed offers the message",
         ev("root.vm.restartMessageVisible"), True)
 p.check("...which is the only place the fact is stated - not twice in one window",
         "restart pending" in str(ev("root.vm.footerText")), False)
 
-open(RR, "w").write("false\n")
-ev("root.readRestartReminder()")
-settle()
-p.check("the reminder setting is read from the CLI like every other setting",
-        ev("root.restartReminder"), False)
-p.check("...and switching it off takes the message off the screen",
-        ev("root.vm.restartMessageVisible"), False)
-p.check("...while the status line keeps saying a restart is pending",
-        "restart pending" in str(ev("root.vm.footerText")), True)
-
-# An older CLI that has never heard of the key prints an empty line and exits 0. Read as "false"
-# that would silently switch the reminder off on a box whose setting is true - the same trap
-# auto_accept carries, and the same guard.
-open(RR, "w").write("")
-ev("root.restartReminder = true")
-ev("root.readRestartReminder()")
-p.wait_idle(ev, "executor")
-p.check("an empty answer changes nothing rather than being read as false",
-        ev("root.restartReminder"), True)
-open(RR, "w").write("true\n")
-ev("root.readRestartReminder()")
-settle()
-p.check("...and the reminder is back on", ev("root.vm.restartMessageVisible"), True)
 
 # Closing the message. Nothing is written, and the fact moves into the status line.
 before_cfg = p.call_count("config")
@@ -856,6 +811,29 @@ settle()
 p.check("...and triggering it runs the same check the Refresh button does",
         p.call_count("check") - before_check, 1)
 p.check("...one that fetches fresh metadata first", p.calls_matching("check")[-1], "check --refresh")
+
+# Install on Next Restart from the same menus, on a box whose footer says Update Now.
+def menu_state(name):
+    open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, name))
+    ev("root.doCheck()")
+    settle()
+
+menu_source = open(CHECKSRC).read()
+menu_state("state-live.json")
+p.check("the menu offers Install on Next Restart with updates pending",
+        [ev("stageAction.visible"), ev("stageAction.enabled"), ev("stageAction.text")],
+        [True, True, ev("Logic.COPY.installOnNextRestart")])
+before_stage = len(p.calls_matching("run --surface=offline"))
+ev("stageAction.trigger()")
+settle()
+p.check("...and the press is the existing stage",
+        len(p.calls_matching("run --surface=offline")) - before_stage, 1)
+ev("root.updating = false")
+menu_state("state-held-only.json")
+p.check("...and it goes with nothing pending", ev("stageAction.visible"), False)
+open(CHECKSRC, "w").write(menu_source)
+ev("root.doCheck()")
+settle()
 
 # --- the pins that keep the drivable seams honest ---------------------------------------------------
 # Everything above drives popupOpened()/popupClosed() directly, because writing `expanded` from a
@@ -943,8 +921,8 @@ p.check("...the status heading included, which is the pending count and not a se
 # `visibleActions`). With Check for Updates alone the heading drew a refresh icon and ours was
 # hidden under it. Startup Page is the second action, so the heading now draws the menu, no
 # refresh icon, and ours is the only one-click Check for Updates in the tray as everywhere else.
-p.check("two actions are registered, so a tray heading draws them as a menu",
-        "Plasmoid.contextualActions = [checkAction, startupAction];"
+p.check("at least two actions are registered, so a tray heading draws them as a menu",
+        "Plasmoid.contextualActions = [checkAction, startupAction, stageAction];"
         in " ".join(open(os.path.join(harness.UI, "main.qml")).read().split()), True)
 p.check("...and the refresh button stays in a tray heading",
         lev("refreshButton.visible"), True)
@@ -1050,7 +1028,6 @@ MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("imageBasedMessage", "the rpm-ostree message"),
             ("foldersPausedMessage", "updates paused over a system folder"),
             ("riskyMessage", "the session-critical warning"),
-            ("surfaceOfferMessage", "the offer to update in the popup"),
             ("discoverOfferMessage", "the offer to turn off Discover's notifier"),
             ("reportMessage", "the report of the last thing that happened"),
             ("doctorMessage", "what Check Installation found")]
@@ -1113,18 +1090,16 @@ p.check("...under the same label the restart message uses",
         lev("stagedMessage.actions[0].text"), ev("Logic.COPY.restartAction"))
 # ...and the way out of it, on the green banner as much as on the warnings: staging an update
 # and then thinking better of it is not a problem anybody should have to open a terminal to
-# fix. Third and last in the list, so it never stands where the conflict remedy stands.
-p.check("...with a third action, which is the way to discard the staged update",
-        lev("stagedMessage.actions[2].text"), ev("Logic.COPY.stagedDiscardAction"))
-p.check("...on screen beside the restart", lev("stagedMessage.actions[2].visible"), True)
-p.check("...and the rebuild is NOT: there is nothing to rebuild on a banner with no conflict",
-        lev("stagedMessage.actions[1].visible"), False)
-# The tooltip is the disclosure, and the same words go to a screen reader for the reason the
-# rebuild's do: polkit takes the focus the instant this is pressed.
+# fix.
+p.check("...with a second action, which is the way to discard the staged update",
+        lev("stagedMessage.actions[1].text"), ev("Logic.COPY.stagedDiscardAction"))
+p.check("...on screen beside the restart", lev("stagedMessage.actions[1].visible"), True)
+# The tooltip is the disclosure, and the same words go to a screen reader: polkit takes the focus
+# the instant this is pressed.
 p.check("...disclosing the authorization and the downloads in its tooltip",
-        lev("stagedMessage.actions[2].tooltip"), ev("Logic.COPY.stagedDiscardTooltip"))
+        lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedDiscardTooltip"))
 p.check("...in the same words a screen reader gets, before polkit takes the focus",
-        lev("stagedMessage.actions[2].Accessible.description"),
+        lev("stagedMessage.actions[1].Accessible.description"),
         ev("Logic.COPY.stagedDiscardTooltip"))
 
 dbus_staged = len(records("dbus-send"))
@@ -1182,9 +1157,6 @@ CONFLICT3 = conflict_from("state-risky-heavy.json", "state-staged-conflict3.json
 # a box that is holding dnf packages is owed the vague warning instead of the reassurance.
 GENERIC = conflict_from("state-held-only.json", "state-staged-generic.json", [], "none")
 
-REBUILD_TIP = ("Builds the staged update again with your current holds. May ask for "
-               "your password. If the rebuild fails, the current staged update is removed.")
-
 _sev("clear()")
 state(CONFLICT1)
 stack("with a hold on a package the staged update contains", "stagedMessage")
@@ -1192,8 +1164,8 @@ p.check("...the banner tells it in the person's own order of events, with both w
         "the cost of the one on the button",
         lev("stagedMessage.text"),
         "You held kernel-core after the update was staged, so it still"
-        " installs. Rebuild the staged update to skip kernel-core, or stop holding kernel-core to keep the"
-        " current plan. Rebuilding may ask for your password. If it fails, nothing stays staged.")
+        " installs. To skip kernel-core, discard the staged update and use Install on Next Restart again, or stop holding kernel-core to keep the"
+        " current plan. Discarding deletes the downloaded packages, so staging again downloads them again.")
 p.check("...as a Warning, because the reassurance is no longer true",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
@@ -1206,28 +1178,13 @@ p.check("...announced to a screen reader as the sentence, not as a change of col
 p.check("...and the flip is spoken as the new sentence, once",
         [w for w in said() if w.startswith("You held") or w.endswith("next restart")],
         [lev("stagedMessage.text")])
-p.check("...offering three actions in the list, one of which is standing down",
-        lev("stagedMessage.actions.length"), 3)
+p.check("...offering two actions in the list, one of which is standing down",
+        lev("stagedMessage.actions.length"), 2)
 p.check("...and the Restart… button is NOT one of them: offering a restart here offers the "
         "very install they tried to stop", lev("stagedMessage.actions[0].visible"), False)
 p.check("...inert as well as invisible", lev("stagedMessage.actions[0].enabled"), False)
-p.check("...the one action offered is the rebuild", lev("stagedMessage.actions[1].text"),
-        "Rebuild Staged Update")
-p.check("...and it is on screen", lev("stagedMessage.actions[1].visible"), True)
-p.check("...disclosing the authorization and the discard cost in its tooltip",
-        lev("stagedMessage.actions[1].tooltip"), REBUILD_TIP)
-# ...and the same words to a screen reader, which is the load-bearing half: a polkit dialog
-# takes focus the moment this is pressed, so a person who has not heard the cost by then hears
-# it never.
-p.check("...in the same words a screen reader gets, before polkit takes the focus",
-        lev("stagedMessage.actions[1].Accessible.description"), REBUILD_TIP)
-p.check("...which is the copy table's tooltip, not a second copy of it",
-        lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedRebuildTooltip"))
-# ...and the discard stands BESIDE it rather than in its place. The person who just held a
-# package is the likeliest of all to want no install at all, and the remedy this banner exists
-# for is still the first button on it.
-p.check("...with the discard offered as well, after the remedy rather than instead of it",
-        [lev("stagedMessage.actions[2].text"), lev("stagedMessage.actions[2].visible")],
+p.check("...the one action offered is the discard",
+        [lev("stagedMessage.actions[1].text"), lev("stagedMessage.actions[1].visible")],
         [ev("Logic.COPY.stagedDiscardAction"), True])
 
 # The only Restart button on screen sat forty pixels above the sentence saying what a
@@ -1298,8 +1255,8 @@ state(CONFLICT3)
 p.check("three held packages read as the first one and a count, every word moved with it",
         lev("stagedMessage.text"),
         "You held kernel-core and 2 more after the update was staged, so they"
-        " still install. Rebuild the staged update to skip them, or stop holding them to keep the current"
-        " plan. Rebuilding may ask for your password. If it fails, nothing stays staged.")
+        " still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current"
+        " plan. Discarding deletes the downloaded packages, so staging again downloads them again.")
 p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
 state(GENERIC)
@@ -1307,30 +1264,22 @@ stack("with a staged list that could not be read and dnf packages held", "staged
 p.check("...the banner says may, because that is what is known",
         lev("stagedMessage.text"),
         "You added holds after the update was staged, so it may still install"
-        " held packages. Rebuild the staged update to apply your holds. Rebuilding may ask for"
-        " your password. If it fails, nothing stays staged.")
+        " held packages. To apply your holds, discard the staged update and use Install on Next Restart again. Discarding deletes"
+        " the downloaded packages, so staging again downloads them again.")
 p.check("...as a warning all the same", lev("stagedMessage.type"),
         lev("Kirigami.MessageType.Warning"))
-p.check("...offering the same rebuild, which applies every current hold whatever the list said",
-        lev("stagedMessage.actions[1].visible"), True)
+p.check("...offering the same discard", lev("stagedMessage.actions[1].visible"), True)
 p.check("...and no restart", lev("stagedMessage.actions[0].visible"), False)
 
 # The unchanged case, asserted again from the other side of the flip: the plain armed stage is
-# still Positive with a live Restart… and no rebuild. This is the regression pin - a variant
+# still Positive with a live Restart…. This is the regression pin - a variant
 # that fired too eagerly would turn every ordinary staged transaction into a warning.
 state(STAGED_RISKY)
 p.check("an armed stage with no hold behind it is the Positive banner it always was",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...with the restart still on it", lev("stagedMessage.actions[0].visible"), True)
-p.check("...and no rebuild offered", lev("stagedMessage.actions[1].visible"), False)
 
 # --- the precondition re-verify, at click time ----------------
-# Consent is given to a BANNER, and the banner describes one transaction. Between rendering it
-# and the click, that transaction can be consumed by a restart, replaced by another stage, or
-# cleaned away - and a rebuild is destructive at its start (dnf5 destroys the stored
-# transaction the moment a re-stage begins). So the click re-reads state.json and
-# proceeds only if it is still looking at the same stage, still in conflict. Anything else and
-# it runs nothing and says so.
 # The 30-second watcher would otherwise be a coin toss inside this section: it polls mtimes,
 # and rewriting the state file under the widget is exactly what it exists to notice. A check it
 # triggered would re-read the STUB's fixture and put the old stage back mid-assertion. Its own
@@ -1346,85 +1295,17 @@ def mutate_state(source, **changes):
         doc["offline_staged"].update(changes)
     open(STATE_JSON, "w").write(json.dumps(doc))
 
-state(CONFLICT1)
-p.check("premise: the banner is derived from the stage staged at 10:31",
-        ev("root.vm.stagedStagedAt"), "2026-09-02T10:31:00+03:00")
-mutate_state(CONFLICT1, staged_at="2026-09-05T08:00:00+03:00")
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stagedMessage.actions[1].trigger()")
-settle()
-p.check("a rebuild clicked over a stage that has since been replaced runs NOTHING",
-        p.call_count("run") + p.call_count("update"), 0)
-p.check("...and does not pretend an update started", ev("root.updating"), False)
-p.check("...and the press is over, so the banner's actions are live again",
-        ev("root.actionPending"), False)
-p.check("...it says the stage moved, in the popup, where the press happened",
-        ev("root.actionMessage"), ev("Logic.COPY.stagedChanged"))
-p.check("...and the banner is re-derived from what is really on disk now",
-        ev("root.vm.stagedStagedAt"), "2026-09-05T08:00:00+03:00")
-
-# The stage cleaned away entirely between the render and the click: same refusal, and the
-# banner goes with it rather than standing over nothing.
-state(CONFLICT1)
-mutate_state(CONFLICT1, drop_staged=True)
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stagedMessage.actions[1].trigger()")
-settle()
-p.check("a rebuild clicked over a stage that is gone runs nothing either",
-        p.call_count("run") + p.call_count("update"), 0)
-p.check("...and the banner goes with it", ev("root.vm.stagedMessage"), "")
-
-# ...and the path that DOES act: nothing moved, so the click spends the consent it was given,
-# on the same command Install on Next Restart runs. Same verb, same polkit action, same dialog.
-state(CONFLICT1)
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stagedMessage.actions[1].trigger()")
-p.wait_for(ev, "root.updating", True, timeout_ms=8000)
-# calls_matching and not argv(): argv.<verb> is the LAST call's arguments and survives from
-# the stageOffline test far above, so it would answer correctly for a rebuild that never ran.
-# The call log is cleared right before the trigger, so only this press can fill it.
-p.check("an unchanged stage rebuilds through the offline surface, exactly once",
-        p.calls_matching("run"), ["run --surface=offline"])
-p.check("...with nothing to apologise for", ev("root.actionMessage"), "")
-p.check("...and the popup goes into its updating state", ev("root.updating"), True)
-ev("root.leaveUpdating()")
-settle()
-
-# ...and refused, like Install on Next Restart, when another update holds the lock: `run` says so
-# before anything is launched, and the popup shows it instead of a pane waiting for a rebuild that
-# never began.
-state(CONFLICT1)
-open(RUNRC, "w").write("3")
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stagedMessage.actions[1].trigger()")
-p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
-settle()
-p.check("a rebuild refused because an update is running says so, in the CLI's words",
-        ev("root.actionMessage"), "An update is already running.")
-p.check("...and stays out of the updating state", ev("root.updating"), False)
-p.check("...and the press is no longer pending", ev("root.actionPending"), False)
-ev("root.leaveUpdating()")
-settle()
-open(RUNRC, "w").write("0")
-ev('root.actionMessage = ""')
-
 # --- one pending action for the whole banner ---------------------------------------------------
-# A rebuild or a discard first reads state.json, and that read queues behind whatever the executor
-# is running - a check can take two minutes. Without a guard, a second press in that window queues a second
-# action: two unstages, or a discard and then a rebuild of the stage it had just thrown away.
+# A discard first reads state.json, and that read queues behind whatever the executor is running - a
+# check can take two minutes. Without a guard, a second press in that window queues a second action.
 state(CONFLICT1)
 p.clear_calls()
 ev('root.actionMessage = ""; root.actionDone = ""')
 ev("root.discardStaged()")
 p.check("a discard press is pending until the CLI answers", ev("root.actionPending"), True)
 p.check("...and the banner's actions are disabled meanwhile, not hidden",
-        [lev("stagedMessage.actions[1].enabled"), lev("stagedMessage.actions[2].enabled"),
-         lev("stagedMessage.actions[2].visible")], [False, False, True])
-ev("root.discardStaged(); root.rebuildStaged(); root.stageOffline()")
+        [lev("stagedMessage.actions[1].enabled"), lev("stagedMessage.actions[1].visible")], [False, True])
+ev("root.discardStaged(); root.stageOffline()")
 p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
 settle()
 p.check("presses while one is pending start nothing: exactly one unstage, no stage",
@@ -1434,23 +1315,9 @@ p.check("...and the press is over once the CLI has answered", ev("root.actionPen
 open(CHECKSRC, "w").write(CONFLICT1)
 ev('root.actionMessage = ""; root.actionDone = ""')
 
-# A rebuild asked for while a run is already in flight does nothing, the same guard
-# stageOffline has: two staging runs at once is the double-press this widget already learned
-# about, with a destructive first step this time.
-ev("root.enterUpdating()")
-p.clear_calls()
-ev("root.rebuildStaged()")
-settle()
-p.check("a rebuild asked for during a run is not a second run",
-        p.call_count("run") + p.call_count("update"), 0)
-ev("root.leaveUpdating()")
-settle()
-ev('root.actionMessage = ""')
-
 # --- the Discover offer, with the reason that matters while something is staged ---------------
 offer_doc = json.load(open(CONFLICT1))
 offer_doc["discover_offer"] = True
-offer_doc.pop("surface_offer", None)
 STAGED_OFFER = os.path.join(p.sandbox, "state-staged-offer.json")
 json.dump(offer_doc, open(STAGED_OFFER, "w"))
 state(STAGED_OFFER)
@@ -1467,7 +1334,6 @@ p.check("...and without the offer pending it does not",
 # --- another updater holds the next restart ------------------------------------------------------
 def held_state(name, **extra):
     doc = json.load(open(fixture("state-live.json")))
-    doc.pop("surface_offer", None)
     doc.pop("discover_offer", None)
     doc["restart_holder"] = "other"
     doc.update(extra)
@@ -1480,7 +1346,7 @@ settle()
 p.check("held: the banner is up, with Restart",
         [lev("stagedMessage.visible"), ev("root.vm.stagedShowRestart")], [True, True])
 p.check("...in the copy's words", lev("stagedMessage.text"), ev("Logic.COPY.restartHeldBanner"))
-p.check("...and the footer button says Update Now", ev("root.vm.updateButtonText"), "Update Now")
+p.check("...and the footer button says Update Now", lev("updateButton.text"), "Update Now")
 _held_runs = p.call_count("run")
 ev("root.startUpdate()")
 settle()
@@ -1596,83 +1462,21 @@ state(fixture("state-live.json"))
 settle()
 ev('root.discoverOfferAnswered = false; root.actionDone = ""; root.actionMessage = ""')
 
-# --- Put It Back: a stage another program took the restart step from --------------------------
-def restorable_state(staged_at):
-    doc = json.load(open(fixture("state-risky-heavy.json")))
-    doc.pop("offline_staged", None)
-    doc["offline_stage_restorable"] = {"staged_at": staged_at, "count": 61}
-    path = os.path.join(p.sandbox, "state-restorable-%s.json" % staged_at[:10])
-    json.dump(doc, open(path, "w"))
-    return path
-
-RESTORABLE = restorable_state("2026-09-02T10:31:00+03:00")
-state(RESTORABLE)
-settle()
-p.check("a stage that can be put back has a banner of its own",
-        [lev("stageRestorableMessage.visible"), lev("stagedMessage.visible")], [True, False])
-p.check("...which says what happened, in the copy's words",
-        lev("stageRestorableMessage.text"), ev("Logic.COPY.stageRestorable"))
-p.check("...with one way out", lev("stageRestorableMessage.actions[0].text"), "Put It Back")
-# The consent rule again: the banner describes one stage, and a press spends consent on that one.
-json.dump(json.load(open(restorable_state("2026-09-05T08:00:00+03:00"))), open(STATE_JSON, "w"))
-p.clear_calls()
-ev('root.actionMessage = ""')
-ev('root.actionDone = ""')
-lev("stageRestorableMessage.actions[0].trigger()")
-settle()
-p.check("a press over a different stage than the one offered runs nothing",
-        p.call_count("restore-stage"), 0)
-p.check("...and says so", ev("root.actionMessage"), ev("Logic.COPY.stageRestoreChanged"))
-# The refusal first, so the banner is still up for the press that works.
-state(RESTORABLE)
-settle()
-open(RESTORERC, "w").write("5")
-open(RESTOREOUT, "w").write("")
-open(RESTOREERR, "w").write("Your staged update cannot be put back, because the system has changed since it was staged.\n")
-p.clear_calls()
-ev('root.actionMessage = ""')
-lev("stageRestorableMessage.actions[0].trigger()")
-p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
-settle()
-p.check("a refusal reports the CLI's reason", str(ev("root.actionMessage")).startswith("Your staged update cannot be put back"), True)
-open(RESTORERC, "w").write("0")
-open(RESTOREOUT, "w").write("Put back. The next restart installs your 61 staged updates.\n")
-open(RESTOREERR, "w").write("")
-state(RESTORABLE)
-settle()
-open(CHECKSRC, "w").write(fixture("state-risky-heavy.json"))
-p.clear_calls()
-ev('root.actionMessage = ""')
-ev('root.actionDone = ""')
-lev("stageRestorableMessage.actions[0].trigger()")
-p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
-settle()
-p.check("a press runs the CLI's verb exactly once, with no arguments",
-        p.argv("restore-stage"), ["restore-stage"])
-p.check("...reports the CLI's own sentence, as a success",
-        [ev("root.actionDone"), ev("root.reportFailed")],
-        ["Put back. The next restart installs your 61 staged updates.", False])
-p.check("...and re-checks, which takes the banner away",
-        [p.call_count("check") >= 1, lev("stageRestorableMessage.visible")], [True, False])
-ev('root.actionDone = ""')
-
 # --- Discard Staged Update, the same banner's other way out ---------------------------------
-# `kempt unstage` from the popup, so somebody who staged an update here can undo it here. The
-# consent rule is the rebuild's, and so is the re-verify that enforces it: a banner describes
-# ONE staged update, and a press must not spend consent on a different one.
+# `kempt unstage` from the popup, so somebody who staged an update here can undo it here. Consent
+# is given to a banner, and a banner describes ONE staged update: a press must not spend consent on
+# a different one.
 state(CONFLICT1)
 mutate_state(CONFLICT1, staged_at="2026-09-06T08:00:00+03:00")
 p.clear_calls()
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
-lev("stagedMessage.actions[2].trigger()")
+lev("stagedMessage.actions[1].trigger()")
 settle()
 p.check("a discard clicked over a stage that has since been replaced runs NOTHING",
         p.call_count("unstage"), 0)
 p.check("...and says the stage moved, where the press happened",
         ev("root.actionMessage"), ev("Logic.COPY.stagedDiscardChanged"))
-p.check("...in its own words, not the rebuild's, because nothing was rebuilt here",
-        str(ev("root.actionMessage")).find("discarded") > 0, True)
 
 # The path that acts. The stub answers as the real command does, and the check that follows it
 # is what takes the banner off the screen: `kempt unstage` rewrites state.json before it exits,
@@ -1684,7 +1488,7 @@ checks_before = p.call_count("check")
 p.clear_calls()
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
-lev("stagedMessage.actions[2].trigger()")
+lev("stagedMessage.actions[1].trigger()")
 p.wait_for(ev, 'String(root.actionDone) !== ""', True, timeout_ms=8000)
 settle()
 p.check("an unchanged stage is discarded through the CLI's own verb, exactly once",
@@ -1717,7 +1521,7 @@ open(UNSTAGEERR, "w").write(
 p.clear_calls()
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
-lev("stagedMessage.actions[2].trigger()")
+lev("stagedMessage.actions[1].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
 p.check("a refused discard reports the CLI's reason, which names the upgrade it protected",
@@ -1899,7 +1703,7 @@ open(UNSTAGERC, "w").write("3")
 open(UNSTAGEERR, "w").write("")
 p.clear_calls()
 ev('root.actionMessage = ""')
-lev("stagedMessage.actions[2].trigger()")
+lev("stagedMessage.actions[1].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
 p.check("another update holding the lock is still a sentence, not a status code",
@@ -1921,17 +1725,14 @@ ev('root.actionDone = ""')
 
 # --- Free Up Space: the reclaim offer's button ------------------------------------------------
 # `kempt reclaim -y --expect=<digest>`: the digest is the consent (the CLI removes
-# nothing unless the set on offer is still the one shown), and the size reported is the one the
-# run wrote to reclaim.last, in the offer's own spelling.
-def reclaim_from(source, name, mode="ask", last=None, offer=True):
+# nothing unless the set on offer is still the one shown), and what the popup says is the CLI's own line.
+def reclaim_from(source, name, offer=True):
     doc = json.load(open(source))
-    block = {"mode": mode, "status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
+    block = {"status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
     if offer:
         block.update(offerable_bytes=1530000000, digest="0123456789abcdef", refs=[
             {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
              "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"}])
-    if last is not None:
-        block["last"] = last
     doc["reclaim"] = block
     path = os.path.join(p.sandbox, name)
     open(path, "w").write(json.dumps(doc))
@@ -1939,13 +1740,7 @@ def reclaim_from(source, name, mode="ask", last=None, offer=True):
 
 
 RC_OFFER = reclaim_from(UPTODATE, "state-reclaim.json")
-RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False, last={
-    "at": "@NOW@", "via": "widget", "result": "removed",
-    "refs": ["runtime/org.kde.Platform/x86_64/5.15-23.08"], "bytes": 1530000000,
-    "digest": "0123456789abcdef"})
-RC_AUTH = reclaim_from(UPTODATE, "state-reclaim-auth.json", last={
-    "at": "@NOW@", "via": "widget", "result": "needs_auth", "refs": [], "bytes": None,
-    "digest": "0123456789abcdef"})
+RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False)
 state(RC_OFFER)
 ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
 p.pump(100)
@@ -1974,8 +1769,8 @@ p.check("...presses while it is pending start nothing: exactly one reclaim",
         [p.call_count("reclaim"), p.call_count("unstage") + p.call_count("run")], [1, 0])
 p.check("...which removes only the set shown",
         p.argv("reclaim"), ["reclaim", "-y", "--expect=0123456789abcdef"])
-p.check("...and says how much it freed, in the offer's own spelling", ev("root.actionDone"),
-        "Freed ~1.5 GB.")
+p.check("...and says how much it freed, in the CLI's words", ev("root.actionDone"),
+        "Freed about 1.5 GB.")
 p.check("...as the thing that just happened, not as a failure",
         [ev("root.reportFailed"), lev("reportMessage.visible")], [False, True])
 p.check("...and the offer is gone after the re-check", lev("reclaimMessage.visible"), False)
@@ -1997,11 +1792,11 @@ p.check("a set that changed since it was shown removes nothing, and says so",
         "What Flatpak can remove changed since this was shown. Nothing was removed.")
 p.check("...in red, because what was asked for did not happen", ev("root.reportFailed"), True)
 
-# polkit would ask for a password: the CLI never lets it, so this is exit 5 with needs_auth.
-open(CHECKSRC, "w").write(RC_AUTH)
-open(RECLAIMST, "w").write(RC_AUTH)
+# polkit would ask for a password: the CLI never lets it, so this is exit 5 in the CLI's words.
+open(CHECKSRC, "w").write(RC_OFFER)
+open(RECLAIMST, "w").write("")
 open(RECLAIMRC, "w").write("5")
-open(RECLAIMERR, "w").write("")
+open(RECLAIMERR, "w").write("Removing these needs an administrator. Nothing was removed.\n")
 ev('root.actionMessage = ""; root.actionDone = ""')
 lev("reclaimMessage.actions[0].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
@@ -2019,8 +1814,8 @@ ev('root.actionMessage = ""; root.actionDone = ""')
 lev("reclaimMessage.actions[0].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
-p.check("an update holding the lock is a sentence, not the CLI's lowercase note",
-        ev("root.actionMessage"), ev("Logic.COPY.reclaimBusy"))
+p.check("an update holding the lock says what the CLI said",
+        ev("root.actionMessage"), "another kempt update is running")
 
 p.check("the label is back once the CLI has answered", lev("reclaimMessage.actions[0].text"),
         "Free Up Space")
@@ -2043,21 +1838,6 @@ p.check("a reclaim asked for during a run does not run", p.call_count("reclaim")
 ev("root.leaveUpdating()")
 settle()
 
-# reclaim=automatic: the line says the next update removes them, and the button is the one that
-# does not wait.
-state(reclaim_from(UPTODATE, "state-reclaim-auto.json", mode="automatic"))
-p.pump(100)
-p.check("with reclaim=automatic the button does not wait for the next update",
-        lev("reclaimMessage.actions[0].text"), "Free Up Space Now")
-p.check("...and the line says the next update would",
-        str(lev("reclaimMessage.text")).endswith("Kempt removes them after the next update."), True)
-_auto_failed = json.load(open(os.path.join(p.sandbox, "state-reclaim-auto.json")))
-_auto_failed["reclaim"]["status"] = "failed"
-open(os.path.join(p.sandbox, "state-reclaim-auto-failed.json"), "w").write(json.dumps(_auto_failed))
-state(os.path.join(p.sandbox, "state-reclaim-auto-failed.json"))
-p.pump(100)
-p.check("after the automatic try failed, the next update skips this set, so the button is plain",
-        lev("reclaimMessage.actions[0].text"), "Free Up Space")
 open(RECLAIMRC, "w").write("0")
 open(RECLAIMERR, "w").write("")
 open(CHECKSRC, "w").write(CONFLICT1)
@@ -2358,7 +2138,7 @@ p.check("...one that fetches fresh metadata first", p.calls_matching("check")[-1
 compact_comp = QQmlComponent(p.engine, QUrl.fromLocalFile(
     os.path.join(harness.UI, "CompactRepresentation.qml")))
 compact = compact_comp.createWithInitialProperties(
-    {"plasmoidItem": root, "vm": root.property("vm"), "iconSizeSetting": "auto"})
+    {"plasmoidItem": root, "vm": root.property("vm")})
 p.check("the panel icon builds against the same root", compact is not None, True)
 if compact is None:
     sys.exit(p.done())
@@ -2809,7 +2589,7 @@ p.check("the footer's tooltip is the absolute stamp people compare the relative 
 # Kirigami's close button hides its message by ASSIGNING visible = false, so the handler that
 # turns a close into dismissRestart() sees the same signal when an ancestor hides. A handler
 # that only asked "does the view model still want this?" would read a run starting as the user
-# closing the message, and an update would silently switch the reminder off for the session.
+# closing the message, and an update would silently dismiss it for the session.
 state(fixture("state-reboot-needed.json"))
 ev("root.restartDismissed = false")
 p.check("the restart message is up before the run", lev("restartMessage.visible"), True)
@@ -3112,22 +2892,7 @@ ev('root.postRunLine = ""')
 p.check("...and Update Now back on the footer once the run is over",
         lev("updateButton.visible"), True)
 
-# ...on an engine older than this widget, which refuses --risky-ok with exit 2 and launches
-# nothing. The person has chosen, so the run is asked for once more without the option.
-open(OLDRUN, "w").write("old")
-lev("updateButton.clicked()")
-p.pump(100)
-p.clear_calls()
-lev("riskyMessage.actions[1].trigger()")
-p.wait_for(ev, "root.updating", True, timeout_ms=8000)
-settle()
-p.check("Install Now on an engine without --risky-ok runs plain `kempt run` once after the refusal",
-        p.calls_matching("run"), ["run --risky-ok", "run"])
-p.check("...and says nothing about an unknown option", ev("root.actionMessage"), "")
-ev("root.leaveUpdating()")
-settle()
-ev('root.postRunLine = ""')
-# ...and a plain run that fails after it reports that failure, once, and asks nothing again.
+# A run that fails after the choice reports that failure, once, and asks nothing again.
 open(RUNRC, "w").write("4")
 lev("updateButton.clicked()")
 p.pump(100)
@@ -3135,24 +2900,13 @@ p.clear_calls()
 lev("riskyMessage.actions[1].trigger()")
 p.wait_for(ev, "root.runRequested", False, timeout_ms=8000)
 settle()
-p.check("...a plain run that then fails is not asked again",
-        p.calls_matching("run"), ["run --risky-ok", "run"])
+p.check("...a run that fails is not asked again",
+        p.calls_matching("run"), ["run --risky-ok"])
 p.check("...and its own failure is what the popup reports",
         "konsole" in str(ev("root.actionMessage")), True)
 open(RUNRC, "w").write("0")
-open(OLDRUN, "w").write("")
 ev('root.actionMessage = ""')
 ev("root.riskyChoiceOpen = false")
-# Plain Update Now asked for no option, so even exit 2 with the refusal's words is not retried.
-state(fixture("state-live.json"))
-open(RUNRC, "w").write("2u")
-p.clear_calls()
-lev("updateButton.clicked()")
-p.wait_for(ev, "root.runRequested", False, timeout_ms=8000)
-settle()
-p.check("plain Update Now that exits 2 is not asked again", p.calls_matching("run"), ["run"])
-open(RUNRC, "w").write("0")
-ev('root.actionMessage = ""')
 state(fixture("state-risky-heavy.json"))
 
 # Install on Next Restart from the choice stages, as it does from the plain message.
@@ -3219,93 +2973,6 @@ ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
 
-# --- the one-time offer to run updates in the widget -----------------------------------------------
-# Made to a box the migration kept on the terminal (state.json surface_offer), and only while the
-# terminal is still the setting. The stub answers terminal from here on, and the stubbed check
-# keeps serving surface_offer, so whatever hides the offer below is the widget's own answer.
-_so = json.loads(open(fixture("state-live.json")).read())
-_so["surface_offer"] = True
-_sopath = os.path.join(p.sandbox, "state-surface-offer.json")
-open(_sopath, "w").write(json.dumps(_so))
-state(_sopath)
-p.check("the offer is made to a box that still has the terminal", lev("surfaceOfferMessage.visible"), True)
-p.check("...in plain words", lev("surfaceOfferMessage.text"), ev("Logic.COPY.surfaceOffer"))
-p.check("...with the two answers",
-        [lev("surfaceOfferMessage.actions[0].text"), lev("surfaceOfferMessage.actions[1].text")],
-        [ev("Logic.COPY.surfaceOfferUse"), ev("Logic.COPY.surfaceOfferKeep")])
-ev('root.surface = "popup"')
-p.pump(50)
-p.check("...but not to a box already updating in the widget", lev("surfaceOfferMessage.visible"), False)
-ev('root.surface = "terminal"')
-ev("root.autoAccept = false")
-p.pump(50)
-p.check("...nor while confirmation is on, which only a terminal can ask for",
-        lev("surfaceOfferMessage.visible"), False)
-ev("root.autoAccept = true")
-ev("root.surfaceKnown = false")
-p.pump(50)
-p.check("...nor before the widget has read the setting, when its surface is only the default",
-        lev("surfaceOfferMessage.visible"), False)
-ev("root.surfaceKnown = true")
-p.pump(50)
-
-# Keep the Terminal Window: the stub reads back terminal and the check still serves the offer, so
-# only the answered flag can be what hides it.
-p.clear_calls()
-lev("surfaceOfferMessage.actions[1].trigger()")
-p.pump(50)
-settle()
-p.check("Keep the Terminal Window writes the terminal as the setting, which ends the offer for good",
-        p.calls_matching("config set"), ["config set surface terminal"])
-p.check("...reads the setting back", ev("root.surface"), "terminal")
-p.check("...and checks, so state.json drops the offer", p.call_count("check") >= 1, True)
-p.check("...and the offer stays gone on this session's answer alone",
-        [ev("root.kemptState.surface_offer"), ev("root.surfaceOfferAnswered"),
-         lev("surfaceOfferMessage.visible")], [True, True, False])
-
-# A failed answer is not an answer: the offer comes back, with the CLI's reason.
-ev("root.surfaceOfferAnswered = false")
-ev('root.actionMessage = ""')
-p.pump(50)
-open(CFGSETRC, "w").write("1")
-lev("surfaceOfferMessage.actions[0].trigger()")
-p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
-settle()
-open(CFGSETRC, "w").write("")
-p.check("Use This Widget that could not be saved leaves the offer unanswered",
-        ev("root.surfaceOfferAnswered"), False)
-p.check("...so the offer is back", lev("surfaceOfferMessage.visible"), True)
-p.check("...under the CLI's reason", ev("root.actionMessage"), "kempt: could not write the config file")
-ev('root.actionMessage = ""')
-# An answer the CLI did not confirm in time: the Executor's kill, rc 124. The offer comes back
-# with a sentence, never the timeout text.
-open(CFGSETRC, "w").write("hang")
-lev("surfaceOfferMessage.actions[0].trigger()")
-p.pump(300)
-ev('executor.finish("", "timeout after " + Logic.ANSWER_TIMEOUT_MS + "ms", 124)')
-p.pump(100)
-p.check("Use This Widget that timed out leaves the offer unanswered, and back on screen",
-        [ev("root.surfaceOfferAnswered"), lev("surfaceOfferMessage.visible")], [False, True])
-p.check("...under a sentence that says the answer may not be saved",
-        ev("root.actionMessage"), ev("Logic.COPY.answerTimedOut"))
-open(CFGSETRC, "w").write("")
-p.pump(3500)
-settle()
-ev('root.actionMessage = ""')
-p.clear_calls()
-lev("surfaceOfferMessage.actions[0].trigger()")
-p.pump(50)
-settle()
-p.check("Use This Widget writes the widget as the setting",
-        p.calls_matching("config set"), ["config set surface popup"])
-p.check("...and the offer goes", lev("surfaceOfferMessage.visible"), False)
-# `kempt config set` prints nothing, so the confirmation is the widget's own sentence.
-p.check("...and the popup confirms the answer, as good news",
-        [lev("reportMessage.visible"), lev("reportMessage.text"),
-         lev("reportMessage.type === Kirigami.MessageType.Positive")],
-        [True, ev("Logic.COPY.surfaceSetPopup"), True])
-ev('root.actionDone = ""')
-ev("root.surfaceOfferAnswered = false")
 open(SURF, "w").write("popup\n")
 ev("root.readSurface()")
 settle()
@@ -3324,32 +2991,6 @@ p.check("...in the words on screen", lev("discoverOfferMessage.text"), ev("Logic
 p.check("...with the two answers",
         [lev("discoverOfferMessage.actions[0].text"), lev("discoverOfferMessage.actions[1].text")],
         [ev("Logic.COPY.discoverOfferOff"), ev("Logic.COPY.discoverOfferKeep")])
-
-# One offer at a time: with the surface offer up too, the Discover offer waits for it.
-_both = dict(_do, surface_offer=True)
-_bothpath = os.path.join(p.sandbox, "state-both-offers.json")
-open(_bothpath, "w").write(json.dumps(_both))
-open(SURF, "w").write("terminal\n")
-ev("root.readSurface()")
-settle()
-state(_bothpath)
-p.check("with the surface offer showing, the Discover offer waits",
-        [lev("surfaceOfferMessage.visible"), lev("discoverOfferMessage.visible")], [True, False])
-ev("root.surfaceOfferAnswered = true")
-p.pump(50)
-p.check("...and comes once the surface offer is answered", lev("discoverOfferMessage.visible"), True)
-ev("root.surfaceOfferAnswered = false")
-# Right after a plasmashell restart the surface setting is unread, so the surface offer is
-# undecided. The Discover offer waits rather than show and then give way under the pointer.
-ev("root.surfaceKnown = false")
-p.pump(50)
-p.check("with the surface offer undecided, neither offer shows yet",
-        [lev("surfaceOfferMessage.visible"), lev("discoverOfferMessage.visible")], [False, False])
-ev("root.surfaceKnown = true")
-open(SURF, "w").write("popup\n")
-ev("root.readSurface()")
-settle()
-state(_dopath)
 
 # Turn Off Discover's Notifier: the command, then a check, and the offer is gone.
 p.clear_calls()
@@ -3528,33 +3169,6 @@ p.check("...and the packages it installed under it",
         lev("lastRunView.itemAtIndex(0).customExpandedViewContent !== null"), True)
 p.check("...with no second line for a run that went well and took nothing an app uses",
         lev("lastRunView.itemAtIndex(0).subtitle"), "")
-
-# A background run whose automatic removal took an extension an app uses: the row says so, once.
-inuse = json.loads(json.dumps(LAST_RUN))
-inuse["backends"]["flatpak"]["reclaimed"] = {"refs": ["runtime/x/x86_64/1"], "bytes": 1000000,
-                                             "status": "removed", "in_use": ["a//1"]}
-open(RUNJSON, "w").write(json.dumps(inuse))
-ev('root.reclaimInUseSeen = ""; root.postRunLine = ""; root.actionMessage = ""; root.actionDone = ""')
-ev("root.loadLastRun()")
-settle()
-p.pump(50)
-p.check("a run whose removal took an extension an app uses says so under the Last update row",
-        lev("lastRunView.itemAtIndex(0).subtitle"), ev("Logic.COPY.reclaimInUseOne"))
-ev('root.actionMessage = "Could not change the hold on bash."')
-p.pump(50)
-p.check("premise: a failed press's report hides the row", lev("lastRunView.visible"), False)
-ev("root.popupClosed()")
-p.check("...so closing the popup then does not count the sentence as seen",
-        ev("root.reclaimInUseSeen"), "")
-ev('root.actionMessage = ""')
-p.pump(50)
-p.check("premise: the row is back, with the sentence", lev("lastRunView.visible"), True)
-ev("root.popupClosed()")
-p.check("...and closing the popup over it marks that run seen", ev("root.reclaimInUseSeen"),
-        inuse["timestamp"])
-p.pump(50)
-p.check("...after which the row says it no more", lev("lastRunView.itemAtIndex(0).subtitle"), "")
-ev('root.reclaimInUseSeen = ""')
 
 # A run that failed still reads as failed once the transient line is gone: open, close, open again.
 failed_run = json.loads(json.dumps(LAST_RUN))
@@ -3882,27 +3496,10 @@ _ASSEMBLED_IN_LOGIC = {
     "startupPageFailed",
     "startupPageFailedCode",
     "reclaimSized",         # -> reclaimMessageOf -> vm.reclaimMessage (the size goes into the %1)
-    "reclaimUnsized",       # -> reclaimMessageOf -> vm.reclaimMessage
-    "reclaimAutomatic",     # -> reclaimMessageOf -> vm.reclaimMessage, after either of those
     "reclaimEol",           # -> reclaimRefLineOf -> vm.reclaimLines
-    "reclaimFreed",         # -> reclaimOutcomeOf -> actionDone (the size goes into the %1)
-    "reclaimNothing",       # -> reclaimOutcomeOf -> actionDone
-    "reclaimChanged",       # -> reclaimOutcomeOf -> actionMessage
-    "reclaimNothingRemoved",  # -> reclaimOutcomeOf -> actionMessage
-    "reclaimNeedsAuth",     # -> reclaimOutcomeOf -> actionMessage
-    "reclaimPartial",       # -> reclaimOutcomeOf -> actionMessage (the size goes into the %1)
-    "reclaimPartialUnsized",  # -> reclaimOutcomeOf -> actionMessage
-    "reclaimSkipped",       # -> reclaimOutcomeOf -> actionMessage, after what went
-    "reclaimInUseOne",      # -> reclaimOutcomeOf, after the Freed or partial sentence; and a run's
-                            #    removal: postRunLine and the Last update row (lastRunSubtitle)
-    "reclaimInUseMore",     # -> the same places, with a count
-    "reclaimUnknown",       # -> reclaimOutcomeOf -> actionMessage
-    "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
-    "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
-    "reclaimTimedOut",      # -> reclaimOutcomeOf -> actionMessage, when the Executor gave up
-    "reclaimFreedTail",     # -> reclaimedTailOf -> postRunLine and lastRunText
-    "reclaimRemovedOne",    # -> reclaimedTailOf -> postRunLine and lastRunText
-    "reclaimRemovedMore",   # -> reclaimedTailOf -> postRunLine and lastRunText (a count)
+    "reclaimNothing",       # -> reclaimSaid -> actionDone
+    "reclaimFailed",        # -> reclaimSaid -> actionMessage (the exit code goes into the %1)
+    "reclaimTimedOut",      # -> reclaimSaid -> actionMessage, when the Executor gave up
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
     "restartFailed",        # -> root.restartError, rendered inside the restart message
@@ -3932,23 +3529,13 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictOne",    # -> stagedVariantOf -> vm.stagedMessage (a name goes into the %1)
     "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
-    "stagedRebuildCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
-    "stagedChanged",        # -> root.actionMessage, the same way restartFailed is assigned
+    "stagedDiscardCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "stageDiscoverWarning", # -> the banner's text, written as a literal in the QML
-    "stageRestorable",      # -> vm.stageRestorableMessage
-    "stageRestoreAction",   # -> the banner's action, written as a literal in the QML
-    "stageRestoreTooltip",  # -> ...and its tooltip and accessible description
-    "stageRestoreTimedOut", # -> restoreStageMessage, for the Executor's own kill
-    "stageRestoreDone",     # -> restoreStageMessage, for a restore the CLI did not describe
-    "stageRestoreRefused",  # -> restoreStageMessage, for a silent exit 5
-    "stageRestoreBusy",     # -> restoreStageMessage, for a silent exit 3
-    "stageRestoreFailed",   # -> restoreStageMessage, with the status in the %1
-    "stageRestoreChanged",  # -> root.actionMessage, as stagedDiscardChanged is for the discard
     "stagedDiscardDone",    # -> discardStagedMessage, for a discard the CLI did not describe
     "stagedDiscardRefused",  # -> discardStagedMessage, for a silent exit 5
     "stagedDiscardBusy",    # -> discardStagedMessage, for a silent exit 3
     "stagedDiscardFailed",  # -> discardStagedMessage, with the status in the %1
-    "stagedDiscardChanged",  # -> root.actionMessage, as stagedChanged is for the rebuild
+    "stagedDiscardChanged",  # -> root.actionMessage, the same way restartFailed is assigned
     "holdFailed",           # -> root.holdError.text, assigned by main.qml with the name filled in
     "engineMissing",        # -> vm.engineFaultMessage, and vm.tooltipSub on its own
     "engineMissingCopy",    # -> vm.engineFaultCopyText: a clipboard payload of shell commands,
@@ -3988,7 +3575,6 @@ _ASSEMBLED_IN_LOGIC = {
     "fetchWaitsForUnmetered",  # -> fetchMissedOf, for a fetch skipped on a metered connection
     "fetchMissed",          # -> fetchMissedOf, for an engine that does not say why
     "fetchCountsFrom",      # -> fetchMissedOf, joined on with the age of the lists in the %1
-    "surfaceSetPopup",      # -> answerOutcomeOf -> root.actionDone, after Use This Widget
     "riskyAskLead",         # -> FullRepresentation's risky message, in front of its words
     "riskyAskQuestion",     # -> FullRepresentation's risky message and announcement, at its end
     "riskySummaryOne",      # -> riskySummaryOf -> vm.riskyMessage, with no route to the next restart
@@ -4015,7 +3601,6 @@ _ASSEMBLED_IN_LOGIC = {
     "lastSuccessfulCheck",  # -> vm.tooltipSub while stale (a relative time goes into the %1)
     "securityCount",        # -> vm.tooltipSub, the security updates pending (the count goes into the %1)
     "securityCountOne",     # -> vm.tooltipSub, when there is one
-    "surfaceSetTerminal",   # -> answerOutcomeOf -> root.actionDone, after Keep the Terminal Window
     "answerTimedOut",       # -> answerOutcomeOf, for the Executor's own kill
     "settingTimedOut",      # -> answerOutcomeOf, for a Settings switch or config write the Executor killed
     "holdTimedOut",         # -> answerOutcomeOf, for a hold or unhold the Executor killed

@@ -7,6 +7,28 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **Put It Back and `kempt restore-stage`.** When another program cancels a staged update, Kempt now
+  tells you and the updates stay in the list. Stage them again with **Install on Next Restart** or
+  `kempt update --surface=offline`. The packages are still downloaded, so this costs no new download.
+- **Rebuild Staged Update.** To apply new holds to a staged update, press **Discard Staged Update**
+  and stage again. That deletes the download, so staging again downloads the packages again. In a
+  terminal, `kempt update --surface=offline` still replaces the stage and reuses the download.
+- **The widget's offer to update inside it, and keeping `terminal` on upgrade.** An install from before 0.1.8 whose config file names no `surface` now updates in the widget, with no offer first. To keep a terminal window, run `kempt config set surface terminal`.
+- **Recognizing the Discover startup file that `install.sh` wrote before 0.1.8.** `kempt discover-notifier on` now treats that file as your own and leaves it. To turn the notifier back on, delete it from `~/.config/autostart`.
+- **The `background` surface and In the background.** A run in the widget does the same work, so saved settings now read as **In this widget**. Keep your updates out of sight by leaving the widget closed: a finished run still sends a desktop notification.
+- **Some `kempt doctor` rows.** jq, dnf, apps for you only, unused Flatpak runtimes, shutdown protection during installs, the program files check, the overridden privileged paths check with its rows for a helper set by an environment variable, and the network mount warning are gone. A missing tool or a refused update still gives its own reason when you hit it, and `kempt reclaim` lists the runtimes.
+- **`kempt run --dry-run`.** It was an older name. Use `kempt run --print-command`.
+- **`kempt holds --exclude-args`.** To honour holds in a `sudo dnf5 upgrade` of your own, add `--exclude=<package>` for each one that `kempt holds` lists.
+- **The `KEMPT_DNF_SYSTEM_CACHE` and `KEMPT_FLATPAK_USER_SKIP` settings.** Point `KEMPT_DNF_CACHE_DIR` at the cache instead. Skipping the apps for you only is decided inside a run.
+- **`version` in the stage marker.** Nothing read it.
+- **Flatpak end-of-life notes after a run.** `kempt summary` and the history no longer name the app behind flatpak's notice. flatpak's own line stays in the run log, and `kempt reclaim` still marks an unused runtime as no longer supported.
+- **Security notifications and `notify_security`.** Kempt no longer sends a notification or animates the panel icon for security updates, and the setting is gone. The **Security** word on a package and the count stay, for everyone. Open the widget or run `kempt status` to see them.
+- **`reclaim=automatic`.** Kempt no longer removes unused Flatpak runtimes after an update. A saved `automatic` reads as `ask`. Press **Free Up Space** in the widget, shown when at least 1 GB can be freed, or run `kempt reclaim`.
+- **Panel icon size and restart reminder settings.** The icon always sizes itself to the panel, and the restart message always shows when a restart is owed. A saved `widget_icon_size` or `restart_reminder` is ignored. Close the message with its **X**, which lasts until Plasma restarts.
+- **`security.attention`, `security.digest`, `security.advisories` and `reclaim.mode` in `kempt check` output.** Nothing read them. `security.count`, `security.packages` and the rest of `reclaim` stay.
+
 ### Security
 
 - **Kempt now stops updating when another user could change dnf's folders or a folder above them.**
@@ -73,6 +95,11 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the setting off and on again warns again. `kempt discover-notifier on` says automatic updates resume
   if the setting is still on, and `kempt discover-notifier status` shows the setting. An image-based
   Fedora gets neither this warning nor the offer to turn off the notifier.
+- **Install on Next Restart in the widget's right-click and More actions menus.** It shows when
+  system updates are waiting, nothing is staged and the main button says Update Now, so a lost or
+  discarded stage always has a way back here.
+- **The package recommends `rpm-plugin-systemd-inhibit`,** which holds off a shutdown while packages
+  are changing.
 
 ## [0.2.0] - 2026-11-02
 

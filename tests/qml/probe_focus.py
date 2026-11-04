@@ -324,7 +324,6 @@ p.check("...handing the keyboard back to a control that is on screen",
 
 # The other three surfaces say where to look, which "Updating in the terminal surface…" never did.
 for _surface, _said in (("popup", "Updating…"),
-                        ("background", "Updating in the background…"),
                         ("offline", "Staging updates for the next restart…")):
     ev('root.enterUpdating("%s")' % _surface)
     p.pump(80)
@@ -461,17 +460,6 @@ def answer(message, index, what):
 
 ev("root.popupOpened()")
 settle()
-_so = json.load(open(fixture("state-live.json")))
-_so["surface_offer"] = True
-_sopath = os.path.join(p.sandbox, "state-surface-offer.json")
-open(_sopath, "w").write(json.dumps(_so))
-for index, what in ((0, "Use This Widget"), (1, "Keep the Terminal Window")):
-    ev('root.surface = "terminal"')
-    ev("root.surfaceOfferAnswered = false")
-    state(_sopath)
-    p.check("premise: the offer to use the widget is up", lev("surfaceOfferMessage.visible"), True)
-    answer("surfaceOfferMessage", index, what)
-
 _do = json.load(open(fixture("state-live.json")))
 _do["discover_offer"] = True
 _dopath = os.path.join(p.sandbox, "state-discover-offer.json")

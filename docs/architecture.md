@@ -131,8 +131,8 @@ Six files in the state directory are `flock` targets:
 | `lock` | Runs | |
 | `check.lock` | Checks | See `--coalesce` below. |
 | `stage.lock` | A stage, from asking dnf5 for a transaction until the marker is written | A check that finds it held skips the [replaced-transaction test](#which-transaction-ran). |
-| `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold`, and the write of `state.json` that ends a check with `notify_security` or `notify_startup` on | Each rewrites a whole file. `kempt security-ack` and `kempt startup` take it too, so an acknowledgement and a check never overwrite each other. It lives in the state directory because the config directory is the user's. |
-| `state.lock` | Each write to `state.json`, a run's read and write of `offline_staged`, and `kempt security-ack`'s read and patch | Held for milliseconds. A run takes it instead of `check.lock`, so it publishes a stage without waiting for a check. |
+| `writer.lock` | `kempt config set`, `kempt hold` and `kempt unhold`, and the write of `state.json` that ends a check with `notify_startup` on | Each rewrites a whole file. `kempt startup` takes it too, so an acknowledgement and a check never overwrite each other. It lives in the state directory because the config directory is the user's. |
+| `state.lock` | Each write to `state.json`, and a run's read and write of `offline_staged` | Held for milliseconds. A run takes it instead of `check.lock`, so it publishes a stage without waiting for a check. |
 | `events.lock` | Appends to `events.log` and its trim | Held for milliseconds. After 5 seconds the line is appended and the trim waits. |
 
 [usage.md](usage.md#check) says when `--coalesce` lets one check answer for another.
@@ -206,11 +206,10 @@ cope with that.
 | `reboot_needed` | boolean | Whether a restart is owed **now**, asked on every check. `false` means **nothing to say**, because a check that could not tell also answers `false`. Render no "no restart needed" line from it. Additive. |
 | `metadata_refreshed` | ISO 8601 with offset, optional | When dnf's metadata was last **fetched**. See [below](#metadata_refreshed). Additive. |
 | `refresh_skipped` | string, optional | `"battery"` or `"metered"` when this check's metadata fetch was due and did not run for that reason, `"off"` whenever `KEMPT_SKIP_REFRESH` turns fetching off. Absent otherwise. Additive. |
-| `security` | object, optional | Only while `notify_security` is on and dnf listed the security advisories. `count` and `packages`: the non-held dnf items with one. `advisories`: their IDs, at most 200. `attention`: a set the widget has not shown yet, with nothing staged and no update running. `digest`: 16 hex characters naming the set, `""` when empty. The widget acknowledges a set with `kempt security-ack --expect=<digest>`, which exits 6 when the set has changed. Additive. |
+| `security` | object, optional | Only when dnf listed the security advisories, which it is asked only while a non-held update is pending. `count` and `packages`: the non-held dnf items with one. Additive. |
 | `startup` | object, optional | Only while `notify_startup` is on and systemd answered. `announced`: units failing since a Kempt update, each `{unit, scope, description, since}`, `scope` being `system` or `user`. `already`: failing at the baseline. `recovered`: announced units systemd reports active again; one systemd no longer knows, or that stopped after a clean run, is dropped without a notice. `muted`: from `startup-mutes`, each cleared once its unit is seen active, gone or stopped cleanly; a mute of an alias is stored under the unit's own name. `compared`: whether any comparison has run. `attribution`: `update`, or `restart` when dnf's newest transaction is not Kempt's. `recovered_digest`: 16 hex characters, `""` when none. `kempt startup ack --expect=<digest>` clears `recovered` (exit 6 when it changed). The state lives in `startup.json`, and mutes in `startup-mutes` (`scope:unit` lines). Additive. |
 | `offline_staged` | object, optional | A staged update that will install on the next restart. See [below](#offline_staged). Additive. |
 | `offline_stage_blocked` | object, optional | `staged_at` and `count` of a stage Kempt made that will **not** install on the next restart, because another updater has prepared it. Absent otherwise. Additive. |
-| `offline_stage_restorable` | object, optional | `staged_at` and `count` of a stage that another program took the restart step from, while no packages have changed since. `kempt restore-stage` can set it to install again. Additive. |
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5. Never `false`. Additive. |
 | `unsafe_folder` | string, optional | A dnf folder, or one above it, that other users can change, so the root helper refuses updates. `kempt status` and the widget say updates are paused. Read as the user, so a folder only root can read counts for nothing here. Absent when there is none, and on an image-based system. Additive. |
 | `reclaim` | object, optional | The Flatpak runtimes no installed app uses. See [below](#reclaim). Additive. |
@@ -218,8 +217,7 @@ cope with that.
 | `restart_holder` | `none`, `kempt` or `other` | Who holds the next restart (`restart_holder()`). `other` is anything at `/system-update` that is not dnf5's own link: another updater's link, a dangling one, or a plain file. A reader acting on it asks again. Additive. |
 | `discover_unattended` | boolean | Discover's notifier would run and its `UseUnattendedUpdates` setting is on. Additive. |
 | `discover_unattended_warn` | `true`, optional | The widget has not drawn its warning about that setting yet. Never `false`. Additive. |
-| `discover_offer` | `true`, optional | The widget may offer to turn off Discover's notifier. See [below](#the-two-offers). Never `false`. Additive. |
-| `surface_offer` | `true`, optional | The widget may offer to run updates in the widget. See [below](#the-two-offers). Never `false`. Additive. |
+| `discover_offer` | `true`, optional | The widget may offer to turn off Discover's notifier. See [below](#the-discover-offer). Never `false`. Additive. |
 
 Two rules for anything that reads this file:
 
@@ -253,7 +251,7 @@ check's per-user items, and the widget says the apps for you only could not be c
 - It reads `$LAST_REFRESH_DNF_FILE` and nothing else. `$LAST_REFRESH_FILE` also moves when only the
   Flatpak fetch worked, so it never dates dnf's metadata.
 - It is absent until a dnf fetch has worked. `kempt doctor` then says no dnf refresh is recorded
-  yet when fetches have run, and never refreshed when none has.
+  yet.
 - A check answers from the cache, so this can be much older than `last_check`.
 - The widget's footer shows `lists N days old` past 24 hours. When a **Check for Updates**
   press got no fetch, a message gives the age and why: `refresh_skipped`, else
@@ -306,7 +304,6 @@ run as root.
 
 | Key | Meaning |
 | --- | --- |
-| `mode` | `ask` or `automatic`: the mode Kempt acts on. It is `ask` whatever the setting on an image-based system, or when more than one person may use the machine ([configuration](configuration.md#unused-flatpak-runtimes) lists the signals). |
 | `refs[]` | Every unused ref: `ref`, `commit`, `since` (UTC, when first seen unused with this commit) and `eol` (flatpak's end-of-life reason, or `null`). |
 | `offerable_bytes` | The estimated size of the offered list. `null` when unknown or nothing is offered yet. |
 | `digest` | Names the offered set, and is what `kempt reclaim --expect` takes. `""` when nothing is offered. |
@@ -328,12 +325,11 @@ removal while the same set is on offer.
 | `skipped` | `true` when the extensions were never tried: the first pass succeeded and Flatpak refused nothing, but the list between the passes could not be read. They keep their `since`, so no new hour's wait. The widget says so with `reclaimSkipped` in `logic.js`. |
 | `in_use` | Only when non-empty: as `id//branch`, the extensions Flatpak removed although it printed that an app uses them. It counts only apps installed after the list taken just before that pass. |
 
-### The two offers
+### The Discover offer
 
 | Key | Present while | Gone when |
 | --- | --- | --- |
 | `discover_offer` | Discover's update notifier starts with the session, and the state file `discover-offer-answered` does not exist | `kempt discover-notifier off`, `on` or `keep` writes that file |
-| `surface_offer` | The upgrade to 0.1.8 kept this install on the terminal (state file `surface-offer`), and `surface` is still `terminal` | `surface` is set in any way, or a check finds another surface |
 
 `discover-entry-written` holds the bytes Kempt last wrote to the autostart entry. `on` removes the
 entry only while it still matches.
@@ -363,8 +359,6 @@ tolerate absence.
 | `stage_blocked` | `true`, optional | On a staging run whose stage worked while another updater held `/system-update`, so it does not install at the next restart. |
 | `staged_nothing` | string, optional | On a staging run that staged nothing: `"held"` or `"nothing_pending"`. The widget treats any other value as an ordinary stage. |
 | `backends.flatpak.scopes` | object, optional | On a live run, only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. `status` is still the overall outcome. A per-user set that cannot be listed before or after the run records `user` as failed and fails the run. |
-| `backends.flatpak.eol` | array, optional | On a live run: one `{id, branch, kind, apps, reason}` per end-of-life ref (see `flatpak_eol_notices`). Only `kempt summary` shows it so far. |
-| `backends.flatpak.reclaimed` | object, optional | When `reclaim=automatic` tried a removal after the run: `{refs, bytes, status}`, plus `partial` and `in_use` as in `reclaim.last`. `status` takes `reclaim.last.result` values. Shown only when `removed`. |
 
 ## Startup report JSON
 
@@ -422,7 +416,6 @@ failed rebuild can lose the old one. `cmd_update` reads dnf5's status after a fa
 
 | Field | Meaning |
 | --- | --- |
-| `version` | The marker format. Set when the marker is created and carried forward unchanged. |
 | `staged_at`, `boot_id` | When, and in which boot session. |
 | `staged` | How many updates, published as `count`. |
 | `pre_snapshot` | The snapshot copy of the package set it was staged against. |
@@ -432,7 +425,7 @@ failed rebuild can lose the old one. `cmd_update` reads dnf5's status after a fa
 | `staged_excluded` | The held packages left out. |
 | `rpmdb_cookie`, `cmd_line` | dnf5's identity for the transaction ([below](#which-transaction-ran)). |
 | `armed` | `true` when written. `false` once a restart proved the transaction cannot install. |
-| `lost_announced` | `true` once a check in the same boot said the stage can no longer install or did not finish. Put It Back removes it. |
+| `lost_announced` | `true` once a check in the same boot said the stage can no longer install or did not finish. |
 | `set_moved` | The package set changed under a stage still armed. |
 | `replaced` | dnf5 holds a different transaction. |
 
@@ -616,13 +609,6 @@ executor must be able to kill a stuck `kempt check`.
 The rule: a fast, periodic caller must not share a queue with a slow, occasional one. Add another
 instance rather than making the queue clever.
 
-**Rebuild Staged Update runs the same command as Install on Next Restart**
-(`kempt update --surface=offline`, detached with `setsid`), so there is one staging path to
-secure. A rebuild destroys the old transaction at once, and the widget can sit open for an hour. So
-`rebuildStaged()` in `main.qml` first rereads `state.json`. It goes ahead only if the banner's
-stage (`vm.stagedStagedAt`) is still published and still raises a warning. Otherwise it redraws
-the banner and says the staged update changed. During a run it does nothing, like `stageOffline`.
-
 When the watcher (every 2 seconds during a run) sees `state.json` change after a run,
 `adoptState()` takes the file at once. The run has already published the armed stage, and a stale
 **Update Now** would discard it.
@@ -647,7 +633,7 @@ the panel icon.
 | The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. Silent while a Check for Updates answer is being said, since that answer carries the same failure. |
 
 Each announcing message keeps a `spoken` string so one change is announced once, and clears it
-when hidden. The **Rebuild Staged Update** tooltip names its costs, and `Accessible.description`
+when hidden. The **Discard Staged Update** tooltip names its costs, and `Accessible.description`
 is bound to it, because the polkit dialog takes focus at once.
 
 ### Where the widget's last-run line comes from
@@ -678,7 +664,6 @@ Three settings put Kempt in the system tray, and each fails silently when wrong:
 
 `KPlugin.EnabledByDefault: true` makes it appear unasked. The compact representation's
 `Layout.minimumWidth/Height` follow the shell's `DefaultCompactRepresentation.qml`.
-`Logic.resolveIconSize` falls back to automatic when a chosen size does not fit the tray cell.
 
 ### Why the widget is testable at all
 
@@ -796,7 +781,7 @@ optional can be skipped.
 | `render_summary` (`lib/common.sh`) | `.backends.dnf` and `.backends.flatpak` by name, with the labels "System (dnf)" and "Apps (flatpak)" | A new line, or a rewrite over `.backends \| to_entries`. |
 | `harvest_offline` | Writes a history entry with both backend keys hardcoded | The new key. |
 | `cmd_hold` / `cmd_unhold` | `[[ "$b" == dnf \|\| "$b" == flatpak ]]`, and the message that names both | The whitelist. Without it, `kempt hold apt:foo` exits 2. |
-| `cmd_doctor` | The per-tool checks (flatpak's command and dnf's, each read from its own seam) and the checkout file list | A tool check, so a missing package manager is reported instead of showing as a permanently stale backend. |
+| `cmd_doctor` | The flatpak check, read from its seam | A tool check, so a missing package manager is reported instead of showing as a permanently stale backend. |
 | `kempt_default` and `KEMPT_CONFIG_KEYS` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true`, and both are known keys | A default for `include_<name>`, or the backend is off wherever the config file never names it. The key in `KEMPT_CONFIG_KEYS`, so `config set` does not warn. |
 | `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same meaning. |
 | **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and its line in `usage` | A `--no-<name>` override and its usage line. Without it the backend can be switched off only in config. |

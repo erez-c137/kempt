@@ -1,6 +1,6 @@
 # Configuring Kempt
 
-![The widget's settings page: updates, unused Flatpak runtimes, where updates run, check interval, panel icon size, restart reminders, holds, Discover and password prompts](images/kempt-settings.png)
+![The widget's settings page: updates, unused Flatpak runtimes, where updates run, check interval, holds, Discover and password prompts](images/kempt-settings.png)
 
 *Most controls on the widget's settings page set one of the keys below. **Held**, **Discover** and
 **Password prompts** run commands instead. A change made in either place shows up in the other.*
@@ -34,13 +34,10 @@ half a minute.
 | --- | --- | --- | --- |
 | `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. On a computer without Flatpak, it counts as off. If you set it to `true` yourself there, `kempt doctor` warns. |
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). When off, the run always uses the `terminal` surface with live output, because no other surface can answer a prompt. |
-| `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. `kempt config set surface widget` stores `popup`. An unrecognised value logs a warning and falls back to `terminal`. An older install keeps `terminal`: see [Upgrading](#upgrading-from-an-older-kempt). |
+| `surface` | `terminal`, `popup`, `offline` | `popup` | Where `kempt run` sends the update. `kempt config set surface widget` stores `popup`. A config that still names `background`, from an older version, reads as `popup`. An unrecognised value logs a warning and falls back to `terminal`. |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
-| `widget_icon_size` | `auto`, `small`, `medium`, `large` | `auto` | The size of the widget's panel icon. `auto` matches the system tray: 22 px on panels from 22 to 47 px thick, and 48 or 64 px on a thick or HiDPI panel. `small`, `medium` and `large` are 16, 22 and 32 px, but `large` is never smaller than `auto`. A size the panel cannot fit falls back to `auto`, so inside the system tray the tray's size wins. The widget validates this key: an unrecognised value means `auto`. |
-| `restart_reminder` | boolean | `true` | Whether the widget offers a restart when one is needed. When on, it shows a message with a **Restart…** button that opens KDE's restart prompt; closing the message hides it until the next Plasma session. When off, there is no message or button, and the status line ends `restart pending` when a restart is needed. Nothing restarts on its own either way. |
-| `notify_security` | boolean | `false` | Whether a check also asks dnf which pending system updates fix a security advisory, from the local cache. Each new set gets one desktop notification, and the widget marks those rows **Security**. Flatpak apps publish no security notices, so they never count. A hold or release runs a check, so it can notify too. Discover's own notifier also announces security updates. |
 | `notify_startup` | boolean | `true` | Whether Kempt tells you when a service that started before an update fails after it. Kempt only looks. It never turns anything on or off, and the update count never includes this. Each check asks systemd which services failed. See [kempt startup](usage.md#startup). |
-| `reclaim` | `ask`, `automatic`, `off` | `ask` | What to do with Flatpak runtimes no installed app uses. See [Unused Flatpak runtimes](#unused-flatpak-runtimes). |
+| `reclaim` | `ask`, `off` | `ask` | What to do with Flatpak runtimes no installed app uses. See [Unused Flatpak runtimes](#unused-flatpak-runtimes). |
 | `risky_regex` | POSIX extended regex | `^(kernel\|systemd\|glibc\|dbus\|mesa\|qt6\|kf6\|plasma-workspace\|kwin)` | Which package names count as session-critical. This drives the advice to install on the next restart and `risky_pending`. |
 
 You can store other keys too. Any key matching `^[a-z][a-z0-9_]+$` is accepted, but nothing reads
@@ -54,7 +51,7 @@ kempt config set surfce terminal
 ```
 
 ```
-warning: unknown setting 'surfce'. Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, widget_icon_size, restart_reminder, risky_regex, reclaim, notify_security, notify_startup
+warning: unknown setting 'surfce'. Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, risky_regex, reclaim, notify_startup
 ```
 
 ```bash
@@ -62,12 +59,11 @@ kempt config set surface bogus
 ```
 
 ```
-warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, background, offline
+warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, offline
 ```
 
 The warning goes to stderr. The value is still written and the command still exits 0, because a
-newer widget or Kempt may read a key this version does not know. Booleans and `widget_icon_size`
-get no warning. `kempt hold` and `kempt unhold` print nothing on success.
+newer widget or Kempt may read a key this version does not know. Booleans get no warning. `kempt hold` and `kempt unhold` print nothing on success.
 
 `risky_regex` is matched against dnf package names only. Build and documentation packages never
 count as session-critical, whatever the pattern says: names with a `-devel`, `-headers`, `-static`,
@@ -89,18 +85,9 @@ The `reclaim` key decides what happens to Flatpak runtimes no installed app uses
 [`kempt reclaim`](usage.md#reclaim) has the details of what is removed.
 
 - **`ask`** shows them and removes them when you agree.
-- **`automatic`** removes them after each successful update, once they have been unused for an
-  hour.
 - **`off`** hides them, and `kempt reclaim` removes nothing.
 
-An unrecognised value means `ask`. `automatic` also acts as `ask` on an image-based system, and
-when more than one person may use the machine, because Flatpak cannot see other users' own apps.
-Kempt treats the machine as shared when any of these is true:
-
-- There is a second login account.
-- Accounts come from a network directory such as LDAP or Active Directory. SSSD and Samba count
-  only when they are set up to use one.
-- Another home folder has Flatpak data.
+An unrecognised value means `ask`, and so does a saved `automatic` from an earlier version.
 
 ## Run surfaces
 
@@ -111,7 +98,6 @@ when it finishes.
 | --- | --- | --- |
 | `terminal` | `kempt run` opens Konsole running the update, with live dnf and flatpak output, ending in the summary and a "Press any key to close…" prompt. | Watching it happen. The only surface that can answer prompts. |
 | `popup` (default) | Detached run writing to the log. The widget follows the log and shows the summary when it finishes. From a shell it behaves like a detached run with a notification at the end. | Staying in the panel. |
-| `background` | Silent detached run, with a desktop notification and the counts when done. | Updating while you work. |
 | `offline` | Stages the dnf transaction with `dnf5 upgrade --offline`. It installs during the next restart, and the first `kempt check` after that restart records the result. The widget's button reads **Install on Next Restart**. | Kernel, systemd, Qt/KDE: anything that can break a running desktop. |
 
 The `terminal` surface needs a terminal emulator, `konsole` by default. Without one, `kempt run`
@@ -120,17 +106,6 @@ exits 4. To use another emulator that supports `-e`, set `KEMPT_TERMINAL`.
 The terminal asks before installing kernel, systemd or desktop updates. On the other surfaces,
 **Update Now** asks in the widget first, and offers **Install on Next Restart** or
 **Install Now**.
-
-### Upgrading from an older Kempt
-
-Before 0.1.8 the default was `terminal`. An install that has run Kempt before, and whose config
-file names no surface, keeps `terminal`. The first `kempt` command after the upgrade writes
-`surface=terminal`, once. `--help`, `--version`, `kempt status` and `discover-notifier status`
-do not count. A config file that names a surface is never changed.
-
-When Kempt wrote that line, the widget offers once to run updates itself: **Use This Widget**
-or **Keep the Terminal Window**. Any change to the `surface` setting answers the offer, including
-an edit by hand.
 
 ### Offline staging
 
@@ -203,17 +178,13 @@ day.
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update waiting for the next restart |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
-| `~/.local/state/kempt/surface-migrated` | Empty marker: the [upgrade step](#upgrading-from-an-older-kempt) has run |
-| `~/.local/state/kempt/surface-offer` | Empty marker: the widget's one offer is still open |
 | `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |
 | `~/.local/state/kempt/discover-unattended-answered` | The widget drew its warning about Discover's automatic updates. Removed when the setting reads false and by `kempt discover-notifier on` |
 | `~/.local/state/kempt/offline-partial` | Which copy of dnf5's stored transaction is what is left of a stage only partly installed, for `kempt doctor`. Removed once that copy changes |
 | `~/.local/state/kempt/discover-entry-written` | The autostart entry Kempt last wrote, so `kempt discover-notifier on` removes only Kempt's own |
-| `~/.local/state/kempt/security-seen.json` | The security advisory IDs already announced and already seen in the widget, so each set is announced once. An ID leaves when its package is no longer pending |
 | `~/.local/state/kempt/boot-times.json` | How long each of the last 11 boots took, for `kempt startup --all`. A check adds the boot once startup has finished (until then each check asks again, which takes a few milliseconds), and so does the page |
-| `~/.local/state/kempt/last_security_fail` | Timestamp for the once-a-day `security check failed` line, removed when the query works again |
 | `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock`, `state.lock`, `events.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
 
 File names use a compact timestamp (`20260824T210511`). The `timestamp` field inside each history

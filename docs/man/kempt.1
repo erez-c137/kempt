@@ -66,7 +66,6 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .IR backend : name
 .br
 .B kempt holds
-.RB [ \-\-exclude\-args ]
 .br
 .B kempt config get
 .I key
@@ -136,7 +135,7 @@ Run the update now, in this process. Options override the configuration file for
 updates system packages only.
 .B \-\-surface=
 picks where the run happens:
-.BR terminal ", " widget ", " background " or " offline .
+.BR terminal ", " widget " or " offline .
 An unknown value logs a warning and uses
 .BR terminal .
 Held items are skipped, and the summary lists them.
@@ -303,15 +302,10 @@ command of your own ignores.
 .BI unhold " backend:name"
 Remove a hold. Removing one that is not there succeeds.
 .TP
-.BR holds " [" \-\-exclude\-args ]
+.B holds
 List current holds, one
 .I backend:name
 per line.
-.B \-\-exclude\-args
-prints the dnf holds as one line of dnf5
-.B \-\-exclude=
-arguments, or an empty line with none, for
-.BR "sudo dnf5 upgrade $(kempt holds \-\-exclude\-args)" .
 .TP
 .BI "config get" " key " [ default ]
 Print a setting. With no value stored, it prints
@@ -388,12 +382,8 @@ or in the widget's settings. The keys are
 .BR auto_accept " (default " true "),"
 .BR surface " (default " popup "),"
 .BR refresh_interval_min " (default " 60 "),"
-.BR widget_icon_size " (default " auto "),"
-.BR restart_reminder " (default " true "),"
 .BR risky_regex ,
-.BR reclaim " (" ask ", " automatic " or " off "; default " ask ")",
-.BR notify_security " (default " false ),
-which announces each new set of security updates once,
+.BR reclaim " (" ask " or " off "; default " ask ")",
 and
 .BR notify_startup " (default " true ).
 A boolean is true when it is

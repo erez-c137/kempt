@@ -67,8 +67,8 @@ sandbox() {  # fresh dirs per test file; call first
   # pending. A path that does not exist makes every size query fail, which is also the contract
   # worth exercising by default: a failed size query yields no number and never a failed check.
   export KEMPT_DNF_SIZES_CMD="$TESTTMP/UNSTUBBED-dnf-sizes"
-  # The advisory query, poisoned for the same reason: unset, a file that turns notify_security on
-  # would ask the REAL dnf5 of the box running the suite. A path that does not exist is "dnf did
+  # The advisory query, poisoned for the same reason: unset, every check would ask the REAL dnf5
+  # of the box running the suite. A path that does not exist is "dnf did
   # not answer", which publishes nothing and is the safe default.
   export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/UNSTUBBED-dnf-advisory"
   # Poisoned too: unset, every harvest the suite drives would ask the REAL dnf5 history of the box
@@ -144,11 +144,6 @@ sandbox() {  # fresh dirs per test file; call first
   # The installonly names rpm resolves. Unset, the box's own kernels would decide; poisoned, the
   # fixed kernel list stands in, which is what most tests want.
   export KEMPT_RPM_INSTALLONLY_CMD="$TESTTMP/UNSTUBBED-rpm-installonly"
-  # The shutdown-inhibit plugins kempt doctor looks for. Unset, the box's own rpm database and
-  # /etc/dnf would decide whether every doctor test grows a WARN. The rpm plugin stands installed,
-  # so the row is an ok line; test_doctor.sh points both elsewhere to test the other answers.
-  export KEMPT_RPM_INHIBIT_CMD="echo rpm-plugin-systemd-inhibit"
-  export KEMPT_DNF_INHIBIT_CONF="$TESTTMP/no-inhibit.conf"
   # The system autostart directory `kempt doctor` reads to see whether another updater also starts
   # with the session. Pointed at a path that does not exist, for the reason the markers above are:
   # unset, it reads the REAL /etc/xdg/autostart, so whether a developer box happens to have
@@ -172,17 +167,12 @@ sandbox() {  # fresh dirs per test file; call first
   # feature is off in every file that does not opt in, and no existing state.json grows a block.
   # The other four fail loudly the moment a file turns the feature on without stubbing them:
   # the listing and du report failed and unknown_size, pkcheck says no, and getent reads as
-  # "cannot tell", which keeps automatic at ask.
+  # "cannot tell".
   export KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/UNSTUBBED-flatpak-uninstall"
   export KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/UNSTUBBED-flatpak-unused"
   export KEMPT_DU_CMD="$TESTTMP/UNSTUBBED-du"
   export KEMPT_PKCHECK="$TESTTMP/UNSTUBBED-pkcheck"
   export KEMPT_GETENT_CMD="$TESTTMP/UNSTUBBED-getent"
-  # The other two account signals, pinned at nothing: unset, they read the REAL nsswitch.conf and
-  # home directories, and the machine running the suite would decide which mode a test sees.
-  export KEMPT_NSSWITCH_FILE="$TESTTMP/no-nsswitch.conf" KEMPT_HOME_ROOTS="$TESTTMP/no-homes"
-  # ...and the files and service that decide whether an sss or winbind source there counts.
-  export KEMPT_SSSD_DIR="$TESTTMP/no-sssd" KEMPT_SMB_CONF="$TESTTMP/no-smb.conf"
   export KEMPT_SYSTEMCTL_CMD="$TESTTMP/UNSTUBBED-systemctl"
   # PINNED at `true`, not poisoned, and this is the seam where the usual "a path that does not
   # exist" would be exactly wrong. Unset, the runtime arms fall back to the REAL flatpak and every
@@ -198,10 +188,6 @@ sandbox() {  # fresh dirs per test file; call first
   # assertions came back describing the runtimes installed on the machine running the suite.
   export KEMPT_FLATPAK_SNAP_CMD="true"
   export KEMPT_FLATPAK_SNAP_RUNTIME_CMD="true"
-  # The end-of-life lookups, pinned at `true` for the same reason: unset, a run whose stub prints
-  # an end-of-life notice would read the apps and runtimes of the machine running the suite.
-  export KEMPT_FLATPAK_APP_RUNTIME_CMD="true"
-  export KEMPT_FLATPAK_INFO_CMD="true"
   # The per-user installation, absent by default: a directory that does not exist switches the whole
   # arm off, so no file sees per-user apps unless it creates "$KEMPT_FLATPAK_USER_DIR/repo". The
   # lookups are pinned at `true` and the two commands that change or fetch are poisoned, for the
@@ -210,7 +196,6 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_FLATPAK_USER_REMOTE_CMD="true" KEMPT_FLATPAK_USER_LIST_CMD="true"
   export KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD="true" KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="true"
   export KEMPT_FLATPAK_USER_SNAP_CMD="true" KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD="true"
-  export KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="true" KEMPT_FLATPAK_USER_INFO_CMD="true"
   # One remote for each installation, so the refresh arm runs as it does on a stock Fedora box. Unset,
   # flatpak_refresh would read the remotes of the machine running the suite.
   export KEMPT_FLATPAK_REMOTES_CMD="echo flathub" KEMPT_FLATPAK_USER_REMOTES_CMD="echo flathub"
@@ -257,11 +242,7 @@ printf 'LoadState=%s\nActiveState=%s\nResult=%s\nExecMainCode=%s\nExecMainStatus
 EOF
   chmod +x "$KEMPT_SYSTEMD_SYSTEMCTL"
   unset KEMPT_SYSTEMD_POLL KEMPT_SYSTEMD_GRACE KEMPT_SYSTEMD_LONG_RUN
-  # KEMPT_DNF_SYSTEM_CACHE joins the plain unsets rather than the poisoned ones above: its default
-  # is only ever READ from, never run, and a test that cares drives both branches of its guard by
-  # setting it itself. Unset here so a value exported in a developer's shell cannot decide which
-  # branch the rest of the suite takes.
-  unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD KEMPT_DNF_SYSTEM_CACHE \
+  unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD \
         KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_LIST_CMD \
         KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_TERMINAL KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
         KEMPT_INSTALL_ECHO KEMPT_APPLY_ECHO KEMPT_REFRESH_ECHO \

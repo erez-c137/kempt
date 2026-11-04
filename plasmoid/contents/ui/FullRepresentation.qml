@@ -5,7 +5,7 @@
 // builds in logic.js, and every action is a call back into main.qml - but it also reaches directly
 // for about two dozen members of main.qml through the untyped `plasmoidItem` handle (updating,
 // checking, runRequested, pendingHold, holdError, lastRun, reportText, restartError, logTail,
-// nowMs, setHold, promptRestart, rebuildStaged, showLog, ...). Those are live state and verbs, not
+// nowMs, setHold, promptRestart, discardStaged, showLog, ...). Those are live state and verbs, not
 // derived values: anything that is a DERIVED string or list belongs in the view model, and adding
 // a derivation here instead is the drift to watch for.
 //
@@ -724,7 +724,7 @@ PlasmaExtras.Representation {
                 // on every button here when accessibility was active before construction.
                 Accessible.name: text
                 // ...and what is behind it, which the label cannot say.
-                Accessible.description: i18n("Check interval, where updates run, restart reminders, and the packages you hold.")
+                Accessible.description: i18n("Check interval, where updates run, and the packages you hold.")
                 PlasmaComponents.ToolTip.text: text
                 PlasmaComponents.ToolTip.visible: hovered || visualFocus
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
@@ -811,9 +811,7 @@ PlasmaExtras.Representation {
 
         // The restart. Shown in EVERY state, including up to date: you can owe a restart and have
         // twelve updates pending at once, and you can owe one with nothing pending at all.
-        // Bound to vm.restartMessageVisible, which has already folded in the
-        // `restart_reminder` setting and this session's dismissal - binding it to either half
-        // separately would be a second copy of that rule.
+        // Bound to vm.restartMessageVisible, which has already folded in this session's dismissal.
         Kirigami.InlineMessage {
             id: restartMessage
             Layout.fillWidth: true
@@ -862,7 +860,7 @@ PlasmaExtras.Representation {
             // flag, and THAT is the load-bearing part: this handler also fires when an ancestor
             // hides, which happens every time a run starts. A guard that only asked "does the view
             // model still want this?" would read a run beginning as the user closing the message,
-            // and an update would quietly switch the reminder off for the rest of the session.
+            // and an update would quietly take the message away for the rest of the session.
             onVisibleChanged: {
                 if (visible) return;
                 if (!popup.closedByButton(restartMessage, "restart")) return;
@@ -923,79 +921,20 @@ PlasmaExtras.Representation {
                     onTriggered: source => popup.plasmoidItem.promptRestart()
                 },
                 Kirigami.Action {
-                    // ...and what stands in its place. ONE action, offered only where there is
-                    // something to change: rebuilding an ordinary armed stage would destroy a good
-                    // transaction to produce the same one back.
-                    //
-                    // system-software-update, the icon already on Update Now below, because this
-                    // runs the same verb: `kempt update --surface=offline`. view-refresh would be
-                    // wrong twice over - it is this popup's icon for "check again" and already sits
-                    // on the Refresh button and the contextual action; system-reboot is taken by
-                    // the button standing down right beside it.
-                    text: i18n("Rebuild Staged Update")
-                    icon.name: "system-software-update"
-                    // The tooltip is the disclosure, not a hint: authorization, and the cost of a
-                    // rebuild that fails (dnf5 destroys the stored transaction the moment a
-                    // re-stage begins, so there is no "keep the old one" outcome).
-                    // Accessible.description carries the identical words because a polkit dialog
-                    // takes the focus the moment this is pressed - a screen-reader user who has not
-                    // heard the cost by then hears it never.
-                    tooltip: i18n("Builds the staged update again with your current holds. May ask for your password. If the rebuild fails, the current staged update is removed.")
-                    Accessible.description: tooltip
-                    // Shown by the view model, and disabled while a staging action is already
-                    // pending (main.qml, actionPending): a second press would queue a second
-                    // action behind the first. Disabled and not hidden, because the banner it
-                    // stands on has not changed - the answer is on its way.
-                    visible: popup.vm.stagedShowRebuild
-                    enabled: visible && !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.rebuildStaged()
-                },
-                Kirigami.Action {
-                    // The way out that is neither a restart nor a rebuild, and the one somebody who
-                    // simply changed their mind is looking for. LAST in the list on purpose: on a
-                    // warning it stands BESIDE the rebuild rather than where the rebuild stands,
-                    // because the conflict remedy is what that message is for. It is on the green
-                    // banner too - staging an update and then thinking better of it is not a
-                    // problem anybody should have to open a terminal to fix.
-                    //
-                    // edit-delete, which is what it does: system-software-update is the staging
-                    // icon and sits on the action right above this one, view-refresh is Refresh,
-                    // and system-reboot is the button standing down beside it.
+                    // The way out, and the one somebody who simply changed their mind is looking
+                    // for. On a warning it is the first half of the remedy. It is on the green
+                    // banner too: staging an update and then thinking better of it is not a problem
+                    // anybody should have to open a terminal to fix.
                     text: i18n("Discard Staged Update")
                     icon.name: "edit-delete"
-                    // The tooltip is the disclosure, not a hint, and its second half is the fact
-                    // that separates this from the rebuild above: a rebuild reuses dnf5's package
-                    // cache, and this deletes it. Accessible.description carries the identical
-                    // words for the identical reason - a polkit dialog takes the focus the moment
-                    // this is pressed.
+                    // The tooltip is the disclosure, not a hint. Accessible.description carries the
+                    // identical words because a polkit dialog takes the focus the moment this is
+                    // pressed: a screen-reader user who has not heard the cost by then hears it never.
                     tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again.")
                     Accessible.description: tooltip
                     visible: popup.vm.stagedShowDiscard
                     enabled: visible && !popup.plasmoidItem.actionPending
                     onTriggered: source => popup.plasmoidItem.discardStaged()
-                }
-            ]
-        }
-
-        // A stage that lost only its restart step. logic.js decides when; `kempt restore-stage` acts.
-        Kirigami.InlineMessage {
-            id: stageRestorableMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: popup.vm.stageRestorableMessage
-            Accessible.name: text
-            visible: popup.shows("stageRestorable")
-            // Assertive for the staged banner's reason: what the person was promised has changed.
-            property string spoken: ""
-            onVisibleChanged: popup.speakMessage(stageRestorableMessage, true, text)
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Put It Back")
-                    icon.name: "edit-undo"
-                    tooltip: i18n("Sets your staged updates to install on the next restart again. May ask for your password.")
-                    Accessible.description: tooltip
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.restoreStage()
                 }
             ]
         }
@@ -1189,30 +1128,6 @@ PlasmaExtras.Representation {
                     enabled: visible && !popup.plasmoidItem.runRequested
                              && !popup.plasmoidItem.actionPending
                     onTriggered: source => { popup.plasmoidItem.startUpdate(true); popup.rescueFocus(); }
-                }
-            ]
-        }
-
-        // The one-time offer to update here instead of in a terminal window, made to a box that had
-        // the terminal before the popup became the default (bin/kempt, surface_migrate). Either
-        // answer is written as the setting, which is what ends the offer.
-        Kirigami.InlineMessage {
-            id: surfaceOfferMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: i18n("Updates can now run in this widget instead of a terminal window.")
-            Accessible.name: text
-            visible: popup.shows("surfaceOffer")
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Use This Widget")
-                    icon.name: "dialog-ok"
-                    onTriggered: source => { popup.plasmoidItem.useSurface("popup"); popup.rescueFocus(); }
-                },
-                Kirigami.Action {
-                    text: i18n("Keep the Terminal Window")
-                    icon.name: "utilities-terminal"
-                    onTriggered: source => { popup.plasmoidItem.useSurface("terminal"); popup.rescueFocus(); }
                 }
             ]
         }
@@ -1568,7 +1483,7 @@ PlasmaExtras.Representation {
                     id: reclaimAction
                     // The label is also what a screen reader reads, so the running state is words.
                     text: popup.plasmoidItem.reclaimRunning ? i18n("Freeing Up Space…")
-                        : popup.vm.reclaimAutomatic ? i18n("Free Up Space Now") : i18n("Free Up Space")
+                        : i18n("Free Up Space")
                     icon.name: "edit-clear-all"
                     tooltip: i18n("Removes the Flatpak runtimes listed under Show Runtimes.")
                     Accessible.description: tooltip
@@ -1923,14 +1838,12 @@ PlasmaExtras.Representation {
                 }
                 icon: "documentinfo"
                 title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs, popup.vm.restartHeld)
-                // Only a failure earns a second line here, or extensions the run's automatic removal
-                // took from an app (once per run, see Logic.lastRunSubtitle), and it is logic.js's
-                // own sentence about that run rather than a new one written in QML. NOT the entry's
+                // Only a failure earns a second line here, and it is logic.js's own sentence about
+                // that run rather than a new one written in QML. NOT the entry's
                 // reboot_needed: that is a fact about the moment the run ended, and the state
                 // file's live answer is what the restart message above is bound to. Repeating the
                 // history entry here would go on claiming a restart after the user had done it.
-                subtitle: Logic.lastRunSubtitle(popup.plasmoidItem.lastRun,
-                                                popup.plasmoidItem.reclaimInUseSeen)
+                subtitle: Logic.lastRunSubtitle(popup.plasmoidItem.lastRun)
                 subtitleCanWrap: true
                 customExpandedViewContent: lastRunPackages
                 contextualActions: [
@@ -1945,8 +1858,7 @@ PlasmaExtras.Representation {
                     Kirigami.Action {
                         text: i18n("Check Installation")
                         icon.name: "tools-report-bug"
-                        enabled: Logic.mentionsDoctor(Logic.lastRunSubtitle(
-                            popup.plasmoidItem.lastRun, popup.plasmoidItem.reclaimInUseSeen))
+                        enabled: Logic.mentionsDoctor(Logic.lastRunSubtitle(popup.plasmoidItem.lastRun))
                         visible: enabled
                         onTriggered: source => popup.plasmoidItem.runDoctor()
                     }
@@ -2179,7 +2091,6 @@ PlasmaExtras.Representation {
             text: {
                 switch (popup.plasmoidItem.runningSurface) {
                 case "popup":      return i18n("Updating…");
-                case "background": return i18n("Updating in the background…");
                 case "offline":    return i18n("Staging updates for the next restart…");
                 default:           return i18n("Updating in a terminal window…");
                 }

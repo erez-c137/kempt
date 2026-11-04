@@ -34,8 +34,7 @@ for d in (VALUES, FAILGET, FAILSET, SLOWSET):
 
 DEFAULTS = (("include_flatpak", "true"), ("auto_accept", "true"),
             ("surface", "popup"), ("refresh_interval_min", "60"),
-            ("widget_icon_size", "medium"), ("restart_reminder", "true"),
-            ("reclaim", "automatic"))
+            ("notify_startup", "true"), ("reclaim", "off"))
 # Whether flatpak is installed, as the page asks it: `command -v` on the first word of the CLI's
 # own uninstall command. Pointed at a file in the sandbox, so this probe decides the answer
 # rather than the box it runs on; removing the file is "flatpak is not installed".
@@ -168,19 +167,19 @@ p.check("an Apply before the settings have been read writes NOTHING", p.calls_ma
 p.check("...so the stored surface is untouched", stored("surface"), "popup")
 p.check("...and the stored interval", stored("refresh_interval_min"), "60")
 p.check("...and the boolean the QML default disagrees with", stored("include_flatpak"), "true")
-# The icon size is the sharpest version of this: the page's own default is "auto" and the stored
-# value is "medium", so an Apply that ran on the page's defaults would be visible immediately.
-p.check("...and the stored panel icon size", stored("widget_icon_size"), "medium")
+# The reclaim setting is the sharpest version of this: the page's own default is "ask" and the stored
+# value is "off", so an Apply that ran on the page's defaults would be visible immediately.
+p.check("...and the stored reclaim setting", stored("reclaim"), "off")
 p.wait_for(ev0, "page.pendingReads", 0)
 p.check("once the reads land the controls come back", ev0("includeFlatpak.enabled"), True)
 p.check("...and the page holds the stored values, not its defaults", ev0("interval.value"), 60)
-p.check("...including the panel icon size it was never told to guess", ev0("page.iconSizeKey"),
-        "medium")
+p.check("...including the reclaim setting it was never told to guess", ev0("page.reclaimKey"),
+        "off")
 p.check("...shown as the selected radio, not merely held in a property",
-        ev0("iconSizeRepeater.itemAt(2).checked"), True)
+        ev0("reclaimRepeater.itemAt(1).checked"), True)
 
-# A screen reader stopping on a radio hears its option and nothing else: "Small, radio button"
-# says neither what is small nor which of three groups it sits in. Each radio's accessible name
+# A screen reader stopping on a radio hears its option and nothing else: "Never, radio button"
+# says neither what never happens nor which group it sits in. Each radio's accessible name
 # carries its group's label, and the spin box, which has no words of its own, carries its label
 # (its text field too, which is the part a reader lands on when typing).
 NAMES = ("(function () { var r = [], i;"
@@ -189,17 +188,13 @@ NAMES = ("(function () { var r = [], i;"
 p.check("each unused-runtimes radio is named with its setting",
         ev0(NAMES % {"r": "reclaimRepeater"}),
         "|".join(["Unused Flatpak runtimes: Ask me first",
-                  "Unused Flatpak runtimes: Remove after updates", "Unused Flatpak runtimes: Never"]))
+                  "Unused Flatpak runtimes: Never"]))
 p.check("...and each surface radio",
         ev0(NAMES % {"r": "surfaceRepeater"}),
         "|".join(["Run updates in: Terminal window", "Run updates in: In this widget",
-                  "Run updates in: In the background", "Run updates in: On the next restart"]))
-p.check("...and each panel-icon-size radio",
-        ev0(NAMES % {"r": "iconSizeRepeater"}),
-        "|".join(["Panel icon size: Automatic", "Panel icon size: Small",
-                  "Panel icon size: Medium", "Panel icon size: Large"]))
+                  "Run updates in: On the next restart"]))
 p.check("...while the words drawn beside them stay the option alone",
-        ev0("iconSizeRepeater.itemAt(1).text"), "Small")
+        ev0("reclaimRepeater.itemAt(1).text"), "Never")
 p.check("the interval spin box is named by its label, and so is the text field inside it",
         [ev0("interval.Accessible.name"), ev0("interval.contentItem.Accessible.name")],
         ["Check every", "Check every"])
@@ -229,19 +224,14 @@ def group(evx, repeater):
     return [evx(CHECKED % {"r": repeater}), evx(WHICH % {"r": repeater})]
 
 
-pageR, evR = None, None
-for icon_size, want in (("auto", 0), ("medium", 2)):
-    for k, v in DEFAULTS:
-        setval(k, v)
-    setval("widget_icon_size", icon_size)
-    p.clear_calls()
-    pageR, evR = build()
-    p.check("opening on widget_icon_size=%s checks exactly one panel-icon-size radio" % icon_size,
-            group(evR, "iconSizeRepeater"), [1, want])
-    p.check("...and exactly one surface radio, the stored one",
-            group(evR, "surfaceRepeater"), [1, 1])
-    p.check("...and exactly one unused-runtimes radio, the stored one",
-            group(evR, "reclaimRepeater"), [1, 1])
+for k, v in DEFAULTS:
+    setval(k, v)
+p.clear_calls()
+pageR, evR = build()
+p.check("opening checks exactly one surface radio, the stored one",
+        group(evR, "surfaceRepeater"), [1, 1])
+p.check("...and exactly one unused-runtimes radio, the stored one",
+        group(evR, "reclaimRepeater"), [1, 1])
 
 # Driven the way a user drives it, in the two steps a click really is: toggle() flips `checked`
 # through the same C++ setter the mouse goes through - which is where QQC2 would uncheck the rest
@@ -249,47 +239,29 @@ for icon_size, want in (("auto", 0), ("medium", 2)):
 # listens to. Deliberately NOT `checked = true` from JS: that assignment DESTROYS the delegate's
 # `checked` binding, so the button would stay lit whatever the page property said afterwards and
 # this section would be proving nothing. The other group must not move.
-before_icon = group(evR, "iconSizeRepeater")
 before_reclaim = group(evR, "reclaimRepeater")
-evR("surfaceRepeater.itemAt(3).toggle()")
-evR("surfaceRepeater.itemAt(3).toggled()")
+evR("surfaceRepeater.itemAt(2).toggle()")
+evR("surfaceRepeater.itemAt(2).toggled()")
 p.pump(60)
 p.check("clicking a surface radio moves the surface choice", evR("page.surfaceKey"), "offline")
-p.check("...leaving exactly one of its own buttons checked", group(evR, "surfaceRepeater"), [1, 3])
-p.check("...and the panel-icon-size group exactly as it was",
-        group(evR, "iconSizeRepeater"), before_icon)
-p.check("...including the property behind it", evR("page.iconSizeKey"), "medium")
-p.check("...and the unused-runtimes group too", group(evR, "reclaimRepeater"), before_reclaim)
+p.check("...leaving exactly one of its own buttons checked", group(evR, "surfaceRepeater"), [1, 2])
+p.check("...and the unused-runtimes group exactly as it was",
+        group(evR, "reclaimRepeater"), before_reclaim)
 
 before_surface = group(evR, "surfaceRepeater")
-evR("iconSizeRepeater.itemAt(1).toggle()")
-evR("iconSizeRepeater.itemAt(1).toggled()")
+evR("reclaimRepeater.itemAt(0).toggle()")
+evR("reclaimRepeater.itemAt(0).toggled()")
 p.pump(60)
-p.check("clicking a panel-icon-size radio moves that choice", evR("page.iconSizeKey"), "small")
+p.check("clicking an unused-runtimes radio moves that choice", evR("page.reclaimKey"), "ask")
 p.check("...leaving exactly one of its own buttons checked",
-        group(evR, "iconSizeRepeater"), [1, 1])
+        group(evR, "reclaimRepeater"), [1, 0])
 p.check("...and the surface group untouched", group(evR, "surfaceRepeater"), before_surface)
-p.check("...including the property behind it", evR("page.surfaceKey"), "offline")
-p.check("...and the unused-runtimes group untouched", group(evR, "reclaimRepeater"), before_reclaim)
-
-before_icon = group(evR, "iconSizeRepeater")
-before_surface = group(evR, "surfaceRepeater")
-evR("reclaimRepeater.itemAt(2).toggle()")
-evR("reclaimRepeater.itemAt(2).toggled()")
-p.pump(60)
-p.check("clicking an unused-runtimes radio moves that choice", evR("page.reclaimKey"), "off")
-p.check("...leaving exactly one of its own buttons checked",
-        group(evR, "reclaimRepeater"), [1, 2])
-p.check("...and the other two groups untouched",
-        [group(evR, "surfaceRepeater"), group(evR, "iconSizeRepeater")],
-        [before_surface, before_icon])
 
 # Clicking the radio that is ALREADY selected unchecks it in C++, and the page puts it back. Put
 # back by assignment, `checked` stops following the page property, so the next click on another
 # radio would leave both lit. Every group, clicked the way a mouse clicks.
 for _rep, _key, _other in (("surfaceRepeater", "surfaceKey", 1),
-                           ("iconSizeRepeater", "iconSizeKey", 3),
-                           ("reclaimRepeater", "reclaimKey", 0)):
+                           ("reclaimRepeater", "reclaimKey", 1)):
     _sel = group(evR, _rep)[1]
     evR("%s.itemAt(%d).toggle()" % (_rep, _sel))
     evR("%s.itemAt(%d).toggled()" % (_rep, _sel))
@@ -348,36 +320,6 @@ p.clear_calls()
 ev("page.saveConfig()")
 p.wait_idle(ev, "cfgExecutor")
 p.check("saving twice does not rewrite what it just wrote", p.calls_matching("config set"), [])
-
-# The panel icon size. Same shape as the surface radios - the selection lives in a page property
-# and the delegates are a view of it - and the same failure if it did not: a Repeater whose
-# delegates are not realised reports nothing checked, and Apply would write the first option over
-# whatever the user has.
-ev("iconSizeRepeater.itemAt(3).checked = true")
-ev("iconSizeRepeater.itemAt(3).toggled()")
-p.pump(50)
-p.check("choosing a panel icon size arms Apply", hev("host.applyEnabled"), True)
-p.check("...and the page holds the choice, not the delegate", ev("page.iconSizeKey"), "large")
-p.clear_calls()
-ev("page.saveConfig()")
-p.wait_idle(ev, "cfgExecutor")
-p.check("...and Apply writes exactly that one key",
-        sorted(c.split()[2] for c in p.calls_matching("config set")), ["widget_icon_size"])
-p.check("...with the value the widget reads back", stored("widget_icon_size"), "large")
-p.check("the interval was not rewritten alongside it", stored("refresh_interval_min"), "120")
-p.check("...nor the surface", stored("surface"), "popup")
-p.clear_calls()
-ev("page.saveConfig()")
-p.wait_idle(ev, "cfgExecutor")
-p.check("...and a second Apply writes nothing at all", p.calls_matching("config set"), [])
-# Back to Automatic, which is a real choice and not just the absence of one.
-ev("iconSizeRepeater.itemAt(0).checked = true")
-ev("iconSizeRepeater.itemAt(0).toggled()")
-p.pump(50)
-p.clear_calls()
-ev("page.saveConfig()")
-p.wait_idle(ev, "cfgExecutor")
-p.check("Automatic is stored as a value like any other", stored("widget_icon_size"), "auto")
 
 # ==================================================================================================
 # The surface lock is a RUN-time fact, not an edit.
@@ -510,49 +452,12 @@ p.check("...with their value", stored("include_flatpak"), "false")
 toggle_fail(FAILGET, "include_flatpak", False)
 
 # ==================================================================================================
-# Security update notifications: off by default, and a round trip through `kempt config` like the
-# other booleans on this page.
-# ==================================================================================================
-for k, v in DEFAULTS:
-    setval(k, v)
-setval("notify_security", "false")
-p.clear_calls()
-pgSec, evSec = build()
-p.check("the page reads the security setting on open",
-        p.calls_matching("config get notify_security"), ["config get notify_security"])
-p.check("...and a stored false renders as an empty box", evSec("notifySecurity.checked"), False)
-evSec("notifySecurity.checked = true")
-evSec("notifySecurity.toggled()")
-p.pump(50)
-p.check("ticking it marks the page unsaved", evSec("page.unsavedChanges"), True)
-p.clear_calls()
-evSec("page.saveConfig()")
-p.wait_idle(evSec, "cfgExecutor")
-p.check("Apply writes the one key that moved, as four arguments",
-        [p.call_count("config set"), p.argv("config")], [1, ["config", "set", "notify_security", "true"]])
-p.check("...and the CLI holds it", stored("notify_security"), "true")
-pgSec2, evSec2 = build()
-p.check("a fresh page reads it back ticked", evSec2("notifySecurity.checked"), True)
-# An older CLI that has never heard of the key answers with nothing: the box stays as it was and
-# Apply does not write a value the user never chose.
-os.remove(os.path.join(VALUES, "notify_security"))
-p.clear_calls()
-pgSec3, evSec3 = build()
-p.check("an older CLI's empty answer leaves the box empty", evSec3("notifySecurity.checked"), False)
-evSec3("page.saveConfig()")
-p.wait_idle(evSec3, "cfgExecutor")
-p.check("...and Apply writes nothing for it", p.call_count("config set notify_security"), 0)
-
-# ==================================================================================================
-# The restart reminder.
+# One boolean, end to end.
 #
-# `restart_reminder` decides whether the popup may BRING UP a restart the machine is owed - the
-# message and its Restart... button. It never decides whether one is owed: that is the state file's
-# reboot_needed, and the popup's status line goes on saying `restart pending` either way. So most
-# of what this section asks is what it asks of every other key on this page - does the box show
-# what is stored, does Apply write exactly what the user moved and nothing else, does the value
-# survive a round trip through the CLI - plus one question that belongs to a key this release
-# invents, further down: what the page does when the `kempt` on PATH has never heard of it.
+# What this section asks of `notify_startup` is what it asks of every key on this page: does the
+# box show what is stored, does Apply write exactly what the user moved and nothing else, does the
+# value survive a round trip through the CLI, and what happens when the `kempt` on PATH has never
+# heard of the key.
 # ==================================================================================================
 for k, v in DEFAULTS:
     setval(k, v)
@@ -560,13 +465,13 @@ p.clear_calls()
 pgRem, evRem = build()
 hostRem, hevRem = shell_for(pgRem)
 hevRem("host.attach()")
-p.check("the page reads the reminder setting on open",
-        p.calls_matching("config get restart_reminder"), ["config get restart_reminder"])
-p.check("...and a stored true renders as a ticked box", evRem("restartReminder.checked"), True)
+p.check("the page reads the setting on open",
+        p.calls_matching("config get notify_startup"), ["config get notify_startup"])
+p.check("...and a stored true renders as a ticked box", evRem("notifyStartup.checked"), True)
 p.check("...with nothing to save yet", evRem("page.unsavedChanges"), False)
 
-evRem("restartReminder.checked = false")
-evRem("restartReminder.toggled()")
+evRem("notifyStartup.checked = false")
+evRem("notifyStartup.toggled()")
 p.pump(50)
 p.check("unticking it marks the page unsaved", evRem("page.unsavedChanges"), True)
 p.check("...which is what turns the dialog's Apply button on", hevRem("host.applyEnabled"), True)
@@ -577,14 +482,14 @@ p.clear_calls()
 evRem("page.saveConfig()")
 p.wait_idle(evRem, "cfgExecutor")
 p.check("Apply writes exactly the one key that moved",
-        sorted(c.split()[2] for c in p.calls_matching("config set")), ["restart_reminder"])
-# The argv, not the line: `config set restart_reminder false` has to reach the CLI as four
+        sorted(c.split()[2] for c in p.calls_matching("config set")), ["notify_startup"])
+# The argv, not the line: `config set notify_startup false` has to reach the CLI as four
 # separate words. Logic.shellQuote wraps the value, and a quoting change that turned it into one
 # argument would still log a plausible-looking call line.
 p.check("...as four arguments the CLI can read",
-        p.argv("config"), ["config", "set", "restart_reminder", "false"])
-p.check("...and the CLI holds the value the user chose", stored("restart_reminder"), "false")
-p.check("...while the keys the user never touched stand", stored("widget_icon_size"), "medium")
+        p.argv("config"), ["config", "set", "notify_startup", "false"])
+p.check("...and the CLI holds the value the user chose", stored("notify_startup"), "false")
+p.check("...while the keys the user never touched stand", stored("surface"), "popup")
 p.check("...including the other two booleans", [stored("include_flatpak"), stored("auto_accept")],
         ["true", "true"])
 p.check("...and the page is clean again", evRem("page.unsavedChanges"), False)
@@ -600,80 +505,79 @@ p.check("a second Apply with nothing changed writes nothing at all",
 # asks the CLI the same question the widget does, and an off setting has to come back off.
 p.clear_calls()
 pgRem2, evRem2 = build()
-p.check("a fresh page reads back what the last one wrote", evRem2("restartReminder.checked"), False)
-p.check("...and remembers it as the stored value", evRem2("page.loaded['restart_reminder']"), "false")
-evRem2("restartReminder.checked = true")
-evRem2("restartReminder.toggled()")
+p.check("a fresh page reads back what the last one wrote", evRem2("notifyStartup.checked"), False)
+p.check("...and remembers it as the stored value", evRem2("page.loaded['notify_startup']"), "false")
+evRem2("notifyStartup.checked = true")
+evRem2("notifyStartup.toggled()")
 p.pump(50)
 p.clear_calls()
 evRem2("page.saveConfig()")
 p.wait_idle(evRem2, "cfgExecutor")
-p.check("ticking it back writes true", stored("restart_reminder"), "true")
-p.check("...having called the CLI exactly once", p.call_count("config set restart_reminder"), 1)
+p.check("ticking it back writes true", stored("notify_startup"), "true")
+p.check("...having called the CLI exactly once", p.call_count("config set notify_startup"), 1)
 p.check("...and written nothing else", p.call_count("config set"), 1)
 
 # The durable form. Same argument as the auto_accept section at the bottom of this file: the
 # dialog's OK is `applyAction.trigger(); configDialog.close()`, so this write is dispatched into
 # its own teardown and a plain `sh -c` would be SIGKILLed with the config set still unrun. The
 # slow-write seam keeps the job in flight long enough for the command string to be readable.
-setval("restart_reminder", "true")
-toggle_fail(SLOWSET, "restart_reminder")
+setval("notify_startup", "true")
+toggle_fail(SLOWSET, "notify_startup")
 pgRem3, evRem3 = build()
-evRem3("restartReminder.checked = false")
-evRem3("restartReminder.toggled()")
+evRem3("notifyStartup.checked = false")
+evRem3("notifyStartup.toggled()")
 p.pump(50)
 p.clear_calls()
 evRem3("page.saveConfig()")
 cmdRem = evRem3("cfgExecutor.current ? cfgExecutor.current.cmd : ''")
-p.check("the reminder write carries the widget stamp `kempt log` reports",
+p.check("the write carries the widget stamp `kempt log` reports",
         "KEMPT_VIA=widget kempt config set" in cmdRem, True)
 p.check("...with the value quoted by Logic.shellQuote",
-        "config set restart_reminder 'false'" in cmdRem, True)
+        "config set notify_startup 'false'" in cmdRem, True)
 p.check("...and ends in the durable form, so an OK press cannot lose it",
         cmdRem.endswith(" & wait $!"), True)
 p.wait_idle(evRem3, "cfgExecutor", timeout_ms=20000)
-p.check("...and the write lands", stored("restart_reminder"), "false")
+p.check("...and the write lands", stored("notify_startup"), "false")
 p.check("...leaving the page clean, so `wait $!` carried the exit status back",
         evRem3("page.unsavedChanges"), False)
-toggle_fail(SLOWSET, "restart_reminder", False)
+toggle_fail(SLOWSET, "notify_startup", False)
 
 # An older `kempt` first on PATH has never heard of this key, and `kempt config get` prints an
 # empty line and exits 0 for a key it does not know (docs/configuration.md says so; the stub above
 # does exactly that for a key with no file). isTrue("") is false - which is the OPPOSITE of this
-# key's own default - so a page that took the empty answer at face value would show the reminder
+# key's own default - so a page that took the empty answer at face value would show the setting
 # as off on a box where it is on, and then write that off back over the key the first time the
-# user pressed Apply for some unrelated reason. main.qml's readRestartReminder carries the same
-# guard, and probe_popup pins it there; this is the settings page's half of it.
-os.remove(os.path.join(VALUES, "restart_reminder"))
+# user pressed Apply for some unrelated reason. 
+os.remove(os.path.join(VALUES, "notify_startup"))
 p.clear_calls()
 pgOld, evOld = build(wait=False)
 p.check("the box starts on the CLI's own default, before any answer has arrived",
-        evOld("restartReminder.checked"), True)
+        evOld("notifyStartup.checked"), True)
 p.wait_for(evOld, "page.pendingReads === 0 && !page.holdsBusy", True)
 p.wait_idle(evOld, "cfgExecutor")
 p.check("...the older CLI answered with an empty line and exit 0",
-        p.calls_matching("config get restart_reminder"), ["config get restart_reminder"])
+        p.calls_matching("config get notify_startup"), ["config get notify_startup"])
 p.check("...and the box is STILL ticked: no answer is not an answer of false",
-        evOld("restartReminder.checked"), True)
+        evOld("notifyStartup.checked"), True)
 p.check("...with the key remembered as one whose stored value is unknown",
-        evOld("page.readFailed['restart_reminder']"), True)
+        evOld("page.readFailed['notify_startup']"), True)
 p.check("...while the keys that CLI does know loaded normally", evOld("interval.value"), 60)
 p.clear_calls()
 evOld("page.saveConfig()")
 p.wait_idle(evOld, "cfgExecutor")
 p.check("an untouched Apply writes no value over the key it could not read",
-        p.calls_matching("config set restart_reminder"), [])
-p.check("...so the older CLI's config is left exactly as it was", stored("restart_reminder"),
+        p.calls_matching("config set notify_startup"), [])
+p.check("...so the older CLI's config is left exactly as it was", stored("notify_startup"),
         "(absent)")
 # ...unless the user moves the control, where the value on screen is theirs rather than a default.
-evOld("restartReminder.checked = false")
-evOld("restartReminder.toggled()")
+evOld("notifyStartup.checked = false")
+evOld("notifyStartup.toggled()")
 p.clear_calls()
 evOld("page.saveConfig()")
 p.wait_idle(evOld, "cfgExecutor")
 p.check("but a control the user DID move is written, unheard-of key or not",
-        p.call_count("config set restart_reminder"), 1)
-p.check("...with their value", stored("restart_reminder"), "false")
+        p.call_count("config set notify_startup"), 1)
+p.check("...with their value", stored("notify_startup"), "false")
 
 # ==================================================================================================
 # The rest of the page.
@@ -684,8 +588,8 @@ p.clear_calls()
 page6, ev6 = build()
 p.check("every setting the page writes is read back on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
-        ["auto_accept", "include_flatpak", "notify_security", "notify_startup", "reclaim", "refresh_interval_min",
-         "restart_reminder", "surface", "widget_icon_size"])
+        ["auto_accept", "include_flatpak", "notify_startup", "reclaim", "refresh_interval_min",
+         "surface"])
 p.check("...and the holds list too", p.call_count("holds"), 1)
 p.check("a true boolean renders as a ticked box", ev6("includeFlatpak.checked"), True)
 p.check("the stored surface is the selected radio", ev6("page.selectedSurface()"), "popup")
@@ -695,17 +599,14 @@ p.check("...with the CLI's own ids", ev6("page.holds[0].id"), "dnf:vim-common")
 p.check("an untouched page writes nothing at all", p.calls_matching("config set"), [])
 
 # --- unused Flatpak runtimes ----------------------------------------------------------------------
-p.check("the stored reclaim setting is the selected radio", ev6("page.reclaimKey"), "automatic")
+p.check("the stored reclaim setting is the selected radio", ev6("page.reclaimKey"), "off")
 p.check("...and with flatpak installed and included, the group is usable",
         ev6("reclaimRepeater.itemAt(0).enabled"), True)
-p.check("...and with Remove after updates chosen, it says a shared computer is still asked first",
-        [ev6("reclaimNote.visible"), ev6("reclaimNote.text")],
-        [True, "Kempt still asks first on an image-based Fedora, or when more than one person may use this computer."])
 p.check("...under the label the plan gives it",
         ev6("reclaimRepeater.itemAt(0).Kirigami.FormData.label"), "Unused Flatpak runtimes:")
-p.check("...with its three choices in words",
-        [ev6("reclaimRepeater.itemAt(%d).text" % i) for i in range(3)],
-        ["Ask me first", "Remove after updates", "Never"])
+p.check("...with its two choices in words",
+        [ev6("reclaimRepeater.itemAt(%d).text" % i) for i in range(2)],
+        ["Ask me first", "Never"])
 ev6("reclaimRepeater.itemAt(0).toggle()")
 ev6("reclaimRepeater.itemAt(0).toggled()")
 p.clear_calls()
@@ -735,7 +636,7 @@ p.check("...and so is Include Flatpak apps", evNF("includeFlatpak.enabled"), Fal
 p.check("...which says why, under it", [evNF("includeFlatpakNote.visible"), evNF("includeFlatpakNote.text")],
         [True, "Flatpak is not installed."])
 p.check("...said once, so the group adds nothing", evNF("reclaimNote.visible"), False)
-p.check("...while the stored choice still shows", evNF("page.reclaimKey"), "automatic")
+p.check("...while the stored choice still shows", evNF("page.reclaimKey"), "off")
 open(FLATPAK_BIN, "w").write("#!/bin/sh\nexit 0\n")
 os.chmod(FLATPAK_BIN, 0o755)
 
@@ -748,7 +649,7 @@ p.check("an empty answer for reclaim is remembered as unknown",
 evOR("page.saveConfig()")
 p.wait_idle(evOR, "cfgExecutor")
 p.check("...so an untouched Apply writes nothing over it", stored("reclaim"), "(absent)")
-setval("reclaim", "automatic")
+setval("reclaim", "off")
 
 p.clear_calls()
 ev6('page.removeHold("dnf:vim-common")')
@@ -841,7 +742,7 @@ p.check("...with nothing left outstanding", ev8("page.outstandingWrites"), 0)
 # would decrement a counter that had been reset under them, and the page could reach zero - and
 # report itself saved - with writes still queued.
 toggle_fail(SLOWSET, "surface")
-ev8("page.applySurface('background'); page.markChanged('surface')")
+ev8("page.applySurface('offline'); page.markChanged('surface')")
 p.pump(50)
 p.clear_calls()
 serial8 = ev8("cfgExecutor.serial")
@@ -852,7 +753,7 @@ ev8("page.saveConfig()")
 p.check("a second Apply on top of one still running dispatches nothing extra",
         ev8("cfgExecutor.serial") - serial8, 1)
 p.wait_idle(ev8, "cfgExecutor")
-p.check("...and the single round that ran wrote the value", stored("surface"), "background")
+p.check("...and the single round that ran wrote the value", stored("surface"), "offline")
 p.check("...having called the CLI exactly once", p.call_count("config set surface"), 1)
 p.check("...leaving the page clean exactly once", ev8("page.unsavedChanges"), False)
 toggle_fail(SLOWSET, "include_flatpak", False)

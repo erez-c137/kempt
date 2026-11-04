@@ -27,12 +27,10 @@ Using both gives you two icons.
 | Spinner | Updating | A run started from the widget is in progress. |
 | Dimmed, no badge | No data yet | The first check has not answered. If another check was running, as is common right after login, it asks again a few times, about ten seconds apart. |
 
-The badge counts up to `999`, then shows `999+`. On a panel thinner than 22 px, or with **Small**
-chosen, there is no badge, but the icon still changes and the tooltip has the count.
+The badge counts up to `999`, then shows `999+`. On a panel thinner than 22 px there is no badge, but the icon still changes and the tooltip has the count.
 
-**Panel icon size**, under **Configure Kempt…**, offers **Automatic** (the default), **Small**,
-**Medium** and **Large**. The sizes are under `widget_icon_size` in
-[configuration.md](configuration.md#keys).
+The icon sizes itself to match the system tray: 22 px on panels from 22 to 47 px thick, and 48 or
+64 px on a thick or HiDPI panel.
 
 ## Inside the widget
 
@@ -91,6 +89,10 @@ closed. It is also in the right-click and **More actions** menus.
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
 the tray's own heading has a gear and a **More actions** menu, so the widget hides its gear.
 
+**Install on Next Restart** is in the right-click and **More actions** menus too, when system
+updates are waiting, nothing is staged and the main button says **Update Now**. Another updater's
+restart, a stored Fedora upgrade or an image-based system removes it.
+
 ### Messages
 
 Messages appear only when they apply. **At most two show at once**, and the ones lower in this
@@ -102,7 +104,7 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    and **Copy Command**. Either one shows alone. See
    [install.md](install.md#installing-from-the-kde-store-first).
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
-   `Update failed: <the reason>`, or why a button press failed. After an answer to message 9 or 10,
+   `Update failed: <the reason>`, or why a button press failed. After an answer to message 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
    check that worked. If the press got no fresh lists, another message says why and, when known,
    gives their age, until closed or the next check. On battery or a metered connection it offers **Download
@@ -142,25 +144,18 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    yet."*, ends *"Install on the next restart, or now?"* and adds **Install Now**. **Install on Next
    Restart** gets the keyboard focus. In a terminal, the terminal asks instead. While a Fedora
    release upgrade is stored, it does not ask, and **Update Now** updates live.
-9. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
-   install that kept the terminal on upgrading to 0.1.8. **Use This Widget** switches
-   **Run updates in** to **In this widget**. **Keep the Terminal Window** keeps your setting. Either
-   hides the message for good ([more](configuration.md#upgrading-from-an-older-kempt)). To go back
-   later, set **Run updates in** to **Terminal window**, or run `kempt config set surface terminal`.
-10. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
-    from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
-    starts with your session. If message 9 is showing, it waits until you answer that one.
-    **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
-    nothing. Either answer hides the message for good. An image-based Fedora, which is told to use
-    Discover, does not get this message or the warning below. The **Discover** row in settings turns the
-    notifier back on.
-11. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
-    is at least 100 MB to free, or an amount Kempt could not measure. **Show Runtimes** lists the
+9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
+   from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
+   starts with your session.
+   **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
+   nothing. Either answer hides the message for good. An image-based Fedora, which is told to use
+   Discover, does not get this message or the warning below. The **Discover** row in settings turns the
+   notifier back on.
+10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
+    is at least 1 GB to free. **Show Runtimes** lists the
     runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
     saw. If the list changed, or removing needs an administrator, nothing is removed and the widget
-    says so. When **Unused Flatpak runtimes** is **Remove after updates**, the message adds
-    *"Kempt removes them after the next update."* and the button reads **Free Up Space Now**.
-    Closing it hides it until the list changes or Plasma restarts.
+    says so. Closing it hides it until the list changes or Plasma restarts.
 
 **Check Installation** checks Kempt's own files and settings without a password. A message under
 the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it found,
@@ -189,17 +184,19 @@ because there is no way to edit a stored update and the restart would still inst
 
 ```
  (!) You held kernel-core after the update was staged, so it still installs.
-     Rebuild the staged update to skip kernel-core, or stop holding kernel-core
-     to keep the current plan. Rebuilding may ask for your password. If it
-     fails, nothing stays staged.                   [Rebuild Staged Update]
+     To skip kernel-core, discard the staged update and use Install on Next
+     Restart again, or stop holding kernel-core to keep the current plan.
+     Discarding deletes the downloaded packages, so staging again downloads
+     them again.
+                                                    [Discard Staged Update]
 ```
 
 With several held packages it names the first and counts the rest:
 
 ```
  (!) You held kernel-core and 2 more after the update was staged, so they
-     still install. Rebuild the staged update to skip them, or stop holding
-     them to keep the current plan.
+     still install. To skip them, discard the staged update and use Install
+     on Next Restart again, or stop holding them to keep the current plan.
 ```
 
 When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
@@ -207,23 +204,17 @@ When Kempt cannot read what the staged update contains and you hold dnf packages
 
 ```
  (!) You added holds after the update was staged, so it may still install
-     held packages. Rebuild the staged update to apply your holds. Rebuilding
-     may ask for your password. If it fails, nothing stays staged.
-                                                    [Rebuild Staged Update]
+     held packages. To apply your holds, discard the staged update and use
+     Install on Next Restart again. Discarding deletes the downloaded
+     packages, so staging again downloads them again.                          [Discard Staged Update]
 ```
 
 While the warning shows, neither it nor the restart message has **Restart…**, because a restart
 would install the package you held. Flatpak holds never cause a warning: only system packages are
 staged.
 
-**Rebuild Staged Update** has this tooltip:
-
-> Builds the staged update again with your current holds. May ask for your password. If the rebuild
-> fails, the current staged update is removed.
-
-A rebuild reuses the downloaded packages. If the staged update changed after the banner was drawn,
-nothing runs and the widget says `The staged update changed since this was offered. Nothing was rebuilt; check the
-banner above.`
+In a terminal, `kempt update --surface=offline` replaces the staged update with your current holds
+and reuses the download.
 
 **Discard Staged Update** has this tooltip:
 
@@ -312,7 +303,6 @@ stored.
 The widget says where the update is running:
 
 - `Updating in a terminal window…`
-- `Updating in the background…`
 - `Updating…`, with the live log below, for **In this widget**
 - `Staging updates for the next restart…`, when staging.
 
@@ -350,8 +340,7 @@ cannot open, the message says why.
 The updates are already installed. Running programs and the kernel keep the old versions until
 they restart. A staged update is the other way round: it installs during the restart.
 
-The **x** hides the message until your next Plasma login. **Restart reminders** turns it off
-for good.
+The **x** hides the message until your next Plasma login.
 
 ### The Startup report
 
@@ -383,23 +372,13 @@ ask. Runs then use a terminal, and **Install on Next Restart** still stages. You
 when you turn the option on again.
 
 **Run updates in** (`surface`) is **Terminal window**, **In this widget** (the default),
-**In the background** or **On the next restart**.
+or **On the next restart**.
 
 **Check every** (`refresh_interval_min`, 60 minutes by default) sets how often the widget checks.
 The lowest value it offers is 15 minutes.
 
-**Restart reminders** (`restart_reminder`, on by default) controls the restart message and its
-**Restart…** button. With it off, the footer still says `restart pending`. Kempt never restarts on
-its own either way.
-
-**Security updates** (`notify_security`, off by default) announces each new set of security
-updates in system packages once. Their rows are marked **Security**, and the tooltip counts them.
-Until you open the widget, the panel icon asks for attention. If Kempt is **Always hidden** in the
-tray, Plasma keeps it hidden.
-
-**Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default), **Remove after updates**
-or **Never**. It is greyed out without Flatpak, or when Flatpak apps are left out of
-updates.
+**Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default) or **Never**. It is greyed
+out without Flatpak, or when Flatpak apps are left out of updates.
 
 **Password prompts** has **Allow without password…** and **Require a password…**. Each asks for
 your password and shows the result under the buttons. Which is active cannot be shown: only
@@ -427,9 +406,8 @@ Each button runs a command described in [usage.md](usage.md).
 | **Download Anyway** | `kempt check --anyway` |
 | **Update Now** | `kempt run` |
 | **Install Now** | `kempt run --risky-ok` |
-| **Install on Next Restart**, **Rebuild Staged Update** | `kempt run --surface=offline` |
+| **Install on Next Restart** | `kempt run --surface=offline` |
 | **Discard Staged Update** | `kempt unstage` |
-| **Put It Back** | `kempt restore-stage` |
 | **Turn Off Discover's Notifier**, on the warning beside a staged update | `kempt discover-notifier off` |
 | **Turn Off**, on the warning about Discover's automatic updates | `kempt discover-notifier off`. Drawing that warning runs `kempt discover-notifier seen` |
 | **Update Now**, while another updater holds the next restart | `kempt run --surface=<a live surface>`, after its own question when system updates are waiting |

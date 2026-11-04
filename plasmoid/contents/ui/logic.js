@@ -75,7 +75,7 @@ var COPY = {
     checkForUpdatesDescription:
         "Asks dnf and flatpak what is pending now, instead of waiting for the timer.",
     configureDescription:
-        "Check interval, where updates run, restart reminders, and the packages you hold.",
+        "Check interval, where updates run, and the packages you hold.",
 
     // --- the pin ---------------------------------------------------------------------------------
     // The name carries the STATE, with a residual: a `checkable: false` button exposes no checked
@@ -101,8 +101,7 @@ var COPY = {
     // The state in words on the row. A glyph, a position and an opacity dip are not enough: a dip
     // is a contrast REDUCTION on rows a person deliberately protected.
     heldToken: "Held",
-    // A system package whose pending update fixes a security advisory, as a word on its row. Only
-    // for someone who turned notify_security on: the CLI asks dnf about advisories for nobody else.
+    // A system package whose pending update fixes a security advisory, as a word on its row.
     securityToken: "Security",
     // ...and how many of them, in the panel tooltip after the pending names.
     securityCount: "%1 security updates",
@@ -125,7 +124,6 @@ var COPY = {
     // One sentence per surface, each naming where to look, and staging says what it is rather than
     // calling itself an update. Never the CONFIGURED surface, and never the word "surface".
     updatingTerminal: "Updating in a terminal window…",
-    updatingBackground: "Updating in the background…",
     updatingHere: "Updating…",
     updatingOffline: "Staging updates for the next restart…",
     // ...and the way out. Only a state.json change ends the updating state, and a terminal run
@@ -148,16 +146,6 @@ var COPY = {
     installNow: "Install Now",
     installNowTooltip: "Installs the update now, while your desktop is running.",
 
-    // The one offer of the new default, to an install that kept the terminal when the default
-    // changed. Each button is an answer, so the message has no close button. In the words Settings
-    // uses for the two choices: In this widget, Terminal window.
-    surfaceOffer: "Updates can now run in this widget instead of a terminal window.",
-    surfaceOfferUse: "Use This Widget",
-    surfaceOfferKeep: "Keep the Terminal Window",
-    // ...and what the popup says once either answer is saved. `kempt config set` prints nothing,
-    // so these are the widget's own words for what the person just chose.
-    surfaceSetPopup: "Updates now run in this widget.",
-    surfaceSetTerminal: "Updates keep running in a terminal window.",
     // An answer the CLI did not confirm in time (ANSWER_TIMEOUT_MS). The write may still land.
     answerTimedOut: "Kempt did not answer in time, so your answer may not be saved. Try again.",
     // ...the same for a switch in Settings, and for a hold, which are changes rather than answers.
@@ -356,35 +344,19 @@ var COPY = {
     // after the mechanism it has no antecedent once the green banner is gone.
     stagedConflictOne:
         "You held %1 after the update was staged, so it still installs. "
-        + "Rebuild the staged update to skip %1, or stop holding %1 to keep the current plan.",
+        + "To skip %1, discard the staged update and use Install on Next Restart again, or stop holding %1 to keep the current plan.",
     stagedConflictMore:
         "You held %1 and %2 more after the update was staged, so they still install. "
-        + "Rebuild the staged update to skip them, or stop holding them to keep the current plan.",
+        + "To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan.",
     // "may", because that is exactly what is known: names_source "none" means an empty conflict
     // list is "cannot tell", never "no conflict". The spec's rule is that names may CONFIRM a
     // conflict and may never DENY one, so silence here would be denying one on no evidence.
     stagedConflictUnknown:
         "You added holds after the update was staged, so it may still install held packages. "
-        + "Rebuild the staged update to apply your holds.",
+        + "To apply your holds, discard the staged update and use Install on Next Restart again.",
     // The cost, as the banner's SECOND SENTENCE rather than only in the action's tooltip, which
     // discloses it only to somebody who has already hovered the button they are deciding about.
-    stagedRebuildCost: "Rebuilding may ask for your password. If it fails, nothing stays staged.",
-
-    // The one action a warning variant offers, and its whole cost. Both facts are real: it runs
-    // `kempt update --surface=offline`, a privileged verb, and dnf5 destroys the stored
-    // transaction the moment a re-stage begins, so a failed rebuild leaves nothing
-    // staged. It deliberately does NOT say "re-downloads" - a replace-stage reuses dnf5's package
-    // cache (container-measured) - and says "removed", the CLI's own word for it.
-    stagedRebuildAction: "Rebuild Staged Update",
-    stagedRebuildTooltip:
-        "Builds the staged update again with your current holds. May ask for your password. "
-        + "If the rebuild fails, the current staged update is removed.",
-    // What the rebuild says instead of acting when the stage it was offered over is not the stage
-    // on disk any more - the only sentence that stops a press with no effect being
-    // indistinguishable from a broken button. main.qml assigns it, like restartFailed.
-    stagedChanged:
-        "The staged update changed since this was offered. Nothing was rebuilt; "
-        + "check the banner above.",
+    stagedDiscardCost: "Discarding deletes the downloaded packages, so staging again downloads them again.",
 
     // --- discarding the staged update from the popup instead of from a terminal ------------------
     // The other way out of a staged update, and the one a person who simply changed their mind
@@ -394,9 +366,8 @@ var COPY = {
     // is worse in exactly one place: a button labelled Cancel inside a message reads as "close
     // this message", which is the one thing it does not do.
     stagedDiscardAction: "Discard Staged Update",
-    // The whole cost, before the press, and the second half is what separates this from a rebuild:
-    // a rebuild reuses dnf5's package cache, and this deletes it (`dnf5 offline clean` removes the
-    // downloaded packages with the transaction). Said as what happens NEXT time rather than as a
+    // The whole cost, before the press: `dnf5 offline clean` removes the downloaded packages with
+    // the transaction. Said as what happens NEXT time rather than as a
     // warning, because that cost is only paid by somebody who stages again.
     stagedDiscardTooltip:
         "Removes the update waiting for the next restart, so the restart installs nothing. "
@@ -406,23 +377,6 @@ var COPY = {
     // prefers the CLI's own first line wherever there is one. None of them is silence: this press
     // makes a banner disappear and nothing else, and a message that only vanished is
     // indistinguishable from a button that did nothing at all.
-    // A stage whose restart step another program removed. main.qml's restoreStage reports through
-    // restoreStageMessage, which prefers the CLI's own first line.
-    stageRestorable:
-        "Your staged updates will not install on the next restart, because another program removed "
-        + "their restart step. They are still downloaded.",
-    stageRestoreAction: "Put It Back",
-    stageRestoreTooltip:
-        "Sets your staged updates to install on the next restart again. May ask for your password.",
-    stageRestoreTimedOut:
-        "This took too long, so Kempt stopped waiting. Press Put It Back again if the warning is still there.",
-    stageRestoreDone: "Put back. The next restart installs your staged updates.",
-    stageRestoreRefused: "Nothing was put back. Press Check Installation to find out why.",
-    stageRestoreBusy: "An update is running, so nothing was put back. Try again when it has finished.",
-    stageRestoreFailed:
-        "The staged update could not be put back (exit %1). Press Check Installation to find out why.",
-    stageRestoreChanged:
-        "The staged update changed since this was offered. Nothing was put back; check the messages above.",
     stagedDiscardDone: "The staged update is gone. The next restart installs nothing.",
     stagedDiscardRefused: "Nothing was discarded. Press Check Installation to find out why.",
     stagedDiscardBusy:
@@ -432,8 +386,7 @@ var COPY = {
     stagedDiscardFailed:
         "The staged update could not be discarded (exit %1). "
         + "Press Check Installation to find out why.",
-    // ...and the click-time re-verify's refusal, the same sentence stagedChanged is for the
-    // rebuild: a press with no effect must never be indistinguishable from a broken button.
+    // ...and the click-time re-verify's refusal: a press with no effect must never be indistinguishable from a broken button.
     // main.qml assigns it.
     stagedDiscardChanged:
         "The staged update changed since this was offered. Nothing was discarded; "
@@ -543,45 +496,17 @@ var COPY = {
     // The offer, assembled by reclaimMessageOf. The size is formatDownload's "~" figure: the CLI's
     // own estimate, never a promise. The second sentence is why removing them is safe.
     reclaimSized: "%1 can be freed. No installed app uses these Flatpak runtimes.",
-    reclaimUnsized: "Space can be freed. No installed app uses these Flatpak runtimes.",
-    // Added with reclaim=automatic, where the next successful update removes them anyway.
-    reclaimAutomatic: "Kempt removes them after the next update.",
     // After a ref in the Show Runtimes list whose branch Flatpak marks end of life.
     reclaimEol: "(no longer supported)",
-    // The offer's two buttons. Free Up Space Now in automatic mode, where the next update removes
-    // them anyway; Freeing Up Space… while it runs. The QML repeats each literal for i18n.
+    // The offer's button, and Freeing Up Space… while it runs. The QML repeats each literal for i18n.
     reclaimAction: "Free Up Space",
-    reclaimActionNow: "Free Up Space Now",
     reclaimRunning: "Freeing Up Space…",
     reclaimTooltip: "Removes the Flatpak runtimes listed under Show Runtimes.",
     reclaimShowWhat: "Show Runtimes",
-    // After Free Up Space. The size one is filled from reclaim.last, in the offer's own spelling.
-    reclaimFreed: "Freed %1.",
+    // After Free Up Space, when the CLI said nothing.
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
-    reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
-    reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
-    // Added after a removal when reclaim.last.in_use names extensions Flatpak removed although an
-    // app had just started using them (the CLI's sentence, bin/kempt reclaim_outcome_lines). Also
-    // after a run whose automatic removal did the same (its entry's reclaimed.in_use).
-    reclaimInUseOne: "Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back.",
-    reclaimInUseMore: "Flatpak also removed %1 extensions that apps installed during the removal use. Run flatpak update to put them back.",
-    // Flatpak stopped part-way. The first is filled with the size of what did go.
-    reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
-    reclaimPartialUnsized: "Flatpak removed some of them, but not all.",
-    // The list between the two passes failed, so the extensions were never tried and nothing was
-    // refused (reclaim.last.skipped). Said after what went. The leftover refs keep their since, so
-    // the next offer needs no new hour, and the popup shows an offer from RECLAIM_MIN_BYTES.
-    reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. This widget offers them again if they take 100 MB or more.",
-    // Flatpak failed and Kempt could not read what is left afterwards.
-    reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Press Check for Updates to see what is left.",
-    reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
-    reclaimBusy: "An update is already running. Nothing was removed.",
     reclaimFailed: "Could not free the space (exit %1).",
     reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes.",
-    // The Last update row and the line after a run, when automatic reclaim removed something.
-    reclaimFreedTail: "%1 freed",
-    reclaimRemovedOne: "1 unused runtime removed",
-    reclaimRemovedMore: "%1 unused runtimes removed",
 
     // A service that stopped starting after an update (state.json `startup`). Copy Command puts
     // `systemctl status <unit>` on the clipboard; nothing in the widget acts on a unit.
@@ -698,7 +623,7 @@ function isArray(v) { return Object.prototype.toString.call(v) === "[object Arra
 function arrayOf(v) { return isArray(v) ? v : []; }
 
 // The run surfaces the CLI knows, in the order the settings page offers them.
-var SURFACES = ["terminal", "popup", "background", "offline"];
+var SURFACES = ["terminal", "popup", "offline"];
 // What a config with no `surface` key runs on: lib/common.sh's kempt_default, which this twins.
 // A value the CLI does not recognise is a different case and still means terminal (resolveSurface).
 var DEFAULT_SURFACE = "popup";
@@ -715,10 +640,11 @@ function isTrue(value) {
 
 // resolveSurface(s) -> a surface the CLI recognises, mirroring bin/kempt's resolve_surface():
 // anything unknown is `terminal`, because that is what the CLI itself would run.
-// `widget` is the CLI's other name for the stored `popup` (lib/common.sh, surface_canon).
+// `widget` is the CLI's other name for the stored `popup`, and an older config's `background`
+// reads as it too (lib/common.sh, surface_canon).
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
-    if (s === "widget") s = "popup";
+    if (s === "widget" || s === "background") s = "popup";
     return SURFACES.indexOf(s) >= 0 ? s : "terminal";
 }
 
@@ -729,7 +655,6 @@ function resolveSurface(value) {
 function updatingLabelOf(surface) {
     switch (resolveSurface(surface)) {
     case "popup":      return COPY.updatingHere;
-    case "background": return COPY.updatingBackground;
     case "offline":    return COPY.updatingOffline;
     default:           return COPY.updatingTerminal;
     }
@@ -783,9 +708,6 @@ function backendActionable(state, key) {
 }
 
 // --- how big the panel icon is asked to be -----------------------------------------------------
-// snapIconSize answers "how big when nobody said" (the `auto` setting); resolveIconSize answers
-// "how big, given what the user asked for".
-//
 // The hinted sizes an icon theme actually draws, smallest first. Breeze ships 16px and 22px
 // symbolics as SEPARATE artwork, each aligned to the pixel grid AT THAT SIZE, so asking for 15 or
 // 24 scales one by a fraction and every hinted stroke lands between pixels. Every size below is
@@ -800,7 +722,7 @@ var ICON_STEPS = [16, 22, 32, 48, 64];
 // asks for 22. 48 is where a panel stops being an ordinary panel.
 var ICON_CELL_MIN = [16, 22, 48, 96, 192];
 
-// snapIconSize(cell, steps) -> the hinted size an `auto` icon asks for in a cell this thick.
+// snapIconSize(cell, steps) -> the hinted size the icon asks for in a cell this thick.
 // Below the first rung there is no hinted size to snap to, so it falls back to a whole number of
 // pixels: scaling is the only option left, but it can at least be scaled to an integer.
 function snapIconSize(cell, steps) {
@@ -826,50 +748,10 @@ function usableSteps(steps) {
     return out.length ? out : ICON_STEPS.slice();
 }
 
-// The `widget_icon_size` values the settings page offers, and the step each names. INDEXES into
-// the step list rather than pixel counts, so a theme whose "small" is not 16 still gets its own
-// hinted artwork rather than a number this file invented.
-var ICON_SIZE_SETTINGS = { auto: -1, small: 0, medium: 1, large: 2 };
-
-// ...and the ones that must never come out SMALLER than `auto` would have drawn. Only the largest
-// option, and the asymmetry is the point: see resolveIconSize.
-var ICON_SIZE_FLOOR_AT_AUTO = { large: true };
-
-// resolveIconSizeSetting(value) -> a setting the widget recognises; anything unknown is `auto`.
-// This is the ONLY validation `widget_icon_size` gets - the CLI stores whatever it is handed
-// (config_set checks the key's shape, not the value's meaning), so a typo, an older CLI's empty
-// line and a future version's value all land here and all mean: decide automatically, say nothing.
-function resolveIconSizeSetting(value) {
-    var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
-    return Object.prototype.hasOwnProperty.call(ICON_SIZE_SETTINGS, s) ? s : "auto";
-}
-
-// resolveReclaimSetting(value) -> ask | automatic | off, read as the CLI's reclaim_mode reads it:
-// case-folded, and anything that is not exactly automatic or off is ask.
+// resolveReclaimSetting(value) -> ask | off, read as the CLI's reclaim_mode reads it: case-folded,
+// and anything that is not exactly off is ask.
 function resolveReclaimSetting(value) {
-    var s = String(value === undefined || value === null ? "" : value).toLowerCase();
-    return (s === "automatic" || s === "off") ? s : "ask";
-}
-
-// resolveIconSize(setting, cell, steps) -> the pixel size the icon is actually asked for.
-// A chosen size the cell cannot hold falls back to `auto` rather than overflowing: inside the tray
-// the cell is the tray's to decide, and 32px in a 22px slot pushes every other entry around.
-function resolveIconSize(setting, cell, steps) {
-    var list = usableSteps(steps), c = Number(cell);
-    var auto = snapIconSize(c, list);
-    if (!isFinite(c) || c <= 0) return auto;          // no cell yet: nothing to draw into
-    var key = resolveIconSizeSetting(setting);
-    var idx = ICON_SIZE_SETTINGS[key];
-    if (idx < 0) return auto;
-    var want = Number(list[idx]);
-    if (!isFinite(want) || want <= 0) return auto;    // a step list too short to name it
-    // "Large" is a promise about size, and on a big cell the named step breaks it: auto reaches 48
-    // at a 96px cell and 64 at 192, while `large` names the third step (32) - so on a vertical dock
-    // or a HiDPI panel, Large would draw SMALLER than Automatic. Floored rather than relabelling
-    // the options as pixel counts, which would make every label a number the user must translate.
-    // Small and Medium are deliberately NOT floored: going below Automatic is why they exist.
-    if (ICON_SIZE_FLOOR_AT_AUTO[key]) want = Math.max(want, auto);
-    return want > c ? auto : want;
+    return String(value === undefined || value === null ? "" : value).toLowerCase() === "off" ? "off" : "ask";
 }
 
 // --- the watcher stamp -----------------------------------------------------------------------
@@ -1326,7 +1208,7 @@ var MESSAGE_CAP = 2;
 // button is missing - a person looking for that button needs this message, not the one it displaced.
 // `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
 // comes first because it answers the Update Now press just made, and nothing runs until it is
-// answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
+// answered.
 // `discoverUnattended` sits right after `staged`: it says who may take the restart that message
 // is counting on. It draws once, so a restart or a failure it displaces is back on the next open.
 // `stageDiscoverWarning` sits under the failure and the restart: a person warned to restart soon
@@ -1339,8 +1221,8 @@ var MESSAGE_CAP = 2;
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
 // `foldersPaused` sits under imageBased: every button below it ends in the helper's refusal.
-var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "discoverUnattended", "stageRestorable", "startup",
-                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
+var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "discoverUnattended", "startup",
+                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel",
                      "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
@@ -1767,8 +1649,8 @@ function startupPageOutcomeOf(stdout, stderr, rc, nowMs) {
 }
 
 // --- the reclaim offer ------------------------------------------------------------------------
-// Below this the message is not worth one of the two slots. SI bytes, as formatDownload counts.
-var RECLAIM_MIN_BYTES = 100 * 1000 * 1000;
+// Below 1 GB the message is not worth one of the two slots. SI bytes, as formatDownload counts.
+var RECLAIM_MIN_BYTES = 1000 * 1000 * 1000;
 var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, from
 // backends/flatpak.sh and lib/common.sh: KEMPT_RECLAIM_PKCHECK_TIMEOUT (10 s),
@@ -1788,30 +1670,19 @@ function reclaimBytesOf(reclaim) {
 }
 
 // reclaimOffered(state.reclaim) -> may the popup offer to remove these? Only with a digest: the
-// CLI leaves it empty when nothing is unused or part of the list is younger than an hour.
+// CLI leaves it empty when nothing is unused or part of the list is younger than an hour. A size
+// the CLI could not work out is not known to reach the minimum, so it is no offer.
 function reclaimOffered(reclaim) {
     if (!reclaim || typeof reclaim !== "object" || isArray(reclaim)) return false;
     if (typeof reclaim.digest !== "string" || !RECLAIM_DIGEST_RE.test(reclaim.digest)) return false;
     var bytes = reclaimBytesOf(reclaim);
-    return bytes === null || bytes >= RECLAIM_MIN_BYTES;
+    return bytes !== null && bytes >= RECLAIM_MIN_BYTES;
 }
 
-// reclaimMessageOf(state.reclaim) -> the offer's one line. The automatic sentence is left out
-// while the last automatic try needed an administrator or failed: the next update skips that set.
-// reclaimAutoPending(reclaim) -> will the next update remove this set? Not after an automatic try
-// that failed or needed an administrator: the CLI skips that set until it changes.
-function reclaimAutoPending(reclaim) {
-    return reclaimOffered(reclaim) && reclaim.mode === "automatic"
-        && reclaim.status !== "needs_auth" && reclaim.status !== "failed";
-}
-
+// reclaimMessageOf(state.reclaim) -> the offer's one line.
 function reclaimMessageOf(reclaim) {
     if (!reclaimOffered(reclaim)) return "";
-    var bytes = reclaimBytesOf(reclaim);
-    var line = bytes === null ? COPY.reclaimUnsized
-                              : fill(COPY.reclaimSized, "%1", formatDownload(bytes));
-    if (reclaimAutoPending(reclaim)) line += " " + COPY.reclaimAutomatic;
-    return line;
+    return fill(COPY.reclaimSized, "%1", formatDownload(reclaimBytesOf(reclaim)));
 }
 
 // reclaimRefLineOf({ref, eol}) -> "org.kde.Platform 5.15-23.08", the id and branch of a
@@ -1847,7 +1718,7 @@ function stagedOthersOf(staged, fpPending) {
 }
 
 // stagedVariantOf(staged, heldDnf[, fpPending]) -> which of the three banners this stage gets, and its words:
-//   { type: "positive" | "warning", message, banner, conflictNames: [...], stagedAt: "" }
+//   { type: "positive" | "warning", message, banner, stagedAt: "" }
 // banner is set on the plain variant only; viewModel shows a warning's whole message.
 //
 // THE PROBLEM IT EXISTS FOR: stage 83 updates with a kernel among them, press the pin on
@@ -1872,7 +1743,7 @@ function stagedOthersOf(staged, fpPending) {
 // deliberate: a well-formed list of names warns whether or not names_source is readable, because
 // names may CONFIRM a conflict and may never DENY one.
 function stagedVariantOf(staged, heldDnf, fpPending) {
-    var plain = { type: "positive", message: stagedMessageOf(staged), banner: "", conflictNames: [],
+    var plain = { type: "positive", message: stagedMessageOf(staged), banner: "",
                   stagedAt: "" };
     if (plain.message === "") return plain;
     // The plain banner sits under a header that already gives the count, so it shows only the
@@ -1906,13 +1777,13 @@ function stagedVariantOf(staged, heldDnf, fpPending) {
                      ? fill(COPY.stagedConflictOne, "%1", names[0])
                      : fill(fill(COPY.stagedConflictMore, "%1", names[0]),
                             "%2", String(names.length - 1)))
-                     + " " + COPY.stagedRebuildCost,
-                 conflictNames: names, stagedAt: plain.stagedAt };
+                     + " " + COPY.stagedDiscardCost,
+                 stagedAt: plain.stagedAt };
     }
     if (staged.names_source === "none" && heldDnf) {
         return { type: "warning",
-                 message: COPY.stagedConflictUnknown + " " + COPY.stagedRebuildCost,
-                 conflictNames: [], stagedAt: plain.stagedAt };
+                 message: COPY.stagedConflictUnknown + " " + COPY.stagedDiscardCost,
+                 stagedAt: plain.stagedAt };
     }
     return plain;
 }
@@ -2127,9 +1998,9 @@ function checkArgs(automatic, refresh, anyway) {
 // How long the widget waits for any `kempt check` before giving up on it. A ceiling for EVERY check,
 // because an automatic one fetches too once the 3-hour interval is up, and a kill mid-fetch leaves
 // a root dnf5 running unwatched. A check with no fetch ends in seconds anyway.
-// CHECK_BODY_MS is the check without its fetch: 120 s for its own queries, and 30 s for what
-// notify_security adds (lib/common.sh: the 15 s advisory query, two 5 s waits for the writers'
-// lock and the 5 s notification). The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT (120 s) once per
+// CHECK_BODY_MS is the check without its fetch: 120 s for its own queries, and 30 s for the rest
+// (lib/common.sh: the 15 s advisory query, two 5 s waits for the writers' lock and a 5 s
+// notification). The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT (120 s) once per
 // installation, system and per-user, and dnf's makecache. That one runs as root, where the CLI's
 // timeout cannot reach it, so libexec/kempt-refresh bounds it as root with the same 120 s, plus a
 // 10 s grace before SIGKILL. Plus 30 s, which covers that grace:
@@ -2176,18 +2047,15 @@ function backendKeys(backends) {
 }
 
 // securityOf(state) -> the CLI's `security` block as the widget uses it, or an empty one. The block
-// is optional (notify_security off, an older CLI, a check whose advisory query failed), and every
-// field is checked before it is believed. `attention` needs a digest, because acknowledging the set
-// is what clears it and `kempt security-ack` takes nothing else.
+// is optional (an older CLI, a check whose advisory query failed), and every field is checked
+// before it is believed.
 function securityOf(state) {
     var s = state && state.security && typeof state.security === "object" ? state.security : null;
-    var none = { count: 0, names: {}, attention: false, digest: "" };
+    var none = { count: 0, names: {} };
     if (s === null || typeof s.count !== "number" || !(s.count >= 1)) return none;
     var names = {}, packages = arrayOf(s.packages), i;
     for (i = 0; i < packages.length; i++) names[String(packages[i])] = true;
-    var digest = typeof s.digest === "string" && /^[0-9a-f]{16}$/.test(s.digest) ? s.digest : "";
-    return { count: Math.floor(s.count), names: names, attention: s.attention === true && digest !== "",
-             digest: digest };
+    return { count: Math.floor(s.count), names: names };
 }
 
 // Walk the backends once, producing the popup's pending sections and the flat Held list.
@@ -2346,20 +2214,6 @@ function lastRunOf(text) {
         removed += arrayOf(backend.removed).length;
     }
 
-    // What automatic reclaim removed after this run (backends.flatpak.reclaimed). Only a removal
-    // counts: a failed or refused one never fails the run and is reported through the state.
-    var reclaimed = backends.flatpak && typeof backends.flatpak === "object"
-        ? backends.flatpak.reclaimed : null;
-    var reclaimedCount = 0, reclaimedBytes = null, reclaimedInUse = 0;
-    if (reclaimed && typeof reclaimed === "object" && reclaimed.status === "removed") {
-        reclaimedCount = arrayOf(reclaimed.refs).length;
-        // Extensions Flatpak took although an app installed during the removal uses them.
-        reclaimedInUse = arrayOf(reclaimed.in_use).length;
-        if (typeof reclaimed.bytes === "number" && isFinite(reclaimed.bytes) && reclaimed.bytes > 0) {
-            reclaimedBytes = reclaimed.bytes;
-        }
-    }
-
     var status = typeof entry.status === "string" ? entry.status : "";
     var when = typeof entry.timestamp === "string" ? entry.timestamp : "";
     return {
@@ -2393,36 +2247,7 @@ function lastRunOf(text) {
         // a build this one does not understand, and "I do not know" is the honest reading of it.
         stagedNothing: (entry.staged_nothing === "held" || entry.staged_nothing === "nothing_pending")
             ? entry.staged_nothing : null,
-        reclaimedCount: reclaimedCount,
-        reclaimedBytes: reclaimedBytes,
-        reclaimedInUse: reclaimedInUse
     };
-}
-
-// reclaimInUseSentence(n) -> "" or the sentence about n extensions Flatpak removed although an app
-// installed during the removal uses them. One spelling for Free Up Space and for a run's removal.
-function reclaimInUseSentence(n) {
-    if (!(n > 0)) return "";
-    return n === 1 ? COPY.reclaimInUseOne : fill(COPY.reclaimInUseMore, "%1", String(n));
-}
-
-// reclaimInUseTailOf(run) -> "" or " " + that sentence for the run's automatic removal. A failed
-// run removed nothing (reclaim runs only after a successful one), so it never carries this. Nor
-// does an entry with no readable stamp: it has no Last update row and could never be marked seen.
-function reclaimInUseTailOf(run) {
-    if (!run || run.failed || !isRenderableStamp(run.when)) return "";
-    var s = reclaimInUseSentence(run.reclaimedInUse);
-    return s === "" ? "" : " " + s;
-}
-
-// reclaimedTailOf(run) -> "" or the clause the run lines append: " · ~1.5 GB freed".
-function reclaimedTailOf(run) {
-    if (!run || run.failed || !(run.reclaimedCount > 0)) return "";
-    if (typeof run.reclaimedBytes === "number") {
-        return DOT + fill(COPY.reclaimFreedTail, "%1", formatDownload(run.reclaimedBytes));
-    }
-    return DOT + (run.reclaimedCount === 1 ? COPY.reclaimRemovedOne
-                  : fill(COPY.reclaimRemovedMore, "%1", String(run.reclaimedCount)));
 }
 
 // postRunLine(run) -> the transient line shown once, right after a run finishes.
@@ -2443,33 +2268,30 @@ function postRunLine(run) {
     // writes "offline (applied on reboot)" and its counts are real changes.
     // ...unless the run staged nothing, which is a successful `offline` run too and was described
     // in the same words as one that staged sixty packages.
-    // Flatpak still updates live on a staging run, so its automatic removal can report in_use too.
     if (run.surface === "offline" && run.stagedNothing !== null) {
-        return (run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending)
-            + reclaimInUseTailOf(run);
+        return run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending;
     }
-    if (run.surface === "offline") return COPY.stagedUnknownCount + reclaimInUseTailOf(run);
+    if (run.surface === "offline") return COPY.stagedUnknownCount;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
-    if (n === 0) return COPY.noPackageChanges + reclaimedTailOf(run) + reclaimInUseTailOf(run);
+    if (n === 0) return COPY.noPackageChanges;
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
     // long it took is described without it rather than described as instantaneous. A negative
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
     var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + "s" : "";
-    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + reclaimedTailOf(run)
-        + reclaimInUseTailOf(run);
+    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong;
 }
 
 // reportRepeatsStaged(run) -> does the post-run line only say what the staged message says?
 // A clean staging run reports "Updates are staged", and the staged message above it says the same
 // with the count and its Restart and Discard buttons. Two boxes for one fact, so the report gives
 // way while that message is on screen, and the Last update row (with Show Log) takes its place.
-// Anything the line adds keeps it: a run that staged nothing, a failure, an in-use note.
+// Anything the line adds keeps it: a run that staged nothing, a failure.
 function reportRepeatsStaged(run) {
     // A stamp the row cannot render would leave the Last update row with no title in its place.
     return !!run && !run.failed && run.surface === "offline" && run.stagedNothing === null
-        && isRenderableStamp(run.when) && reclaimInUseTailOf(run) === "";
+        && isRenderableStamp(run.when);
 }
 
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?
@@ -2529,18 +2351,6 @@ function discardStagedMessage(rc, stdout, stderr) {
     if (rc === 5) return COPY.stagedDiscardRefused;
     if (rc === 3) return COPY.stagedDiscardBusy;
     return fill(COPY.stagedDiscardFailed, "%1", String(rc));
-}
-
-// restoreStageMessage(rc, stdout, stderr) -> the one sentence after `kempt restore-stage`, by the
-// rule discardStagedMessage follows: the CLI's own first line, and never "".
-function restoreStageMessage(rc, stdout, stderr) {
-    if (rc === 0) return firstLineOf(stdout) || COPY.stageRestoreDone;
-    if (isExecutorTimeout(rc, stderr)) return COPY.stageRestoreTimedOut;
-    var msg = firstLineOf(stderr) || firstLineOf(stdout);
-    if (msg !== "") return msg;
-    if (rc === 5) return COPY.stageRestoreRefused;
-    if (rc === 3) return COPY.stageRestoreBusy;
-    return fill(COPY.stageRestoreFailed, "%1", String(rc));
 }
 
 // --- answering an offer, or changing a setting through a CLI verb ----------------------------------
@@ -2627,72 +2437,17 @@ function doctorVerdictOf(rc, stdout, stderr) {
                                  : fill(COPY.doctorCouldNotRunCode, "%1", String(rc)) };
 }
 
-// reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) -> {ok, text}: what the popup reports after
-// Free Up Space (`kempt reclaim -y --expect=<digest>`). `last` is the state's
-// reclaim.last as read after the run, and only counts when it is at least as new as the press
-// (seconds, as runFinishedSince): the CLI writes none when nothing at all is unused.
-// stdout is never an error: with -y it starts with the list of runtimes, so on success the CLI's
-// LAST line is its outcome, and on failure stderr's first line is.
-function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
-    var fresh = null;
-    if (last && typeof last === "object" && typeof sinceMs === "number" && isFinite(sinceMs)) {
-        var at = stampMs(last.at);
-        if (isFinite(at) && Math.floor(at / 1000) >= Math.floor(sinceMs / 1000)) fresh = last;
-    }
-    // This press removed extensions an app had just started using: said after what was freed.
-    var inUse = fresh !== null && fresh.result === "removed" ? arrayOf(fresh.in_use).length : 0;
-    var withInUse = function (text) {
-        return inUse === 0 ? text : text + " " + reclaimInUseSentence(inUse);
-    };
-    if (rc === 0) {
-        if (fresh !== null && fresh.result === "removed" && typeof fresh.bytes === "number"
-                && isFinite(fresh.bytes) && fresh.bytes > 0) {
-            return { ok: true, text: withInUse(fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes))) };
-        }
-        var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
-        var tail = "";
-        for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
-        return { ok: true, text: withInUse(tail !== "" ? tail : COPY.reclaimNothing) };
-    }
-    // polkit's no, from Kempt's own check or from flatpak's helper: exit 5 and this press's record.
-    if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
-        return { ok: false, text: COPY.reclaimNeedsAuth };
-    }
-    // Flatpak failed after the removal began. `partial` with refs null: what went is unknown, and
-    // "nothing was removed" could be false. With refs: some went, and a plain "Freed" would be.
-    if (rc === 1 && fresh !== null && fresh.partial === true) {
-        if (fresh.refs === null) return { ok: false, text: COPY.reclaimUnknown };
-        if (fresh.result === "removed") {
-            var sized = typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0;
-            if (fresh.skipped === true) {
-                // What went first, as the CLI prints it: the size, or its "Removed N runtimes." count.
-                var first = COPY.reclaimPartialUnsized;
-                if (sized) {
-                    first = fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes));
-                } else {
-                    var outLines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
-                    var outTail = "";
-                    for (var j = outLines.length - 1; j >= 0 && outTail === ""; j--) outTail = outLines[j].trim();
-                    if (/^Removed [0-9]+ runtimes?\.$/.test(outTail)) first = outTail;
-                }
-                return { ok: false, text: withInUse(first + " " + COPY.reclaimSkipped) };
-            }
-            if (sized) return { ok: false, text: withInUse(fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes))) };
-            return { ok: false, text: withInUse(COPY.reclaimPartialUnsized) };
-        }
-    }
-    // A failed uninstall whose record says nothing is gone.
-    if (rc === 1 && fresh !== null && fresh.result === "failed" && isArray(fresh.refs) && fresh.refs.length === 0
-            && !(typeof fresh.bytes === "number" && fresh.bytes > 0)) {
-        return { ok: false, text: COPY.reclaimNothingRemoved };
-    }
-    if (rc === 3) return { ok: false, text: COPY.reclaimBusy };
+// reclaimSaid(rc, stdout, stderr) -> {ok, text}: what the popup reports after Free Up Space, in the
+// CLI's words. With -y stdout starts with the list of runtimes, so on success its LAST line is the
+// outcome, followed by what stderr added. On failure stderr's first line is the outcome.
+function reclaimSaid(rc, stdout, stderr) {
+    if (isExecutorTimeout(rc, stderr)) return { ok: false, text: COPY.reclaimTimedOut };
     var msg = firstLineOf(stderr);
-    // The Executor's own kill (Executor.qml): the CLI never answered, and its removal may be running.
-    if (rc === 124 && msg.indexOf("timeout after ") === 0) return { ok: false, text: COPY.reclaimTimedOut };
-    if (msg !== "") return { ok: false, text: msg };
-    if (rc === 6) return { ok: false, text: COPY.reclaimChanged };
-    return { ok: false, text: fill(COPY.reclaimFailed, "%1", String(rc)) };
+    if (rc !== 0) return { ok: false, text: msg !== "" ? msg : fill(COPY.reclaimFailed, "%1", String(rc)) };
+    var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
+    var tail = "";
+    for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
+    return { ok: true, text: ((tail !== "" ? tail : COPY.reclaimNothing) + " " + msg).trim() };
 }
 
 // lastRunText(run, nowMs) -> the persistent Last update row's title.
@@ -2732,33 +2487,13 @@ function lastRunText(run, nowMs, restartHeld) {
     // Failed goes in the words of the title, because the transient line that said so clears when
     // the popup closes and this row is what is left.
     return (run.failed ? "Last update failed " : "Last update ") + relativeTime(run.when, nowMs)
-        + DOT + what + reclaimedTailOf(run);
+        + DOT + what;
 }
 
-// lastRunSubtitle(run, seenWhen) -> the Last update row's second line, or "".
-// A failed run: why, as postRunLine says it. Otherwise the in-use sentence when the run's automatic
-// removal took extensions an app uses, and only until the popup has shown it once: `seenWhen` is
-// the timestamp of the run whose sentence the popup was closed over (main.qml's reclaimInUseSeen,
-// session-only like restartDismissed). The next run replaces the entry, and its flatpak update puts
-// the extensions back, so the sentence does not outlive its run either way.
-function lastRunSubtitle(run, seenWhen) {
-    if (!run) return "";
-    if (run.failed) return postRunLine(run);
-    if (typeof seenWhen === "string" && seenWhen !== "" && seenWhen === run.when) return "";
-    return reclaimInUseTailOf(run).trim();
-}
-
-// reclaimInUseOnScreen(run, seenWhen, updating, reportShown, reportText) -> is the in-use sentence
-// on screen right now? main.qml asks as the popup closes, and marks the run seen only on yes.
-// The updating pane replaces the main one. Otherwise the report slot, when shown, hides the Last
-// update row (FullRepresentation.qml), so the sentence is seen only if the report carries it: the
-// post-run line does, a failed press or a finished action does not.
-function reclaimInUseOnScreen(run, seenWhen, updating, reportShown, reportText) {
-    if (!run || updating === true) return false;
-    var tail = reclaimInUseTailOf(run);
-    if (tail === "") return false;
-    if (reportShown === true) return String(reportText === undefined || reportText === null ? "" : reportText).indexOf(tail.trim()) >= 0;
-    return lastRunSubtitle(run, seenWhen) !== "";
+// lastRunSubtitle(run) -> the Last update row's second line, or "": why a failed run failed, as
+// postRunLine says it.
+function lastRunSubtitle(run) {
+    return run && run.failed ? postRunLine(run) : "";
 }
 
 // isExecutorTimeout(rc, stderr) -> did Executor.qml's kill timer end this call? It reports that as
@@ -2890,9 +2625,6 @@ function staleAnswerOf(state, nowMs) {
 // the facts that are not in the state file:
 //   nowMs            - the clock. Absent means every relative time falls back to its absolute
 //                      stamp rather than guessing.
-//   restartReminder  - the `restart_reminder` config value. ABSENT is not false: the caller did
-//                      not say, and the CLI's default is true. Read with isTrue, because config
-//                      values arrive as text.
 //   restartDismissed - closed in THIS plasmashell session. Nothing persists it, by design.
 //   reclaimDismissed - the reclaim digest whose offer was closed in this session, or "". A new
 //                      digest (a different set of runtimes) shows the offer again.
@@ -3070,7 +2802,7 @@ function viewModel(state, updating, cliError, opts) {
     // is ONE slot, and a transaction whose target release differs from the system's cannot be one
     // Kempt built. A current CLI stops publishing offline_staged in that state; this handles a file
     // an older one wrote, and it is what stops the popup showing both banners - the second of which
-    // tells the reader to press a Rebuild button the first has just taken away.
+    // tells the reader to press a Discard button the first has just taken away.
     var stagedVariant = stagedVariantOf(
         (usable && !releaseUpgrade) ? state.offline_staged : null, heldDnf,
         usable ? backendActionable(state, "flatpak") : 0);
@@ -3078,7 +2810,7 @@ function viewModel(state, updating, cliError, opts) {
     var staged = stagedMessage !== "";
     // A stage another updater's restart stands in front of (COPY.stageBlocked). It borrows the
     // staged slot as a warning and offers none of its actions: no restart (the restart installs the
-    // other update), no rebuild (it would land behind the same symlink), and no discard (the CLI
+    // other update) and no discard (the CLI
     // refuses one, since dnf5 offline clean would cancel the other update too). An object is all
     // that is read: the sentence needs neither the count nor the stamp.
     var stageBlocked = usable && !releaseUpgrade && !staged && !imageBased
@@ -3114,8 +2846,7 @@ function viewModel(state, updating, cliError, opts) {
     // Whether Update Now asks before it runs: a risky set, a route to the next restart, and a run
     // that would install it live with nobody asked. A terminal asks for itself, and the offline
     // surface already is the next restart.
-    var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute
-        && (runSurface === "popup" || runSurface === "background");
+    var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute && runSurface === "popup";
     var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
     // Nothing of Kempt's staged behind that restart: the banner stands by itself. Not beside what
     // the release-upgrade and image-based messages already say about the same restart.
@@ -3127,26 +2858,11 @@ function viewModel(state, updating, cliError, opts) {
         && backendActionable(state, "dnf") > 0;
     var heldChoice = opts.heldChoiceOpen === true && updateAsksHeld && !updating;
 
-    // The one offer of the popup default. The CLI publishes surface_offer only while updates run
-    // in the terminal; the configured surface is checked again here because a choice made in
-    // Settings reaches this file before the next check does. With confirmation on, the popup
-    // cannot run updates, so the offer would change nothing.
-    var surfaceOffer = usable && state.surface_offer === true && !updating
-        && opts.surfaceOfferAnswered !== true
-        // Not before the widget has read the setting: until then its surface is only the default.
-        && opts.surfaceKnown !== false
-        && resolveSurface(typeof opts.configuredSurface === "string" ? opts.configuredSurface : "")
-            === "terminal"
-        && isTrue(opts.autoAccept === undefined ? true : opts.autoAccept);
     // The one offer to turn off Discover's notifier. The CLI publishes discover_offer while the
-    // notifier starts with the session and nobody has answered. One offer at a time: it waits
-    // while the surface offer is showing, and while the surface offer is still undecided because
-    // the setting is unread, or it would show and then give way under the pointer. It also waits
-    // for the widget to read the CLI's answered marker, which a state.json from before the answer
-    // does not reflect.
+    // notifier starts with the session and nobody has answered. It waits for the widget to read
+    // the CLI's answered marker, which a state.json from before the answer does not reflect.
     var discoverOffer = usable && !imageBased && state.discover_offer === true && !updating
-        && opts.discoverOfferAnswered !== true && opts.discoverAnswerKnown !== false
-        && !surfaceOffer && !(state.surface_offer === true && opts.surfaceKnown === false);
+        && opts.discoverOfferAnswered !== true && opts.discoverAnswerKnown !== false;
     // Discover's setting, over the offer: it says the larger thing. Kept up once drawn, for as long
     // as this popup stays open (main.qml), since drawing it is what clears the CLI's flag.
     var discoverUnattended = usable && !imageBased && state.discover_unattended === true && !updating
@@ -3164,12 +2880,7 @@ function viewModel(state, updating, cliError, opts) {
     // it too.
     var rebootNeeded = usable && state.reboot_needed === true;
 
-    // The security block, and whether the panel icon asks for attention: a set with an advisory
-    // nobody has seen in the popup yet (the CLI's `attention`), and only while there is something
-    // to press. Not while a stage is armed (the person already chose to install them), nor during
-    // an update, nor without an engine to acknowledge the set with.
     var security = securityOf(usable ? state : null);
-    var needsAttention = security.attention && !staged && !updating && !noEngine;
 
     var tooltipMain, headerText;
     if (updating) {
@@ -3328,10 +3039,7 @@ function viewModel(state, updating, cliError, opts) {
 
     // --- the restart, and what the popup is allowed to say about it -----------------------------
     // `rebootNeeded` itself is derived above, next to the tooltip that reads it.
-    // Absent is not false: the caller simply did not say, and the CLI's default is true.
-    var restartReminder = (opts.restartReminder === undefined || opts.restartReminder === null)
-        ? true : isTrue(opts.restartReminder);
-    var restartMessageVisible = rebootNeeded && restartReminder && !isTrue(opts.restartDismissed);
+    var restartMessageVisible = rebootNeeded && !isTrue(opts.restartDismissed);
 
     // --- unused Flatpak runtimes ------------------------------------------------------------------
     var reclaim = usable ? state.reclaim : null;
@@ -3364,13 +3072,6 @@ function viewModel(state, updating, cliError, opts) {
     var startupWanted = startupFree && startup.entries.length > 0;
     var startupRecoveredWanted = startupFree && !startupWanted && startup.recoveredText !== "";
 
-    // Never beside a stage that will install: a run's own patch of state.json can briefly hold both.
-    var restorableStage = (state && state.offline_stage_restorable
-                           && typeof state.offline_stage_restorable === "object")
-        ? state.offline_stage_restorable : null;
-    var stageRestorableAt = (restorableStage && !staged && !stageBlocked && !restartHeld
-                             && typeof restorableStage.staged_at === "string")
-        ? restorableStage.staged_at : "";
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
         // ...and while a blocked stage is up, a report saying the stage installs on the next restart
@@ -3385,7 +3086,6 @@ function viewModel(state, updating, cliError, opts) {
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
         staged: staged || stageBlocked || restartHeldBanner,
-        stageRestorable: stageRestorableAt !== "" && !updating,
         // Above everything except a report of something that just happened: it is the one message
         // that says what this machine is, and every other message here presumes a box Kempt can
         // update. The kernel message is not displaced here but SILENCED (riskyIsMoot above): with
@@ -3404,7 +3104,6 @@ function viewModel(state, updating, cliError, opts) {
         riskyChoice: riskyChoice,
         heldChoice: heldChoice,
         discoverUnattended: discoverUnattended,
-        surfaceOffer: surfaceOffer,
         // The same offer with the reason that matters while something is staged, and higher up.
         discoverOffer: discoverOffer && !staged,
         stageDiscoverWarning: discoverOffer && staged && !stageBlocked,
@@ -3456,7 +3155,7 @@ function viewModel(state, updating, cliError, opts) {
     if (actionable > 0 && downloadText !== "") footerParts.push(downloadText);
     // ...and the restart, whenever the message is not carrying it - including one the CAP
     // displaced, which is what makes displacing it honest rather than merely quiet. With the
-    // reminder off, or dismissed for this session, this line is the only place it is said.
+    // message dismissed for this session, this line is the only place it is said.
     if (rebootNeeded && !restartShown) footerParts.push(COPY.restartPending);
 
     // What Check for Updates says out loud when it lands, in the words already on screen. ONE
@@ -3489,16 +3188,12 @@ function viewModel(state, updating, cliError, opts) {
         tooltipMain: tooltipMain,
         tooltipSub: subParts.join(DOT),
         headerText: headerText,
-        sections: counted.sections,
-        heldItems: counted.heldItems,
         rows: rowsOf(counted.sections, counted.heldItems),
         actionable: actionable,
-        heldTotal: heldTotal,
         stale: stale,
         // "" when fine; otherwise the CLI's own error text, so the popup says what actually went
         // wrong instead of a generic apology.
         staleReason: staleReason,
-        cliError: cliError,
         // The fact, then what to do about it, on two lines. Empty means there is nothing to say,
         // and that empty string is the popup's only gate - exactly how riskyMessage and
         // stagedMessage already work. The other two follow it: the clipboard payload the button
@@ -3510,7 +3205,6 @@ function viewModel(state, updating, cliError, opts) {
         emptyStateText: emptyStateText,
         // The tool's own line under a plain emptyStateText, and whether it was a network failure.
         problemDetail: problemDetail,
-        problemNetwork: problemNetwork,
         // The line under emptyStateText: what to do about it. Check Installation's when it is offered.
         problemHint: remedyCommand !== "" ? COPY.checkFailedHint
             : (problemNetwork || problemNoCache ? problemHint : ""),
@@ -3550,17 +3244,11 @@ function viewModel(state, updating, cliError, opts) {
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.
         stagedArmed: staged,
-        // The panel icon asks for attention (Plasma's NeedsAttentionStatus), and the digest the
-        // popup passes to `kempt security-ack` when it is opened. "" whenever it does not ask.
-        needsAttention: needsAttention,
-        securityDigest: needsAttention ? security.digest : "",
-        securityCount: security.count,
         // "positive" for the ordinary armed stage, "warning" once a hold has landed behind it. A
         // string rather than a boolean because the QML binds it to a Kirigami.MessageType, and a
         // third spelling is a plausible next state for this banner rather than an exotic one.
         stagedType: (stageBlocked || restartHeldBanner) ? "warning" : stagedVariant.type,
         // The blocked stage above: in the staged slot, with no action of its own.
-        stageBlocked: stageBlocked,
         // Never two Restart… buttons in one popup: the restart Warning already carries one
         // whenever it is on screen.
         // ...and never a Restart… on a warning variant at all, which is the stricter rule and the
@@ -3570,32 +3258,21 @@ function viewModel(state, updating, cliError, opts) {
         // one thing there is to do, and the sentence says so.
         stagedShowRestart: !restartMessageVisible
             && ((staged && !stagedWarning) || stageBlocked || restartHeldBanner),
-        // ...and what stands in its place. Only on the variants where there is something to
-        // change: rebuilding an ordinary armed stage would destroy a good transaction to
-        // produce the same one back.
-        // ...and never where a stage is refused: a rebuild runs the same privileged verb, so it
-        // would cancel a stored release upgrade exactly as a first stage would, and abort in
-        // pre-flight on an image-based box exactly as a first stage would.
-        stagedShowRebuild: stagedWarning && !noOfflineRoute,
-        // ...and the way out that is neither a restart nor a rebuild: discard the staged update,
-        // and let the next restart install nothing. Offered on BOTH banners, which is where it
-        // differs from the rebuild: a rebuild only makes sense where there is something to change,
-        // while "install nothing at all" is an answer to either one - and on a warning the person
-        // has just said they did not want one of those packages, so it is the least surprising
-        // button on that message. It is drawn LAST, so it stands beside the conflict remedy rather
-        // than where the conflict remedy stands.
-        // The guard is the rebuild's, for the rebuild's reason: `kempt unstage` refuses with exit
-        // 5 while a Fedora release upgrade is stored (dnf5 has one slot, and discarding what is in
-        // it would cancel the upgrade), so the button is not offered on a box the CLI would turn
-        // down. Belt and braces on that path - a release upgrade already takes the whole banner
-        // away - and the half that acts is the image-based one, where dnf is not how the machine
-        // updates at all.
+        // ...and the way out: discard the staged update, and let the next restart install nothing.
+        // Offered on BOTH banners: "install nothing at all" is an answer to either one, and on a
+        // warning it is the first half of the remedy the sentence names.
+        // Never where it would be refused: `kempt unstage` exits 5 while a Fedora release upgrade
+        // is stored, and on an image-based box dnf is not how the machine updates at all.
         stagedShowDiscard: staged && !noOfflineRoute,
         // Whether the popup may OFFER to stage at all. The CLI refuses the press; this is what
         // stops it being offered, so nobody has to press a button to be told no.
         // Both refusals land here: on an image-based system `kempt update` aborts in pre-flight
         // whatever surface it was asked for, so staging is no more available than updating.
         offlineStageOffered: !noOfflineRoute,
+        // Install on Next Restart in the widget's menus, for the box whose footer says Update Now and
+        // whose kernel message is not up: after a lost stage, or a discard with the kernel held.
+        stageMenuOffered: !updating && !staged && !stageBlocked && !noOfflineRoute
+            && !updateButton.stages && usable && backendActionable(state, "dnf") > 0,
         releaseUpgradeMessage: releaseUpgradeMessage,
         // ...and the same for Update Now, which is the primary button. HIDDEN rather than
         // disabled, exactly as it is for a box with nothing pending: there is no action to offer
@@ -3604,31 +3281,16 @@ function viewModel(state, updating, cliError, opts) {
         // set to offline, pressing it runs exactly the command the CLI turns down. Hidden rather
         // than left to fail, on the same rule as everything else here.
         updateOffered: !imageBased && !(releaseUpgrade && stagesByDefault),
-        // The footer button's words. The QML writes both literals for i18n and picks one with
-        // updateStages; the text and tooltip are published so a test can pin the pair.
+        // The footer button's words: the QML writes both literals for i18n and picks one with this.
         updateStages: updateButton.stages,
-        updateButtonText: updateButton.text,
-        updateButtonTooltip: updateButton.tooltip,
         stageTooltipNamesFlatpak: flatpakPending,
         imageBasedMessage: imageBasedMessage,
         foldersPausedMessage: foldersPausedMessage,
-        // Published rather than left as a literal in the QML's Accessible.description, so the
-        // words a screen reader hears and the words the tooltip shows are one decision. The QML
-        // still writes the literal for i18n extraction; the probe ties the two together.
-        stagedRebuildTooltip: COPY.stagedRebuildTooltip,
         // The stamp this banner was derived from, for main.qml's click-time re-verify. Consent is
         // given to a BANNER, and a banner describes ONE transaction: between render and click it
-        // can be consumed by a restart, replaced or cleaned away, and a rebuild is destructive at
-        // its start. "" means there is nothing to compare, which the re-verify reads as "do not
+        // can be consumed by a restart, replaced or cleaned away. "" means there is nothing to compare, which the re-verify reads as "do not
         // act".
         stagedStagedAt: stagedVariant.stagedAt,
-        stageRestorableAt: stageRestorableAt,
-        stageRestorableMessage: COPY.stageRestorable,
-        // The names behind the sentence. The banner shows the first and a count; anything that has
-        // to say them again takes them from here rather than parsing them out of the sentence.
-        stagedConflictNames: stagedVariant.conflictNames,
-        lastSuccessText: lastSuccessText,
-        rebootNeeded: rebootNeeded,
         restartMessageVisible: restartMessageVisible,
         // ...and whether that message may carry its own Restart button. Everywhere else it may: a
         // restart applies updates that are already installed. NOT while the staged banner is a
@@ -3638,12 +3300,11 @@ function viewModel(state, updating, cliError, opts) {
         // Which messages the popup may draw, in order, and never more than two. The rule and its
         // reasons are messageStack above.
         messageSlots: messageSlots,
-        // The reclaim offer: its line, one line per runtime for Show Runtimes, the digest the button
-        // passes to `kempt reclaim --expect`, and which of the two button labels applies.
+        // The reclaim offer: its line, one line per runtime for Show Runtimes, and the digest the
+        // popup passes to `kempt reclaim --expect`.
         reclaimMessage: reclaimMessage,
         reclaimLines: reclaimLines,
         reclaimDigest: reclaimDigest,
-        reclaimAutomatic: reclaimMessage !== "" && reclaimAutoPending(reclaim),
         // The startup banner: one entry per service with its text and the command Copy Command
         // copies, a heading only when there are several, the quiet already-failing line, the
         // one-time recovered line, and the digest `kempt startup ack` takes. The digest is ""
@@ -3659,7 +3320,6 @@ function viewModel(state, updating, cliError, opts) {
         checkAnswerText: checkAnswerText,
         // Published rather than left inside the two strings above, so a future surface (a
         // notification, a `check --human` line) renders the same words instead of its own.
-        downloadText: downloadText,
         // The relative time in footerText is the convenience; this is the truth, and people
         // compare the two. Empty rather than "never" when there has been no successful check: the
         // footer already says so in words.
@@ -3702,7 +3362,7 @@ if (typeof module !== "undefined" && module.exports) {
         reclaimOffered: reclaimOffered,
         reclaimMessageOf: reclaimMessageOf,
         reclaimRefLineOf: reclaimRefLineOf,
-        reclaimOutcomeOf: reclaimOutcomeOf,
+        reclaimSaid: reclaimSaid,
         RECLAIM_TIMEOUT_MS: RECLAIM_TIMEOUT_MS,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
@@ -3710,14 +3370,12 @@ if (typeof module !== "undefined" && module.exports) {
         runFinishedSince: runFinishedSince,
         runStartMessage: runStartMessage,
         discardStagedMessage: discardStagedMessage,
-        restoreStageMessage: restoreStageMessage,
         DOCTOR_TIMEOUT_MS: DOCTOR_TIMEOUT_MS,
         DOCTOR_SUMMARY_MAX: DOCTOR_SUMMARY_MAX,
         mentionsDoctor: mentionsDoctor,
         doctorOutcomeOf: doctorOutcomeOf,
         lastRunText: lastRunText,
         lastRunSubtitle: lastRunSubtitle,
-        reclaimInUseOnScreen: reclaimInUseOnScreen,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,
         isExecutorTimeout: isExecutorTimeout,
@@ -3751,8 +3409,7 @@ if (typeof module !== "undefined" && module.exports) {
         discoverSettingOf: discoverSettingOf,
         lastLinesOf: lastLinesOf,
         snapIconSize: snapIconSize,
-        resolveIconSize: resolveIconSize,
-        resolveIconSizeSetting: resolveIconSizeSetting,
+        collectItems: collectItems,
         resolveReclaimSetting: resolveReclaimSetting,
         ICON_STEPS: ICON_STEPS,
         watchChange: watchChange,

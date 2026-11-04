@@ -124,29 +124,10 @@ PlasmoidItem {
     readonly property string effectiveSurface: Logic.effectiveSurfaceOf(surface, autoAccept)
     property string logTail: ""
     property string logPath: ""
-    // `auto`, or one of the three named steps. Validated HERE, not by the CLI: `kempt config set`
-    // checks that a key looks like a key and stores whatever value it is handed, so a typo, an
-    // older CLI's empty line and a future version's value all arrive the same way.
-    // Logic.resolveIconSizeSetting turns every one of them into `auto` without complaint, which is
-    // right for a panel icon: it draws, at a sensible size, whatever the file says.
-    property string iconSizeSetting: "auto"
-    // Whether the popup may REMIND the user that a restart is owed (`restart_reminder`, default
-    // true). Not whether one is owed - that is the state file's `reboot_needed`, a fact rather
-    // than a reminder: with this off the message and its button go and the status line still ends
-    // "restart pending".
-    property bool restartReminder: true
-
-    // ...and whether the user closed that message in THIS plasmashell session. Deliberately not
+    // Whether the user closed the restart message in THIS plasmashell session. Deliberately not
     // persisted: a dismissal written to disk is a promise to remember across a restart, and a
-    // restart is the exact event that makes the underlying fact go away. Somebody who never wants
-    // the message turns the setting off; that IS the durable answer.
+    // restart is the exact event that makes the underlying fact go away.
     property bool restartDismissed: false
-
-    // Switching the reminder OFF and back ON is a person saying "show me this again". Only on the
-    // TRANSITION, which is what a property change signal is: the config file is polled every 30
-    // seconds, so a handler that fired whenever the value was simply true would revoke a dismissal
-    // within half a minute of it being made.
-    onRestartReminderChanged: if (restartReminder) restartDismissed = false;
 
     // The reclaim digest whose offer was closed in this session. Per digest, so a different set of
     // unused runtimes is offered again; not persisted, like restartDismissed.
@@ -192,22 +173,12 @@ PlasmoidItem {
     readonly property bool discoverWarningDrawn: vm.messageSlots.indexOf("discoverUnattended") >= 0
     onDiscoverWarningDrawnChanged: acknowledgeDiscoverWarning()
 
-    // The one-time offer to update in the popup was answered in this session. The CLI forgets the
-    // offer when the surface is set; this hides it at once rather than at the next check.
-    property bool surfaceOfferAnswered: false
-
-    // The same for the one-time offer to turn off Discover's notifier. Either button runs
+    // The one-time offer to turn off Discover's notifier was answered in this session. Either button runs
     // `kempt discover-notifier`, which records the answer for the CLI too.
     property bool discoverOfferAnswered: false
     // Whether the CLI's answered marker has been looked for. The answer outlives a plasmashell
     // restart there, even when the check after it never rewrote state.json.
     property bool discoverAnswerKnown: false
-
-    // Whether the CLI has answered for the surface yet. Until it has, `surface` is only the
-    // default, so the offer waits. The risky question does not: the default is the popup, so in
-    // that window Update Now asks first, which is the safe side. Defaulting to the terminal would
-    // start a session-critical set live on a box set to the popup.
-    property bool surfaceKnown: false
 
     // A question is about the moment it was asked. A run started elsewhere, or a set that is no
     // longer risky, ends it, so it cannot come back after that run fails.
@@ -224,11 +195,6 @@ PlasmoidItem {
     // on a box that has never run an update. null is a first-class value: it renders as no last
     // run at all, never as a fabricated empty one claiming a run that changed no packages.
     property var lastRun: null
-
-    // The timestamp of the run whose "Flatpak also removed an extension" sentence the popup was
-    // closed over (Logic.lastRunSubtitle). Once per run: a later run is a new entry and speaks
-    // again. Not persisted, like restartDismissed.
-    property string reclaimInUseSeen: ""
 
     // The transient line about a run WE started - "Updated 4 packages in 2s", or why it failed.
     // One event, one line at a time: while this is on screen the persistent Last update row is
@@ -289,10 +255,10 @@ PlasmoidItem {
     // thing between a double press and two terminals both asking the risky question.
     property bool runRequested: false
 
-    // The same guard for Install on Next Restart, Rebuild Staged Update and Discard Staged Update:
-    // one flag for all three, set at the press and cleared on every callback path. Each waits its
+    // The same guard for Install on Next Restart and Discard Staged Update:
+    // one flag for both, set at the press and cleared on every callback path. Each waits its
     // turn on the executor, behind a check for up to two minutes, and `updating` is false all that
-    // time, so without it a second press queues a second action. The popup disables all three.
+    // time, so without it a second press queues a second action. The popup disables both.
     property bool actionPending: false
 
     // The clock the relative times ("Checked 4 min ago") are measured against, refreshed while the
@@ -311,7 +277,6 @@ PlasmoidItem {
                                               { nowMs: nowMs,
                                                 refreshAskedMs: refreshAskedMs,
                                                 refreshCheckStamp: refreshCheckStamp,
-                                                restartReminder: restartReminder,
                                                 restartDismissed: restartDismissed,
                                                 reclaimDismissed: reclaimDismissed,
                                                 fetchMissedDismissed: fetchMissedClosedFor > 0
@@ -335,10 +300,8 @@ PlasmoidItem {
                                                 discoverWarningKept: discoverWarningKept,
                                                 discoverTurnedOff: discoverTurnedOff,
                                 checkUnfinished: checkFailNote,
-                                                surfaceOfferAnswered: surfaceOfferAnswered,
                                                 discoverOfferAnswered: discoverOfferAnswered,
                                                 discoverAnswerKnown: discoverAnswerKnown,
-                                                surfaceKnown: surfaceKnown,
                                                 // The one input logic.js cannot derive: the
                                                 // post-run line and a failed press are this
                                                 // file's own state, not the CLI's, and the
@@ -402,7 +365,7 @@ PlasmoidItem {
     property int watchPolls: 0             // pollWatch stats queued or running; see pollWatch
     property bool watchAbsorbState: false  // the next poll takes in a check's own state.json write
     property bool watchAbsorbRun: false    // ...and the package moves of a run of ours, with it
-    property bool watchAbsorbStage: false  // ...and the stage a Discard or Put It Back of ours just moved
+    property bool watchAbsorbStage: false  // ...and the stage a Discard of ours just moved
     property bool stageActionJustRan: false    // set by both for the check that follows them
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
 
@@ -593,7 +556,7 @@ PlasmoidItem {
             // would set off one more check a minute after the run's own.
             root.watchAbsorbState = true;
             root.watchAbsorbRun = root.updating || root.updateStartedMs >= askedMs;
-            // A Discard or Put It Back is neither a check nor a run, but it moves the stage, and the check it
+            // A Discard is neither a check nor a run, but it moves the stage, and the check it
             // asks for would otherwise see that as news and start one more a minute later.
             root.watchAbsorbStage = root.stageActionJustRan;
             root.stageActionJustRan = false;
@@ -654,7 +617,7 @@ PlasmoidItem {
     // still shows Update Now - which starts a live upgrade over the staged transaction and makes
     // the CLI discard it as superseded.
     //
-    // One `cat`, taking no lock, the same trade rebuildStaged and discardStaged make before they
+    // One `cat`, taking no lock, the same trade discardStaged makes before it
     // act on a banner. stateDir is NOT shellQuote'd. findLog() says why.
     function adoptState(done) {
         executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
@@ -734,8 +697,7 @@ PlasmoidItem {
             // the line above, so it falls past this and gets the full re-read.)
             if (root.updating) {
                 if (delta.config) {
-                    root.readInterval(); root.readSurface(); root.readIconSize();
-                    root.readRestartReminder();
+                    root.readInterval(); root.readSurface();
                 }
                 return;
             }
@@ -744,8 +706,6 @@ PlasmoidItem {
             // file. include_flatpak can change what is pending, so the check below happens anyway.
             root.readInterval();
             root.readSurface();
-            root.readIconSize();
-            root.readRestartReminder();
 
             // ...and the check itself, unless this change is still the wake of the last one.
             // Logic.watcherCheckDue carries the rule and the trade it makes. One exemption:
@@ -802,31 +762,11 @@ PlasmoidItem {
     function readSurface() {
         executor.run(kemptCmd + " config get surface", 10000, function(stdout, stderr, rc) {
             var s = Logic.firstLineOf(stdout);
-            if (rc === 0 && s !== "") {
-                root.surface = s;
-                root.surfaceKnown = true;
-            }
+            if (rc === 0 && s !== "") root.surface = s;
         });
         executor.run(kemptCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
             var v = Logic.firstLineOf(stdout);
             if (rc === 0 && v !== "") root.autoAccept = Logic.isTrue(v);
-        });
-    }
-
-    // The panel icon's size preference, on the same schedule and under the same empty-answer rule.
-    // Anything it does answer goes through the validator before it can reach a binding.
-    function readIconSize() {
-        executor.run(kemptCmd + " config get widget_icon_size", 10000, function(stdout, stderr, rc) {
-            var v = Logic.firstLineOf(stdout);
-            if (rc === 0 && v !== "") root.iconSizeSetting = Logic.resolveIconSizeSetting(v);
-        });
-    }
-
-    // Whether the popup may remind the user about an owed restart. Same rule as readSurface.
-    function readRestartReminder() {
-        executor.run(kemptCmd + " config get restart_reminder", 10000, function(stdout, stderr, rc) {
-            var v = Logic.firstLineOf(stdout);
-            if (rc === 0 && v !== "") root.restartReminder = Logic.isTrue(v);
         });
     }
 
@@ -876,17 +816,9 @@ PlasmoidItem {
                   + (vm.heldLiveSurface !== "" ? " --surface=" + vm.heldLiveSurface : ""));
     }
 
-    // `kempt run`, with the options Update Now or Install Now chose. An engine older than this
-    // widget (0.1.7) has no --risky-ok and refuses it with exit 2 before launching anything, so
-    // that one refusal is asked again once without the option: the person has already chosen,
-    // and the only cost is the notification the option would have left out.
+    // `kempt run`, with the options Update Now or Install Now chose.
     function launchRun(options) {
         executor.run(kemptCmd + " run" + options, 15000, function(stdout, stderr, rc) {
-            if (options !== "" && rc === 2
-                    && String(stderr).indexOf("unknown option: --risky-ok") >= 0) {
-                root.launchRun(options.replace(" --risky-ok", ""));
-                return;
-            }
             root.runRequested = false;
             if (rc === 0) {
                 // The surface the CLI just launched, remembered for the pane. Read here rather
@@ -912,14 +844,9 @@ PlasmoidItem {
         riskyChoiceOpen = false;
         actionPending = true;
         actionMessage = "";
-        launchStage();
-    }
-
-    // The one staging command, shared by stageOffline and rebuildStaged. It clears actionPending
-    // on every outcome, including the executor's own timeout (rc 124). The pane gets the surface
-    // the CLI will really use: with auto_accept off, `run` sends a named surface to the terminal
-    // as well, because only a terminal can ask.
-    function launchStage() {
+        // Clears actionPending on every outcome, including the executor's own timeout (rc 124). The
+        // pane gets the surface the CLI will really use: with auto_accept off, `run` sends a named
+        // surface to the terminal as well, because only a terminal can ask.
         executor.run(kemptCmd + " run --surface=offline", 15000, function(stdout, stderr, rc) {
             root.actionPending = false;
             if (rc === 0) {
@@ -931,67 +858,17 @@ PlasmoidItem {
         });
     }
 
-    // The conflict banner's one action. It runs EXACTLY what stageOffline runs above (launchStage),
-    // the same polkit action: a rebuild IS a stage, and dnf5 replaces the stored transaction with
-    // the one the current holds produce. Nothing is unstaged first: `run` launches the same
-    // `kempt update --surface=offline`, whose "offline restage" replaces the old transaction.
-    //
-    // What is new is the RE-VERIFY, and it is why this is not stageOffline() under a second label.
-    // Consent is given to a BANNER, and a banner describes ONE transaction: the popup can sit open
-    // for an hour, in which the stage can be consumed by a restart, replaced, or cleaned away. A
-    // rebuild is destructive at its START - dnf5 destroys the stored transaction the moment a
-    // re-stage begins - so acting on a stale banner throws away a transaction the person never
-    // agreed to lose. So: read the state file as it is NOW, and proceed only if it is
-    // still the same stage and still in conflict. stateDir is NOT shellQuote'd. findLog() says why.
-    function rebuildStaged() {
-        // The same guard stageOffline has, and it matters more here: two staging runs at once is a
-        // double press with a destructive first step.
-        if (updating || runRequested || actionPending) return;
-        actionPending = true;
-        actionMessage = "";
-        // Read HERE, synchronously, before anything can move it: this is the stamp of the banner
-        // the person was looking at when they pressed. Comparing against root.vm instead would
-        // compare the new file with itself once the fresh state has been assigned in, and always
-        // agree.
-        var offered = vm.stagedStagedAt;
-        executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
-            // Deliberately NOT re-running `kempt check`. The file IS what check publishes, reading
-            // it costs nothing and cannot take a lock, and a check would put a command that can
-            // run for two minutes between the click and the action it was meant to authorise.
-            var fresh = Logic.parseState(stdout);
-            // Re-derived from the bytes just read, so the banner after a refusal is the truth
-            // rather than the thing they clicked. Only when there is something to derive from:
-            // null means we learned nothing, and rule 1 of the schema says keep what we had.
-            if (fresh !== null) root.kemptState = fresh;
-            var vmNow = Logic.viewModel(fresh, false, "");
-            // Three conditions, all about the SAME transaction still being there and still being
-            // wrong: a stage is published at all, it is the one this banner was built from
-            // (staged_at, compared as published - see logic.js stagedStagedAt), and it would still
-            // raise a warning. The third stops a rebuild running over a conflict already resolved.
-            if (vmNow.stagedStagedAt === "" || vmNow.stagedStagedAt !== offered
-                    || !vmNow.stagedShowRebuild) {
-                root.actionPending = false;
-                root.actionMessage = Logic.COPY.stagedChanged;
-                return;
-            }
-            // Still pending: launchStage clears the flag when `run` answers.
-            root.launchStage();
-        });
-    }
-
-    // The staged banner's other action: discard the staged update, so the next restart installs
+    // The staged banner's action: discard the staged update, so the next restart installs
     // nothing. `kempt unstage`, which somebody staging from this popup would otherwise have to
     // open a terminal to reach.
     //
-    // WAITED ON rather than handed off, which is where it differs from stageOffline and
-    // rebuildStaged. Those two hand off to a run that writes state.json and reports itself through
-    // the updating pane; this one is a single short verb with an exit code that means five
+    // WAITED ON rather than handed off, which is where it differs from stageOffline. That one hands
+    // off to a run that writes state.json and reports itself through the updating pane; this one is a single short verb with an exit code that means five
     // different things, and the answer IS the report. The timeout is the check's, not the stage's:
     // the authentication dialog is on the far side of it and a person can take a while to find
     // their password.
     //
-    // The re-verify above it is rebuildStaged's, for rebuildStaged's reason: consent is given to a
-    // BANNER, and a banner describes ONE transaction. The popup can sit open for an hour, in which
+    // Re-verified first, because consent is given to a BANNER, and a banner describes ONE transaction. The popup can sit open for an hour, in which
     // a restart can consume the stage, a re-stage can replace it, or `dnf5 offline clean` can take
     // it away - and discarding what arrived in its place is spending consent that was never given.
     // stateDir is NOT shellQuote'd. findLog() says why.
@@ -1028,36 +905,6 @@ PlasmoidItem {
                 root.stageActionJustRan = true;
                 root.doCheck();
                 root.actionDone = said;
-            });
-        });
-    }
-
-    // Put It Back: `kempt restore-stage`, waited on and re-verified as discardStaged is, because the
-    // answer is the report and consent was given to a message about ONE stage.
-    function restoreStage() {
-        if (updating || runRequested || actionPending) return;
-        actionPending = true;
-        actionMessage = "";
-        actionDone = "";
-        var offered = vm.stageRestorableAt;
-        executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
-            var fresh = Logic.parseState(stdout);
-            if (fresh !== null) root.kemptState = fresh;
-            var vmNow = Logic.viewModel(fresh, false, "");
-            if (vmNow.stageRestorableAt === "" || vmNow.stageRestorableAt !== offered) {
-                root.actionPending = false;
-                root.actionMessage = Logic.COPY.stageRestoreChanged;
-                return;
-            }
-            executor.run(root.kemptCmd + " restore-stage", 300000, function(stdout2, stderr2, rc2) {
-                root.actionPending = false;
-                var said = Logic.restoreStageMessage(rc2, stdout2, stderr2);
-                // After a timeout the restart step may be back anyway, so that re-checks too.
-                if (rc2 !== 0 && !Logic.isExecutorTimeout(rc2, stderr2)) { root.actionMessage = said; return; }
-                root.stageActionJustRan = true;
-                root.doCheck();
-                if (rc2 !== 0) root.actionMessage = said;
-                else root.actionDone = said;
             });
         });
     }
@@ -1129,7 +976,7 @@ PlasmoidItem {
     // --expect is the consent: the CLI removes nothing
     // unless the set on offer is still the one this popup showed (exit 6 otherwise), so no
     // re-read is needed first. The CLI asks polkit without a dialog, so a press where an
-    // administrator is needed ends in exit 5. The size reported comes from reclaim.last.
+    // administrator is needed ends in exit 5.
     function reclaimSpace() {
         if (updating || runRequested || actionPending) return;
         var digest = vm.reclaimDigest;
@@ -1138,15 +985,12 @@ PlasmoidItem {
         reclaimRunning = true;
         actionMessage = "";
         actionDone = "";
-        var pressedMs = Date.now();
         executor.run(root.kemptCmd + " reclaim -y --expect=" + Logic.shellQuote(digest),
                      Logic.RECLAIM_TIMEOUT_MS, function(stdout, stderr, rc) {
             root.actionPending = false;             // first, so no outcome below can skip it
             root.reclaimRunning = false;
             root.adoptState(function (fresh) {
-                var reclaim = fresh !== null && fresh.reclaim && typeof fresh.reclaim === "object"
-                    ? fresh.reclaim : {};
-                var said = Logic.reclaimOutcomeOf(rc, stdout, stderr, reclaim.last || null, pressedMs);
+                var said = Logic.reclaimSaid(rc, stdout, stderr);
                 // doCheck clears the last event's lines at its top; this one is about the press.
                 root.doCheck();
                 if (said.ok) root.actionDone = said.text;
@@ -1206,32 +1050,6 @@ PlasmoidItem {
         doCheck(false, true, false, true);
     }
 
-    // The one-time offer's answer, either way, written as the setting itself: setting the surface
-    // is also what tells the CLI the offer is answered. Only the two names the buttons carry.
-    function useSurface(value) {
-        if (value !== "popup" && value !== "terminal") return;
-        surfaceOfferAnswered = true;
-        actionMessage = "";
-        actionDone = "";
-        executor.run(kemptCmd + " config set surface " + value, Logic.ANSWER_TIMEOUT_MS,
-                     function(stdout, stderr, rc) {
-            var said = Logic.answerOutcomeOf(rc, stdout, stderr,
-                value === "popup" ? Logic.COPY.surfaceSetPopup : Logic.COPY.surfaceSetTerminal);
-            if (!said.ok) {
-                // Not saved, so not answered: the offer comes back with the reason above it.
-                root.surfaceOfferAnswered = false;
-                root.actionMessage = said.text;
-                return;
-            }
-            root.readSurface();
-            // A check publishes state.json without surface_offer, so the offer stays gone after
-            // this session forgets the answer.
-            root.doCheck();
-            // After the check, which clears the last event's reports at its top.
-            root.actionDone = said.text;
-        });
-    }
-
     // The answer to the Discover offer: "off" turns Discover's notifier off, "keep" changes
     // nothing. Both record the answer in the CLI's marker, so a check then publishes state.json
     // without discover_offer, and readDiscoverAnswered finds it after a restart either way.
@@ -1252,7 +1070,7 @@ PlasmoidItem {
                 return;
             }
             root.doCheck();
-            // The CLI's own confirmation, after the check for the same reason as useSurface.
+            // The CLI's own confirmation, after the check, which clears the last event's reports at its top.
             root.actionDone = said.text;
         });
     }
@@ -1417,7 +1235,6 @@ PlasmoidItem {
         popupOnScreen = true;
         refreshClock();
         // Before the refresh-on-open check below, so the acknowledgement is first on the queue.
-        acknowledgeSecurity();
         acknowledgeStartup();
         // Settings can answer the Discover offer too (Turn Off or Turn On), from a dialog that
         // cannot call back into this file, so the CLI's marker is looked for again at each open.
@@ -1447,16 +1264,10 @@ PlasmoidItem {
         startupPageWanted = false;
         // A Startup page request belongs to the open it asked for, never to the next one.
         // An acknowledgement that did not land is tried again at the next open.
-        securityAckSent = "";
         startupAckSent = "";
         // ...and a "running again" line that was acknowledged has now been seen.
         startupRecoveredKept = [];
         startupMuteError = null;
-        // Only when the in-use sentence was on screen as the popup closed, in the post-run line or
-        // under the Last update row. Asked BEFORE the post-run line clears.
-        if (Logic.reclaimInUseOnScreen(lastRun, reclaimInUseSeen, updating,
-                                       vm.messageSlots.indexOf("report") >= 0, reportText))
-            reclaimInUseSeen = lastRun.when;
         postRunLine = "";
         // A choice left open is a question nobody answered: next time, Update Now asks again.
         riskyChoiceOpen = false;
@@ -1615,7 +1426,6 @@ PlasmoidItem {
     compactRepresentation: CompactRepresentation {
         plasmoidItem: root
         vm: root.vm
-        iconSizeSetting: root.iconSizeSetting
     }
     fullRepresentation: FullRepresentation {
         plasmoidItem: root
@@ -1630,12 +1440,7 @@ PlasmoidItem {
     // and an applet that never sets a status is lower than PassiveStatus - so without this the
     // widget installs into the tray, is enabled there, and appears to do nothing at all.
     // ActiveStatus, never Passive: hiding the icon when there is nothing to report would be the
-    // widget disappearing exactly when it is telling you the good news. NeedsAttentionStatus while
-    // vm.needsAttention holds: a new set of security updates nobody has seen in the popup yet
-    // (notify_security), cleared by opening it. The tray animates the icon for it. It does not
-    // override the person's own choice: Plasma's tray (systemtraymodel.cpp,
-    // calculateEffectiveStatus) keeps an entry set to "Always hidden" in the hidden list whatever
-    // status the applet asks for, and only "Always shown" or Auto put it in the panel.
+    // widget disappearing exactly when it is telling you the good news.
     //
     // Assigned once here rather than declared as `Plasmoid.status:`, for the test kit rather than
     // taste: `Plasmoid` is an ATTACHED object backed by a real Plasma applet, so a declarative
@@ -1645,17 +1450,11 @@ PlasmoidItem {
     // called look identical from outside, and either would silently put the widget back to being
     // installed in the tray, enabled, and invisible.
     property bool trayPresenceClaimed: false
-    // ...and which of the two statuses was last set, "active" or "attention", for the same reason.
-    property string trayStatusShown: ""
 
     function claimTrayPresence() {
-        var want = vm.needsAttention ? "attention" : "active";
-        if (want === trayStatusShown) return;
         try {
-            Plasmoid.status = vm.needsAttention ? PlasmaCore.Types.NeedsAttentionStatus
-                                                : PlasmaCore.Types.ActiveStatus;
+            Plasmoid.status = PlasmaCore.Types.ActiveStatus;
             root.trayPresenceClaimed = true;
-            root.trayStatusShown = want;
         } catch (e) {
             // No applet behind us: a test harness, not a panel. Say so anyway, because the same
             // catch would swallow a real Plasma API change whose only symptom in a panel is a tray
@@ -1664,32 +1463,10 @@ PlasmoidItem {
         }
     }
 
-    // The status follows the view model, and a set that lands while the popup is open has been seen.
-    onVmChanged: {
-        claimTrayPresence();
-        acknowledgeSecurity();
-        acknowledgeStartup();
-    }
+    // A line that lands while the popup is open has been seen.
+    onVmChanged: acknowledgeStartup()
 
-    // The digest the last `kempt security-ack` was sent for, so a view model that changes while
-    // the popup is open (the clock, a watcher read) does not send it again.
-    property string securityAckSent: ""
-
-    // Tells the CLI the security updates on screen have been seen: it records the set and clears
-    // state.json's security.attention, which every widget then reads. --expect is the set this
-    // popup showed; a set that changed in between is refused (exit 6) and the next check's set is
-    // acknowledged in its turn while the popup stays open.
-    function acknowledgeSecurity() {
-        var digest = vm.securityDigest;
-        if (!popupOnScreen || digest === "" || digest === securityAckSent) return;
-        securityAckSent = digest;
-        executor.run(kemptCmd + " security-ack --expect=" + Logic.shellQuote(digest),
-                     Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
-            if (rc === 0) root.adoptState();
-        });
-    }
-
-    // The "running again" line, the security pattern again: shown once, acknowledged with
+    // The "running again" line: shown once, acknowledged with
     // `kempt startup ack --expect=<digest>` while the popup is on screen and the line is drawn
     // (vm.startupAckDigest is "" otherwise). A set that changed in between is refused (exit 6).
     // The CLI then clears the line from state.json, so the set acknowledged is kept here and
@@ -1780,6 +1557,18 @@ PlasmoidItem {
         onTriggered: root.showStartupPage()
     }
 
+    // Install on Next Restart from the same menus, where the footer button says Update Now. The
+    // press is the same as the kernel message's. The literal is repeated from
+    // Logic.COPY.installOnNextRestart, as checkAction's is.
+    PlasmaCore.Action {
+        id: stageAction
+        text: i18n("Install on Next Restart")
+        icon.name: "system-software-update"
+        visible: root.vm.stageMenuOffered
+        enabled: visible && !root.actionPending && !root.runRequested
+        onTriggered: root.stageOffline()
+    }
+
     // A request rather than a call, because the popup item is built lazily on the open this asks
     // for and may not exist yet. The popup takes it (sets it back to false) when it opens the page,
     // whether it was already there or is built by this open. Only a closed widget is opened:
@@ -1804,7 +1593,7 @@ PlasmoidItem {
 
     function claimContextualActions() {
         try {
-            Plasmoid.contextualActions = [checkAction, startupAction];
+            Plasmoid.contextualActions = [checkAction, startupAction, stageAction];
             root.contextualActionsClaimed = true;
         } catch (e) {
             console.warn("kempt: could not register the contextual actions:", e);
@@ -1828,8 +1617,6 @@ PlasmoidItem {
         readDiscoverAnswered();
         readInterval();
         readSurface();
-        readIconSize();
-        readRestartReminder();
         // Before any run happens in this session, so the popup's Last update row has something
         // true to say the first time it is opened.
         loadLastRun();

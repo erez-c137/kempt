@@ -38,8 +38,6 @@ CONFIG_DEFAULTS = {
     "auto_accept": "true",
     "surface": "popup",
     "refresh_interval_min": "60",
-    "widget_icon_size": "auto",
-    "restart_reminder": "true",
     "reclaim": "ask",
 }
 

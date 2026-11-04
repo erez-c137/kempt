@@ -24,8 +24,8 @@ assert_eq "$(KEMPT_FLATPAK_LIST_CMD="true list" flatpak_included && echo in || e
 : > "$KEMPT_CONFIG_DIR/config"
 
 assert_eq "$(config_get surface terminal)" "terminal" "default when unset"
-config_set surface background
-assert_eq "$(config_get surface terminal)" "background" "reads set value"
+config_set surface popup
+assert_eq "$(config_get surface terminal)" "popup" "reads set value"
 config_set surface offline
 assert_eq "$(config_get surface terminal)" "offline" "overwrite same key"
 assert_eq "$(grep -c '^surface=' "$KEMPT_CONFIG_DIR/config")" "1" "no duplicate keys"
@@ -48,36 +48,6 @@ assert_eq "$(config_get surface terminal)" "offline" "rejected writes leave surf
 assert_eq "$(config_get include_flatpak true)" "false" "rejected writes leave include_flatpak intact"
 assert_eq "$(grep -c '' "$KEMPT_CONFIG_DIR/config")" "2" "rejected writes added no lines"
 
-# --- restart_reminder: a default that must exist, or the reminder is silently off --------------
-# The widget asks the CLI for this key and reads the answer with is_true(). A key with no entry in
-# kempt_default answers with the EMPTY STRING, is_true reads that as false, and the restart
-# reminder is off on every box whose config file has never named it - which is every box, since
-# nothing writes a key until somebody changes it. That is the same silent-off bug the wiring table
-# in docs/architecture.md describes for include_<backend>, so the default is asserted from BOTH
-# ends: the table itself, and the config_get fallback a reader actually goes through.
-assert_eq "$(kempt_default restart_reminder)" "true" "the defaults table knows restart_reminder"
-assert_eq "$(config_get restart_reminder)" "true" \
-  "an untouched restart_reminder reads as true, not as an empty string"
-assert_eq "$(is_true "$(config_get restart_reminder)" && echo on || echo off)" "on" \
-  "...and a reader that runs it through is_true gets the reminder ON"
-config_set restart_reminder false
-assert_eq "$(config_get restart_reminder)" "false" "turning the reminder off round-trips"
-assert_eq "$(grep -c '^restart_reminder=' "$KEMPT_CONFIG_DIR/config")" "1" \
-  "...as exactly one line, like every other key"
-config_set restart_reminder true
-assert_eq "$(config_get restart_reminder)" "true" "and back on again"
-
-# --- notify_security: off unless asked for -----------------------------------------------------
-assert_eq "$(kempt_default notify_security)" "false" "the defaults table knows notify_security, and it is off"
-assert_contains " $KEMPT_CONFIG_KEYS " " notify_security " "...and it is a known setting"
-assert_eq "$(config_get notify_security)" "false" "an untouched notify_security reads as false"
-config_set notify_security true
-assert_eq "$(is_true "$(config_get notify_security)" && echo on || echo off)" "on" "turning it on round-trips"
-# A boolean, so it follows the rule every boolean follows: anything but true, 1 or yes reads as off.
-config_set notify_security on
-assert_eq "$(is_true "$(config_get notify_security)" && echo on || echo off)" "off" "...and a value that is not a boolean reads as off"
-config_set notify_security false
-
 # --- notify_startup: on unless turned off ---------------------------------------------------------
 assert_eq "$(kempt_default notify_startup)" "true" "the defaults table knows notify_startup, and it is on"
 assert_contains " $KEMPT_CONFIG_KEYS " " notify_startup " "...and it is a known setting"
@@ -98,25 +68,24 @@ assert_eq "$(config_get startup_page)" "true" "...and left where it was"
 printf '%s\n' "$_cfg_before" > "$KEMPT_CONFIG_DIR/config"
 
 # --- reclaim: what happens to the Flatpak runtimes no installed app uses --------------------------
-# ask is the default, and the resolver is the only reader. The rule it carries is the safety one:
-# anything that is not exactly `automatic` must never remove without asking, so an unknown value
-# and a stored empty value both read as ask.
+# ask is the default, and the resolver is the only reader. Anything that is not exactly `off` reads as
+# ask, so a typo never hides space the person could free.
 assert_eq "$(kempt_default reclaim)" "ask" "the defaults table knows reclaim, and it is ask"
 assert_contains " $KEMPT_CONFIG_KEYS " " reclaim " "...and it is a known setting"
 assert_eq "$(reclaim_mode)" "ask" "an unset reclaim reads as ask"
-for v in ask automatic off; do
+for v in ask off; do
   config_set reclaim "$v"
   assert_eq "$(reclaim_mode)" "$v" "reclaim=$v reads as $v"
 done
-config_set reclaim Automatic
-assert_eq "$(reclaim_mode)" "automatic" "...case-folded, because the file is edited by hand"
-for v in auto always yes true bogus ""; do
+config_set reclaim OFF
+assert_eq "$(reclaim_mode)" "off" "...case-folded, because the file is edited by hand"
+for v in automatic Automatic auto always yes true bogus ""; do
   config_set reclaim "$v"
-  assert_eq "$(reclaim_mode)" "ask" "reclaim='$v' reads as ask, never automatic"
+  assert_eq "$(reclaim_mode)" "ask" "reclaim='$v' reads as ask"
 done
 rc=0; "$KEMPT" config set reclaim auto 2>"$TESTTMP/rc-err" >/dev/null || rc=$?
 assert_eq "$rc" "0" "an unknown reclaim value is stored and warned about, like surface"
-assert_contains "$(cat "$TESTTMP/rc-err")" "Accepted: ask, automatic, off" "...and the warning lists the three values"
+assert_contains "$(cat "$TESTTMP/rc-err")" "Accepted: ask, off" "...and the warning lists the two values"
 assert_eq "$("$KEMPT" config set reclaim off 2>&1 >/dev/null)" "" "...and a value it accepts says nothing"
 sed -i '/^reclaim=/d' "$KEMPT_CONFIG_DIR/config"
 
@@ -152,7 +121,7 @@ grep -q "not a value surface accepts" "$ERR" \
 rc=0; "$KEMPT" config set Bad x 2>"$TESTTMP/cfg-badkey" >/dev/null || rc=$?
 assert_eq "$rc" "2" "an invalid key is refused with exit 2"
 assert_eq "$(cat "$TESTTMP/cfg-badkey")" "invalid config key: Bad" "...and only the invalid-key error is printed"
-for v in terminal widget background offline; do
+for v in terminal widget offline; do
   grep -q "$v" "$ERR" || { echo "FAIL: the warning does not offer $v"; _fail=1; }
 done
 echo "ok: ...and lists every value it does accept"
@@ -167,8 +136,6 @@ assert_eq "$("$KEMPT" config set risky_regex '^foo' 2>&1 >/dev/null)" "" \
 # false, in as many words, and `auto_accept on` is the documented example of it.
 assert_eq "$("$KEMPT" config set auto_accept on 2>&1 >/dev/null)" "" \
   "a boolean takes anything, as documented, so it is not warned about"
-assert_eq "$("$KEMPT" config set widget_icon_size enormous 2>&1 >/dev/null)" "" \
-  "...and widget_icon_size is validated by the widget, which is the half that can see the panel"
 
 # hold and unhold stay silent, which is their own contract: they print nothing on success today and
 # nothing here changes that.
@@ -233,7 +200,7 @@ assert_eq "$(cat "$TESTTMP/alias.err")" "" "...with no warning, since widget is 
 assert_eq "$("$KEMPT" config get surface)" "popup" "...and config get prints the stored value"
 "$KEMPT" config set surface " Widget " 2>/dev/null
 assert_eq "$(grep '^surface=' "$KEMPT_CONFIG_DIR/config")" "surface=popup" "...trimmed and in any case, as surfaces are read"
-assert_contains "$("$KEMPT" config set surface bogus 2>&1)" "Accepted: terminal, widget, background, offline" \
+assert_contains "$("$KEMPT" config set surface bogus 2>&1)" "Accepted: terminal, widget, offline" \
   "the warning for an unknown surface names widget"
 assert_not_contains "$("$KEMPT" config set surface bogus 2>&1)" "popup" "...and never the stored word"
 assert_eq "$(surface_word popup)|$(surface_word offline)" "widget|offline" "surface_word shows popup as widget and leaves the rest"

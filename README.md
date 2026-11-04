@@ -64,8 +64,8 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
   shows how much space the unused ones take and removes them when you agree, or after each update.
 - **Holds.** A held package stays out of updates but stays in the list, so you do not forget it.
   Click its padlock, or run `kempt hold dnf:kernel-core`.
-- **Four ways to update.** In a terminal with live output, in the widget, silently in the
-  background, or staged to install on the next restart. When the kernel, systemd, Qt or graphics
+- **Three ways to update.** In a terminal with live output, in the widget, or staged to install on
+  the next restart. When the kernel, systemd, Qt or graphics
   drivers have updates, Kempt suggests the restart option. `kempt unstage` or the widget takes a
   staged update back.
 - **The download size up front.** The widget's footer shows it before you start, from data already on
@@ -78,15 +78,14 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
 - **You choose when to restart.** When an update needs one, Kempt opens KDE's restart prompt, which
   you can cancel.
 - **A self-check.** `kempt doctor` checks the install one line at a time.
-- **Security alerts, if you want them.** One notification per new set of security updates, off by
-  default. Kempt can also turn off Discover's notifier, so you see one count.
+- **One count.** Kempt can turn off Discover's notifier, so you see one number.
 
 ![The widget after staging: 55 updates install on the next restart, with buttons to restart now or discard the staged update](docs/images/kempt-staged.png)
 
 *After staging, the widget says what installs on the next restart. Restart when you are ready, or
 discard the staged update and keep working.*
 
-![Kempt's settings page: updates, unused Flatpak runtimes, where updates run, check interval, panel icon size, restart reminders, holds, Discover and password prompts](docs/images/kempt-settings.png)
+![Kempt's settings page: updates, unused Flatpak runtimes, where updates run, check interval, holds, Discover and password prompts](docs/images/kempt-settings.png)
 
 *The settings page edits the same config file the command line reads.
 [docs/configuration.md](docs/configuration.md) lists every setting.*

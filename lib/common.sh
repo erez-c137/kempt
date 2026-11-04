@@ -26,14 +26,6 @@ KEMPT_BOOT_ID="${KEMPT_BOOT_ID:-}"
 # point it at a tree with no VERSION file without moving the real one.
 KEMPT_ROOT="${KEMPT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-# WHICH seams arrived from the environment, recorded before the defaults below erase the
-# difference. Three of them decide what actually runs as root; set on a real box they make
-# `kempt update` a no-op that reports success, so `kempt doctor` reads this and refuses to certify
-# a box whose update path has been pointed somewhere else. compgen -e, not the whole variable
-# list: only an EXPORTED value can have come from outside this process.
-# shellcheck disable=SC2034  # read by cmd_doctor in bin/kempt, which sources this through a runtime $ROOT
-KEMPT_ENV_OVERRIDES="$(compgen -e 2>/dev/null | grep '^KEMPT_' | sort | tr '\n' ' ' || true)"
-
 KEMPT_CONFIG_DIR="${KEMPT_CONFIG_DIR:-$HOME/.config/kempt}"
 KEMPT_STATE_DIR="${KEMPT_STATE_DIR:-$HOME/.local/state/kempt}"
 KEMPT_PKEXEC="${KEMPT_PKEXEC-pkexec}"
@@ -115,24 +107,14 @@ EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # shellcheck disable=SC2034  # read by backends/flatpak.sh, kept here with the other state files
 RECLAIM_SIZES_FILE="$KEMPT_STATE_DIR/reclaim-sizes.json"
 RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
-# The popup default for `surface` (surface_migrate). The first records that the migration ran; the
-# second exists while the popup still owes an install it pinned to the terminal its one offer.
-SURFACE_MIGRATED_FILE="$KEMPT_STATE_DIR/surface-migrated"
-SURFACE_OFFER_FILE="$KEMPT_STATE_DIR/surface-offer"
-# The security advisories already announced and already seen, for notify_security:
-# {"notified": [ids], "acknowledged": [ids]}. Written under the writers' lock (see security_update).
-SECURITY_SEEN_FILE="$KEMPT_STATE_DIR/security-seen.json"
-# Stamp for the once-a-day `security check failed` line, removed when the query works again.
-SECURITY_FAIL_FILE="$KEMPT_STATE_DIR/last_security_fail"
-# What notify_security may add to a check, in seconds: the advisory query, each of the two waits for
-# the writers' lock, and the notification. Kept small, because the widget's CHECK_BODY_MS counts
-# them (a test there reads these three lines).
+# What a check may add to its own queries, in seconds: the advisory query and each of the two
+# waits for the writers' lock. Kept small, because the widget's CHECK_BODY_MS counts them and the
+# notification bound below (a test there reads these three lines).
 # shellcheck disable=SC2034  # read by backends/dnf.sh
-SECURITY_QUERY_TIMEOUT=15
+SECURITY_QUERY_TIMEOUT=5
 # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
-SECURITY_LOCK_WAIT=5
-SECURITY_NOTIFY_TIMEOUT=5
-# The same bound for every other notification (notify).
+WRITER_LOCK_WAIT=5
+# The bound on one notification (notify, notify_delivered).
 NOTIFY_TIMEOUT=5
 # Whether everything that started before an update still starts after it (notify_startup).
 # startup.json is what the last check compared and announced; startup-mutes holds one
@@ -197,30 +179,13 @@ KEMPT_DNF_CONF="${KEMPT_DNF_CONF:-/etc/dnf/dnf.conf}"
 # The installed names that provide installonlypkg(kernel) or installonlypkg(kernel-module), one
 # per line. Empty means the rpm query in offline_installonly_rpm_names.
 KEMPT_RPM_INSTALLONLY_CMD="${KEMPT_RPM_INSTALLONLY_CMD:-}"
-# Which of the two shutdown-inhibit plugins are installed, one name a line. Empty means the rpm query
-# in doctor_inhibit_installed. Read by `kempt doctor` only.
-KEMPT_RPM_INHIBIT_CMD="${KEMPT_RPM_INHIBIT_CMD:-}"
-# libdnf5's config for its systemd-inhibit plugin. libdnf5 loads a plugin only through its config
-# file, and runs it unless [main] sets enabled to false. Read, never written.
-KEMPT_DNF_INHIBIT_CONF="${KEMPT_DNF_INHIBIT_CONF:-/etc/dnf/libdnf5-plugins/00-systemd-inhibit.conf}"
 # What ostree-prepare-root writes into the initramfs-mounted /run of a booted ostree deployment:
 # Silverblue, Kinoite, Bazzite, bootc images. ABSENT on ordinary Fedora even when rpm-ostree is
 # installed, which is why it is this file and not the presence of a binary - the package resolves
 # on a package-based box and says nothing about how that box updates.
 KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
-# Who has an account here, read by reclaim_many_accounts to decide whether automatic removal of
-# unused Flatpak runtimes can be trusted. getent rather than /etc/passwd, so systemd-homed accounts
-# count too. Network directories (sssd, LDAP, AD) list nobody by default, so nsswitch.conf is read
-# for them, and the home directories that hold Flatpak data are counted as a third signal.
+# Who made a FUSE mount, for doctor's sentence.
 KEMPT_GETENT_CMD="${KEMPT_GETENT_CMD:-getent passwd}"
-KEMPT_NSSWITCH_FILE="${KEMPT_NSSWITCH_FILE:-/etc/nsswitch.conf}"
-KEMPT_HOME_ROOTS="${KEMPT_HOME_ROOTS:-/home /var/home}"
-# An sss or winbind source only counts when that service is set up. Upgraded machines keep an old
-# authselect `passwd: sss files systemd` line with no sssd behind it. /etc/sssd is readable only by
-# root and the sssd group, so for everyone else systemd, which checked for a config file as root
-# when it tried to start sssd, answers instead.
-KEMPT_SSSD_DIR="${KEMPT_SSSD_DIR:-/etc/sssd}"
-KEMPT_SMB_CONF="${KEMPT_SMB_CONF:-/etc/samba/smb.conf}"
 KEMPT_SYSTEMCTL_CMD="${KEMPT_SYSTEMCTL_CMD:-systemctl}"
 # What `kempt startup --all` reads, beside systemctl. Each is a read-only query as the user.
 KEMPT_JOURNALCTL_CMD="${KEMPT_JOURNALCTL_CMD:-journalctl}"
@@ -302,7 +267,7 @@ event_where_phrase() {  # surface → where a run went, in the widget's settings
   case "$1" in
     terminal) EVENT_WHERE="in a terminal window" ;;
     popup) EVENT_WHERE="in the widget" ;;
-    background) EVENT_WHERE="in the background" ;;
+    background) EVENT_WHERE="in the widget" ;;  # a line an older version logged
     offline) EVENT_WHERE="to stage for the next restart" ;;
     *) EVENT_WHERE="somewhere Kempt does not know ($1)" ;;
   esac
@@ -318,11 +283,6 @@ event_plain() {  # event text → EVENT_PLAIN
         [[ "${BASH_REMATCH[2]}" == 0 ]] || EVENT_PLAIN+=", ${BASH_REMATCH[2]} held"
       fi ;;
     "check stale "*) EVENT_PLAIN="Check failed: ${t#check stale }" ;;
-    "security notified count="*)
-      if [[ "$t" =~ ^security\ notified\ count=([0-9]+|\?)$ ]]; then
-        EVENT_PLAIN="Security update notice shown (${BASH_REMATCH[1]} pending)"
-      fi ;;
-    "security check failed") EVENT_PLAIN="Security advisories could not be listed" ;;
     "notification shown: "*) EVENT_PLAIN="Notified: ${t#notification shown: }" ;;
     "notification not shown ("*"): "*)
       rest="${t#notification not shown (}"
@@ -396,11 +356,6 @@ event_plain() {  # event text → EVENT_PLAIN
     "harvest entry not written"*) EVENT_PLAIN="Restart result not saved${t#harvest entry not written}" ;;
     "harvest log not written"*) EVENT_PLAIN="Restart log not saved${t#harvest log not written}" ;;
     "history entry not written"*) EVENT_PLAIN="Update history not saved${t#history entry not written}" ;;
-    "restore-stage put the staged update back") EVENT_PLAIN="Staged update set to install on the next restart again" ;;
-    "restore-stage found it already set") EVENT_PLAIN="Put It Back: the staged update was already set to install" ;;
-    "restore-stage refused by the root helper") EVENT_PLAIN="Put It Back was refused by Kempt's system helper" ;;
-    "restore-stage refused"*) EVENT_PLAIN="Put It Back refused${t#restore-stage refused}" ;;
-    "restore-stage failed rc="*) EVENT_PLAIN="Put It Back failed (exit code ${t#restore-stage failed rc=})" ;;
     "unstage discarded the staged update") EVENT_PLAIN="Staged update discarded" ;;
     "unstage found nothing staged") EVENT_PLAIN="Discard: nothing was staged" ;;
     "unstage cleared a marker with no transaction under it")
@@ -571,27 +526,26 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security notify_startup"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min risky_regex reclaim notify_startup"
 
 # The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
-# worked example), and `widget_icon_size` is validated by the WIDGET, the half that can actually see
-# the panel - a CLI that rejected a size would be a second opinion about a Plasma detail it cannot
-# observe. A table, so a second enum is one line rather than a new branch.
+# worked example). A table, so a second enum is one line rather than a new branch.
 config_enum_values() {  # key → accepted values, space separated, or nothing
   case "$1" in
-    surface) printf '%s\n' "terminal popup background offline" ;;
-    reclaim) printf '%s\n' "ask automatic off" ;;
+    surface) printf '%s\n' "terminal popup offline" ;;
+    reclaim) printf '%s\n' "ask off" ;;
   esac
 }
 
 # A surface as Kempt reads it: trimmed, lower-cased, and with `widget` read as `popup`. `widget` is
 # the word the person sees, and `popup` is the value stored, which older widgets and scripts read.
+# `background` is a surface that merged into it, and a config may still name it.
 surface_canon() {  # surface → canonical spelling (unknown values pass through, trimmed and lowered)
   local s="$1"
   s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
   s="${s,,}"
-  [[ "$s" != widget ]] || s=popup
+  case "$s" in widget|background) s=popup ;; esac
   printf '%s\n' "$s"
 }
 
@@ -625,80 +579,21 @@ config_warn_unknown() {  # key value
 kempt_default() {  # key → default ("" if unknown)
   case "$1" in
     include_flatpak|auto_accept) echo true ;;
-    # Twinned with DEFAULT_SURFACE in the widget's logic.js. An install from before this default
-    # keeps the terminal through surface_migrate.
+    # Twinned with DEFAULT_SURFACE in the widget's logic.js.
     surface) echo popup ;;
     refresh_interval_min) echo 60 ;;
-    # Panel-icon size for the Plasma widget: auto|small|medium|large. A widget setting kept here so
-    # the widget and `kempt config` share one place; the CLI has no icons and never reads it. The
-    # VALUE is deliberately not validated: the widget turns anything it does not recognise into
-    # `auto` rather than refusing to draw, and a CLI that rejected values would be a second opinion
-    # about a Plasma detail it cannot see.
-    widget_icon_size) echo auto ;;
-    # Whether the widget's popup offers to open KDE's restart prompt when a restart is owed -
-    # another widget setting kept here so `kempt config` stays the one way in and out.
-    # The DEFAULT is the whole point of the entry: the widget asks the CLI for the key and runs the
-    # answer through is_true(), and a key with no default answers with the empty string, which
-    # is_true reads as false. A missing entry here would not mean "no opinion" - it would silently
-    # switch the reminder OFF on every box whose config file has never named it. Same failure mode
-    # as a missing include_<backend> default (docs/architecture.md, the backend wiring table).
-    restart_reminder) echo true ;;
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction, so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
-    # What happens to the Flatpak runtimes no installed app uses: ask|automatic|off. See
+    # What happens to the Flatpak runtimes no installed app uses: ask|off. See
     # reclaim_mode for how a value is read.
     reclaim) echo ask ;;
-    # A desktop notification when pending system updates fix a security advisory. Off unless asked
-    # for: the query costs a second per check, and a notification nobody asked for is noise.
-    notify_security) echo false ;;
     # A notification when a service that started before an update no longer starts after it. On:
     # a check asks systemd only for the failed units (and, while something is announced or muted,
     # whether those run), and Kempt only looks.
     notify_startup) echo true ;;
     *) echo "" ;;
   esac
-}
-
-# Runs updates in the popup by default without moving anyone who already uses Kempt. On the first
-# run after that default arrived, an install that has run Kempt before (state.json, a history
-# entry or a non-empty config file) and whose config names no surface gets surface=terminal, the default it had, and the
-# popup offers the new one once. A config that names a surface is never touched, and a new install
-# gets the default. SURFACE_MIGRATED_FILE says it ran. A write that fails is tried again on the
-# next run, and nothing here may fail the command it runs in front of.
-surface_migrate() {
-  [[ -e "$SURFACE_MIGRATED_FILE" ]] && return 0
-  # An unreadable config cannot say whether it names a surface. Next run.
-  [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]] && return 0
-  # A config file with something in it counts too: an install that only ever changed a setting has
-  # no state or history, and this runs before any command of this version can write the file.
-  local used=""
-  if [[ -e "$STATE_FILE" || -s "$CONFIG_FILE" ]] \
-     || [[ -n "$(find "$HIST_DIR" -maxdepth 1 -name '*.json' -print -quit 2>/dev/null)" ]]; then
-    used=1
-  fi
-  if [[ -n "$used" ]]; then
-    # The check for a surface line and the write are one step under the writers' lock (rc 3: the
-    # config already names one, which is the answer too). Any other failure is tried next run.
-    local rc=0
-    config_set surface terminal if-absent 2>/dev/null || rc=$?
-    [[ $rc -eq 0 || $rc -eq 3 ]] || return 0
-    [[ $rc -eq 0 ]] && { : > "$SURFACE_OFFER_FILE"; } 2>/dev/null
-  fi
-  { mkdir -p "$KEMPT_STATE_DIR" && : > "$SURFACE_MIGRATED_FILE"; } 2>/dev/null || true
-}
-
-# The offer, as state.json carries it: pending while the marker exists and updates still run in
-# the terminal. A config edited by hand to another surface has answered it too, so the marker goes
-# then, and editing back to the terminal does not bring the offer back.
-surface_offer_pending() {  # → 0 when the popup should offer the popup default
-  [[ -e "$SURFACE_OFFER_FILE" ]] || return 1
-  local s
-  s="$(config_get surface 2>/dev/null)" || return 1
-  s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
-  [[ "${s,,}" == terminal ]] && return 0
-  rm -f "$SURFACE_OFFER_FILE" 2>/dev/null
-  return 1
 }
 
 # --- Discover's update notifier ---------------------------------------------------------------
@@ -855,9 +750,7 @@ discover_running() {
 }
 
 # Whose the user entry is. Anything Kempt did not write byte for byte is the person's.
-#   kempt     exactly what Kempt last wrote, or exactly what install.sh wrote before 0.1.8: the
-#             three-line entry when there was no system entry to copy, else the system entry as
-#             it is now, put through that installer's edit (discover_legacy_entry). `on` removes it.
+#   kempt     exactly what Kempt last wrote. `on` removes it.
 #   edited    carries Kempt's mark but has changed since. `on` moves it aside and says where.
 #   own       anything else, a symlink included.
 #   none      no user entry.
@@ -873,23 +766,9 @@ discover_entry_kind() {
   elif [[ ! -e "$user" ]]; then echo none
   elif [[ ! -f "$user" ]]; then echo notfile
   elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && same_content "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
-  elif same_content "$user" <(printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n'); then
-    echo kempt
-  elif [[ -r "$(discover_sys_entry)" ]] && same_content "$user" <(discover_legacy_entry); then
-    echo kempt
   elif grep -qx "$DISCOVER_MARK" "$user"; then echo edited
   else echo own
   fi
-}
-
-# The bytes install.sh 0.1.7 wrote from the system entry, made from the system entry as it is now:
-# every line starting `Hidden=` dropped, the trailing newlines stripped by its $(...), then one
-# `Hidden=true`. Matched only while the system entry is unchanged since then, which is the only
-# case where the file can be told apart from a copy the person hid.
-discover_legacy_entry() {
-  local body
-  body="$(grep -v '^Hidden=' "$(discover_sys_entry)")" || true
-  printf '%sHidden=true\n' "${body:+$body$'\n'}"
 }
 
 discover_entry_is_kempts() { case "$(discover_entry_kind)" in kempt|edited) return 0 ;; esac; return 1; }
@@ -1092,14 +971,14 @@ discover_notifier_seen() {
   # The next open of the popup comes before the next check, so the state says so now.
   [[ -f "$STATE_FILE" ]] || return 0
   local out lfd
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.discover_unattended_warn)' "$STATE_FILE" 2>/dev/null)" || out=""
   if [[ -n "$out" ]]; then
     _KEMPT_STATE_LOCK_HELD=1
     printf '%s\n' "$out" | write_state 2>/dev/null || true
     _KEMPT_STATE_LOCK_HELD=""
   fi
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   return 0
 }
 
@@ -1132,18 +1011,14 @@ discover_notifier_status() {  # [--json]
   if [[ $unattended == true ]]; then echo "automatic updates: on in Discover's settings"; fi
 }
 
-# The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`
-# reads as `ask`: a typo must never turn into removing things without asking, and it must not
-# silently hide space the person could free either. Case-folded like is_true, because the file is
+# The reclaim setting as the code acts on it. Anything that is not exactly `off` reads as `ask`,
+# including a saved `automatic`: a typo must not silently hide space the person could free. Case-folded like is_true, because the file is
 # edited by hand.
-reclaim_mode() {  # → ask | automatic | off
+reclaim_mode() {  # → ask | off
   local v
   v="$(config_get reclaim 2>/dev/null)" || v=""
   v="${v,,}"
-  case "$v" in
-    automatic|off) printf '%s\n' "$v" ;;
-    *) echo ask ;;
-  esac
+  if [[ "$v" == off ]]; then echo off; else echo ask; fi
 }
 
 # The desktop user, and only the desktop user, may list or remove unused runtimes. For the system
@@ -1155,89 +1030,18 @@ reclaim_as_root() {  # → 0 when this process must not reclaim
   [[ $EUID -eq 0 || -n "${SUDO_UID:-}" || -n "${PKEXEC_UID:-}" ]]
 }
 
-# Whether more than one person may have apps here. libflatpak counts only the calling user's
-# --user apps as users, so another person's app may need a runtime this listing calls unused, and
-# automatic removal then behaves as ask. Any one signal is enough: more than one local login
-# account (UID 1000 or above, except nobody; an empty shell means /bin/sh), a network account
-# source in nsswitch.conf, or Flatpak data in more than one home. A lookup that fails or takes
-# longer than 5 seconds counts as more than one, for the same reason.
-reclaim_sssd_configured() {  # → 0 when sssd defines a domain, or it cannot tell
-  local d="$KEMPT_SSSD_DIR" f out
-  [[ -e "$d" ]] || return 1
-  if [[ -r "$d" && -x "$d" ]]; then
-    for f in "$d/sssd.conf" "$d"/conf.d/*.conf; do
-      [[ -e "$f" ]] || continue
-      [[ -r "$f" ]] || return 0
-      grep -qE '^[[:space:]]*\[domain/' "$f" && return 0
-    done
-    return 1
-  fi
-  # shellcheck disable=SC2086  # the seam carries its own arguments
-  out="$(timeout 5 $KEMPT_SYSTEMCTL_CMD show -p ActiveState -p ConditionResult \
-           -p ConditionTimestampMonotonic sssd.service 2>/dev/null </dev/null 9>&-)" || return 0
-  # Not running, and systemd found no config file when it last tried to start it.
-  awk -F= '{ v[$1] = $2 } END { exit !(v["ActiveState"] != "active" && v["ConditionResult"] == "no" &&
-            v["ConditionTimestampMonotonic"] ~ /^[1-9][0-9]*$/) }' <<<"$out" && return 1
-  return 0
-}
-
-reclaim_winbind_configured() {  # → 0 when Samba joins a domain, or it cannot tell
-  local f="$KEMPT_SMB_CONF"
-  [[ -e "$f" ]] || return 1
-  [[ -r "$f" ]] || return 0
-  awk '{ sub(/[;#].*/, ""); line = tolower($0); gsub(/[[:space:]]/, "", line) }
-       line ~ /^security=(ads|domain)$/ { f = 1 } END { exit !f }' "$f"
-}
-
-reclaim_many_accounts() {  # → 0 when more than one person may use this machine, or it cannot tell
-  local out n
-  # shellcheck disable=SC2086  # the seam carries its own arguments
-  out="$(timeout 5 $KEMPT_GETENT_CMD 2>/dev/null </dev/null 9>&-)" || return 0
-  n="$(awk -F: '$3 ~ /^[0-9]+$/ && $3 >= 1000 && $3 != 65534 && $7 !~ /(nologin|false)$/ { n++ }
-               END { print n + 0 }' <<<"$out")" || return 0
-  (( n > 1 )) && return 0
-  local src
-  if [[ -r "$KEMPT_NSSWITCH_FILE" ]]; then
-    while IFS= read -r src; do
-      case "$src" in
-        sss) reclaim_sssd_configured && return 0 ;;
-        winbind) reclaim_winbind_configured && return 0 ;;
-        *) return 0 ;;
-      esac
-    done < <(awk '{ sub(/#.*/, "") } $1 == "passwd:" { for (i = 2; i <= NF; i++)
-                    if ($i ~ /^(sss|ldap|winbind|nis)$/) print $i }' "$KEMPT_NSSWITCH_FILE")
-  fi
-  local root d
-  n="$(for root in $KEMPT_HOME_ROOTS; do
-         for d in "$root"/*/.local/share/flatpak; do [[ -d "$d" ]] && readlink -f "$d" || :; done
-       done 2>/dev/null | sort -u | awk 'NF { n++ } END { print n + 0 }')" || n=0
-  (( n > 1 ))
-}
-
-# The mode Kempt acts on, which is the setting except where automatic cannot be trusted: on an
-# image-based system Kempt runs no updates, so there is no run to remove after, and with more than
-# one human account the listing does not know about the others' apps. Both fall back to ask, so
-# the space is still shown and a person decides.
-reclaim_effective_mode() {  # → ask | automatic | off
-  local mode
-  mode="$(reclaim_mode)"
-  if [[ "$mode" == automatic ]]; then
-    if on_ostree; then mode=ask
-    elif reclaim_many_accounts; then mode=ask
-    fi
-  fi
-  printf '%s\n' "$mode"
-}
-
-# What a set of refs is called when a person agrees to remove it: 16 hex characters of the sha256
-# of its sorted `ref commit` lines. The commit is part of it, so a runtime that updated between the
-# check and the click is a different set. Empty input is the empty digest.
-reclaim_digest() {  # stdin: ref<TAB>commit lines → digest, or nothing for an empty set
+# What a set is called when a person agrees to something about it: 16 hex characters of the sha256 of
+# its sorted lines. Nothing for an empty set.
+set_digest() {  # stdin: one member per line → digest, or nothing
   local lines
-  lines="$(awk -F'\t' 'NF >= 2 { print $1 " " $2 }' | sort -u)"
+  lines="$(grep -v '^$' | sort -u)" || true
   [[ -n "$lines" ]] || return 0
   printf '%s\n' "$lines" | sha256sum | cut -c1-16
 }
+
+# A set of runtimes, by ref and commit: a runtime that updated between the check and the click is a
+# different set.
+reclaim_digest() { awk -F'\t' 'NF >= 2 { print $1 " " $2 }' | set_digest; }  # stdin: ref<TAB>commit lines
 
 # Bytes as a person reads them, SI decimal like flatpak and Discover: "850 MB", "1.5 GB". Used for
 # estimates only, so one decimal is all the precision there is.
@@ -1319,10 +1123,16 @@ kempt_version() {  # → the version string, or "unknown"
   printf '%s\n' "${v:-unknown}"
 }
 
+# The lock around a patch of state.json. The caller has `local lfd`. A lock file that cannot be opened,
+# or a lock not had in 10 seconds, is skipped: the write is still atomic.
+state_lock_open() {
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+}
+state_lock_close() { if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi; }
+
 # --- the user-file writers' lock ---------------------------------------------------------------
 # INVARIANT: config_set, hold_add and hold_remove hold this across the WHOLE read-modify-write, and
-# so do the security writers: cmd_check while it works out the `security` block and writes
-# state.json, and cmd_security_ack while it patches both files.
+# so does cmd_check while it works out the `startup` block and writes state.json.
 # Readers (config_get, holds_all, holds_for) take no lock at all and must not start.
 #
 # Why it exists: all three writers read the file into a variable and write the whole file back
@@ -1337,7 +1147,7 @@ kempt_version() {  # → the version string, or "unknown"
 # cmd_check's check.lock, both of which can be held for a whole run and are inherited by children.
 #
 # Nesting is ruled out by construction rather than handled: the callers are cmd_config, cmd_hold,
-# cmd_unhold, cmd_discover_notifier, cmd_security_ack and cmd_check's security step, each taking it
+# cmd_unhold, cmd_discover_notifier and cmd_check's startup step, each taking it
 # once and releasing it before anything else could take it. cmd_hold and cmd_unhold release it
 # before their closing check, which takes it again. Re-entering would be quiet rather than loud - `exec 7>>` on a held fd CLOSES it
 # first, dropping the outer lock unnoticed. If a writer ever has to call another one, pass the open
@@ -1400,10 +1210,7 @@ flatpak_included() {  # → 0 when Flatpak is part of Kempt's checks and updates
   command -v "${cmd%% *}" >/dev/null 2>&1
 }
 
-config_set() {  # key value [if-absent]
-  # With a third argument, the write happens only when the file has no line for the key, decided
-  # inside the lock: rc 3 means a line was there and nothing was written. surface_migrate needs it,
-  # because a `config set surface` landing between its own check and its write would be overwritten.
+config_set() {  # key value
   [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]] || { echo "invalid config key: $1" >&2; return 2; }
   [[ "$2" == *$'\n'* ]] && { echo "config value must be single-line" >&2; return 2; }
   kempt_init_dirs
@@ -1412,10 +1219,6 @@ config_set() {  # key value [if-absent]
   # writer that reads between them writes this key straight back out. Held to the rename and no
   # further - see writer_lock.
   writer_lock || return 1
-  if [[ -n "${3:-}" ]] && grep -qs "^$1=" "$CONFIG_FILE"; then
-    writer_unlock
-    return 3
-  fi
   # The outgoing value, read BEFORE anything is written: "(was false)" is what turns the event line
   # "auto_accept=true" into evidence that the click changed something. Same read config_get does,
   # and it shares config_get's one ambiguity - a stored empty value and an absent key are
@@ -1740,69 +1543,12 @@ notify() {  # title body
 }
 now_iso()      { date -Is; }
 
-# --- the security notification (notify_security) ----------------------------------------------
-# notify, saying whether it worked. A security advisory counts as announced only when a
-# notification was delivered: one tried from a timer with no session bus is tried again by the
-# next check that has one. Bounded, because a check is waiting on it.
 session_bus_present() { [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" || -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]]; }
+# notify, saying whether it worked. Bounded, because a check is waiting on it.
 notify_delivered() {
   session_bus_present || return 1
   notify_escape "$@"
-  timeout "$SECURITY_NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1
-}
-
-# The seen file, always as {notified:[ids], acknowledged:[ids]}: missing, damaged or the wrong
-# shape reads as empty, which at worst announces a set once more.
-security_seen_read() {
-  local s
-  s="$(jq -c -n '[inputs][0] | if type == "object" then
-          {notified: [(.notified // [])[]? | strings], acknowledged: [(.acknowledged // [])[]? | strings]}
-        else error("not an object") end' "$SECURITY_SEEN_FILE" 2>/dev/null)" || s=""
-  [[ "$s" == \{* ]] || s='{"notified":[],"acknowledged":[]}'
-  printf '%s\n' "$s"
-}
-
-# What a set of advisories is called when the widget acknowledges it: 16 hex characters of the
-# sha256 of the sorted ids, as reclaim_digest names a set of runtimes. Nothing for an empty set.
-security_digest() {  # stdin: one id per line → digest, or nothing
-  local lines
-  lines="$(grep -v '^$' | sort -u)" || true
-  [[ -n "$lines" ]] || return 0
-  printf '%s\n' "$lines" | sha256sum | cut -c1-16
-}
-
-# The block a check publishes as state.json's `security`, and the seen file kept in step with it.
-# The caller holds the writers' lock. $1 is dnf_security_parse's answer; $2 and $3 are true when a
-# stage is armed and when an update is running, either of which means the panel does not ask.
-# An id leaves the seen file only when its package is no longer pending at all (installed, or gone
-# from the repositories): a set that shrinks because of a hold and grows back is not news.
-# Nothing else bounds the two lists, and nothing must: an id still open that fell out of them would
-# be announced again by every check. The ids to announce are read from every open advisory, not
-# from the 200 the state publishes, so an id outside that window is announced once like any other.
-# Prints the block on the first line and the ids to announce on the second (space separated, and
-# empty when there is nothing new). rc≠0 leaves the seen file as it was. $4 false: the caller could
-# not take the writers' lock, so the pruned seen file is not written.
-security_update() {  # parsed armed busy [write]
-  local seen out block fresh digest
-  seen="$(security_seen_read)"
-  out="$(jq -c --argjson s "$seen" --argjson armed "$2" --argjson busy "$3" '
-    def keep($k): [.[] | select(IN($k[]))];
-    . as $p
-    | ($s.notified | keep($p.known)) as $n
-    | ($s.acknowledged | keep($p.known)) as $a
-    | {seen: {notified: $n, acknowledged: $a},
-       fresh: [($p.open // $p.advisories)[] | select((IN($n[]) or IN($a[])) | not)],
-       block: {count: ($p.packages | length), packages: $p.packages, advisories: $p.advisories,
-               attention: (([$p.advisories[] | select(IN($a[]) | not)] | length) > 0
-                           and ($armed | not) and ($busy | not))}}' <<<"$1" 2>/dev/null)" || return 1
-  [[ "$out" == \{* ]] || return 1
-  digest="$(jq -r '.block.advisories[]' <<<"$out" | security_digest)"
-  block="$(jq -c --arg d "$digest" '.block + {digest: $d}' <<<"$out")" || return 1
-  fresh="$(jq -r '.fresh | join(" ")' <<<"$out")" || return 1
-  if [[ "${4:-true}" == true && "$(jq -c '.seen' <<<"$out")" != "$seen" ]] && security_seen_writable; then
-    jq -c '.seen' <<<"$out" | atomic_write "$SECURITY_SEEN_FILE" 2>/dev/null || true
-  fi
-  printf '%s\n%s\n' "$block" "$fresh"
+  timeout "$NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1
 }
 
 # Whether ANOTHER process holds the update lock: the probe cmd_run makes, and -E for the reason it
@@ -1814,52 +1560,6 @@ update_running_elsewhere() {
   local rc=0
   flock -n -E 75 "$LOCK_FILE" true 2>/dev/null || rc=$?
   [[ $rc -eq 75 ]]
-}
-
-# The seen file is a regular file or nothing yet. Anything else there (a directory, say) would take
-# atomic_write's rename INTO it and read back as empty, so every check would announce again.
-security_seen_writable() { [[ ! -e "$SECURITY_SEEN_FILE" || ( -f "$SECURITY_SEEN_FILE" && ! -L "$SECURITY_SEEN_FILE" ) ]]; }
-
-# Adds ids to one list of the seen file, or with "drop" as $1 takes them back out of it. The caller
-# holds the writers' lock. rc 0 only when the file reads back with the change in it, so a caller
-# that announces only after a recorded add cannot announce the same ids at every check.
-security_seen_add() {  # [drop] list(notified|acknowledged) id...
-  local op=add
-  [[ "$1" == drop ]] && { op=drop; shift; }
-  local list="$1"; shift
-  [[ $# -gt 0 ]] || return 0
-  security_seen_writable || return 1
-  security_seen_read \
-    | jq -c --arg l "$list" --arg op "$op" '
-        .[$l] = ((.[$l] - $ARGS.positional) + (if $op == "add" then $ARGS.positional else [] end))' \
-         --args "$@" \
-    | atomic_write "$SECURITY_SEEN_FILE" || return 1
-  security_seen_read | jq -e --arg l "$list" --arg op "$op" '
-      (.[$l] | map({key: ., value: true}) | from_entries) as $have
-      | all($ARGS.positional[]; ($have[.] == true) == ($op == "add"))' --args "$@" >/dev/null 2>&1
-}
-
-# The `security check failed` line, at most once a day, as log_refresh_skip does for its own.
-log_security_failure() {
-  local last=0 now; now="$(date +%s)"
-  [[ -f "$SECURITY_FAIL_FILE" ]] && last="$(stat -c %Y "$SECURITY_FAIL_FILE" 2>/dev/null || echo 0)"
-  if (( now - last >= 0 && now - last < 86400 )); then return 0; fi
-  touch "$SECURITY_FAIL_FILE" 2>/dev/null || true
-  log_event "security check failed"
-  return 0
-}
-
-# The notification's one sentence. The names are the pending items' own, already KEMPT_NAME_RE-clean.
-security_notice() {  # stdin: one package name per line → the body
-  local names n
-  names="$(cat)"
-  n="$(grep -c . <<<"$names" || true)"
-  [[ "${n:-0}" -gt 0 ]] || return 0
-  if [[ "$n" -eq 1 ]]; then
-    printf 'A security update is waiting for %s.\n' "$names"
-  else
-    printf 'Security updates are waiting for %s.\n' "$(names_phrase <<<"$names")"
-  fi
 }
 
 # --- did everything come back after the update? (notify_startup) ---
@@ -2021,7 +1721,7 @@ startup_runs() {
 }
 
 startup_digest() {  # stdin: startup.json → the recovered set's digest, or nothing
-  jq -r '(.recovered // [])[] | .scope + ":" + .unit' 2>/dev/null | security_digest
+  jq -r '(.recovered // [])[] | .scope + ":" + .unit' 2>/dev/null | set_digest
 }
 
 # The check's step, right after harvest_offline. Every check asks systemd what is failing now, to
@@ -2089,7 +1789,7 @@ startup_observe() {
   fi
   local bus=false
   session_bus_present && bus=true
-  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
+  writer_lock "$WRITER_LOCK_WAIT" 2>/dev/null || return 0
   local out
   st="$(startup_read)"
   mutes="$(startup_mutes_json)"
@@ -2193,7 +1893,7 @@ startup_observe() {
     grep -vxF -f <(printf '%s\n' "$clear") "$STARTUP_MUTES_FILE" | atomic_write "$STARTUP_MUTES_FILE" 2>/dev/null || true
   fi
   writer_unlock
-  # Told only once recorded, and recorded as told before it is sent, as the security notice is:
+  # Told only once recorded, and recorded as told before it is sent:
   # one not delivered is marked unsent again, for the next check with a session to send.
   [[ -n "$wrote" && "$bus" == true ]] || return 0
   local body event keys unsent=()
@@ -2202,7 +1902,7 @@ startup_observe() {
     else read -ra keys <<<"$keys"; unsent+=("${keys[@]}"); fi
   done < <(jq -r "$STARTUP_CLEAN_JQ"'.notes[] | [(.body | clean), (.event | clean), (.keys | join(" "))] | join("\t")' <<<"$out")
   [[ ${#unsent[@]} -gt 0 ]] || return 0
-  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
+  writer_lock "$WRITER_LOCK_WAIT" 2>/dev/null || return 0
   jq -c --arg k "${unsent[*]}" '($k | split(" ")) as $ks
     | def mark: if (.scope + ":" + .unit) as $x | any($ks[]; . == $x) then . + {unsent: true} else . end;
       .announced |= map(mark) | .recovered |= map(mark)' <<<"$(startup_read)" | atomic_write "$STARTUP_FILE" 2>/dev/null || true
@@ -2231,11 +1931,11 @@ startup_block() {
 }
 
 # Rewrites state.json's startup block after a mute, an unmute or an acknowledgement, under
-# state.lock, as cmd_security_ack patches its own. The caller holds the writers' lock. A state with
+# state.lock. The caller holds the writers' lock. A state with
 # no block (setting off, systemd not answering) is left alone.
 startup_patch_state() {
   local state block patched lfd rc=0
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   state="$(jq -c -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null)" || state=""
   if [[ -n "$state" ]] && jq -e 'has("startup")' <<<"$state" >/dev/null 2>&1 \
      && block="$(startup_block)" && patched="$(jq -c --argjson b "$block" '.startup = $b' <<<"$state")"; then
@@ -2243,7 +1943,7 @@ startup_patch_state() {
     printf '%s\n' "$patched" | write_state || rc=1
     _KEMPT_STATE_LOCK_HELD=""
   fi
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   return "$rc"
 }
 
@@ -2595,7 +2295,7 @@ startup_boot_record() {  # [slowest]
   fi
   # Merged into what is there for this boot, read again under the lock: the page and a check can
   # record the same boot at once, and the one that writes last must not drop the other's slowest.
-  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 1
+  writer_lock "$WRITER_LOCK_WAIT" 2>/dev/null || return 1
   all="$(jq -c 'if type == "array" then . else [] end' "$BOOT_TIMES_FILE" 2>/dev/null)" || all='[]'
   jq -c --argjson e "$entry" '((map(select(.boot_id == $e.boot_id)) | last // {}) + $e) as $m
     | map(select(.boot_id != $e.boot_id)) + [$m] | .[-11:]' <<<"${all:-[]}" \
@@ -2991,34 +2691,25 @@ write_state() {
     return
   fi
   local lfd rc=0
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   printf '%s\n' "$doc" | atomic_write "$STATE_FILE" || rc=$?
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   return "$rc"
 }
 
-# When the metadata behind a check was last fetched, from the stamp the fetch leaves. Empty when
-# nothing has ever been fetched on this box - a different thing from "old", and every surface that
-# renders it says the two differently.
+# When dnf's metadata was last fetched, from the stamp the fetch leaves. Empty when none is recorded,
+# a different thing from "old". Never the shared stamp: that moves when a Flatpak fetch alone lands.
 metadata_refreshed_iso() {  # → ISO 8601 with offset, or nothing
-  local f; f="$(metadata_stamp_file)"
-  [[ -f "$f" ]] || return 0
-  date -Is -r "$f" 2>/dev/null || true
-}
-
-# The dnf stamp, and only that one. The shared stamp moves when a Flatpak fetch alone lands, so on
-# a box whose dnf fetch never worked it would date dnf's metadata by Flatpak's. No dnf stamp means
-# no date, and metadata_refreshed is then left out of the state.
-metadata_stamp_file() {
-  printf '%s\n' "$LAST_REFRESH_DNF_FILE"
+  [[ -f "$LAST_REFRESH_DNF_FILE" ]] || return 0
+  date -Is -r "$LAST_REFRESH_DNF_FILE" 2>/dev/null || true
 }
 
 # ...and its age in whole days, for the surfaces that put a number in a sentence. Nothing at all
 # when there is no stamp, so a caller cannot mistake "never fetched" for "fetched today".
 metadata_age_days() {  # → whole days, or nothing
-  local at now f; f="$(metadata_stamp_file)"
-  [[ -f "$f" ]] || return 0
-  at="$(stat -c %Y "$f" 2>/dev/null)" || return 0
+  local at now
+  [[ -f "$LAST_REFRESH_DNF_FILE" ]] || return 0
+  at="$(stat -c %Y "$LAST_REFRESH_DNF_FILE" 2>/dev/null)" || return 0
   now="$(date +%s)"
   # A stamp in the future is today, not a negative age - the same reading the interval gate gives
   # its own stamp, and "refreshed -1 days ago" is worse than a rounding error.
@@ -4075,17 +3766,6 @@ state_checked_since() {  # requested-epoch → state on stdout, or 1
   printf '%s\n' "$doc"
 }
 
-# The shape of the marker Kempt writes today: ONE integer, in place of a reader working the shape
-# out from which of several optional fields happen to be present.
-# Stamped where a marker is BORN (write_stage_marker) and nowhere else. The additive updates -
-# `armed`, `replaced`, `set_moved` - carry forward whatever was already on the file, so a marker
-# from an older build is never stamped with a version whose fields it does not actually have.
-# EVERY READER MUST GO ON WORKING WITHOUT IT. A marker written before this field existed carries no
-# version at all, and the per-field fallbacks are still what read those; this records the shape, it
-# does not replace the checks.
-# shellcheck disable=SC2034  # read by write_stage_marker in bin/kempt, which sources this file
-KEMPT_MARKER_VERSION=1
-
 KEMPT_MARKER_MAX_BYTES=1048576
 # dnf5's stored transaction has its own cap, sized for a file that grows with the transaction -
 # see offline_txjson_names.
@@ -4226,50 +3906,6 @@ offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, h
 # presence of offline_staged as "installs on the next restart". Same gates as offline_staged_state
 # otherwise: a demoted marker, a stored release upgrade, or packages already installed (the stage
 # is then done, not blocked) publish nothing. A replaced stage is never done that way.
-# Could arming this transaction again install it? PackageKit removes /system-update whoever made it
-# after every refresh and every rpm change, and leaves dnf5's state at `ready`. After a refresh the
-# transaction is still good, and `dnf5 offline reboot` arms it again. After an rpm change it is not,
-# and dnf5 refuses: comparing the package set with the stage's snapshot is what tells the two apart
-# without asking for a password to find out.
-offline_stage_restorable() {  # marker-json → 0 when only the restart step is missing
-  [[ "$(offline_system_status)" == ready && "$(restart_holder)" == none ]] || return 1
-  jq -e '.restore_failed == true' <<<"$1" >/dev/null 2>&1 && return 1
-  offline_stage_rearmable "$1"
-}
-
-# ...and the half of that which does not depend on the link. Unknown means no: offline_stage_replaced
-# reports nothing when it cannot compare, which is right for a warning and wrong for arming.
-offline_stage_rearmable() {  # marker-json → 0 when dnf5's transaction is this stage and nothing moved
-  offline_stage_still_ours "$1" || return 1
-  local cookie pre now rc=0
-  cookie="$(jq -r '.rpmdb_cookie // empty | strings' <<<"$1" 2>/dev/null || true)"
-  [[ "$cookie" =~ ^[0-9a-f]{64}$ ]] || return 1
-  [[ "$(offline_toml_value rpmdb_cookie 2>/dev/null)" == "$cookie" ]] || return 1
-  pre="$(jq -r '.pre_snapshot // empty' <<<"$1" 2>/dev/null)"
-  [[ -n "$pre" && -f "$pre" ]] || return 1
-  now="$(mktemp 2>/dev/null)" || return 1
-  dnf_snapshot > "$now" 2>/dev/null && same_content "$pre" "$now" || rc=1
-  rm -f "$now"
-  return "$rc"
-}
-
-offline_stage_still_ours() {  # marker-json → 1 when dnf5 is known to hold something else
-  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 1
-  offline_release_upgrade >/dev/null && return 1
-  ! offline_stage_replaced "$1" >/dev/null
-}
-
-# What state.json says about it: only for a stage the harvest has already announced as lost, so a
-# check never offers this over a stage that is merely between two writes.
-offline_stage_restorable_state() {  # → {staged_at, count} JSON, or nothing
-  local marker
-  marker="$(offline_marker_read)"
-  [[ -n "$marker" ]] || return 0
-  jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 || return 0
-  offline_stage_restorable "$marker" || return 0
-  jq -c '{staged_at: (.staged_at // null), count: (.staged // null)}' <<<"$marker" 2>/dev/null
-}
-
 offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
   local marker
   marker="$(offline_marker_read)"
@@ -4331,9 +3967,9 @@ publish_staged_state() {
   # is published as what it is, not as nothing.
   local blocked lfd
   blocked="$(offline_stage_blocked_state)" || blocked=""
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   publish_staged_state_write "$staged" "$blocked" 2>/dev/null || true
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   return 0
 }
 
@@ -4342,14 +3978,14 @@ publish_staged_state_write() {  # staged blocked
   local staged="$1" blocked="$2" out
   if [[ -n "$staged" ]]; then
     out="$(jq -c -n --argjson st "$staged" \
-             '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked) | del(.offline_stage_restorable)' \
+             '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked)' \
              "$STATE_FILE" 2>/dev/null)" || return 0
   elif [[ -n "$blocked" ]]; then
     out="$(jq -c -n --argjson b "$blocked" \
-             '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_restorable) | .offline_stage_blocked = $b' \
+             '[inputs][0] | select(type == "object") | del(.offline_staged) | .offline_stage_blocked = $b' \
              "$STATE_FILE" 2>/dev/null)" || return 0
   else
-    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_blocked) | del(.offline_stage_restorable)' \
+    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_blocked)' \
              "$STATE_FILE" 2>/dev/null)" || return 0
   fi
   [[ -n "$out" ]] || return 0
@@ -4554,8 +4190,7 @@ staged_summary_line() {  # [state file, the published one by default] → one li
 # --- human summary of one history entry (same renderer for the terminal, the popup and the
 # notification body: one truth, rendered once) ---
 render_summary() {  # history-json-file → human text
-  # The reclaim setting now, for the end-of-life hint: with reclaim=off, kempt reclaim refuses.
-  jq -r --arg reclaim "$(reclaim_mode 2>/dev/null || echo ask)" "$KEMPT_JQ_COUNTS"'
+  jq -r "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     # NOT always an arrow. A Flatpak runtime can update without its version string moving - most
     # runtimes carry a date, or nothing, as their version, and the commit is what differs - so
@@ -4628,43 +4263,8 @@ render_summary() {  # history-json-file → human text
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.added|length) > 0 then addlines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.removed|length) > 0 then rmlines(.backends.flatpak) else empty end),
-    # What reclaim=automatic removed after this run. Only a removal gets a line: a set that changed
-    # or needs an administrator is for the popup to say, once, not for every summary.
-    def sizetext: if . >= 1e9 then ((. / 1e8 | round) / 10 | tostring | if test("[.]") then . else . + ".0" end) + " GB"
-                  elif . >= 1e6 then (. / 1e6 | round | tostring) + " MB"
-                  else (. / 1e3 | round | tostring) + " kB" end;
-    (.backends.flatpak.reclaimed? // null
-     | if type == "object" and .status == "removed" then
-         ((.refs // []) | length) as $n
-         | "Removed " + ($n | tostring) + " unused Flatpak " + (if $n == 1 then "runtime" else "runtimes" end)
-         + (if (.bytes | type) == "number" and .bytes > 0 then ", freeing about " + (.bytes | sizetext) else "" end) + "."
-       else empty end),
     heldline,
     shortfall,
-    # Flatpak end-of-life notes, one per ref, saying which app is behind the notice and whether
-    # anything needs doing. `// []` keeps entries written before the field existed rendering.
-    # An unused one points at `kempt reclaim`, which shows what goes and asks, rather than at the
-    # flatpak command that removes every unused runtime without a list. With reclaim=off that
-    # command refuses, so the flatpak one is the hint again.
-    # NO APOSTROPHES IN HERE either (see above).
-    def names(a): if (a|length) == 1 then a[0]
-                  else (a[0:-1] | join(", ")) + " and " + a[-1] end;
-    def eolline: if .kind == "app" then
-                   "Note: " + .apps[0] + " has reached end-of-life and gets no more updates"
-                   + (if .reason != "" then " (" + .reason + ")" else "" end) + "."
-                 elif (.apps|length) == 0 then
-                   "Note: " + .id + (if .branch != "" then " " + .branch else "" end)
-                   + " has reached end-of-life and no installed app uses it. "
-                   + (if $reclaim == "off" then "To remove it once nothing needs it: flatpak uninstall --unused"
-                      else "To remove it: kempt reclaim" end)
-                 else
-                   "Note: " + names(.apps) + (if (.apps|length) == 1 then " uses " else " use " end)
-                   + .id + (if .branch != "" then " " + .branch else "" end)
-                   + ", which has reached end-of-life and gets no more updates. Nothing to do now:"
-                   + (if (.apps|length) == 1 then " when its developer moves it to a supported runtime, a normal update installs that."
-                      else " when their developers move them to a supported runtime, a normal update installs that." end)
-                 end;
-    ((.backends.flatpak.eol? // [])[] | eolline),
     # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means
     # the check could not work the answer out, which it reports the same way, and the state
     # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not

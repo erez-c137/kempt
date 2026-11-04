@@ -46,7 +46,7 @@ wait_for() {  # file-test-args... : up to 20 seconds
 # --- an update outlives whatever started it ---------------------------------------------------------
 # The widget starts an update and may then die, with plasmashell or on its own. Its whole session is
 # killed here, the moment the update reaches the root helper.
-"$KEMPT" config set surface background >/dev/null
+"$KEMPT" config set surface widget >/dev/null
 setsid bash -c 'echo "$$" > "$WORLD/caller-session"; "$0" run; exec sleep 60' "$KEMPT" >/dev/null 2>&1 &
 assert_exit 0 "premise: the started update reached the root helper" -- wait_for -s "$WORLD/update-session"
 caller="$(cat "$WORLD/caller-session")"

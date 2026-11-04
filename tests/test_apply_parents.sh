@@ -442,29 +442,12 @@ if other_ids "doctor as an ordinary user"; then
   NFS='printf "2 1 0:2 / %s rw - nfs4 srv:/x rw,vers=4.2\n" $R/var >> $mi'
   as_user 'chmod 700 $R/var/cache/libdnf5/repo'
   assert_contains "$OUT" "HELPER=0" "premise: without a network file system nothing stops root at a folder only it can read"
-  assert_not_contains "$OUT" "network file system" "...and stock has root-only folders, which doctor says nothing about"
   assert_not_contains "$OUT" "FAIL  dnf" "...and fails nothing"
   as_user "chmod 000 \$R/var/lib/dnf; $NFS"
   assert_contains "$OUT" "HELPER=3" "premise: a server's refusal stops the helper on a parent"
   assert_contains "$OUT" "Kempt could not check" "premise: ...in its could-not-check words"
-  assert_contains "$OUT" "WARN  dnf folders: /mnt/root/var" "doctor as a user warns when a walked name is on a network file system"
-  assert_contains "$OUT" "network file system (nfs4)" "...and says which"
   assert_not_contains "$OUT" "FAIL  dnf" "...and cannot fail over it"
-  as_user "$NFS"
-  assert_contains "$OUT" "WARN  dnf folders: /mnt/root/var" "it warns before anything is refused, since it cannot see that coming"
-  for t in nfs cifs smb3 ceph; do
-    as_user "printf '2 1 0:2 / %s rw - $t srv rw\n' \$R/var/cache >> \$mi"
-    assert_contains "$OUT" "network file system ($t)" "...and on $t"
-  done
-  as_user 'printf "2 1 0:2 / %s rw - nfs4 srv:/x rw\n" $R/var/cache/libdnf5/repo >> $mi'
-  assert_contains "$OUT" "WARN  dnf folders: /mnt/root/var/cache/libdnf5/repo" "...and on a mount inside one of the folders"
-  as_user 'printf "2 1 0:2 / %s rw - nfs4 srv:/x rw\n" $R/srv >> $mi'
-  assert_not_contains "$OUT" "network file system" "a network mount elsewhere is not its concern"
-  as_user 'printf "2 1 0:2 / %s rw - ext4 /dev/x rw\n" $R/var >> $mi'
-  assert_not_contains "$OUT" "network file system" "...and neither is a local one"
 fi
-doctor_in_ns 'printf "2 1 0:2 / %s rw - nfs4 srv:/x rw\n" "$R/var" >> "$mi"'
-assert_not_contains "$OUT" "network file system" "doctor as root reads what the helper reads, and needs no such warning"
 
 # --- the seam rule: at a path polkit binds to, no setting counts, whatever the uid map says -------------------
 # These runs cannot reach dnf5: the namespace differs from PID 1's, which is what they prove the helper sees.

@@ -29,9 +29,8 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 ## Next: a staged update that stays staged
 
 Another program's update check can cancel an update staged for the next restart. Discover's
-notifier seems to be the usual cause. Today Kempt warns about it and offers **Put It Back**, which
-asks for a password. In 0.2.1, Kempt puts the update back by itself when the computer shuts down,
-with no warning, button or password. If packages changed, the stage cannot be saved, and
+notifier seems to be the usual cause. Today Kempt warns about it, and you stage the update again. In 0.2.1, Kempt puts the update back
+by itself when the computer shuts down, with no warning, button or password. If packages changed, the stage cannot be saved, and
 Kempt still says so.
 
 ## Then: updates that take care of themselves
