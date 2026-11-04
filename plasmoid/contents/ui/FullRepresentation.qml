@@ -1096,12 +1096,13 @@ PlasmaExtras.Representation {
                 Kirigami.Action {
                     text: i18n("Show Log")
                     icon.name: "text-x-generic"
-                    // Only for a RUN, and only for one that recorded a log: a history entry old
-                    // enough (or damaged enough) to have none is an ordinary event, and a failed
-                    // button press has no log at all.
+                    // Only for a RUN that failed and recorded a log. A history entry old enough (or
+                    // damaged enough) to have none is an ordinary event, and a failed button press
+                    // has no log at all.
                     enabled: !reportMessage.aboutFetch
                              && popup.plasmoidItem.reportLatest === "run"
                              && !!popup.plasmoidItem.lastRun
+                             && popup.plasmoidItem.lastRun.failed
                              && popup.plasmoidItem.lastRun.logPath.length > 0
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
@@ -1713,7 +1714,9 @@ PlasmaExtras.Representation {
                         text: i18n("Show Log")
                         icon.name: "text-x-generic"
                         enabled: !!popup.plasmoidItem.lastRun
+                                 && popup.plasmoidItem.lastRun.failed
                                  && popup.plasmoidItem.lastRun.logPath.length > 0
+                        visible: enabled
                         onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
                     },
                     // A failed run whose reason says to run kempt doctor: the button that does it.

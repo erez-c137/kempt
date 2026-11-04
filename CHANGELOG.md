@@ -16,6 +16,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A service that failed reads "Bluetooth failed to start after the update."** With several, the heading names two of them. The widget no longer says when a service is running again: the warning going away is the news, and the desktop notification still says so.
 - **The widget says "ready", not "staged", and "System" and "Apps", not dnf and flatpak.** The message reads "5 updates are ready and install on the next restart." with **Discard Update**, and the header says the same. What discarding costs is on the button's tooltip. The command line keeps its own wording.
 - **Shorter sentences:** "Restart to finish updating.", "Updated 12 packages in 34 s.", "No packages changed." and "The update failed: the reason." **Not Updating? Check Again** replaces the longer button.
+- **Show Log appears only after a run that failed**, on the report and on the Last update row.
 
 ### Removed
 

@@ -3014,11 +3014,8 @@ p.check("a run that worked reports as a positive message",
         lev("reportMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...saying what the run actually did", lev("reportMessage.text"),
         "Updated 4 packages in 2 s.")
-xdg_before = len(records("xdg-open"))
-lev("reportMessage.actions[0].trigger()")
-settle()
-p.check("...and its Show Log opens that run's own log", last_record("xdg-open"),
-        [LAST_RUN["log"]])
+p.check("...and no Show Log, because nothing went wrong",
+        lev("reportMessage.actions[0].visible"), False)
 
 failed = dict(LAST_RUN)
 failed["status"] = "failed"
@@ -3032,6 +3029,10 @@ p.check("a run that failed reports as an error instead",
         lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
 p.check("...in the CLI's own worked-out reason", lev("reportMessage.text"),
         "The update failed: dnf5 exited 1 - could not resolve the transaction.")
+p.check("...and its Show Log is there", lev("reportMessage.actions[0].visible"), True)
+lev("reportMessage.actions[0].trigger()")
+settle()
+p.check("...and opens that run's own log", last_record("xdg-open"), [failed["log"]])
 
 nolog = dict(LAST_RUN)
 nolog["log"] = ""
@@ -3081,8 +3082,8 @@ p.check("...titled by logic.js rather than by a second copy of that rule written
         ev("Logic.lastRunText(root.lastRun, root.nowMs)"))
 p.check("...and expandable, so the run's package list is one click away",
         lev("lastRunView.itemAtIndex(0).hasExpandableContent"), True)
-p.check("...with that run's own log reachable from the row",
-        lev("lastRunView.itemAtIndex(0).contextualActions[0].text"), ev("Logic.COPY.showLog"))
+p.check("...with no log offered for a run that went well",
+        lev("lastRunView.itemAtIndex(0).contextualActions[0].visible"), False)
 p.check("...and the packages it installed under it",
         lev("lastRunView.itemAtIndex(0).customExpandedViewContent !== null"), True)
 p.check("...with no second line for a run that went well and took nothing an app uses",

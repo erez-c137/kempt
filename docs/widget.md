@@ -111,7 +111,7 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    check held the lock until the press gave up, it says `Another check was running. Press Download
    Anyway again.`
 
-   **Show Log** opens the run's log, when there is one. **Check Installation** appears when the
+   **Show Log** opens the log of a run that failed. **Check Installation** appears when the
    message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
    starts. A report that something worked also goes when a check starts. The note about a failed
    check goes when fresh counts arrive, or when you ask for a check. Other reports stay until your
@@ -263,9 +263,9 @@ next check, and keyboard focus follows it. A screen reader hears *Holding
 nodejs* or *No longer holding nodejs*. If the hold fails, the reason appears in that row until your
 next press or the next check.
 
-**Last update 18 min ago · 4 packages** expands to the previous run's package list and
-**Show Log**, plus **Check Installation** when a failed run's reason says to run `kempt doctor`. It
-takes at most a third of the widget and scrolls.
+**Last update 18 min ago · 4 packages** expands to the previous run's package list. After a failure
+its title says `Last update failed`, with the reason under it, and it offers **Show Log**, plus
+**Check Installation** when the reason says to run `kempt doctor`. It takes at most a third of the widget and scrolls.
 
 ### Footer
 
