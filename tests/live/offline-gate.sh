@@ -310,15 +310,8 @@ has "announced as a stage that can no longer install" "$(notes)" "can no longer 
 is "marker demoted rather than deleted" "$(jq -r '.armed' <<<"$(marker)")" "false"
 is "dnf5 still says ready - the demote is Kempt's reading, not dnf5's" "$(toml_status)" "ready"
 is "nothing is published as a pending install" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
-# Nothing moved, so dnf5 can make the symlink again: doctor offers that, as a warning.
 d=$("$K" doctor 2>&1)
-has "doctor offers to put it back" "$d" "kempt restore-stage"
-"$K" restore-stage > /tmp/s10-restore.out 2>&1
-is "Put It Back succeeds on real dnf5" "$?" "0"
-[[ -L "$LINK" ]] && ok "...with the symlink back" || bad "...no symlink after Put It Back"
-is "...and the marker armed again" "$(jq -r '.armed' <<<"$(marker)")" "true"
-rm -f "$LINK"
-KEMPT_BOOT_ID=s10-boot "$K" check > /dev/null 2>&1
+has "doctor says to stage again" "$d" "Stage it again with: kempt update --surface=offline"
 dnf5 -y -q offline clean >/dev/null 2>&1
 KEMPT_BOOT_ID=s10-boot "$K" check >/dev/null 2>&1
 is "a real clean then clears the demoted marker" "$(marker)" ""

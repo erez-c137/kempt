@@ -892,6 +892,17 @@ nsthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
   && { echo "FAIL: a first stage reported a previous one being lost"; _fail=1; } \
   || echo "ok: ...and says nothing about a previous stage that never existed"
 
+# A stage that lost its restart step is staged again. dnf5 reuses the download it still holds, and a
+# clean first would delete it, so the free route depends on this path never asking for one.
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+jq -c '. + {armed:false, lost_announced:true}' "$marker" > "$marker.lost" && mv "$marker.lost" "$marker"
+: > "$WORLD/apply-calls"
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
+assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
+  "staging again after a lost stage cleans nothing, so the download is kept"
+assert_eq "$(jq -r .armed "$marker")" "true" "...and the new stage is armed"
+
 # A rebuild that WORKED, which is the whole point of the failure paths above: the run is what a
 # hold-behind-a-stage tells the user to do, and the event log is the only record of why it ran.
 # The conflicting holds are read BEFORE the stage, because afterwards the question cannot be asked

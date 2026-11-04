@@ -7,6 +7,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Removed
+
+- **Put It Back and `kempt restore-stage`.** When another program cancels a staged update, Kempt now
+  tells you and the updates stay in the list. Stage them again with **Install on Next Restart** or
+  `kempt update --surface=offline`. The packages are still downloaded, so this costs no new download.
+
 ### Security
 
 - **Kempt now stops updating when another user could change dnf's folders or a folder above them.**

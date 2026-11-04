@@ -220,7 +220,6 @@ cope with that.
 | `startup` | object, optional | Only while `notify_startup` is on and systemd answered. `announced`: units failing since a Kempt update, each `{unit, scope, description, since}`, `scope` being `system` or `user`. `already`: failing at the baseline. `recovered`: announced units systemd reports active again; one systemd no longer knows, or that stopped after a clean run, is dropped without a notice. `muted`: from `startup-mutes`, each cleared once its unit is seen active, gone or stopped cleanly; a mute of an alias is stored under the unit's own name. `compared`: whether any comparison has run. `attribution`: `update`, or `restart` when dnf's newest transaction is not Kempt's. `recovered_digest`: 16 hex characters, `""` when none. `kempt startup ack --expect=<digest>` clears `recovered` (exit 6 when it changed). The state lives in `startup.json`, and mutes in `startup-mutes` (`scope:unit` lines). Additive. |
 | `offline_staged` | object, optional | A staged update that will install on the next restart. See [below](#offline_staged). Additive. |
 | `offline_stage_blocked` | object, optional | `staged_at` and `count` of a stage Kempt made that will **not** install on the next restart, because another updater has prepared it. Absent otherwise. Additive. |
-| `offline_stage_restorable` | object, optional | `staged_at` and `count` of a stage that another program took the restart step from, while no packages have changed since. `kempt restore-stage` can set it to install again. Additive. |
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5. Never `false`. Additive. |
 | `unsafe_folder` | string, optional | A dnf folder, or one above it, that other users can change, so the root helper refuses updates. `kempt status` and the widget say updates are paused. Read as the user, so a folder only root can read counts for nothing here. Absent when there is none, and on an image-based system. Additive. |
 | `reclaim` | object, optional | The Flatpak runtimes no installed app uses. See [below](#reclaim). Additive. |
@@ -442,7 +441,7 @@ failed rebuild can lose the old one. `cmd_update` reads dnf5's status after a fa
 | `staged_excluded` | The held packages left out. |
 | `rpmdb_cookie`, `cmd_line` | dnf5's identity for the transaction ([below](#which-transaction-ran)). |
 | `armed` | `true` when written. `false` once a restart proved the transaction cannot install. |
-| `lost_announced` | `true` once a check in the same boot said the stage can no longer install or did not finish. Put It Back removes it. |
+| `lost_announced` | `true` once a check in the same boot said the stage can no longer install or did not finish. |
 | `set_moved` | The package set changed under a stage still armed. |
 | `replaced` | dnf5 holds a different transaction. |
 

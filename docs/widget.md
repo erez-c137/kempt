@@ -429,7 +429,6 @@ Each button runs a command described in [usage.md](usage.md).
 | **Install Now** | `kempt run --risky-ok` |
 | **Install on Next Restart**, **Rebuild Staged Update** | `kempt run --surface=offline` |
 | **Discard Staged Update** | `kempt unstage` |
-| **Put It Back** | `kempt restore-stage` |
 | **Turn Off Discover's Notifier**, on the warning beside a staged update | `kempt discover-notifier off` |
 | **Turn Off**, on the warning about Discover's automatic updates | `kempt discover-notifier off`. Drawing that warning runs `kempt discover-notifier seen` |
 | **Update Now**, while another updater holds the next restart | `kempt run --surface=<a live surface>`, after its own question when system updates are waiting |

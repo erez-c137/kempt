@@ -396,11 +396,6 @@ event_plain() {  # event text → EVENT_PLAIN
     "harvest entry not written"*) EVENT_PLAIN="Restart result not saved${t#harvest entry not written}" ;;
     "harvest log not written"*) EVENT_PLAIN="Restart log not saved${t#harvest log not written}" ;;
     "history entry not written"*) EVENT_PLAIN="Update history not saved${t#history entry not written}" ;;
-    "restore-stage put the staged update back") EVENT_PLAIN="Staged update set to install on the next restart again" ;;
-    "restore-stage found it already set") EVENT_PLAIN="Put It Back: the staged update was already set to install" ;;
-    "restore-stage refused by the root helper") EVENT_PLAIN="Put It Back was refused by Kempt's system helper" ;;
-    "restore-stage refused"*) EVENT_PLAIN="Put It Back refused${t#restore-stage refused}" ;;
-    "restore-stage failed rc="*) EVENT_PLAIN="Put It Back failed (exit code ${t#restore-stage failed rc=})" ;;
     "unstage discarded the staged update") EVENT_PLAIN="Staged update discarded" ;;
     "unstage found nothing staged") EVENT_PLAIN="Discard: nothing was staged" ;;
     "unstage cleared a marker with no transaction under it")
@@ -4226,50 +4221,6 @@ offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, h
 # presence of offline_staged as "installs on the next restart". Same gates as offline_staged_state
 # otherwise: a demoted marker, a stored release upgrade, or packages already installed (the stage
 # is then done, not blocked) publish nothing. A replaced stage is never done that way.
-# Could arming this transaction again install it? PackageKit removes /system-update whoever made it
-# after every refresh and every rpm change, and leaves dnf5's state at `ready`. After a refresh the
-# transaction is still good, and `dnf5 offline reboot` arms it again. After an rpm change it is not,
-# and dnf5 refuses: comparing the package set with the stage's snapshot is what tells the two apart
-# without asking for a password to find out.
-offline_stage_restorable() {  # marker-json → 0 when only the restart step is missing
-  [[ "$(offline_system_status)" == ready && "$(restart_holder)" == none ]] || return 1
-  jq -e '.restore_failed == true' <<<"$1" >/dev/null 2>&1 && return 1
-  offline_stage_rearmable "$1"
-}
-
-# ...and the half of that which does not depend on the link. Unknown means no: offline_stage_replaced
-# reports nothing when it cannot compare, which is right for a warning and wrong for arming.
-offline_stage_rearmable() {  # marker-json → 0 when dnf5's transaction is this stage and nothing moved
-  offline_stage_still_ours "$1" || return 1
-  local cookie pre now rc=0
-  cookie="$(jq -r '.rpmdb_cookie // empty | strings' <<<"$1" 2>/dev/null || true)"
-  [[ "$cookie" =~ ^[0-9a-f]{64}$ ]] || return 1
-  [[ "$(offline_toml_value rpmdb_cookie 2>/dev/null)" == "$cookie" ]] || return 1
-  pre="$(jq -r '.pre_snapshot // empty' <<<"$1" 2>/dev/null)"
-  [[ -n "$pre" && -f "$pre" ]] || return 1
-  now="$(mktemp 2>/dev/null)" || return 1
-  dnf_snapshot > "$now" 2>/dev/null && same_content "$pre" "$now" || rc=1
-  rm -f "$now"
-  return "$rc"
-}
-
-offline_stage_still_ours() {  # marker-json → 1 when dnf5 is known to hold something else
-  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 1
-  offline_release_upgrade >/dev/null && return 1
-  ! offline_stage_replaced "$1" >/dev/null
-}
-
-# What state.json says about it: only for a stage the harvest has already announced as lost, so a
-# check never offers this over a stage that is merely between two writes.
-offline_stage_restorable_state() {  # → {staged_at, count} JSON, or nothing
-  local marker
-  marker="$(offline_marker_read)"
-  [[ -n "$marker" ]] || return 0
-  jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 || return 0
-  offline_stage_restorable "$marker" || return 0
-  jq -c '{staged_at: (.staged_at // null), count: (.staged // null)}' <<<"$marker" 2>/dev/null
-}
-
 offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
   local marker
   marker="$(offline_marker_read)"
@@ -4342,14 +4293,14 @@ publish_staged_state_write() {  # staged blocked
   local staged="$1" blocked="$2" out
   if [[ -n "$staged" ]]; then
     out="$(jq -c -n --argjson st "$staged" \
-             '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked) | del(.offline_stage_restorable)' \
+             '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked)' \
              "$STATE_FILE" 2>/dev/null)" || return 0
   elif [[ -n "$blocked" ]]; then
     out="$(jq -c -n --argjson b "$blocked" \
-             '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_restorable) | .offline_stage_blocked = $b' \
+             '[inputs][0] | select(type == "object") | del(.offline_staged) | .offline_stage_blocked = $b' \
              "$STATE_FILE" 2>/dev/null)" || return 0
   else
-    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_blocked) | del(.offline_stage_restorable)' \
+    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_blocked)' \
              "$STATE_FILE" 2>/dev/null)" || return 0
   fi
   [[ -n "$out" ]] || return 0

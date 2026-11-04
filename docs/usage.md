@@ -10,7 +10,6 @@ runs which command is in [its table](widget.md#what-each-button-runs).
 | [`kempt update`](#update) | Installs the updates now, in this terminal, or stages them for the next restart |
 | [`kempt run`](#run) | Starts an update where your settings say and returns at once |
 | [`kempt unstage`](#unstage) | Discards the update staged for the next restart |
-| [`kempt restore-stage`](#restore-stage) | Sets a staged update to install on the next restart again, when another program removed its restart step |
 | [`kempt reclaim`](#reclaim) | Removes the Flatpak runtimes no installed app uses |
 | [`kempt status`](#status) | Says what the last check found, in words |
 | [`kempt summary`, `kempt history`](#summary-and-history) | Shows one past run, or lists them all |
@@ -387,26 +386,6 @@ record of the stage only once dnf5 confirms the transaction is gone.
 | 3 | Another update is running. |
 | 5 | Nothing changes: a Fedora release upgrade is stored and discarding would cancel it, another updater has prepared the next restart and discarding would cancel that too, or the root helper refused. |
 
-## restore-stage
-
-```
-kempt restore-stage
-```
-
-PackageKit removes a staged update's restart step whenever it refreshes its package lists or the
-installed packages change. Discover's notifier can ask for that refresh. The updates stay
-downloaded, but no restart installs them, and Kempt notifies you.
-
-If no packages have changed since the stage, this sets the same updates to install again, with
-nothing to download. It may ask for your password. The widget offers it as **Put It Back**.
-
-| Exit | When |
-| --- | --- |
-| 0 | Put back, or it was already set to install. |
-| 1 | The root helper failed, or the restart step is still missing. |
-| 3 | Another update is running. |
-| 5 | Nothing changed: nothing is staged, packages changed since the stage, the stage was replaced, a release upgrade is stored, another updater has prepared the next restart, or the root helper refused. |
-
 ## reclaim
 
 ```
@@ -711,10 +690,6 @@ Its wording is fixed, so you can search it:
 | `harvest deferred: packages moved outside Kempt while the stage is still armed` | Another tool changed packages while an update was staged. |
 | `harvest entry not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | The history entry could not be saved. The run itself is unaffected. |
 | `harvest log not written (state directory unwritable?)` | The log for a restart install could not be saved, so that run has no **Show Log**. |
-| `restore-stage put the staged update back` | `kempt restore-stage` set the staged update to install on the next restart again. |
-| `restore-stage found it already set` | The staged update was already set to install. |
-| `restore-stage refused (<reason>)` / `restore-stage refused by the root helper` | Nothing changed. |
-| `restore-stage failed rc=<n>` | The staged update was not put back. |
 | `unstage discarded the staged update` | `kempt unstage` removed the staged update. |
 | `unstage refused (<what is stored>)` / `unstage refused by the root helper` | A Fedora release upgrade is stored, so `kempt unstage` changed nothing. |
 | `unstage refused (another updater has prepared the next restart)` | Discarding would also cancel the other updater's restart update. Run it again after the restart. |

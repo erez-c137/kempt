@@ -977,29 +977,6 @@ PlasmaExtras.Representation {
             ]
         }
 
-        // A stage that lost only its restart step. logic.js decides when; `kempt restore-stage` acts.
-        Kirigami.InlineMessage {
-            id: stageRestorableMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: popup.vm.stageRestorableMessage
-            Accessible.name: text
-            visible: popup.shows("stageRestorable")
-            // Assertive for the staged banner's reason: what the person was promised has changed.
-            property string spoken: ""
-            onVisibleChanged: popup.speakMessage(stageRestorableMessage, true, text)
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Put It Back")
-                    icon.name: "edit-undo"
-                    tooltip: i18n("Sets your staged updates to install on the next restart again. May ask for your password.")
-                    Accessible.description: tooltip
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => popup.plasmoidItem.restoreStage()
-                }
-            ]
-        }
-
         // Discover set to install updates by itself. Drawn once per setting (main.qml), and its one
         // button is the notifier's off: with the notifier stopped nothing reads that setting.
         Kirigami.InlineMessage {

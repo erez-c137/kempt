@@ -402,7 +402,7 @@ PlasmoidItem {
     property int watchPolls: 0             // pollWatch stats queued or running; see pollWatch
     property bool watchAbsorbState: false  // the next poll takes in a check's own state.json write
     property bool watchAbsorbRun: false    // ...and the package moves of a run of ours, with it
-    property bool watchAbsorbStage: false  // ...and the stage a Discard or Put It Back of ours just moved
+    property bool watchAbsorbStage: false  // ...and the stage a Discard of ours just moved
     property bool stageActionJustRan: false    // set by both for the check that follows them
     property int refreshIntervalMin: 60    // the CLI's own default until `config get` answers
 
@@ -593,7 +593,7 @@ PlasmoidItem {
             // would set off one more check a minute after the run's own.
             root.watchAbsorbState = true;
             root.watchAbsorbRun = root.updating || root.updateStartedMs >= askedMs;
-            // A Discard or Put It Back is neither a check nor a run, but it moves the stage, and the check it
+            // A Discard is neither a check nor a run, but it moves the stage, and the check it
             // asks for would otherwise see that as news and start one more a minute later.
             root.watchAbsorbStage = root.stageActionJustRan;
             root.stageActionJustRan = false;
@@ -1028,36 +1028,6 @@ PlasmoidItem {
                 root.stageActionJustRan = true;
                 root.doCheck();
                 root.actionDone = said;
-            });
-        });
-    }
-
-    // Put It Back: `kempt restore-stage`, waited on and re-verified as discardStaged is, because the
-    // answer is the report and consent was given to a message about ONE stage.
-    function restoreStage() {
-        if (updating || runRequested || actionPending) return;
-        actionPending = true;
-        actionMessage = "";
-        actionDone = "";
-        var offered = vm.stageRestorableAt;
-        executor.run("cat \"" + stateDir + "/state.json\"", 10000, function(stdout, stderr, rc) {
-            var fresh = Logic.parseState(stdout);
-            if (fresh !== null) root.kemptState = fresh;
-            var vmNow = Logic.viewModel(fresh, false, "");
-            if (vmNow.stageRestorableAt === "" || vmNow.stageRestorableAt !== offered) {
-                root.actionPending = false;
-                root.actionMessage = Logic.COPY.stageRestoreChanged;
-                return;
-            }
-            executor.run(root.kemptCmd + " restore-stage", 300000, function(stdout2, stderr2, rc2) {
-                root.actionPending = false;
-                var said = Logic.restoreStageMessage(rc2, stdout2, stderr2);
-                // After a timeout the restart step may be back anyway, so that re-checks too.
-                if (rc2 !== 0 && !Logic.isExecutorTimeout(rc2, stderr2)) { root.actionMessage = said; return; }
-                root.stageActionJustRan = true;
-                root.doCheck();
-                if (rc2 !== 0) root.actionMessage = said;
-                else root.actionDone = said;
             });
         });
     }

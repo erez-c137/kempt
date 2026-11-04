@@ -1005,19 +1005,14 @@ grep -qE '^FAIL  staged update can never install' "$TESTTMP/last_output" \
   && echo "ok: ...with the same precise row, which is what clearing the marker would have lost" \
   || { echo "FAIL: no never-install line for a demoted marker - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
 
-# The stage a refresh took the restart step from, with nothing else changed: fixable, and doctor says how.
+# The stage a refresh took the restart step from: the answer is staging again, packages moved or not.
 D_PRE="$TESTTMP/d-pre.tsv"; cp "$FIXTURES/snap-before.tsv" "$D_PRE"
 jq -n --arg pre "$D_PRE" --arg cookie "$(sed -n 's/^rpmdb_cookie *= *"\(.*\)"/\1/p' "$FIXTURES/offline-ready.toml")" \
   '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:$pre, boot_id:"b", staged:61, armed:false, rpmdb_cookie:$cookie}' > "$D_MARKER"
 D_LINK_WAS="$(readlink "$KEMPT_OFFLINE_LINK" 2>/dev/null || true)"; rm -f "$KEMPT_OFFLINE_LINK"
 env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/snap-before.tsv" "$KEMPT" doctor >"$TESTTMP/last_output" 2>&1 || true
-grep -qE '^WARN  staged update: .*kempt restore-stage' "$TESTTMP/last_output" \
-  && echo "ok: doctor names the way to put a lost stage back" \
-  || { echo "FAIL: no restore-stage line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
-assert_not_contains "$(cat "$TESTTMP/last_output")" 'can never install' "...and does not also call it hopeless"
-env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/snap-after.tsv" "$KEMPT" doctor >"$TESTTMP/last_output" 2>&1 || true
-assert_not_contains "$(cat "$TESTTMP/last_output")" 'kempt restore-stage' "...and does not offer it once packages have changed"
-assert_contains "$(cat "$TESTTMP/last_output")" 'staged update can never install' "...where it is hopeless, and says so"
+assert_contains "$(cat "$TESTTMP/last_output")" 'staged update can never install' "a stage that lost its restart step fails the checkup"
+assert_contains "$(cat "$TESTTMP/last_output")" 'Stage it again with: kempt update --surface=offline' "...and says to stage again"
 rm -f "$D_MARKER"
 [[ -z "$D_LINK_WAS" ]] || ln -sfn "$D_LINK_WAS" "$KEMPT_OFFLINE_LINK"
 

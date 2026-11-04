@@ -2715,24 +2715,6 @@ assert_eq "$(vm '{}' "$STG" 0 'stagedShowRestart')" "true" \
 assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
   "...and stands down when the restart message is already offering it"
 
-# --- vm.stageRestorableAt: a stage that lost its restart step and can have it back ---------------
-RST=',offline_stage_restorable:{staged_at:"2026-09-02T10:31:00+03:00",count:61}'
-assert_eq "$(vm '{}' "$RST" 0 'stageRestorableAt')" "2026-09-02T10:31:00+03:00" "a stage that can be put back is read"
-assert_eq "$(vm '{}' '' 0 'stageRestorableAt')" "" "...and no key is nothing to offer"
-assert_eq "$(vm '{}' ',offline_stage_restorable:"yes"' 0 'stageRestorableAt')" "" "...nor is a key of the wrong type"
-assert_eq "$(vm '{}' ',offline_stage_restorable:{count:1}' 0 'stageRestorableAt')" "" "...nor one with no stage named"
-assert_eq "$(js "L.restoreStageMessage(0, 'Put back. The next restart installs your 61 staged updates.\\n', '')")" \
-  "Put back. The next restart installs your 61 staged updates." "a restore that worked reports the CLI's own sentence"
-assert_eq "$(js "L.restoreStageMessage(0, '', '')")" "Put back. The next restart installs your staged updates." \
-  "...and a silent one still says so"
-assert_eq "$(js "L.restoreStageMessage(5, '', 'cannot be put back\\nmore\\n')")" "cannot be put back" "a refusal is the CLI's first line"
-assert_eq "$(js "L.restoreStageMessage(5, '', '') === L.COPY.stageRestoreRefused")" "true" "...or its own sentence"
-assert_eq "$(js "L.restoreStageMessage(3, '', '') === L.COPY.stageRestoreBusy")" "true" "another update running has one too"
-assert_eq "$(js "L.restoreStageMessage(124, '', 'timeout after 300000ms') === L.COPY.stageRestoreTimedOut")" "true" \
-  "the widget giving up is a sentence, not a log line"
-assert_eq "$(js "L.restoreStageMessage(1, '', '')")" \
-  "The staged update could not be put back (exit 1). Press Check Installation to find out why." "...and any other failure names its status"
-
 # --- the Discover offer while something is staged ----------------------------------------------
 assert_eq "$(js 'L.COPY.stageDiscoverWarning.indexOf("—")')" "-1" "the staged Discover warning has no long dash"
 assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, restart: true})')" '["staged","restart"]' \
@@ -2823,7 +2805,6 @@ assert_eq "$(held "$PEND$BLK" "$OFFL" stagedShowRestart)" "true" "...with Restar
 assert_eq "$(held "$PEND$BLK,reboot_needed:true" "$OFFL" stagedShowRestart)" "false" "...unless the restart message has one"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",restart_holder:"other",actionable:3,backends:{dnf:{actionable:3}}},false,"",{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf("report")')" "-1" \
   "a report repeating a stage gives way to the banner it contradicts"
-assert_eq "$(held "$PEND,offline_stage_restorable:{staged_at:\"2026-09-02T10:31:00+03:00\"}" "$OFFL" stageRestorableAt)" "" "Put It Back is not offered behind it"
 
 # The footer.
 LAST='{when:"2026-08-26T11:00:00+03:00",surface:"offline",failed:false,stagedNothing:null}'
@@ -2838,7 +2819,7 @@ assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverUnattended") >
 assert_eq "$(js 'L.COPY.discoverUnattended')" "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates." "...in one plain sentence"
 assert_eq "$(js 'L.messageStack({staged: true, discoverUnattended: true, startup: true, restart: true})')" '["staged","discoverUnattended"]' \
   "...ranked right after what is staged, above a service failure and a restart"
-assert_eq "$(js 'L.messageStack({discoverUnattended: true, stageRestorable: true, startup: true})')" '["discoverUnattended","stageRestorable"]' \
+assert_eq "$(js 'L.messageStack({discoverUnattended: true, startup: true, restart: true})')" '["discoverUnattended","startup"]' \
   "...and before everything under it with nothing staged"
 assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...over the plain offer"
 # Held with updates paused too: both are true, so both show, and the question has nothing to warn about.
@@ -3753,7 +3734,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldItems","heldLiveSurface","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldItems","heldLiveSurface","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -4451,8 +4432,7 @@ assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
 # literals are DECLARED - so it would answer "found it" for a QML file that never wrote them. The
 # .qml files alone are the question.
 for _lit in stagedRebuildAction stagedRebuildTooltip stagedDiscardAction stagedDiscardTooltip \
-            stageRestoreAction stageRestoreTooltip \
-            reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
+                        reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
             installOnNextRestartTooltip installOnNextRestartSystemTooltip \
             startupMute startupMuting startupMuteTooltip startupSetting startupSettingNote \
             startupStopMutingDescription startupNothingMuted; do
@@ -4462,8 +4442,8 @@ done
 # The tooltip is the accessible description as well, and that is the load-bearing half: a polkit
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
 # the authorization and the discard cost by then hears them never.
-assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "6" \
-  "...and both banner actions, Put It Back, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
+assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "5" \
+  "...and both banner actions, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting

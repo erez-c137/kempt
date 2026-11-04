@@ -69,7 +69,7 @@ assert_exit 0 "...and the ways to ask for this list" -- grep -qw -- '-h' "$TESTT
 # go through the same line of the dispatcher; they are left out here so that no test can ever start
 # a run if that line goes.
 # What it prints is that command's own usage, never the whole list.
-for sub in check summary history log doctor config hold unhold holds unstage restore-stage reclaim discover-notifier \
+for sub in check summary history log doctor config hold unhold holds unstage reclaim discover-notifier \
            enable-passwordless disable-passwordless; do
   for flag in --help -h; do
     assert_exit 0 "kempt $sub $flag prints its usage and exits 0" "$KEMPT" "$sub" "$flag"
