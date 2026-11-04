@@ -429,7 +429,6 @@ failed rebuild can lose the old one. `cmd_update` reads dnf5's status after a fa
 
 | Field | Meaning |
 | --- | --- |
-| `version` | The marker format. Set when the marker is created and carried forward unchanged. |
 | `staged_at`, `boot_id` | When, and in which boot session. |
 | `staged` | How many updates, published as `count`. |
 | `pre_snapshot` | The snapshot copy of the package set it was staged against. |
@@ -884,7 +883,6 @@ paths, so a real root run reads none of these.
 | `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
 | `KEMPT_DNF_SIZES_CMD` | (empty, so the `dnf_sizes` query in [the network boundary](#the-network-boundary)) | The download-size query, apart from `KEMPT_DNF_CMD`, which tests point at a `needs-restarting` stub. Stubbed |
 | `KEMPT_DNF_ADVISORY_CMD` | (empty, so `KEMPT_DNF_CMD`) | The security advisory query, run only when `notify_security` is on. `tests/lib.sh` points it at a missing path, so a test that wants an answer stubs it |
-| `KEMPT_DNF_SYSTEM_CACHE` | `/var/cache/libdnf5` | The cache `dnf_sizes` and the advisory query read, so sizes come from the check's metadata. When unreadable, the query drops the `--setopt`. Point it at a missing directory to test that |
 | `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only (see [the network boundary](#the-network-boundary)) |
 | `KEMPT_FLATPAK_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_LIST_RUNTIME_CMD` | the two queries above with `--runtime` in place of `--app`, and `branch` added to the columns | The runtime queries. `tests/lib.sh` pins both at `true` (no runtimes), because a missing path would fail every flatpak check |
 | `KEMPT_FLATPAK_SNAP_CMD`, `KEMPT_FLATPAK_SNAP_RUNTIME_CMD` | the two list queries above with `active` added to the columns | The run's before and after snapshots. Many runtimes have no useful version, so the deployed commit is included. `tests/lib.sh` pins both at `true` |
@@ -893,7 +891,6 @@ paths, so a real root run reads none of these.
 | `KEMPT_FLATPAK_REFRESH_CMD` | the app remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`. Runs as the user, never through `pkexec`. Stubbed, so no test fetches from flathub |
 | `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), run as the user. Stubbed, so the suite cannot update the host |
 | `KEMPT_FLATPAK_USER_DIR` | `$FLATPAK_USER_DIR`, else `$XDG_DATA_HOME/flatpak`, else `~/.local/share/flatpak` | The per-user installation, used only when `repo/config` exists. Skipped as root, under `sudo` or under `pkexec`. A failed per-user read drops only the per-user side. Stubbed |
-| `KEMPT_FLATPAK_USER_SKIP` | (empty) | Any value makes the rest of a run leave the per-user installation alone. `kempt update` sets it when that set could not be read before the run |
 | `KEMPT_FLATPAK_USER_REMOTE_CMD`, `KEMPT_FLATPAK_USER_LIST_CMD`, `KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_SNAP_CMD`, `KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_INFO_CMD` | each system command above with `--user` in place of `--system` | The per-user queries, run as the user. `tests/lib.sh` pins them at `true` |
 | `KEMPT_FLATPAK_USER_REFRESH_CMD`, `KEMPT_FLATPAK_USER_UPDATE_CMD` | the user remote query minus `--cached`, `flatpak update --user` | The per-user fetch and apply, run as the user. The apply runs after the system one. Stubbed |
 | `KEMPT_FLATPAK_UNUSED_CMD` | `libexec/kempt-flatpak-unused` in `KEMPT_ROOT` | Lists unused Flatpak refs as JSON, run as the user. Stubbed |

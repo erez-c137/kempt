@@ -66,7 +66,6 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .IR backend : name
 .br
 .B kempt holds
-.RB [ \-\-exclude\-args ]
 .br
 .B kempt config get
 .I key
@@ -303,15 +302,10 @@ command of your own ignores.
 .BI unhold " backend:name"
 Remove a hold. Removing one that is not there succeeds.
 .TP
-.BR holds " [" \-\-exclude\-args ]
+.B holds
 List current holds, one
 .I backend:name
 per line.
-.B \-\-exclude\-args
-prints the dnf holds as one line of dnf5
-.B \-\-exclude=
-arguments, or an empty line with none, for
-.BR "sudo dnf5 upgrade $(kempt holds \-\-exclude\-args)" .
 .TP
 .BI "config get" " key " [ default ]
 Print a setting. With no value stored, it prints

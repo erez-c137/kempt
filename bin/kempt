@@ -285,18 +285,9 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
 
 # The unused refs that are extensions, one per line. flatpak protects a runtime an app needs, not
 # these (reclaim_remove). The helper says which, from flatpak's metadata (its `extension` field,
-# libexec/kempt-flatpak-unused). A ref without that field, from an older helper, falls back to its
-# id: another installed ref's id (runtime or app, used or unused) followed by a dot and more, as
-# org.freedesktop.Platform.GL.default is of org.freedesktop.Platform. That misses a theme
-# (org.gtk.Gtk3theme.*), whose id does not start with its runtime's.
+# libexec/kempt-flatpak-unused).
 reclaim_extensions_in() {  # listing JSON → refs
-  jq -r '([.unused[], .used[] | .ref | split("/")[1] | {key: ., value: true}] | from_entries) as $have
-         | .unused[]
-         | select(if has("extension") then .extension == true
-                  else .ref | split("/")[1] | split(".") as $p
-                       | [range(1; $p | length) as $i | $have[$p[:$i] | join(".")] // false] | any
-                  end)
-         | .ref' \
+  jq -r '.unused[] | select(.extension == true) | .ref' \
     <<<"$1" 2>/dev/null
 }
 
@@ -469,6 +460,14 @@ reclaim_after_run() {  # log_file
      + (if $u == "" then {} else {in_use: ($u | fromjson)} end)' 2>/dev/null)" \
     || RECLAIM_RUN_JSON=""
   return 0
+}
+
+# One optional block into the state cmd_check is assembling. A jq that fails leaves it as it was, so
+# nothing merged here can fail the check.
+state_merge() {  # jq args...
+  local m
+  m="$(jq "$@" <<<"$state" 2>/dev/null)" || return 0
+  [[ -z "$m" ]] || state="$m"
 }
 
 cmd_check() {
@@ -686,71 +685,53 @@ cmd_check() {
   state="$(assemble_state "$dnf_items" "$fp_items" "$status" "$error" "$fp_enabled" "$prev_ls" "$risky" "$reboot" "$dnf_bytes" "$fp_bytes" "$staged_state" "$relup_json" "$image_based" "$(metadata_refreshed_iso)")"
   # A per-user installation that failed leaves the system answer standing and says so here, as
   # the history's `scopes` does, rather than marking the whole backend stale.
-  local scoped
-  if [[ -n "$fp_scopes" ]] \
-     && scoped="$(jq -c --argjson s "$fp_scopes" '.backends.flatpak.scopes = $s' <<<"$state" 2>/dev/null)" \
-     && [[ -n "$scoped" ]]; then
-    state="$scoped"
+  if [[ -n "$fp_scopes" ]]; then
+    state_merge --argjson s "$fp_scopes" '.backends.flatpak.scopes = $s'
   fi
   # A stage another updater's symlink stands in front of. Merged in like the blocks below, and
   # guarded the same way: a failure leaves the state as assembled.
-  local blocked_json merged
+  local blocked_json
   blocked_json="$(offline_stage_blocked_state 2>/dev/null)" || blocked_json=""
-  if [[ -n "$blocked_json" ]] \
-     && merged="$(jq --argjson b "$blocked_json" '. + {offline_stage_blocked: $b}' <<<"$state" 2>/dev/null)" \
-     && [[ -n "$merged" ]]; then
-    state="$merged"
+  if [[ -n "$blocked_json" ]]; then
+    state_merge --argjson b "$blocked_json" '. + {offline_stage_blocked: $b}'
   fi
   # Who holds the next restart, and whether Discover is set to take it by itself.
   local unattended_now=false
   discover_unattended_active >/dev/null 2>&1 && unattended_now=true
-  if merged="$(jq --arg h "$(restart_holder)" --argjson u "$unattended_now" \
-                 '. + {restart_holder: $h, discover_unattended: $u}' <<<"$state" 2>/dev/null)" \
-     && [[ -n "$merged" ]]; then
-    state="$merged"
-  fi
+  state_merge --arg h "$(restart_holder)" --argjson u "$unattended_now" \
+                 '. + {restart_holder: $h, discover_unattended: $u}'
   # The unused Flatpak runtimes, merged in after assembly because the block is optional and has no
   # say in the check's status. Guarded at every step (set -e, and this runs inside the check lock):
   # a helper, du or jq that fails leaves the state exactly as assembled, never a failed check.
   local reclaim_json
   reclaim_json="$(reclaim_check_block "$fp_enabled" 2>/dev/null)" || reclaim_json=""
-  if [[ -n "$reclaim_json" ]] \
-     && merged="$(jq --slurpfile r <(printf '%s\n' "$reclaim_json") '. + {reclaim: $r[0]}' <<<"$state" 2>/dev/null)" \
-     && [[ -n "$merged" ]]; then
-    state="$merged"
+  if [[ -n "$reclaim_json" ]]; then
+    state_merge --slurpfile r <(printf '%s\n' "$reclaim_json") '. + {reclaim: $r[0]}'
   fi
   # One line, or absent: the error of the latest dnf refresh, while it failed. A dnf check is
   # cache-only, so with no cache it says only "no cache", and this says why there is none.
-  if [[ -f "$REFRESH_DNF_FAILED_FILE" ]] \
-     && merged="$(jq --rawfile e "$REFRESH_DNF_FAILED_FILE" \
-                   '.backends.dnf.refresh_error = ($e | split("\n")[0])' <<<"$state" 2>/dev/null)" \
-     && [[ -n "$merged" ]]; then
-    state="$merged"
+  if [[ -f "$REFRESH_DNF_FAILED_FILE" ]]; then
+    state_merge --rawfile e "$REFRESH_DNF_FAILED_FILE" \
+                   '.backends.dnf.refresh_error = ($e | split("\n")[0])'
   fi
   # "battery", "metered" or absent: this check's metadata fetch was due and did not run.
-  if [[ -n "${REFRESH_SKIPPED:-}" ]] \
-     && merged="$(jq --arg r "$REFRESH_SKIPPED" '. + {refresh_skipped: $r}' <<<"$state" 2>/dev/null)" \
-     && [[ -n "$merged" ]]; then
-    state="$merged"
+  if [[ -n "${REFRESH_SKIPPED:-}" ]]; then
+    state_merge --arg r "$REFRESH_SKIPPED" '. + {refresh_skipped: $r}'
   fi
   # The folder that has the root helper refusing updates, or absent: `kempt status` and the widget
   # say so now, instead of a list of updates that cannot install. One read of the same rules doctor uses.
   local unsafe_folder
-  if [[ "$image_based" == null ]] && unsafe_folder="$(apply_unsafe_dir 2>/dev/null)" \
-     && merged="$(jq --arg d "$unsafe_folder" '. + {unsafe_folder: $d}' <<<"$state" 2>/dev/null)" \
-     && [[ -n "$merged" ]]; then
-    state="$merged"
+  if [[ "$image_based" == null ]] && unsafe_folder="$(apply_unsafe_dir 2>/dev/null)"; then
+    state_merge --arg d "$unsafe_folder" '. + {unsafe_folder: $d}'
   fi
   # true or absent: the widget's one offer to turn off Discover's notifier, while it starts with
   # the session and nobody has answered.
-  if discover_offer_pending \
-     && merged="$(jq '. + {discover_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
-    state="$merged"
+  if discover_offer_pending; then
+    state_merge '. + {discover_offer: true}'
   fi
   # true or absent: the warning about Discover's setting has not been drawn yet.
-  if discover_unattended_warn_pending 2>/dev/null \
-     && merged="$(jq '. + {discover_unattended_warn: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
-    state="$merged"
+  if discover_unattended_warn_pending 2>/dev/null; then
+    state_merge '. + {discover_unattended_warn: true}'
   fi
   # The writers' lock from here to the write, for a check that has a security answer to merge:
   # `kempt security-ack` patches state.json and the seen file under it, so an acknowledgement can
@@ -765,13 +746,11 @@ cmd_check() {
     writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null && wlocked=1
   fi
   local st_block
-  if [[ -n "${STARTUP_SEEN:-}" ]] && st_block="$(startup_block)" \
-     && merged="$(jq --argjson b "$st_block" '. + {startup: $b}' <<<"$state" 2>/dev/null)" \
-     && [[ -n "$merged" ]]; then
-    state="$merged"
+  if [[ -n "${STARTUP_SEEN:-}" ]] && st_block="$(startup_block)"; then
+    state_merge --argjson b "$st_block" '. + {startup: $b}'
   fi
   if [[ -n "$sec_parsed" ]]; then
-    local sec_armed=false sec_busy=false sec_out sec_block sec_write=false
+    local sec_armed=false sec_busy=false sec_out sec_block sec_write=false merged
     [[ -n "$wlocked" ]] && sec_write=true
     jq -e '.armed == true' <<<"${staged_state:-null}" >/dev/null 2>&1 && sec_armed=true
     update_running_elsewhere && sec_busy=true
@@ -1009,6 +988,24 @@ refuse_run_behind_other_updater() {
     preflight_abort "the next restart belongs to another updater, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now with: kempt update --surface=terminal"
   fi
   preflight_abort "the next restart belongs to another updater, so nothing was staged or changed. Restart when you are ready, or update now with: kempt update --surface=terminal"
+}
+
+# The sentence for a step the root helper refused: what the helper said about a folder, else the
+# folder this user can see for themselves, else what the caller knows.
+refusal_words() {  # log what fallback-reason → sentence
+  local why dir
+  if why="$(log_folder_refusal "$1")"; then
+    printf '%s. %s\n' "$2" "$why"
+  elif dir="$(apply_unsafe_dir)"; then
+    printf '%s, because %s. See: kempt doctor\n' "$2" "$(apply_unsafe_words "$dir")"
+  else
+    printf '%s, because %s. See: kempt doctor\n' "$2" "$3"
+  fi
+}
+
+log_nothing_to_stage() {  # held dnf names, or nothing
+  if [[ -n "$1" ]]; then log_event "offline stage found nothing to stage (every pending update is held)"
+  else log_event "offline stage found nothing to stage"; fi
 }
 
 # The root helper refuses dnf's verbs while these folders are unsafe, and asking it first means a
@@ -1401,9 +1398,9 @@ write_stage_marker() {
       --arg boot "$(current_boot_id)" --argjson staged "$staged_json" \
       --arg nsrc "$staged_names_source" --rawfile namesraw "$staged_names_f" \
       --argjson excl "$staged_excluded_json" --argjson ident "$identity" \
-      --argjson mver "$KEMPT_MARKER_VERSION" --arg fb "${startup_base:-}" \
+      --arg fb "${startup_base:-}" \
       '($namesraw | split("\n") | map(select(length > 0))) as $names |
-       {version:$mver, staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
+       {staged_at:$ts, boot_id:$boot, staged:$staged, armed:true,
         staged_names_source:$nsrc, staged_excluded:$excl}
        + $ident
        + (if $fb == "" then {} else {failed_before: ($fb | fromjson)} end)
@@ -1634,14 +1631,14 @@ cmd_update() {
 
   # snapshots (before). Without one we can never say what changed, so a failure stops the run
   # BEFORE anything is touched (see preflight_abort).
-  dnf_snapshot > "$SNAP_DIR/dnf-before.tsv" \
+  dnf_installed_lookup > "$SNAP_DIR/dnf-before.tsv" \
     || preflight_abort "cannot read the installed package set, so nothing was changed"
   # A per-user installation that cannot be read drops only itself: the run goes on without it and
   # reports it failed (apply_flatpak_updates). Only the system set can stop the run.
   local fp_user_unreadable=false
   if is_true "$include_fp" && ! flatpak_snapshot > "$SNAP_DIR/fp-before.tsv"; then
     if flatpak_user_present && flatpak_snapshot system > "$SNAP_DIR/fp-before.tsv"; then
-      KEMPT_FLATPAK_USER_SKIP=1; fp_user_unreadable=true
+      FLATPAK_USER_SKIP=1; fp_user_unreadable=true
     else
       preflight_abort "cannot read the installed flatpak set, so nothing was changed"
     fi
@@ -1682,7 +1679,6 @@ cmd_update() {
   # stage_discarded: ...and a transaction stored before it was removed, because it held what the
   # empty stage just excluded.
   local stage_discarded=false
-  local refused_why=""
   local reason_override="" notify_tail="" staged_fresh="" staged_check_names="" staged_check_ok=false
   # run_busy_reason: the busy sentence apply_with_retry claimed, if any. run_failed_otherwise: a
   #   failure that was not a lock. Together they decide exit 7 at the end.
@@ -1738,7 +1734,7 @@ cmd_update() {
     # file it could not read, or a dnf5 folder other users can change, and changed nothing. Every
     # path that sees it skips the unwind. So does exit 5 (KEMPT_APPLY_BUSY): the same step from an
     # earlier run is still going, and this one started nothing.
-    local stage_rc=0 arm_rc=0 clean_rc=0 unsafe_dir=""
+    local stage_rc=0 arm_rc=0 clean_rc=0
     # From here until write_stage_marker, dnf5's record is this run's and the marker is still the
     # previous stage's. A check comparing the two in that window must not call this rebuild
     # somebody else's (stage_lock). Released right after the marker is written.
@@ -1752,13 +1748,7 @@ cmd_update() {
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
-      if refused_why="$(log_folder_refusal "$log")"; then
-        reason_override="nothing was staged. $refused_why"
-      elif unsafe_dir="$(apply_unsafe_dir)"; then
-        reason_override="nothing was staged, because $(apply_unsafe_words "$unsafe_dir"). See: kempt doctor"
-      else
-        reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
-      fi
+      reason_override="$(refusal_words "$log" "nothing was staged" "$(apply_refusal_reason) and staging would replace it")"
       log_event "offline stage refused by the root helper"
     elif [[ $stage_rc -eq $KEMPT_APPLY_BUSY ]]; then
       # The stage Kempt started earlier is still running, so this one changed nothing. No unwind,
@@ -1777,11 +1767,7 @@ cmd_update() {
       # stale by the time the stage runs, and dnf5's own answer cannot.
       if [[ "$(offline_system_status)" == absent ]]; then
         staged_nothing=true; dnf_status="ok"
-        if [[ -n "$held_dnf" ]]; then
-          log_event "offline stage found nothing to stage (every pending update is held)"
-        else
-          log_event "offline stage found nothing to stage"
-        fi
+        log_nothing_to_stage "$held_dnf"
       elif [[ -n "$pre_stage_fp" && "$(offline_stored_fingerprint)" == "$pre_stage_fp" ]] \
            && grep -qE '^[[:space:]]*Nothing to do\.?[[:space:]]*$' < <(tail -c +$(( stage_log_sz + 1 )) "$log" 2>/dev/null); then
         # The same empty stage, over a transaction that was ALREADY stored: dnf5 says "Nothing to
@@ -1803,20 +1789,12 @@ cmd_update() {
         if [[ "$nothing_foreign" == true ]]; then
           staged_nothing=true; dnf_status="ok"
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
-          if [[ -n "$held_dnf" ]]; then
-            log_event "offline stage found nothing to stage (every pending update is held)"
-          else
-            log_event "offline stage found nothing to stage"
-          fi
+          log_nothing_to_stage "$held_dnf"
           log_event "offline stage left in place (another updater has prepared the next restart)"
         elif [[ $clean_rc -eq 0 ]]; then
           staged_nothing=true; stage_discarded=true; dnf_status="ok"
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
-          if [[ -n "$held_dnf" ]]; then
-            log_event "offline stage found nothing to stage (every pending update is held)"
-          else
-            log_event "offline stage found nothing to stage"
-          fi
+          log_nothing_to_stage "$held_dnf"
           log_event "offline stage discarded (the stored one would have installed what is now held)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
@@ -1834,13 +1812,7 @@ cmd_update() {
         # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
-        if refused_why="$(log_folder_refusal "$log")"; then
-          reason_override="the updates were staged, but not set to install on the next restart. $refused_why"
-        elif unsafe_dir="$(apply_unsafe_dir)"; then
-          reason_override="the updates were staged, but not set to install on the next restart, because $(apply_unsafe_words "$unsafe_dir"). See: kempt doctor"
-        else
-          reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
-        fi
+        reason_override="$(refusal_words "$log" "the updates were staged, but not set to install on the next restart" "$(apply_refusal_reason)")"
       elif [[ $arm_rc -eq $KEMPT_APPLY_BUSY ]]; then
         # The arm Kempt started earlier is still running, so this one started nothing. No unwind:
         # the clean would land beside that run and could take away what it is setting up.
@@ -1952,7 +1924,7 @@ cmd_update() {
     live_before="$(dnf_history_max_id)" || live_before=""
     local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
-    local live_rc=0 unsafe_dir="" live_status live_was_status="$status" live_was_failed="$run_failed_otherwise"
+    local live_rc=0 live_status live_was_status="$status" live_was_failed="$run_failed_otherwise"
     [[ "$dnf_apply_skipped" == true ]] \
       || apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || live_rc=$?
     if [[ $live_rc -eq 0 ]]; then
@@ -1961,12 +1933,7 @@ cmd_update() {
       dnf_status="failed"; status="failed"
       # The helper refuses a live upgrade over dnf5's folders and the mount namespace. Nothing ran.
       if [[ $live_rc -eq $KEMPT_APPLY_REFUSED ]]; then
-        if refused_why="$(log_folder_refusal "$log")"; then
-          reason_override="nothing was installed. $refused_why"
-        else
-          unsafe_dir="$(apply_unsafe_dir)" || unsafe_dir="dnf's folders"
-          reason_override="nothing was installed, because $(apply_unsafe_words "$unsafe_dir"). See: kempt doctor"
-        fi
+        reason_override="$(refusal_words "$log" "nothing was installed" "$(apply_unsafe_words "dnf's folders")")"
         log_event "live update refused by the root helper"
       fi
     fi
@@ -2023,7 +1990,7 @@ cmd_update() {
   # before the command runs) - harmless as a report input, fatal as a harvest baseline, where
   # every package missing from the truncation comes back as newly installed.
   local dnf_report="$empty_report" fp_report="$empty_report" snapshots_ok=true
-  if dnf_snapshot > "$SNAP_DIR/dnf-after.tsv"; then
+  if dnf_installed_lookup > "$SNAP_DIR/dnf-after.tsv"; then
     dnf_report="$(tsv_diff_updates "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv")" \
       || { dnf_report="$empty_report"; snapshots_ok=false; log_warn "$log" "warning: dnf report diff failed, so the summary is incomplete. See the snapshots in $SNAP_DIR"; }
   else
@@ -2032,25 +1999,10 @@ cmd_update() {
   fi
   # Exact attribution, when dnf5's history named the transaction: the report keeps only what that
   # transaction touched, so a package something else moved between the two snapshots is not reported
-  # as part of this run. Same filter, same reason, as the harvest's (harvest_offline). A filter that
-  # fails keeps the whole diff - the identification still stands, only the precision is lost.
-  # The mktemp is part of the condition, like every other file this far past the apply: a temp file
-  # that cannot be created costs the precision, never the run.
-  # An empty list of names is NOT a filter that keeps nothing. dnf5 naming no packages for a
-  # transaction is a filter that could not be built, and filtering a diff down to it would report a
-  # run that installed six hundred megabytes as having changed nothing at all - so it is the same
-  # degradation as a jq that fails: keep the whole diff, keep the id.
-  local keep_f live_filtered
-  if [[ -n "$live_txid" && -n "$live_keep" ]] && keep_f="$(mktemp 2>/dev/null)"; then
-    # `. as $x` before index(), for the trap mark_held carries the note about.
-    if printf '%s\n' "$live_keep" > "$keep_f" 2>/dev/null \
-       && live_filtered="$(jq -c --rawfile k "$keep_f" '
-                          ($k | split("\n") | map(select(length > 0))) as $keep
-                          | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
-                          <<<"$dnf_report" 2>/dev/null)" && [[ -n "$live_filtered" ]]; then
-      dnf_report="$live_filtered"
-    fi
-    rm -f "$keep_f"
+  # as part of this run. An empty list of names is a filter that could not be built, not a run that
+  # changed nothing.
+  if [[ -n "$live_txid" && -n "$live_keep" ]]; then
+    dnf_report="$(report_keep_names "$dnf_report" "$live_keep")"
   fi
   if is_true "$include_fp"; then
     # A per-user set unreadable only now: the report covers the system apps, and is compared with
@@ -2318,7 +2270,7 @@ cmd_update() {
   CHECK_WROTE_STATE=""
   # The skip this run set for itself covers its apply and its after-snapshot only. The check asks the
   # per-user installation again, so a listing that still fails is recorded there as failed.
-  [[ "$fp_user_unreadable" == true ]] && unset KEMPT_FLATPAK_USER_SKIP
+  [[ "$fp_user_unreadable" == true ]] && unset FLATPAK_USER_SKIP
   [[ -t 1 ]] && printf '\nChecking for anything left to update…\n'
   cmd_check >/dev/null 2>&1 || true
   # Tells the terminal wrapper (cmd_run) that this run has had its closing check, so it does not
@@ -2371,11 +2323,6 @@ cmd_run() {
     # The popup asked about session-critical updates and the person chose Install Now. Passed on
     # to a detached update only: a terminal run asks its own question whatever the popup heard.
     --risky-ok) risky_arg=" --risky-ok" ;;
-    # The old spelling, accepted for one release and advertised nowhere - it is deliberately absent
-    # from the usage text above and from the man page. The flag prints the LAUNCHER and never a
-    # transaction, so "dry run" promised a preview of the update itself, which is the one thing
-    # somebody would reach for it to get.
-    --dry-run) dry=1 ;;
     # One run on a named surface instead of the configured one. The widget stages through this
     # (`run --surface=offline`) so a stage gets the refusals below - the held lock above all -
     # where the widget can read them, rather than inside a detached `kempt update` whose exit
@@ -2411,7 +2358,7 @@ cmd_run() {
   fi
 
   if [[ "$surface" == "terminal" ]]; then
-    # Checked before the dry run too: "what would happen" must include "nothing, you have no
+    # Checked before --print-command too: "what would happen" must include "nothing, you have no
     # terminal emulator".
     command -v "$KEMPT_TERMINAL" >/dev/null \
       || { echo "Kempt could not find $KEMPT_TERMINAL. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2; exit 4; }
@@ -2944,12 +2891,12 @@ stage_result_unknown() {  # marker-json
 # A run report narrowed to the named packages. Kept whole when there is nothing to narrow by or the
 # filter fails: the identification still stands, only the precision is lost. An empty list is a
 # source not saying what it touched, never a restart that touched nothing. `. as $x` before index(),
-# for the trap mark_held carries the note about. Same trade as the live twin in cmd_update.
+# for the trap mark_held carries the note about.
 report_keep_names() {  # report-json names → report-json
   local keep_f filtered
   if [[ -z "$2" ]]; then printf '%s\n' "$1"; return 0; fi
-  keep_f="$(mktemp)"
-  if printf '%s\n' "$2" > "$keep_f" \
+  keep_f="$(mktemp 2>/dev/null)" || { printf '%s\n' "$1"; return 0; }
+  if printf '%s\n' "$2" > "$keep_f" 2>/dev/null \
      && filtered="$(jq -c --rawfile k "$keep_f" '
                    ($k | split("\n") | map(select(length > 0))) as $keep
                    | with_entries(.value |= map(select(.name as $x | $keep | index($x) != null)))' \
@@ -3019,7 +2966,7 @@ harvest_offline() {
     return 0; }
   now_snap="$(mktemp)"
   # never take the check down with it - a failed harvest must still leave a working check
-  dnf_snapshot > "$now_snap" \
+  dnf_installed_lookup > "$now_snap" \
     || { rm -f "$now_snap"; echo "warning: the restart's result was not recorded (snapshot failed)" >&2
          log_event "harvest skipped snapshot failed"; return 0; }
   # The package set did not move across a reboot. With the transaction still there that is the
@@ -3390,30 +3337,7 @@ cmd_unhold() {
 # Refuses a stray argument like every other command: `kempt holds --json` silently printing the
 # plain list is how a script gets written against an option that does not exist.
 cmd_holds() {
-  local exclude_args=false
-  case "${1:-}" in
-    "") ;;
-    # The holds as dnf5 arguments, so somebody running a transaction OUTSIDE Kempt can honour the
-    # same list without retyping it - which is the gap the line below in usage.md describes: a
-    # manual `sudo dnf5 upgrade` ignores this file entirely.
-    --exclude-args) exclude_args=true; shift ;;
-    *) echo "unknown option: $1" >&2; exit 2 ;;
-  esac
   [[ $# -eq 0 ]] || { echo "unknown option: $1" >&2; exit 2; }
-  if [[ "$exclude_args" == true ]]; then
-    # dnf ONLY, and not as a convenience: `--exclude=` is a dnf5 argument, so a flatpak app id in
-    # this list would reach dnf5 as the name of a package that does not exist.
-    # ONE line, because the whole point is pasting it after a command. Empty when nothing is held,
-    # which keeps `$(kempt holds --exclude-args)` safe to wrap around: it expands to no arguments
-    # rather than to an error.
-    local h out=""
-    while IFS= read -r h; do
-      [[ -n "$h" ]] || continue
-      out+="${out:+ }--exclude=$h"
-    done < <(holds_for dnf)
-    printf '%s\n' "$out"
-    return 0
-  fi
   holds_all
 }
 
@@ -4039,7 +3963,7 @@ cmd_security_ack() {
   # order is check.lock, then the writers' lock, then state.lock, as everywhere. A lock file that
   # cannot be opened, or a lock not had in 10 seconds, is skipped like write_state skips it.
   local state ids patched lfd rc=0
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   state="$(jq -c -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null)" || state=""
   if [[ -z "$state" || "$(jq -r '.security.digest? // empty' <<<"$state" 2>/dev/null)" != "$expect" ]]; then
     rc=6
@@ -4053,7 +3977,7 @@ cmd_security_ack() {
     fi
     _KEMPT_STATE_LOCK_HELD=""
   fi
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   writer_unlock
   case $rc in
     6) echo "The security updates changed since they were shown. Nothing was recorded." >&2; exit 6 ;;
@@ -5453,7 +5377,7 @@ EOF
 EOF
     ;;
     holds) cat <<'EOF'
-  holds [--exclude-args]  list holds; --exclude-args prints the dnf ones as dnf5 --exclude=
+  holds                 list holds
                         arguments, on one line, to reuse by hand
 EOF
     ;;

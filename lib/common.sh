@@ -1012,14 +1012,14 @@ discover_notifier_seen() {
   # The next open of the popup comes before the next check, so the state says so now.
   [[ -f "$STATE_FILE" ]] || return 0
   local out lfd
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.discover_unattended_warn)' "$STATE_FILE" 2>/dev/null)" || out=""
   if [[ -n "$out" ]]; then
     _KEMPT_STATE_LOCK_HELD=1
     printf '%s\n' "$out" | write_state 2>/dev/null || true
     _KEMPT_STATE_LOCK_HELD=""
   fi
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   return 0
 }
 
@@ -1149,15 +1149,18 @@ reclaim_effective_mode() {  # → ask | automatic | off
   printf '%s\n' "$mode"
 }
 
-# What a set of refs is called when a person agrees to remove it: 16 hex characters of the sha256
-# of its sorted `ref commit` lines. The commit is part of it, so a runtime that updated between the
-# check and the click is a different set. Empty input is the empty digest.
-reclaim_digest() {  # stdin: ref<TAB>commit lines → digest, or nothing for an empty set
+# What a set is called when a person agrees to something about it: 16 hex characters of the sha256 of
+# its sorted lines. Nothing for an empty set.
+set_digest() {  # stdin: one member per line → digest, or nothing
   local lines
-  lines="$(awk -F'\t' 'NF >= 2 { print $1 " " $2 }' | sort -u)"
+  lines="$(grep -v '^$' | sort -u)" || true
   [[ -n "$lines" ]] || return 0
   printf '%s\n' "$lines" | sha256sum | cut -c1-16
 }
+
+# A set of runtimes, by ref and commit: a runtime that updated between the check and the click is a
+# different set.
+reclaim_digest() { awk -F'\t' 'NF >= 2 { print $1 " " $2 }' | set_digest; }  # stdin: ref<TAB>commit lines
 
 # Bytes as a person reads them, SI decimal like flatpak and Discover: "850 MB", "1.5 GB". Used for
 # estimates only, so one decimal is all the precision there is.
@@ -1238,6 +1241,13 @@ kempt_version() {  # → the version string, or "unknown"
   v="${v//[[:space:]]/}"
   printf '%s\n' "${v:-unknown}"
 }
+
+# The lock around a patch of state.json. The caller has `local lfd`. A lock file that cannot be opened,
+# or a lock not had in 10 seconds, is skipped: the write is still atomic.
+state_lock_open() {
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+}
+state_lock_close() { if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi; }
 
 # --- the user-file writers' lock ---------------------------------------------------------------
 # INVARIANT: config_set, hold_add and hold_remove hold this across the WHOLE read-modify-write, and
@@ -1675,14 +1685,6 @@ security_seen_read() {
   printf '%s\n' "$s"
 }
 
-# What a set of advisories is called when the widget acknowledges it: 16 hex characters of the
-# sha256 of the sorted ids, as reclaim_digest names a set of runtimes. Nothing for an empty set.
-security_digest() {  # stdin: one id per line → digest, or nothing
-  local lines
-  lines="$(grep -v '^$' | sort -u)" || true
-  [[ -n "$lines" ]] || return 0
-  printf '%s\n' "$lines" | sha256sum | cut -c1-16
-}
 
 # The block a check publishes as state.json's `security`, and the seen file kept in step with it.
 # The caller holds the writers' lock. $1 is dnf_security_parse's answer; $2 and $3 are true when a
@@ -1709,7 +1711,7 @@ security_update() {  # parsed armed busy [write]
                attention: (([$p.advisories[] | select(IN($a[]) | not)] | length) > 0
                            and ($armed | not) and ($busy | not))}}' <<<"$1" 2>/dev/null)" || return 1
   [[ "$out" == \{* ]] || return 1
-  digest="$(jq -r '.block.advisories[]' <<<"$out" | security_digest)"
+  digest="$(jq -r '.block.advisories[]' <<<"$out" | set_digest)"
   block="$(jq -c --arg d "$digest" '.block + {digest: $d}' <<<"$out")" || return 1
   fresh="$(jq -r '.fresh | join(" ")' <<<"$out")" || return 1
   if [[ "${4:-true}" == true && "$(jq -c '.seen' <<<"$out")" != "$seen" ]] && security_seen_writable; then
@@ -1934,7 +1936,7 @@ startup_runs() {
 }
 
 startup_digest() {  # stdin: startup.json → the recovered set's digest, or nothing
-  jq -r '(.recovered // [])[] | .scope + ":" + .unit' 2>/dev/null | security_digest
+  jq -r '(.recovered // [])[] | .scope + ":" + .unit' 2>/dev/null | set_digest
 }
 
 # The check's step, right after harvest_offline. Every check asks systemd what is failing now, to
@@ -2148,7 +2150,7 @@ startup_block() {
 # no block (setting off, systemd not answering) is left alone.
 startup_patch_state() {
   local state block patched lfd rc=0
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   state="$(jq -c -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null)" || state=""
   if [[ -n "$state" ]] && jq -e 'has("startup")' <<<"$state" >/dev/null 2>&1 \
      && block="$(startup_block)" && patched="$(jq -c --argjson b "$block" '.startup = $b' <<<"$state")"; then
@@ -2156,7 +2158,7 @@ startup_patch_state() {
     printf '%s\n' "$patched" | write_state || rc=1
     _KEMPT_STATE_LOCK_HELD=""
   fi
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   return "$rc"
 }
 
@@ -2904,34 +2906,25 @@ write_state() {
     return
   fi
   local lfd rc=0
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   printf '%s\n' "$doc" | atomic_write "$STATE_FILE" || rc=$?
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   return "$rc"
 }
 
-# When the metadata behind a check was last fetched, from the stamp the fetch leaves. Empty when
-# nothing has ever been fetched on this box - a different thing from "old", and every surface that
-# renders it says the two differently.
+# When dnf's metadata was last fetched, from the stamp the fetch leaves. Empty when none is recorded,
+# a different thing from "old". Never the shared stamp: that moves when a Flatpak fetch alone lands.
 metadata_refreshed_iso() {  # → ISO 8601 with offset, or nothing
-  local f; f="$(metadata_stamp_file)"
-  [[ -f "$f" ]] || return 0
-  date -Is -r "$f" 2>/dev/null || true
-}
-
-# The dnf stamp, and only that one. The shared stamp moves when a Flatpak fetch alone lands, so on
-# a box whose dnf fetch never worked it would date dnf's metadata by Flatpak's. No dnf stamp means
-# no date, and metadata_refreshed is then left out of the state.
-metadata_stamp_file() {
-  printf '%s\n' "$LAST_REFRESH_DNF_FILE"
+  [[ -f "$LAST_REFRESH_DNF_FILE" ]] || return 0
+  date -Is -r "$LAST_REFRESH_DNF_FILE" 2>/dev/null || true
 }
 
 # ...and its age in whole days, for the surfaces that put a number in a sentence. Nothing at all
 # when there is no stamp, so a caller cannot mistake "never fetched" for "fetched today".
 metadata_age_days() {  # → whole days, or nothing
-  local at now f; f="$(metadata_stamp_file)"
-  [[ -f "$f" ]] || return 0
-  at="$(stat -c %Y "$f" 2>/dev/null)" || return 0
+  local at now
+  [[ -f "$LAST_REFRESH_DNF_FILE" ]] || return 0
+  at="$(stat -c %Y "$LAST_REFRESH_DNF_FILE" 2>/dev/null)" || return 0
   now="$(date +%s)"
   # A stamp in the future is today, not a negative age - the same reading the interval gate gives
   # its own stamp, and "refreshed -1 days ago" is worse than a rounding error.
@@ -3988,17 +3981,6 @@ state_checked_since() {  # requested-epoch → state on stdout, or 1
   printf '%s\n' "$doc"
 }
 
-# The shape of the marker Kempt writes today: ONE integer, in place of a reader working the shape
-# out from which of several optional fields happen to be present.
-# Stamped where a marker is BORN (write_stage_marker) and nowhere else. The additive updates -
-# `armed`, `replaced`, `set_moved` - carry forward whatever was already on the file, so a marker
-# from an older build is never stamped with a version whose fields it does not actually have.
-# EVERY READER MUST GO ON WORKING WITHOUT IT. A marker written before this field existed carries no
-# version at all, and the per-field fallbacks are still what read those; this records the shape, it
-# does not replace the checks.
-# shellcheck disable=SC2034  # read by write_stage_marker in bin/kempt, which sources this file
-KEMPT_MARKER_VERSION=1
-
 KEMPT_MARKER_MAX_BYTES=1048576
 # dnf5's stored transaction has its own cap, sized for a file that grows with the transaction -
 # see offline_txjson_names.
@@ -4200,9 +4182,9 @@ publish_staged_state() {
   # is published as what it is, not as nothing.
   local blocked lfd
   blocked="$(offline_stage_blocked_state)" || blocked=""
-  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  state_lock_open
   publish_staged_state_write "$staged" "$blocked" 2>/dev/null || true
-  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  state_lock_close
   return 0
 }
 

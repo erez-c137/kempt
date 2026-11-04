@@ -247,11 +247,7 @@ printf 'LoadState=%s\nActiveState=%s\nResult=%s\nExecMainCode=%s\nExecMainStatus
 EOF
   chmod +x "$KEMPT_SYSTEMD_SYSTEMCTL"
   unset KEMPT_SYSTEMD_POLL KEMPT_SYSTEMD_GRACE KEMPT_SYSTEMD_LONG_RUN
-  # KEMPT_DNF_SYSTEM_CACHE joins the plain unsets rather than the poisoned ones above: its default
-  # is only ever READ from, never run, and a test that cares drives both branches of its guard by
-  # setting it itself. Unset here so a value exported in a developer's shell cannot decide which
-  # branch the rest of the suite takes.
-  unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD KEMPT_DNF_SYSTEM_CACHE \
+  unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD \
         KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_LIST_CMD \
         KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_TERMINAL KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
         KEMPT_INSTALL_ECHO KEMPT_APPLY_ECHO KEMPT_REFRESH_ECHO \

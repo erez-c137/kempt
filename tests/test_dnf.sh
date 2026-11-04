@@ -326,7 +326,7 @@ assert_eq "$([[ "$default_sizes_cmd" == *"timeout "* ]] && echo yes || echo no)"
 # total, and the popup showed no figure at all beside five pending updates.
 assert_eq "$([[ "$default_sizes_cmd" == *"--setopt=cachedir="* ]] && echo yes || echo no)" "yes" \
   "the default size query is pointed at a cache, not left on whichever one dnf5 picks for the user"
-assert_eq "$([[ "$default_sizes_cmd" == *"KEMPT_DNF_SYSTEM_CACHE"* ]] && echo yes || echo no)" "yes" \
+assert_eq "$([[ "$default_sizes_cmd" == *"KEMPT_DNF_CACHE_DIR"* ]] && echo yes || echo no)" "yes" \
   "...and the cache it is pointed at is the documented seam, so this is testable at all"
 
 # The static check above cannot see the readability guard, which is the half that has to degrade
@@ -346,7 +346,7 @@ export KEMPT_DNF_CMD="$TESTTMP/sizes-argv"
 # would make every CALL below abort on an unbound variable before reaching the stub.
 export KEMPT_DNF_SIZES_CMD=""
 
-KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/syscache"; mkdir -p "$KEMPT_DNF_SYSTEM_CACHE"
+KEMPT_DNF_CACHE_DIR="$TESTTMP/syscache"; mkdir -p "$KEMPT_DNF_CACHE_DIR"
 dnf_sizes >/dev/null
 # grep -cx, not a substring match: the path must arrive as ONE argument, so a cache directory
 # containing a space cannot split into two and silently point dnf5 somewhere else.
@@ -355,7 +355,7 @@ assert_eq "$(grep -cx -- "--setopt=cachedir=$TESTTMP/syscache" "$TESTTMP/sizes-a
 assert_eq "$(grep -cx -- '-C' "$TESTTMP/sizes-argv-out")" "1" \
   "...and pointing it at that cache does not cost the query its offline guarantee"
 
-KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/no-such-cache-dir"
+KEMPT_DNF_CACHE_DIR="$TESTTMP/no-such-cache-dir"
 dnf_sizes >/dev/null
 assert_eq "$(grep -c -- '--setopt=cachedir=' "$TESTTMP/sizes-argv-out")" "0" \
   "an unreadable system cache falls back to the plain query, never points dnf5 at nothing"

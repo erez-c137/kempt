@@ -251,7 +251,7 @@ section "S8 detour boot: announced once, marker demoted, never cleared"
 is "armed" "$(toml_status)" "ready"
 sed -i 's/^status = "ready"/status = "download-complete"/' "$TOML"
 pre=$(jq -r '.pre_snapshot' < "$STATE/offline_staged.json")
-( cd "$ROOT" && source lib/common.sh && source backends/dnf.sh && dnf_snapshot > /tmp/gate-now.tsv )
+( cd "$ROOT" && source lib/common.sh && source backends/dnf.sh && dnf_installed_lookup > /tmp/gate-now.tsv )
 if [[ "$(sha256sum < "$pre")" == "$(sha256sum < /tmp/gate-now.tsv)" ]]; then ok "diagnosis: pre-snapshot equals a fresh snapshot"; else
   bad "diagnosis: pre-snapshot differs from a fresh snapshot of an unchanged box" "$(wc -l < "$pre") vs $(wc -l < /tmp/gate-now.tsv) rows"; fi
 command -v cmp >/dev/null && ok "the image has cmp" || echo "note: the image has no cmp (diffutils absent) - the harvest must not need it"
@@ -360,7 +360,7 @@ before_hist=$(ls -1 "$STATE/history" 2>/dev/null | wc -l)
 : > /tmp/gate-notifications
 dnf5 -y -q install patch >/dev/null 2>&1
 ln -sfn "$link_target" "$LINK"
-( cd "$ROOT" && source lib/common.sh && source backends/dnf.sh && dnf_snapshot > /tmp/gate-s12.tsv )
+( cd "$ROOT" && source lib/common.sh && source backends/dnf.sh && dnf_installed_lookup > /tmp/gate-s12.tsv )
 if [[ "$(sha256sum < "$s12_pre")" != "$(sha256sum < /tmp/gate-s12.tsv)" ]]; then
   ok "something else really moved the installed set"
 else

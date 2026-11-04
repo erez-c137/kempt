@@ -910,21 +910,6 @@ cls="$(
 )" || true
 assert_eq "$cls" "runtime/org.gtk.Gtk3theme.Breeze/x86_64/3.22 " \
   "an extension is what the helper's metadata says, even a theme whose id does not start with its runtime's"
-cls="$(
-  trap - EXIT
-  eval "$(sed -n '/^reclaim_extensions_in() {/,/^}/p' "$KEMPT")"
-  reclaim_extensions_in "$(jq -cn '{installation: "/x", used: [
-      {ref: "app/org.mozilla.firefox/x86_64/stable"}, {ref: "runtime/org.freedesktop.Platform/x86_64/25.08"}],
-    unused: [{ref: "runtime/org.freedesktop.Platform.Locale/x86_64/24.08"},
-             {ref: "runtime/org.freedesktop.Platform.GL.default/x86_64/24.08"},
-             {ref: "runtime/org.mozilla.firefox.Locale/x86_64/stable"},
-             {ref: "runtime/org.kde.Platform/x86_64/5.15-23.08"},
-             {ref: "runtime/org.kde.Platform.Locale/x86_64/5.15-23.08"},
-             {ref: "runtime/org.freedesktop.PlatformX/x86_64/1"}]}')" 2>/dev/null | tr '\n' ' '
-)" || true
-assert_eq "$cls" "runtime/org.freedesktop.Platform.Locale/x86_64/24.08 runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.mozilla.firefox.Locale/x86_64/stable runtime/org.kde.Platform.Locale/x86_64/5.15-23.08 " \
-  "...and without the field, a ref whose id extends another installed id: a runtime's Locale and GL, an app's Locale, an unused runtime's Locale"
-assert_not_contains "$cls" "org.freedesktop.PlatformX" "...by a dot, not by any longer name"
 
 restore_offer
 rc=0; out="$(byname -y --expect="$DIGEST5")" || rc=$?

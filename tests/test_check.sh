@@ -923,7 +923,7 @@ pre="$KEMPT_STATE_DIR/snapshots/offline-pre-t4.tsv"
 # The baseline has to be the snapshot the check itself takes, byte for byte: the harvest decides
 # "still pending" with cmp, and a hand-built file would differ for reasons that have nothing to
 # do with what is being tested (the fixture goes through sort_name_version and collapse_versions).
-snapshot_now() { bash -c 'source "$1/lib/common.sh"; source "$1/backends/dnf.sh"; dnf_snapshot' _ "$REPO_ROOT"; }
+snapshot_now() { bash -c 'source "$1/lib/common.sh"; source "$1/backends/dnf.sh"; dnf_installed_lookup' _ "$REPO_ROOT"; }
 stage_marker() {  # boot_id staged-count-or-null → a marker as cmd_update would have written it
   mkdir -p "$KEMPT_STATE_DIR/snapshots"
   snapshot_now > "$pre"
@@ -1965,7 +1965,7 @@ STUB
 chmod +x "$TESTTMP/notify-recorder"
 export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/advisory-stub" KEMPT_NOTIFY="$TESTTMP/notify-recorder"
 export DBUS_SESSION_BUS_ADDRESS="unix:path=$TESTTMP/no-bus-needed"
-export KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/no-system-cache"
+export KEMPT_DNF_CACHE_DIR="$TESTTMP/no-system-cache"
 echo 0 > "$TESTTMP/advisory-rc"
 # Duplicates, a second arch of one package, an epoch, an arch nobody has heard of, a package that is
 # not pending, and an id that is not an advisory id (markup, which must never reach a notification).
@@ -2004,7 +2004,7 @@ assert_eq "$(sec_seen notified)" '["FEDORA-2026-c1","FEDORA-2026-g1","FEDORA-202
 assert_eq "$(notes)" "1" "the same set again sends nothing"
 
 mkdir -p "$TESTTMP/readable-cache"
-KEMPT_DNF_SYSTEM_CACHE="$TESTTMP/readable-cache" "$KEMPT" check >/dev/null 2>&1
+KEMPT_DNF_CACHE_DIR="$TESTTMP/readable-cache" "$KEMPT" check >/dev/null 2>&1
 assert_contains "$(tail -1 "$TESTTMP/advisory-calls")" "--setopt=cachedir=$TESTTMP/readable-cache" "a readable system cache is the one asked"
 
 # A hold takes curl out of the block, and letting go brings it back: the same advisory, not news.
@@ -2190,7 +2190,7 @@ KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" check >/dev/null 2>&1
 assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "an image-based system is never asked"
 "$KEMPT" config set notify_security false
 export KEMPT_NOTIFY="true" KEMPT_DNF_ADVISORY_CMD="$TESTTMP/UNSTUBBED-dnf-advisory"
-unset DBUS_SESSION_BUS_ADDRESS KEMPT_DNF_SYSTEM_CACHE
+unset DBUS_SESSION_BUS_ADDRESS KEMPT_DNF_CACHE_DIR
 
 # --- per-user Flatpak apps -------------------------------------------------------------------------
 # Apps installed with --user are outside every --system listing, so a box with only those said

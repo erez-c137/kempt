@@ -265,7 +265,6 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   lost="$(grep -vxF -f <(printf '%s\n' "$new_config") <<<"$old_config" || true)"
   is "...and so is every other line of the config file" "$lost" ""
   is "the hold is kept" "$(su - alice -c 'kempt holds')" "dnf:$hold_pkg"
-  is "...and still reaches dnf as an exclude" "$(su - alice -c 'kempt holds --exclude-args')" "--exclude=$hold_pkg"
   if [[ -n "$old_status" ]]; then
     su - alice -c 'kempt status --json' 2>/dev/null | jq -e 'type == "object"' >/dev/null \
       && ok "this build reads the state the released version wrote" \

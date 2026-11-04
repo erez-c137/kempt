@@ -347,7 +347,7 @@ detached: kempt update (surface=widget)
 
 | Option | Effect |
 | --- | --- |
-| `--print-command` | Prints the launch command and starts nothing. `--dry-run` is an older name for it. |
+| `--print-command` | Prints the launch command and starts nothing. |
 | `--surface=` | Runs this one update somewhere else, whatever the setting says. |
 | `--risky-ok` | Passed on to an update that runs outside a terminal. A terminal run still asks. |
 
@@ -848,7 +848,7 @@ widget copy in your home directory shadows the packaged one.
 ```
 kempt hold   dnf:<package> | flatpak:<app.id>
 kempt unhold dnf:<package> | flatpak:<app.id>
-kempt holds [--exclude-args]
+kempt holds
 ```
 
 A hold means **skip it, but keep telling me about it**. Held items stay in the state with
@@ -876,20 +876,8 @@ org.kde.Platform is a Flatpak runtime, and runtimes cannot be held: apps share t
 
 A runtime hold already in your holds file is ignored. Remove it with `kempt unhold flatpak:<id>`.
 
-**Holds are Kempt's own list**, which a `sudo dnf5 upgrade` of your own ignores. `--exclude-args`
-prints the dnf holds as one line of dnf5 arguments (an empty line with none):
-
-```bash
-kempt holds --exclude-args
-```
-
-```
---exclude=kernel-core --exclude=vim-common
-```
-
-```bash
-sudo dnf5 upgrade $(kempt holds --exclude-args)
-```
+**Holds are Kempt's own list**, which a `sudo dnf5 upgrade` of your own ignores. Add
+`--exclude=<package>` to that command for each one.
 
 | Exit | When |
 | --- | --- |

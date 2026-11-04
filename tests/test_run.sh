@@ -42,23 +42,16 @@ assert_eq "$("$KEMPT" run --print-command --risky-ok)" "terminal: $KEMPT_TERMINA
 assert_exit 2 "run: mistyped dry-run flag rejected" "$KEMPT" run --dryrun
 assert_exit 2 "run: extra arguments rejected" "$KEMPT" run --print-command extra
 
-# --- --dry-run: the old spelling, accepted for one release and advertised nowhere ----------------
-# The flag printed the LAUNCHER, never a transaction, so "dry run" promised a preview of an update
-# that was never coming - the one thing a person would reach for it to get. It is --print-command
-# now, which says what it actually does.
-# The old spelling still works, because scripts and muscle memory have it, and it is deliberately
-# absent from the usage text and the man page: accepted, not offered. Both halves are asserted,
-# because an alias nobody removes and nobody documents is just a second name to keep working.
+# --- --print-command, and only that spelling --------------------------------------------------
 "$KEMPT" config set auto_accept true
 "$KEMPT" config set surface terminal
-assert_eq "$("$KEMPT" run --dry-run)" "terminal: $KEMPT_TERMINAL -e kempt update" \
-  "--dry-run still does what it always did"
-assert_eq "$("$KEMPT" run --dry-run)" "$("$KEMPT" run --print-command)" \
-  "...and exactly what the new spelling does"
+assert_eq "$("$KEMPT" run --print-command)" "terminal: $KEMPT_TERMINAL -e kempt update" \
+  "--print-command prints the launcher"
+assert_exit 2 "--dry-run is not an option" "$KEMPT" run --dry-run
 assert_eq "$("$KEMPT" help | grep -c -- '--print-command' | awk '{print ($1 >= 1)}')" "1" \
-  "the usage text offers the new spelling"
+  "the usage text offers it"
 assert_eq "$("$KEMPT" help | grep -ci dry)" "0" \
-  "...and does not offer the old one"
+  "...and offers no dry run"
 assert_eq "$(grep -ci dry "$REPO_ROOT/docs/man/kempt.1")" "0" \
   "...and neither does the man page"
 

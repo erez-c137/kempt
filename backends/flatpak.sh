@@ -115,9 +115,9 @@ KEMPT_FLATPAK_USER_INFO_CMD="${KEMPT_FLATPAK_USER_INFO_CMD:-flatpak info --user}
 flatpak_user_found() { [[ -f "$KEMPT_FLATPAK_USER_DIR/repo/config" ]]; }
 # ...and whether to use it. Never as root: a `sudo -E` or pkexec run keeps the person's HOME, and
 # `flatpak update --user` would leave root-owned files in their installation (as reclaim_as_root).
-# Never once this run found it unreadable either: KEMPT_FLATPAK_USER_SKIP drops the user side only.
+# Never once this run found it unreadable either: FLATPAK_USER_SKIP drops the user side only.
 flatpak_user_present() {
-  [[ $EUID -ne 0 && -z "${SUDO_UID:-}" && -z "${PKEXEC_UID:-}" && -z "${KEMPT_FLATPAK_USER_SKIP:-}" ]] \
+  [[ $EUID -ne 0 && -z "${SUDO_UID:-}" && -z "${PKEXEC_UID:-}" && -z "${FLATPAK_USER_SKIP:-}" ]] \
     && flatpak_user_found
 }
 
