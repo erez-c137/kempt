@@ -869,6 +869,10 @@ Every impure call in the CLI goes through a variable. That is how the suite test
 destructive paths without running them. "Stubbed" below means `tests/lib.sh` points the seam at a
 missing path, unless the row says otherwise.
 
+`libexec/kempt-apply` honours a seam only when not root, or as root when its uid map is not the
+full identity and its own path is not one a polkit action binds to. pkexec only ever runs those
+paths, so a real root run reads none of these.
+
 | Variable | Default | Used for |
 | --- | --- | --- |
 | `KEMPT_ROOT` | the directory above `lib/common.sh` | Where the CLI reads `VERSION`, `backends/` and the rules template. `kempt doctor` calls it a checkout when `install.sh` is in it. With no `VERSION`, `kempt --version` answers `kempt unknown` |
@@ -907,7 +911,10 @@ missing path, unless the row says otherwise.
 | `KEMPT_SYSTEMD_ANALYZE_CMD` | `systemd-analyze` | Startup time, recorded once per boot in `boot-times.json`. Until startup has finished, `time` says so and each check asks again (a few milliseconds). `blame`, which costs half a second, is asked only by the page, once per boot |
 | `KEMPT_STARTUP_ETC`, `KEMPT_ANACRON_SPOOL`, `KEMPT_LINGER_DIR`, `KEMPT_SYSTEM_UNIT_DIRS` | `/etc`, `/var/spool/anacron`, `/var/lib/systemd/linger`, `/etc/systemd/system /usr/lib/systemd/system` | Where the Startup report finds `crontab`, `cron.d`, `cron.*`, `anacrontab` and `rc.local`, anacron's stamps (their times give the last run), the lingering flag, and an enabled template's file, which `systemctl show` refuses |
 | `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
-| `KEMPT_GETFACL` | `getfacl` | Doctor's ACL scan of the dnf folders |
+| `KEMPT_GETFACL` | `getfacl` | ACL scan of the dnf folders, in doctor and in `kempt-apply`, under the rule above |
+| `KEMPT_FIND` | `find` | Owner and mode scan of the dnf folders, likewise |
+| `KEMPT_MOUNTINFO` | `/proc/self/mountinfo` | The mount table, read for user FUSE mounts, likewise. `tests/lib.sh` points it at one plain root line |
+| `KEMPT_MNT_NS_INIT` | `/proc/1/ns/mnt` | The mount namespace the helper must share, likewise. `tests/lib.sh` points it at the process's own |
 | `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session, which the harvest and `notify_startup` compare |
 | `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
 | `KEMPT_VIA` | (unset) | The event log's `via` column: `widget` when set to that, `cli` otherwise. Read only by `log_event` |
