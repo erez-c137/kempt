@@ -510,7 +510,7 @@ load_mounts() {  # → the arrays filled, or exits REFUSED
     n=${#f[@]} i=6
     while (( i < n )) && [[ "${f[i]}" != - ]]; do i=$(( i + 1 )); done
     # Type, source and options. The kernel escapes spaces in all three, and an empty source leaves two.
-    (( n >= 5 && (n - i - 1 == 2 || n - i - 1 == 3) )) || refuse_could_not_check "the mount table" "a line in it could not be read"
+    (( n >= 5 && i + 2 < n && i + 4 >= n )) || refuse_could_not_check "the mount table" "a line in it could not be read"
     decode_mount_name "${f[4]}"
     MOUNT_POINTS+=("$REPLY")
     MOUNT_TYPES+=("${f[i + 1]}")

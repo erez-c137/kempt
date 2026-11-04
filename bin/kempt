@@ -4686,7 +4686,7 @@ doctor_load_mounts() {  # → 0 with the arrays filled; 1 with DOCTOR_CHECK_ERRO
     read -r -a f <<<"$line"
     n=${#f[@]} i=6
     while (( i < n )) && [[ "${f[i]}" != - ]]; do i=$(( i + 1 )); done
-    if ! (( n >= 5 && (n - i - 1 == 2 || n - i - 1 == 3) )); then DOCTOR_CHECK_ERROR="a line in it could not be read"; return 1; fi
+    if ! (( n >= 5 && i + 2 < n && i + 4 >= n )); then DOCTOR_CHECK_ERROR="a line in it could not be read"; return 1; fi
     doctor_decode_mount_name "${f[4]}"
     DOCTOR_MOUNT_POINTS+=("$REPLY")
     DOCTOR_MOUNT_TYPES+=("${f[i + 1]}")
