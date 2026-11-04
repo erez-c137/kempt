@@ -93,6 +93,10 @@ foreign_link
 "$KEMPT" check >/dev/null
 assert_eq "$(state .restart_holder)" "other" "the state names another updater"
 assert_contains "$("$KEMPT" status 2>&1 || true)" "The next restart belongs to another updater" "...and status has a line saying so"
+# The write a run makes once its stage is armed, with no check behind it yet.
+jq -c '.restart_holder = "none"' "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/s.json" && cp "$TESTTMP/s.json" "$KEMPT_STATE_DIR/state.json"
+bash -c 'source "$1/lib/common.sh"; publish_staged_state_write "" ""' _ "$REPO_ROOT"
+assert_eq "$(state .restart_holder)" "other" "...and a run's own write says so before the next check"
 no_link
 
 # --- kempt update to a restart -----------------------------------------------------------------
