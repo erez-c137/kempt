@@ -701,6 +701,14 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # Who holds the next restart, and whether Discover is set to take it by itself.
+  local unattended_now=false
+  discover_unattended_active >/dev/null 2>&1 && unattended_now=true
+  if merged="$(jq --arg h "$(restart_holder)" --argjson u "$unattended_now" \
+                 '. + {restart_holder: $h, discover_unattended: $u}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   # A stage that lost only its restart step, so the widget can offer Put It Back.
   local restorable_json
   restorable_json="$(offline_stage_restorable_state 2>/dev/null)" || restorable_json=""
@@ -743,6 +751,11 @@ cmd_check() {
   # the session and nobody has answered.
   if discover_offer_pending \
      && merged="$(jq '. + {discover_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
+  # true or absent: the warning about Discover's setting has not been drawn yet.
+  if discover_unattended_warn_pending 2>/dev/null \
+     && merged="$(jq '. + {discover_unattended_warn: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
     state="$merged"
   fi
   # The writers' lock from here to the write, for a check that has a security answer to merge:
@@ -2586,7 +2599,7 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
   records="$(jq -r -n --argjson now "$now" "$KEMPT_JQ_TIME$KEMPT_JQ_STATUS"'
                [inputs][0] | status_records($now)' <<<"${doc:-null}")" \
     || { echo "kempt: could not read the update state" >&2; exit 1; }
-  local tag a b header="" detail="" footer="" restart="" staged=false security="" held="" rc=1
+  local tag a b header="" detail="" footer="" restart="" holder="" staged=false security="" held="" rc=1
   local -a sections=() held_names=() names=()
   local title="" count=""
   status_flush_section() {
@@ -2608,6 +2621,7 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
       C) security="$a" ;;
       G) staged=true ;;
       R) restart="$a" ;;
+      O) holder="$a" ;;
       F) footer="$a" ;;
       X) rc="$a" ;;
     esac
@@ -2644,6 +2658,7 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
     staged_line="$(staged_summary_line /dev/stdin <<<"$doc")"
     [[ -n "$staged_line" ]] && body+=("$staged_line")
   fi
+  [[ -n "$holder" ]] && body+=("$holder")
   [[ -n "$restart" ]] && body+=("$restart")
   if (( ${#body[@]} )); then echo; printf '%s\n' "${body[@]}"; fi
 
@@ -4286,7 +4301,7 @@ doctor_other_updater_row() {
   # update takes /system-update, and dnf5 then leaves that symlink alone, so the next restart
   # installs Discover's update and not a stage of Kempt's. WARN only when Kempt is set to stage.
   local decided
-  if { discover_entry_starts "$entry" || discover_running; } && decided="$(discover_unattended)"; then
+  if decided="$(discover_unattended_active)"; then
     local unattended="Discover is set to install updates by itself on restart ($decided). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
     if [[ "$(config_get surface)" == offline ]]; then
       doctor_warn "$unattended"
@@ -4987,9 +5002,11 @@ cmd_discover_notifier() {
             # cannot both find no kept copy and overwrite each other's.
             writer_lock || exit 1
             "discover_notifier_$1" ;;
+    seen)   [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
+            discover_notifier_seen ;;
     status) [[ $# -eq 1 || ( $# -eq 2 && "$2" == --json ) ]] || { echo "unknown option: $2" >&2; exit 2; }
             discover_notifier_status "${2:-}" ;;
-    *) echo "usage: kempt discover-notifier off | on | keep | status [--json]" >&2; exit 2 ;;
+    *) echo "usage: kempt discover-notifier off | on | keep | status [--json] | seen" >&2; exit 2 ;;
   esac
 }
 
@@ -5189,10 +5206,10 @@ EOF
 EOF
     ;;
     discover-notifier) cat <<'EOF'
-  discover-notifier off | on | keep | status [--json]
+  discover-notifier off | on | keep | status [--json] | seen
                         turn Discover's own update notifier off or back on for this user, keep
-                        it as it is (the widget's answer), or say whether it is installed, on
-                        and running
+                        it as it is (the widget's answer), record that the widget showed its
+                        warning, or say whether it is installed, on and running
 EOF
     ;;
     enable-passwordless) cat <<'EOF'

@@ -731,6 +731,9 @@ discover_sysconf_default() {
 KEMPT_DISCOVER_UPDATES_SYSCONF="${KEMPT_DISCOVER_UPDATES_SYSCONF:-$(discover_sysconf_default)}"
 # Exists once the person has answered the widget's offer either way, or used the command.
 DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
+# Exists once the warning about Discover's automatic updates has been drawn. Apart from the offer's
+# answer: that one is about a count, this one about who takes the next restart.
+DISCOVER_UNATTENDED_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-unattended-answered"
 # The bytes Kempt last wrote to the user entry. `on` removes the entry only while it still matches.
 DISCOVER_WRITTEN_FILE="$KEMPT_STATE_DIR/discover-entry-written"
 
@@ -818,6 +821,23 @@ discover_unattended() {
       if (r == "true" || r == "on" || r == "yes" || r == "1") { print f; exit 0 }
       exit 1
     }'
+}
+
+# Discover's setting, while its notifier is there to act on it. → 0 and the deciding file when so.
+discover_unattended_active() {
+  discover_installed || return 1
+  { discover_entry_starts "$(discover_effective_entry)" || discover_running; } || return 1
+  discover_unattended
+}
+
+# Whether the widget owes the warning. A setting that reads false forgets it was ever drawn, so
+# turning the setting on again warns again.
+discover_unattended_warn_pending() {
+  if ! discover_unattended >/dev/null; then
+    rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true
+    return 1
+  fi
+  [[ ! -e "$DISCOVER_UNATTENDED_ANSWERED_FILE" ]] && discover_unattended_active >/dev/null
 }
 
 discover_running() {
@@ -1024,11 +1044,16 @@ discover_notifier_on() {
     fi
   fi
   discover_mark_answered
+  rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true
   if ! discover_enabled; then
     echo "A startup file keeps Discover's notifier off: $(discover_effective_entry). Delete it, then run kempt discover-notifier on." >&2
     return 1
   fi
   echo "Discover's update notifier is on."
+  # Off leaves KDE's setting alone, so on says what that setting does now.
+  if discover_unattended >/dev/null; then
+    echo "Discover's automatic updates resume too, because its setting is still on."
+  fi
   # The writers' lock stays held until the notifier is up, so a concurrent off cannot slip in
   # between. discover_start closes it for the child, so the notifier never inherits it.
   discover_running && return 0
@@ -1051,8 +1076,26 @@ discover_notifier_keep() {
   echo "Discover's update notifier stays as it is."
 }
 
+# The widget drew the warning about Discover's automatic updates.
+discover_notifier_seen() {
+  { mkdir -p "$KEMPT_STATE_DIR" && : > "$DISCOVER_UNATTENDED_ANSWERED_FILE"; } 2>/dev/null || true
+  # The next open of the popup comes before the next check, so the state says so now.
+  [[ -f "$STATE_FILE" ]] || return 0
+  local out lfd
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.discover_unattended_warn)' "$STATE_FILE" 2>/dev/null)" || out=""
+  if [[ -n "$out" ]]; then
+    _KEMPT_STATE_LOCK_HELD=1
+    printf '%s\n' "$out" | write_state 2>/dev/null || true
+    _KEMPT_STATE_LOCK_HELD=""
+  fi
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  return 0
+}
+
 discover_notifier_status() {  # [--json]
-  local installed=false enabled=false running=false by_kempt=false
+  local installed=false enabled=false running=false by_kempt=false unattended=false
+  discover_unattended >/dev/null && unattended=true
   discover_installed && installed=true
   discover_enabled && enabled=true
   discover_running && running=true
@@ -1063,8 +1106,8 @@ discover_notifier_status() {  # [--json]
     if [[ $installed == true && $enabled == false && $by_kempt == false ]]; then
       entry=",\"entry\":$(jq -Rn --arg p "$(discover_effective_entry)" '$p')"
     fi
-    printf '{"installed":%s,"enabled":%s,"running":%s,"by_kempt":%s%s}\n' \
-      "$installed" "$enabled" "$running" "$by_kempt" "$entry"
+    printf '{"installed":%s,"enabled":%s,"running":%s,"by_kempt":%s,"unattended":%s%s}\n' \
+      "$installed" "$enabled" "$running" "$by_kempt" "$unattended" "$entry"
     return 0
   fi
   if [[ $installed == false ]]; then
@@ -1076,6 +1119,7 @@ discover_notifier_status() {  # [--json]
   else echo "Discover's update notifier: off (by $(discover_effective_entry))"
   fi
   if [[ $running == true ]]; then echo "running: yes"; else echo "running: no"; fi
+  if [[ $unattended == true ]]; then echo "automatic updates: on in Discover's settings"; fi
 }
 
 # The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`
@@ -3338,6 +3382,24 @@ offline_link_state() {  # → none | dnf5 | other
   fi
 }
 
+# Who holds the next restart, read without privilege: none, kempt (dnf5's link) or other. Anything
+# else at that path counts as other, a plain file or a dangling link included: the generator diverts
+# the boot for either, as the helper's guard_foreign_system_update and the shutdown step know. That
+# is why this tests -e and -L itself: offline_link_state answers none for a plain file. A state.json
+# value can be hours old, so anything that acts on the answer asks here again.
+restart_holder() {  # → none | kempt | other
+  if [[ ! -e "$KEMPT_OFFLINE_LINK" && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
+    printf 'none\n'
+  elif [[ "$(offline_link_state)" == dnf5 ]]; then
+    printf 'kempt\n'
+  else
+    printf 'other\n'
+  fi
+}
+
+# The test every reader asks, including one that reports a stage as still waiting.
+restart_held_by_other() { [[ "$(restart_holder)" == other ]]; }
+
 # rpm's version comparison (rpmvercmp in rpm's lib/rpmvercmp.c), for one version or release field.
 # Written out here rather than asked of rpm: the tests run on boxes with no rpm at all, and this is
 # the rule a newer build is told by. Segments are runs of digits or of letters, anything else
@@ -4246,6 +4308,8 @@ publish_staged_state_write() {  # staged blocked
              "$STATE_FILE" 2>/dev/null)" || return 0
   fi
   [[ -n "$out" ]] || return 0
+  # Who holds the restart may have changed during the run, and this is the moment it is news.
+  out="$(jq -c --arg h "$(restart_holder)" '. + {restart_holder: $h}' <<<"$out" 2>/dev/null)" || return 0
   # ...and the write is best-effort like everything above it. This runs on the far side of a
   # transaction that is downloaded and armed, under a caller that reports the run's verdict: a
   # state directory that cannot be written is the same degrade the history entry beside it takes,
@@ -4635,6 +4699,7 @@ KEMPT_JQ_STATUS='
     stagedHeaderTail: "updates staged for the next restart",
     stagedHeaderUnknown: "Updates staged for the next restart",
     restartMessage: "Restart to apply installed updates",
+    restartHeld: "The next restart belongs to another updater",
     noSuccessfulCheckYet: "No successful check yet",
     lastCheckFailed: "last check failed"
   };
@@ -4766,6 +4831,7 @@ KEMPT_JQ_STATUS='
                          then "C\u001f" + (.count | floor | tostring) else empty end) ),
         (if $staged then "G\u001f1" else empty end),
         (if $s.reboot_needed == true then "R\u001f" + status_copy.restartMessage else empty end),
+        (if $s.restart_holder == "other" then "O\u001f" + status_copy.restartHeld else empty end),
         ( [ (if ($ever | not) then status_copy.noSuccessfulCheckYet
              elif ($s.last_success | renderable_stamp) then "Checked " + ($s.last_success | rel_time($now))
              else empty end),
