@@ -123,6 +123,17 @@ gate_refuses "a run with no terminal and auto_accept off" "$KEMPT" update --surf
 gate_refuses "...and the same from the configured surface" "$KEMPT" update </dev/null
 "$KEMPT" config set auto_accept true
 "$KEMPT" config set surface popup 2>/dev/null || true
+cat > "$TESTTMP/refresh-busy" <<STUB
+#!/usr/bin/env bash
+echo "kempt-refresh: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
+exit 5
+STUB
+chmod +x "$TESTTMP/refresh-busy"
+: > "$WORLD/calls"; busy_rc=0
+busy_err="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-busy" "$KEMPT" update --surface=offline 2>&1 >/dev/null)" || busy_rc=$?
+assert_eq "$busy_rc" "3" "another Kempt update running: the code for that, not a refusal"
+assert_eq "$busy_err" "another kempt update is running" "...saying only that"
+assert_eq "$(cat "$WORLD/calls")" "" "...and nothing ran"
 gate_refuses "a check that cannot answer" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-fails" "$KEMPT" update --surface=offline
 
 # Nothing to stage: the run carries on, so whatever else it does still happens.
@@ -230,11 +241,11 @@ assert_exit 0 "...and the marker goes" -- test ! -f "$marker"
 
 # Some, plural, one of them at a version lower than the one staged, and a Remove entry that went.
 staged_marker "$NAMES"
-moved $'librepo\t1.20.9-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'zzz-unrelated\t1.0-1.fc44'
+moved $'librepo\t1.20.9-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'zzz-unrelated\t1.0-1.fc44' $'vim-minimal\t2:9.3.0-1.fc44'
 grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"
 qa_from_after; harvest
 assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 2 of your staged updates were installed outside Kempt." \
-  "some of it: counted, a lower version included, a removal and an unrelated package not"
+  "some of it: counted, a lower version included, a removal and unrelated packages not"
 assert_eq "$(entries)" "1" "...with a history entry"
 assert_eq "$(entry .surface)" "offline (partly installed outside Kempt)" "...saying how it arrived"
 assert_eq "$(entry '[.backends.dnf.updated[] | "\(.name) \(.to)"] | join(", ")')" "aardvark-dns 2:1.18.0-1.fc44, librepo 1.20.9-1.fc44" \
@@ -275,6 +286,14 @@ qa_from_after; harvest
 assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 1 of your staged updates was installed outside Kempt." "one of them reads in the singular"
 rm -f "$KEMPT_STATE_DIR/offline-partial"
 
+# A staged Remove still installed: every upgrade arrived, and that is still not all of it.
+staged_marker "$NAMES"
+moved $'librepo\t1.21.0-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'7zip\t26.03-1.fc44'
+qa_from_after; echo 'bash-color-prompt-0:0.7.1-3.fc44.noarch' >> "$qa"; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 3 of your staged updates were installed outside Kempt." \
+  "a staged removal still there: not all of it, and the removal not counted"
+rm -f "$KEMPT_STATE_DIR/offline-partial"
+
 # None: the set moved, none of it Kempt's.
 staged_marker "$NAMES"
 moved $'zzz-unrelated\t1.0-1.fc44'
@@ -292,12 +311,16 @@ cannot_tell() {  # label
   assert_eq "$(jq -r .armed "$marker")" "false" "$1: the promise is withdrawn"
   assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" "$1: nothing is published as staged"
   assert_eq "$(jq -r '.actionable > 0' "$KEMPT_STATE_DIR/state.json")" "true" "$1: the normal list is there"
+  assert_contains "$(tail -n 8 "$KEMPT_STATE_DIR/events.log")" "offline stage result unknown" "$1: the log says it is unknown"
   rm -f "$marker" "$pre"
 }
 export KEMPT_SKIP_REFRESH=1
 staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
 KEMPT_OFFLINE_TXJSON="$TESTTMP/no-such.json" harvest
 cannot_tell "dnf5's copy unreadable"
+staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'
+QA_CMD=true harvest
+cannot_tell "an rpm that lists nothing"
 staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'
 QA_CMD=false harvest
 cannot_tell "rpm failing"
@@ -323,6 +346,8 @@ foreign_link
 drep="$(KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
 assert_contains "$drep" "WARN  another updater has prepared the next restart" "doctor warns about a foreign link"
 assert_not_contains "$drep" "info  another updater has prepared the next restart" "...and no longer as a note"
+drep="$(KEMPT_OFFLINE_TOML="$TESTTMP/no-such.toml" KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "WARN  another updater has prepared the next restart: " "...with nothing of dnf5's stored as well"
 rm -f "$LINK"; : > "$LINK"
 drep="$(KEMPT_RPM_QA_CMD="cat $qa" "$KEMPT" doctor 2>&1 || true)"
 assert_contains "$drep" "WARN  another updater has prepared the next restart" "...and about a plain file"
@@ -350,6 +375,7 @@ check_state
 assert_eq "$(state .discover_unattended_warn)" "true" "...and whether or not the earlier offer was answered"
 "$KEMPT" discover-notifier seen
 assert_exit 0 "seen marks the warning drawn" -- test -e "$KEY"
+assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "...and takes it out of the state at once, before the next check"
 check_state
 assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "...so it is owed no longer"
 assert_eq "$(state .discover_unattended)" "true" "...while the setting is still reported"

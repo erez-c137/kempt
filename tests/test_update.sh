@@ -482,6 +482,7 @@ assert_contains "$(cat "$TESTTMP/foreign.err")" "the updates staged here will no
 assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$KEMPT_STATE_DIR/state.json")" \
   "$(jq -r '.staged' "$marker")" "...and the state carries the blocked stage for the widget"
 assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" "...not a pending one"
+assert_eq "$(jq -r '.restart_holder' "$KEMPT_STATE_DIR/state.json")" "other" "...and it names who holds the restart now"
 fghist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r '[.status, .stage_blocked] | @tsv' "$fghist")" "ok	true" \
   "...and its history entry marks the stage as blocked"
