@@ -219,7 +219,7 @@ doctor` checks it.
 | 1 | A backend failed. |
 | 2 | Unknown option. |
 | 3 | Another update is running, including another user's. Kempt says so before it checks anything. |
-| 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, or `--surface=offline` while a Fedora release upgrade is stored or another updater holds the next restart. |
+| 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, `--surface=offline` while a Fedora release upgrade is stored or another updater holds the next restart, or a run with no terminal and no `--risky-ok` that finds system updates behind that updater. |
 | 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. A busy lock while rebuilding a staged update exits 1. |
 
 ### Installing on the next restart
@@ -257,11 +257,11 @@ restart, `sudo dnf5 system-upgrade reboot`, `sudo dnf5 offline log`, or `sudo dn
 Live updates still work, and the risky-transaction prompt offers only `[u]` and `[a]`.
 
 **When another updater holds the next restart, `--surface=offline` stops too,** with exit 5 and
-nothing changed, Flatpak included. This holds with no terminal and with `auto_accept` off, because
-a quiet fall to a live run could cancel what that updater prepared. With no system updates waiting
-there is nothing to stage, and the run carries on. To update anyway, use
-`kempt update --surface=terminal`. While the restart is held, the risky-transaction prompt offers
-only `[u]` and `[a]`.
+nothing changed, Flatpak included, even with `auto_accept` off, because a quiet fall to a live run
+could cancel what that updater prepared. A live run with no terminal and no `--risky-ok` stops the
+same way. The widget asks first and passes the flag. With no system updates waiting, both carry on.
+To update anyway, use `kempt update --surface=terminal`. While the restart is held, the
+risky-transaction prompt offers only `[u]` and `[a]`.
 
 **When the staged update will not install.** A restart may have skipped it, or a dnf command of
 your own removed the restart trigger. The next check tells you once:
@@ -282,8 +282,9 @@ the staged update, the next check tells you once. After the restart, Kempt repor
 transaction from dnf5's history. If that did not run, the history entry and the notification say
 `restart (staged update did not run)`. If another updater installed the staged packages or newer
 ones, the history shows `staged update (installed by another updater)`. If only some of them
-changed, the history shows `staged update (partly installed outside Kempt)` with those packages at
-the versions on the box. If Kempt cannot tell, it adds no history entry and the normal list shows
+moved to a newer version, the history shows `staged update (partly installed outside Kempt)` with
+those packages at the versions on the box. A downgrade, or a package the stage would only remove, does
+not count. If Kempt cannot tell, it adds no history entry and the normal list shows
 what is pending.
 
 ### A snapshot before every update
@@ -686,6 +687,7 @@ Its wording is fixed, so you can search it:
 | `offline stage cannot install (...) - announced\|not announced` | The staged update can no longer install on a restart. `not announced` when the notification did not show. It is not sent again. |
 | `offline stage replaced outside Kempt (<what differs>) - announced\|not announced` | The staged update is no longer the one Kempt made. `not announced` as above. |
 | `offline stage partly installed outside Kempt (<counts>)` | Some of the staged packages changed outside Kempt and the rest did not. The history entry says `offline (partly installed outside Kempt)`. |
+| `offline stage partly installed outside Kempt, after it was announced as lost` | The same, after you were told the stage could no longer install. No history or second notification. |
 | `offline stage result unknown` | The restart moved packages and Kempt could not tell how much of the stage arrived. It claims nothing, and the normal list shows what is pending. |
 | `offline stage installed by another updater (<counts>)` | Another updater installed the staged packages, or newer ones, on the restart or before it. The history entry says `offline (installed by another updater)`. |
 | `offline stage left in place (another updater has prepared the next restart)` | Nothing was left to stage, and the old stage was kept, because removing it would cancel the other updater's restart update. |

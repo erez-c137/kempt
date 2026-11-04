@@ -1603,7 +1603,7 @@ push_history_back
 ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
 : > "$WORLD/apply-calls"
 KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" \
-  "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1
+  "$KEMPT" update --surface=background --no-flatpak --risky-ok >/dev/null 2>&1
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "a live run behind another updater's symlink never runs the clean that would remove it"
 assert_exit 0 "...while the superseded marker goes" -- test ! -f "$marker"

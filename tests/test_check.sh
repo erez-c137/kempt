@@ -1189,7 +1189,7 @@ assert_eq "$(cat "$notify_log")" \
 assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
   "...and the event log carries the status it was announced for"
 assert_eq "$(jq -r '.armed' "$marker")" "false" "...and the marker is demoted rather than deleted"
-assert_json_eq "$(jq -c 'del(.armed)' "$marker")" "$(jq -c 'del(.armed)' <<<"$before_marker")" \
+assert_json_eq "$(jq -c 'del(.armed, .lost_announced)' "$marker")" "$(jq -c 'del(.armed)' <<<"$before_marker")" \
   "...with every other field of it kept"
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
   "...while nothing is published as a pending install, because nothing is"

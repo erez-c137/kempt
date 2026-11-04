@@ -125,6 +125,13 @@ gate_refuses "the configured surface" "$KEMPT" update
 "$KEMPT" config set auto_accept false
 gate_refuses "a run with no terminal and auto_accept off" "$KEMPT" update --surface=offline </dev/null
 gate_refuses "...and the same from the configured surface" "$KEMPT" update </dev/null
+# The widget's consent is to a live run, so it does not turn a stage asked for into one.
+gate_refuses "a stage asked for with the flag and auto_accept off" "$KEMPT" update --surface=offline --risky-ok </dev/null
+# ...where a terminal must not turn the stage asked for into a live run.
+: > "$WORLD/calls"; rc=0
+python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$KEMPT" update --surface=offline >/dev/null 2>&1 </dev/null || rc=$?
+assert_eq "$rc" "5" "a stage asked for at a terminal with auto_accept off is refused"
+assert_eq "$(cat "$WORLD/calls")" "" "...and changes nothing"
 "$KEMPT" config set auto_accept true
 "$KEMPT" config set surface popup 2>/dev/null || true
 cat > "$TESTTMP/refresh-busy" <<STUB
@@ -154,11 +161,33 @@ for n in $(sed -n 's/^\([a-zA-Z0-9-]*\)\.[a-z0-9_]* .*/\1/p' "$FIXTURES/dnf-chec
   "$KEMPT" unhold "dnf:$n" >/dev/null 2>&1
 done
 
-# Live stays open: that is the choice the widget offers, and the way the refusal names.
+# Live with nobody asked: the widget's last read may have said Flatpak alone, and this check found more.
+gate_refuses "a live run nobody was asked about" "$KEMPT" update --surface=popup
+gate_refuses "...and one with no terminal" "$KEMPT" update --surface=terminal </dev/null
+_live_err="$("$KEMPT" update --surface=popup 2>&1 >/dev/null || true)"
+assert_contains "$_live_err" "updating now may stop what it prepared" "...saying what a live update risks"
+assert_not_contains "$_live_err" "nothing was staged" "...not that a stage was refused"
+# The widget asked: the flag says so, and that is the choice it offers.
 : > "$WORLD/calls"; rc=0
-"$KEMPT" update --surface=popup >/dev/null 2>&1 || rc=$?
-assert_eq "$rc" "0" "a live run behind a foreign link is not refused"
+"$KEMPT" update --surface=popup --risky-ok >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "a live run the widget asked about is not refused"
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-upgrade" "...and upgrades"
+# A terminal: dnf5 asks there, and it is the way the refusal names.
+: > "$WORLD/calls"; rc=0
+python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$KEMPT" update --surface=terminal >/dev/null 2>&1 </dev/null || rc=$?
+assert_eq "$rc" "0" "a terminal is not refused"
+assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-upgrade" "...and upgrades"
+# A terminal on one side only cannot show and ask.
+: > "$WORLD/calls"; rc=0
+python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' bash -c '"$0" update --surface=terminal </dev/null' "$KEMPT" >/dev/null 2>&1 </dev/null || rc=$?
+assert_eq "$rc" "5" "output to a terminal with no input from one is refused"
+assert_eq "$(grep -c APPLY "$WORLD/calls" || true)" "0" "...and installs nothing"
+# Flatpak alone: nothing that updater prepared is touched.
+: > "$WORLD/calls"; rc=0
+KEMPT_REFRESH_HELPER="$TESTTMP/refresh-nothing" "$KEMPT" update --surface=popup >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "Flatpak with no system updates still runs, unasked"
+assert_contains "$(cat "$WORLD/calls")" "FLATPAK" "...and updates the apps"
+gate_refuses "a live check that cannot answer" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-fails" "$KEMPT" update --surface=popup
 
 # No foreign link: the gate does not get in the way.
 no_link
@@ -298,6 +327,64 @@ assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 3 of your staged updates
   "a staged removal still there: not all of it, and the removal not counted"
 rm -f "$KEMPT_STATE_DIR/offline-partial"
 
+# A package below where it was installed nothing of the stage, however close to the staged version.
+staged_marker "$NAMES"
+moved $'librepo\t1.10.0-1.fc44'
+qa_from_after; harvest
+assert_contains "$(cat "$WORLD/notifications")" "can no longer install" "a pure downgrade is not an install"
+assert_eq "$(entries)" "0" "...with no history"
+rm -f "$marker" "$pre"
+# An epoch counts as newer whatever the version, and a row with none has epoch 0.
+staged_marker "$NAMES"
+moved $'librepo\t1:1.10.0-1.fc44'
+qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 1 of your staged updates was installed outside Kempt." "a newer epoch counts"
+rm -f "$KEMPT_STATE_DIR/offline-partial"
+# A name the stage would only remove says nothing about the stage if it moved...
+staged_marker "$NAMES"
+moved $'bash-color-prompt\t0.9-1.fc44'
+qa_from_after; harvest
+assert_contains "$(cat "$WORLD/notifications")" "can no longer install" "upgrading a package the stage would remove is not an install"
+rm -f "$marker" "$pre"
+# ...but a name it also installs does, as a kernel does.
+cp "$tx" "$tx.keep"
+jq '.rpms += [{"nevra":"librepo-1.19.0-1.fc44.x86_64","action":"Remove","reason":"User","repo_id":"@System"}]' "$tx.keep" > "$tx"
+staged_marker "$NAMES"
+moved $'librepo\t1.21.0-1.fc44'
+qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 1 of your staged updates was installed outside Kempt." "a name removed and installed counts"
+mv "$tx.keep" "$tx"; rm -f "$KEMPT_STATE_DIR/offline-partial"
+
+# Told it can no longer install, then a later boot finds some of it there: no second story.
+staged_marker "$NAMES"
+cp "$pre" "$after_tsv"; qa_from_after; : > "$WORLD/notifications"
+KEMPT_RPM_QA_CMD="cat $qa" KEMPT_DNF_INSTALLED_CMD="cat $after_tsv" KEMPT_BOOT_ID=boot-before "$KEMPT" check >/dev/null 2>&1 || true
+assert_contains "$(cat "$WORLD/notifications")" "can no longer install" "lost in the same boot: said once"
+assert_eq "$(jq -r .lost_announced "$marker")" "true" "...and recorded as said"
+moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "" "the next boot's partial install says nothing more"
+assert_eq "$(entries)" "0" "...with no history"
+assert_exit 0 "...and the marker goes" -- test ! -f "$marker"
+assert_exit 0 "...with its snapshot" -- test ! -f "$pre"
+assert_exit 0 "...and doctor can still explain what dnf5 keeps" -- test -s "$KEMPT_STATE_DIR/offline-partial"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "after it was announced as lost" "...and the log keeps what happened"
+rm -f "$KEMPT_STATE_DIR/offline-partial"
+# A demotion nobody was told about still reports.
+staged_marker "$NAMES"
+jq -c '. + {armed: false}' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
+moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after; harvest
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt 1 of your staged updates was installed outside Kempt." "a quiet demotion still reports what arrived"
+rm -f "$KEMPT_STATE_DIR/offline-partial"
+
+# None with the next restart held: the advice cannot be a stage, which would be refused.
+staged_marker "$NAMES"
+moved $'zzz-unrelated\t1.0-1.fc44'
+qa_from_after; foreign_link; harvest
+assert_contains "$(cat "$WORLD/notifications")" "The next restart belongs to another updater" "held: says whose restart it is"
+assert_not_contains "$(cat "$WORLD/notifications")" "--surface=offline" "...and does not advise a stage"
+assert_not_contains "$(cat "$WORLD/notifications")" "dnf5 offline clean" "...nor a clean that would cancel that updater's"
+no_link; rm -f "$marker" "$pre"
+
 # None: the set moved, none of it Kempt's.
 staged_marker "$NAMES"
 moved $'zzz-unrelated\t1.0-1.fc44'
@@ -405,5 +492,15 @@ printf '[Global]\nUseUnattendedUpdates=false\n' > "$CONF"
 "$KEMPT" discover-notifier off >/dev/null
 out="$("$KEMPT" discover-notifier on)"
 assert_not_contains "$out" "automatic updates" "...and says nothing with the setting off"
+# An image-based Fedora: Kempt tells people to use Discover there, so neither is offered.
+printf '[Global]\nUseUnattendedUpdates=true\n' > "$CONF"
+rm -f "$KEY" "$KEMPT_STATE_DIR/discover-offer-answered"
+check_state
+assert_eq "$(state .discover_unattended_warn)" "true" "(with the setting on, the warning is owed)"
+KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted"; export KEMPT_OSTREE_MARKER; : > "$KEMPT_OSTREE_MARKER"
+check_state
+assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "an image-based Fedora is not warned"
+assert_eq "$(state '.discover_offer // "absent"')" "absent" "...nor offered the notifier's off"
+rm -f "$KEMPT_OSTREE_MARKER"; unset KEMPT_OSTREE_MARKER
 
 finish
