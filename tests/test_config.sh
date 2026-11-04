@@ -87,25 +87,24 @@ assert_eq "$(config_get startup_page)" "true" "...and left where it was"
 printf '%s\n' "$_cfg_before" > "$KEMPT_CONFIG_DIR/config"
 
 # --- reclaim: what happens to the Flatpak runtimes no installed app uses --------------------------
-# ask is the default, and the resolver is the only reader. The rule it carries is the safety one:
-# anything that is not exactly `automatic` must never remove without asking, so an unknown value
-# and a stored empty value both read as ask.
+# ask is the default, and the resolver is the only reader. Anything that is not exactly `off` reads as
+# ask, so a typo never hides space the person could free.
 assert_eq "$(kempt_default reclaim)" "ask" "the defaults table knows reclaim, and it is ask"
 assert_contains " $KEMPT_CONFIG_KEYS " " reclaim " "...and it is a known setting"
 assert_eq "$(reclaim_mode)" "ask" "an unset reclaim reads as ask"
-for v in ask automatic off; do
+for v in ask off; do
   config_set reclaim "$v"
   assert_eq "$(reclaim_mode)" "$v" "reclaim=$v reads as $v"
 done
-config_set reclaim Automatic
-assert_eq "$(reclaim_mode)" "automatic" "...case-folded, because the file is edited by hand"
-for v in auto always yes true bogus ""; do
+config_set reclaim OFF
+assert_eq "$(reclaim_mode)" "off" "...case-folded, because the file is edited by hand"
+for v in automatic Automatic auto always yes true bogus ""; do
   config_set reclaim "$v"
-  assert_eq "$(reclaim_mode)" "ask" "reclaim='$v' reads as ask, never automatic"
+  assert_eq "$(reclaim_mode)" "ask" "reclaim='$v' reads as ask"
 done
 rc=0; "$KEMPT" config set reclaim auto 2>"$TESTTMP/rc-err" >/dev/null || rc=$?
 assert_eq "$rc" "0" "an unknown reclaim value is stored and warned about, like surface"
-assert_contains "$(cat "$TESTTMP/rc-err")" "Accepted: ask, automatic, off" "...and the warning lists the three values"
+assert_contains "$(cat "$TESTTMP/rc-err")" "Accepted: ask, off" "...and the warning lists the two values"
 assert_eq "$("$KEMPT" config set reclaim off 2>&1 >/dev/null)" "" "...and a value it accepts says nothing"
 sed -i '/^reclaim=/d' "$KEMPT_CONFIG_DIR/config"
 

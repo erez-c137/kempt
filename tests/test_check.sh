@@ -1924,7 +1924,7 @@ chmod +x "$TESTTMP/dies"
 before="$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")"
 rc=0
 out="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/dies" KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/dies" \
-       KEMPT_DU_CMD="$TESTTMP/dies" KEMPT_GETENT_CMD="$TESTTMP/dies" "$KEMPT" check 2>/dev/null)" || rc=$?
+       KEMPT_DU_CMD="$TESTTMP/dies" "$KEMPT" check 2>/dev/null)" || rc=$?
 assert_eq "$rc" "0" "a reclaim listing that fails never fails the check"
 assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "failed" "...it is reported inside the block instead"
 assert_eq "$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")" "$before" "...and the rest of the state is unchanged"

@@ -184,19 +184,8 @@ KEMPT_RPM_INSTALLONLY_CMD="${KEMPT_RPM_INSTALLONLY_CMD:-}"
 # installed, which is why it is this file and not the presence of a binary - the package resolves
 # on a package-based box and says nothing about how that box updates.
 KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
-# Who has an account here, read by reclaim_many_accounts to decide whether automatic removal of
-# unused Flatpak runtimes can be trusted. getent rather than /etc/passwd, so systemd-homed accounts
-# count too. Network directories (sssd, LDAP, AD) list nobody by default, so nsswitch.conf is read
-# for them, and the home directories that hold Flatpak data are counted as a third signal.
+# Who made a FUSE mount, for doctor's sentence.
 KEMPT_GETENT_CMD="${KEMPT_GETENT_CMD:-getent passwd}"
-KEMPT_NSSWITCH_FILE="${KEMPT_NSSWITCH_FILE:-/etc/nsswitch.conf}"
-KEMPT_HOME_ROOTS="${KEMPT_HOME_ROOTS:-/home /var/home}"
-# An sss or winbind source only counts when that service is set up. Upgraded machines keep an old
-# authselect `passwd: sss files systemd` line with no sssd behind it. /etc/sssd is readable only by
-# root and the sssd group, so for everyone else systemd, which checked for a config file as root
-# when it tried to start sssd, answers instead.
-KEMPT_SSSD_DIR="${KEMPT_SSSD_DIR:-/etc/sssd}"
-KEMPT_SMB_CONF="${KEMPT_SMB_CONF:-/etc/samba/smb.conf}"
 KEMPT_SYSTEMCTL_CMD="${KEMPT_SYSTEMCTL_CMD:-systemctl}"
 # What `kempt startup --all` reads, beside systemctl. Each is a read-only query as the user.
 KEMPT_JOURNALCTL_CMD="${KEMPT_JOURNALCTL_CMD:-journalctl}"
@@ -547,7 +536,7 @@ KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widg
 config_enum_values() {  # key → accepted values, space separated, or nothing
   case "$1" in
     surface) printf '%s\n' "terminal popup offline" ;;
-    reclaim) printf '%s\n' "ask automatic off" ;;
+    reclaim) printf '%s\n' "ask off" ;;
   esac
 }
 
@@ -612,7 +601,7 @@ kempt_default() {  # key → default ("" if unknown)
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction, so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
-    # What happens to the Flatpak runtimes no installed app uses: ask|automatic|off. See
+    # What happens to the Flatpak runtimes no installed app uses: ask|off. See
     # reclaim_mode for how a value is read.
     reclaim) echo ask ;;
     # A notification when a service that started before an update no longer starts after it. On:
@@ -1038,18 +1027,14 @@ discover_notifier_status() {  # [--json]
   if [[ $unattended == true ]]; then echo "automatic updates: on in Discover's settings"; fi
 }
 
-# The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`
-# reads as `ask`: a typo must never turn into removing things without asking, and it must not
-# silently hide space the person could free either. Case-folded like is_true, because the file is
+# The reclaim setting as the code acts on it. Anything that is not exactly `off` reads as `ask`,
+# including a saved `automatic`: a typo must not silently hide space the person could free. Case-folded like is_true, because the file is
 # edited by hand.
-reclaim_mode() {  # → ask | automatic | off
+reclaim_mode() {  # → ask | off
   local v
   v="$(config_get reclaim 2>/dev/null)" || v=""
   v="${v,,}"
-  case "$v" in
-    automatic|off) printf '%s\n' "$v" ;;
-    *) echo ask ;;
-  esac
+  if [[ "$v" == off ]]; then echo off; else echo ask; fi
 }
 
 # The desktop user, and only the desktop user, may list or remove unused runtimes. For the system
@@ -1059,80 +1044,6 @@ reclaim_mode() {  # → ask | automatic | off
 # itself when EUID alone does not (`sudo -u` back to a user keeps SUDO_UID).
 reclaim_as_root() {  # → 0 when this process must not reclaim
   [[ $EUID -eq 0 || -n "${SUDO_UID:-}" || -n "${PKEXEC_UID:-}" ]]
-}
-
-# Whether more than one person may have apps here. libflatpak counts only the calling user's
-# --user apps as users, so another person's app may need a runtime this listing calls unused, and
-# automatic removal then behaves as ask. Any one signal is enough: more than one local login
-# account (UID 1000 or above, except nobody; an empty shell means /bin/sh), a network account
-# source in nsswitch.conf, or Flatpak data in more than one home. A lookup that fails or takes
-# longer than 5 seconds counts as more than one, for the same reason.
-reclaim_sssd_configured() {  # → 0 when sssd defines a domain, or it cannot tell
-  local d="$KEMPT_SSSD_DIR" f out
-  [[ -e "$d" ]] || return 1
-  if [[ -r "$d" && -x "$d" ]]; then
-    for f in "$d/sssd.conf" "$d"/conf.d/*.conf; do
-      [[ -e "$f" ]] || continue
-      [[ -r "$f" ]] || return 0
-      grep -qE '^[[:space:]]*\[domain/' "$f" && return 0
-    done
-    return 1
-  fi
-  # shellcheck disable=SC2086  # the seam carries its own arguments
-  out="$(timeout 5 $KEMPT_SYSTEMCTL_CMD show -p ActiveState -p ConditionResult \
-           -p ConditionTimestampMonotonic sssd.service 2>/dev/null </dev/null 9>&-)" || return 0
-  # Not running, and systemd found no config file when it last tried to start it.
-  awk -F= '{ v[$1] = $2 } END { exit !(v["ActiveState"] != "active" && v["ConditionResult"] == "no" &&
-            v["ConditionTimestampMonotonic"] ~ /^[1-9][0-9]*$/) }' <<<"$out" && return 1
-  return 0
-}
-
-reclaim_winbind_configured() {  # → 0 when Samba joins a domain, or it cannot tell
-  local f="$KEMPT_SMB_CONF"
-  [[ -e "$f" ]] || return 1
-  [[ -r "$f" ]] || return 0
-  awk '{ sub(/[;#].*/, ""); line = tolower($0); gsub(/[[:space:]]/, "", line) }
-       line ~ /^security=(ads|domain)$/ { f = 1 } END { exit !f }' "$f"
-}
-
-reclaim_many_accounts() {  # → 0 when more than one person may use this machine, or it cannot tell
-  local out n
-  # shellcheck disable=SC2086  # the seam carries its own arguments
-  out="$(timeout 5 $KEMPT_GETENT_CMD 2>/dev/null </dev/null 9>&-)" || return 0
-  n="$(awk -F: '$3 ~ /^[0-9]+$/ && $3 >= 1000 && $3 != 65534 && $7 !~ /(nologin|false)$/ { n++ }
-               END { print n + 0 }' <<<"$out")" || return 0
-  (( n > 1 )) && return 0
-  local src
-  if [[ -r "$KEMPT_NSSWITCH_FILE" ]]; then
-    while IFS= read -r src; do
-      case "$src" in
-        sss) reclaim_sssd_configured && return 0 ;;
-        winbind) reclaim_winbind_configured && return 0 ;;
-        *) return 0 ;;
-      esac
-    done < <(awk '{ sub(/#.*/, "") } $1 == "passwd:" { for (i = 2; i <= NF; i++)
-                    if ($i ~ /^(sss|ldap|winbind|nis)$/) print $i }' "$KEMPT_NSSWITCH_FILE")
-  fi
-  local root d
-  n="$(for root in $KEMPT_HOME_ROOTS; do
-         for d in "$root"/*/.local/share/flatpak; do [[ -d "$d" ]] && readlink -f "$d" || :; done
-       done 2>/dev/null | sort -u | awk 'NF { n++ } END { print n + 0 }')" || n=0
-  (( n > 1 ))
-}
-
-# The mode Kempt acts on, which is the setting except where automatic cannot be trusted: on an
-# image-based system Kempt runs no updates, so there is no run to remove after, and with more than
-# one human account the listing does not know about the others' apps. Both fall back to ask, so
-# the space is still shown and a person decides.
-reclaim_effective_mode() {  # → ask | automatic | off
-  local mode
-  mode="$(reclaim_mode)"
-  if [[ "$mode" == automatic ]]; then
-    if on_ostree; then mode=ask
-    elif reclaim_many_accounts; then mode=ask
-    fi
-  fi
-  printf '%s\n' "$mode"
 }
 
 # What a set is called when a person agrees to something about it: 16 hex characters of the sha256 of
@@ -4369,17 +4280,6 @@ render_summary() {  # history-json-file → human text
     (if (.backends.flatpak.updated|length) > 0 then lines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.added|length) > 0 then addlines(.backends.flatpak) else empty end),
     (if (.backends.flatpak.removed|length) > 0 then rmlines(.backends.flatpak) else empty end),
-    # What reclaim=automatic removed after this run. Only a removal gets a line: a set that changed
-    # or needs an administrator is for the popup to say, once, not for every summary.
-    def sizetext: if . >= 1e9 then ((. / 1e8 | round) / 10 | tostring | if test("[.]") then . else . + ".0" end) + " GB"
-                  elif . >= 1e6 then (. / 1e6 | round | tostring) + " MB"
-                  else (. / 1e3 | round | tostring) + " kB" end;
-    (.backends.flatpak.reclaimed? // null
-     | if type == "object" and .status == "removed" then
-         ((.refs // []) | length) as $n
-         | "Removed " + ($n | tostring) + " unused Flatpak " + (if $n == 1 then "runtime" else "runtimes" end)
-         + (if (.bytes | type) == "number" and .bytes > 0 then ", freeing about " + (.bytes | sizetext) else "" end) + "."
-       else empty end),
     heldline,
     shortfall,
     # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means

@@ -215,11 +215,6 @@ PlasmoidItem {
     // run at all, never as a fabricated empty one claiming a run that changed no packages.
     property var lastRun: null
 
-    // The timestamp of the run whose "Flatpak also removed an extension" sentence the popup was
-    // closed over (Logic.lastRunSubtitle). Once per run: a later run is a new entry and speaks
-    // again. Not persisted, like restartDismissed.
-    property string reclaimInUseSeen: ""
-
     // The transient line about a run WE started - "Updated 4 packages in 2s", or why it failed.
     // One event, one line at a time: while this is on screen the persistent Last update row is
     // hidden, and it clears when the popup closes or a check starts.
@@ -1029,7 +1024,7 @@ PlasmoidItem {
     // --expect is the consent: the CLI removes nothing
     // unless the set on offer is still the one this popup showed (exit 6 otherwise), so no
     // re-read is needed first. The CLI asks polkit without a dialog, so a press where an
-    // administrator is needed ends in exit 5. The size reported comes from reclaim.last.
+    // administrator is needed ends in exit 5.
     function reclaimSpace() {
         if (updating || runRequested || actionPending) return;
         var digest = vm.reclaimDigest;
@@ -1038,15 +1033,12 @@ PlasmoidItem {
         reclaimRunning = true;
         actionMessage = "";
         actionDone = "";
-        var pressedMs = Date.now();
         executor.run(root.kemptCmd + " reclaim -y --expect=" + Logic.shellQuote(digest),
                      Logic.RECLAIM_TIMEOUT_MS, function(stdout, stderr, rc) {
             root.actionPending = false;             // first, so no outcome below can skip it
             root.reclaimRunning = false;
             root.adoptState(function (fresh) {
-                var reclaim = fresh !== null && fresh.reclaim && typeof fresh.reclaim === "object"
-                    ? fresh.reclaim : {};
-                var said = Logic.reclaimOutcomeOf(rc, stdout, stderr, reclaim.last || null, pressedMs);
+                var said = Logic.reclaimSaid(rc, stdout, stderr);
                 // doCheck clears the last event's lines at its top; this one is about the press.
                 root.doCheck();
                 if (said.ok) root.actionDone = said.text;
@@ -1324,11 +1316,6 @@ PlasmoidItem {
         // ...and a "running again" line that was acknowledged has now been seen.
         startupRecoveredKept = [];
         startupMuteError = null;
-        // Only when the in-use sentence was on screen as the popup closed, in the post-run line or
-        // under the Last update row. Asked BEFORE the post-run line clears.
-        if (Logic.reclaimInUseOnScreen(lastRun, reclaimInUseSeen, updating,
-                                       vm.messageSlots.indexOf("report") >= 0, reportText))
-            reclaimInUseSeen = lastRun.when;
         postRunLine = "";
         // A choice left open is a question nobody answered: next time, Update Now asks again.
         riskyChoiceOpen = false;

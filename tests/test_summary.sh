@@ -649,18 +649,4 @@ cat > "$TESTTMP/run-base.json" <<'JSON'
   "flatpak":{"status":"ok","skipped_held":[],"updated":[],"added":[],"removed":[]}}}
 JSON
 
-# What reclaim=automatic removed after the run: one line, only for a removal.
-jq '.backends.flatpak.reclaimed = {"refs":["runtime/a/x86_64/1","runtime/b/x86_64/1"],"bytes":850000000,"status":"removed"}' \
-  "$TESTTMP/run-base.json" > "$TESTTMP/rc-entry.json"
-assert_contains "$(render_summary "$TESTTMP/rc-entry.json")" "Removed 2 unused Flatpak runtimes, freeing about 850 MB." \
-  "a run that removed unused runtimes says how many and about how much"
-jq '.backends.flatpak.reclaimed = {"refs":["runtime/a/x86_64/1"],"bytes":null,"status":"removed"}' \
-  "$TESTTMP/run-base.json" > "$TESTTMP/rc-entry.json"
-assert_contains "$(render_summary "$TESTTMP/rc-entry.json")" "Removed 1 unused Flatpak runtime." \
-  "one runtime removed is said in the singular"
-jq '.backends.flatpak.reclaimed = {"refs":[],"bytes":null,"status":"needs_auth"}' \
-  "$TESTTMP/run-base.json" > "$TESTTMP/rc-entry.json"
-assert_not_contains "$(render_summary "$TESTTMP/rc-entry.json")" "unused Flatpak" \
-  "...and one that removed nothing says nothing about it"
-
 finish

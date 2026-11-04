@@ -616,10 +616,10 @@ p.check("...and the reason a person has to act on is on the button that acts",
 # Unused Flatpak runtimes: an offer, last in the stack. Derived from the up-to-date state with a
 # reclaim block added, in the shape cmd_check writes, so nothing else in the stack competes for
 # the two slots.
-def reclaim_from(source, name, mode="ask"):
+def reclaim_from(source, name):
     doc = json.load(open(source))
     doc["reclaim"] = {
-        "mode": mode, "status": "ok", "offerable_bytes": 1530000000,
+        "mode": "ask", "status": "ok", "offerable_bytes": 1530000000,
         "digest": "0123456789abcdef",
         "refs": [{"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
                   "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"},

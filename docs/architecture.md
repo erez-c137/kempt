@@ -314,7 +314,7 @@ run as root.
 
 | Key | Meaning |
 | --- | --- |
-| `mode` | `ask` or `automatic`: the mode Kempt acts on. It is `ask` whatever the setting on an image-based system, or when more than one person may use the machine ([configuration](configuration.md#unused-flatpak-runtimes) lists the signals). |
+| `mode` | `ask`: the block appears only when the setting is not `off`. |
 | `refs[]` | Every unused ref: `ref`, `commit`, `since` (UTC, when first seen unused with this commit) and `eol` (flatpak's end-of-life reason, or `null`). |
 | `offerable_bytes` | The estimated size of the offered list. `null` when unknown or nothing is offered yet. |
 | `digest` | Names the offered set, and is what `kempt reclaim --expect` takes. `""` when nothing is offered. |
@@ -370,7 +370,6 @@ tolerate absence.
 | `stage_blocked` | `true`, optional | On a staging run whose stage worked while another updater held `/system-update`, so it does not install at the next restart. |
 | `staged_nothing` | string, optional | On a staging run that staged nothing: `"held"` or `"nothing_pending"`. The widget treats any other value as an ordinary stage. |
 | `backends.flatpak.scopes` | object, optional | On a live run, only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. `status` is still the overall outcome. A per-user set that cannot be listed before or after the run records `user` as failed and fails the run. |
-| `backends.flatpak.reclaimed` | object, optional | When `reclaim=automatic` tried a removal after the run: `{refs, bytes, status}`, plus `partial` and `in_use` as in `reclaim.last`. `status` takes `reclaim.last.result` values. Shown only when `removed`. |
 
 ## Startup report JSON
 
@@ -896,9 +895,8 @@ paths, so a real root run reads none of these.
 | `KEMPT_FLATPAK_UNINSTALL_CMD` | `flatpak uninstall --system --no-related --noninteractive` | The removal, run as the user once per pass, with the offered refs appended. Its first word also tells whether Flatpak is installed, so the stub turns the feature off |
 | `KEMPT_PKCHECK` | `pkcheck` | Asks polkit, without a dialog, whether this process may remove runtimes. A no, no answer in time, or no `pkcheck` means no removal. Stubbed |
 | `KEMPT_RECLAIM_PKCHECK_TIMEOUT` | `10` | Seconds that question may take. No answer in time is a no. A value outside 1 to 10 is 10, since the widget's wait is sized on it |
-| `KEMPT_GETENT_CMD` | `getent passwd` | Counts local login accounts, under a 5-second limit. More than one, or a failed lookup, makes `reclaim=automatic` act as `ask`. Stubbed |
-| `KEMPT_NSSWITCH_FILE`, `KEMPT_HOME_ROOTS` | `/etc/nsswitch.conf`, `/home /var/home` | The other two account signals: a network source (`sss`, `ldap`, `winbind`, `nis`) on the `passwd` line, and Flatpak data in more than one home. Either makes `reclaim=automatic` act as `ask`. Stubbed |
-| `KEMPT_SSSD_DIR`, `KEMPT_SMB_CONF`, `KEMPT_SYSTEMCTL_CMD` | `/etc/sssd`, `/etc/samba/smb.conf`, `systemctl` | Whether `sss` or `winbind` on that line counts. `sss` counts with an sssd `[domain/...]` section. If `/etc/sssd` is unreadable, it counts unless systemd says sssd is down and found no config. `winbind` counts with `security = ads` or `domain`. Any unreadable config counts. `ldap` and `nis` count from the line alone. `KEMPT_SYSTEMCTL_CMD` also answers `notify_startup`'s read-only queries, under `timeout 5`. Stubbed |
+| `KEMPT_GETENT_CMD` | `getent passwd` | Names who made a FUSE mount in doctor's sentence. Stubbed |
+| `KEMPT_SYSTEMCTL_CMD` | `systemctl` | Answers `notify_startup`'s read-only queries, under `timeout 5`. Stubbed |
 | `KEMPT_JOURNALCTL_CMD`, `KEMPT_GROUPS_CMD` | `journalctl`, `id -Gn` | `kempt startup --all`'s log lines. The system journal is read only for members of `wheel`, `adm` or `systemd-journal`, and only after `journalctl --system -b -n 1` prints a line: it exits 0 without access. One query per scope, and none when nothing failed |
 | `KEMPT_CRONTAB_CMD`, `KEMPT_ATQ_CMD` | `crontab`, `atq` | Your own cron and `at` jobs for the Startup report |
 | `KEMPT_RPM_QF_CMD` | `rpm` | One `rpm -qf` for every unit and autostart file the Startup report lists, with an unowned directory between paths to mark each answer |

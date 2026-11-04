@@ -59,7 +59,7 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
   reclaim_as_root && return 0
   flatpak_present || return 0
   local mode last listing classified sizes_tsv sizes='{}' sized=true digest
-  mode="$(reclaim_effective_mode)"
+  mode="$(reclaim_mode)"
   [[ "$mode" != off ]] || return 0
   last="$(reclaim_last_read)"
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
@@ -119,12 +119,10 @@ reclaim_authorized() {
     </dev/null >/dev/null 2>&1 9>&-
 }
 
-# The one removal, shared by `kempt reclaim` and the automatic step after an update. The caller
-# holds the update lock. Prints flatpak's own output on stdout and returns 0 whatever happened: the
-# outcome is in the globals below, because this runs on the far side of an update, where nothing
-# it does may fail the run.
+# The one removal, for `kempt reclaim`. The caller holds the update lock. Prints flatpak's own output
+# on stdout and returns 0 whatever happened: the outcome is in the globals below.
 #   RECLAIM_RESULT  removed | nothing | changed | needs_auth | failed
-#   RECLAIM_WHY     for changed: digest | unstable | new (not in the run's before-snapshot)
+#   RECLAIM_WHY     for changed: digest | unstable
 #   RECLAIM_GONE    JSON array of the refs that are really gone, or null when that is unknown
 #   RECLAIM_PARTIAL 1 when flatpak failed after the removal began: some refs may be gone, not all
 #   RECLAIM_BYTES   their cached sizes added up, or empty when unknown
@@ -149,8 +147,8 @@ reclaim_authorized() {
 # runtime now needed) still goes on to the extensions nothing uses; the outcome is partial either
 # way. RECLAIM_RC and RECLAIM_ERROR are the first failing pass's: that is the pass whose reason says
 # what went wrong (a refused runtime), and a second pass failing too usually fails for the same one.
-reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
-  local via="$1" expected="$2" before="${3:-}"
+reclaim_remove() {  # via expected-digest
+  local via="$1" expected="$2"
   RECLAIM_RESULT=failed RECLAIM_WHY="" RECLAIM_GONE='[]' RECLAIM_BYTES="" RECLAIM_RC="" RECLAIM_ERROR=""
   RECLAIM_PARTIAL="" RECLAIM_IN_USE="" RECLAIM_SKIPPED=""
   local listing sizes_tsv="" after mid rc=0 prc out_file="" saved_trap="" prev_cmd=""
@@ -158,7 +156,7 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
-  reclaim_compare "$listing" "$expected" "$before" || return 0
+  reclaim_compare "$listing" "$expected" || return 0
   if ! reclaim_authorized; then
     RECLAIM_RESULT=needs_auth; reclaim_record "$via" "$RECLAIM_DIGEST"; return 0
   fi
@@ -167,7 +165,7 @@ reclaim_remove() {  # via expected-digest [before-snapshot.tsv]
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
     RECLAIM_RESULT=failed RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$expected"; return 0
   fi
-  reclaim_compare "$listing" "$expected" "$before" || return 0
+  reclaim_compare "$listing" "$expected" || return 0
   readarray -t pass2 < <(reclaim_extensions_in "$listing")
   readarray -t pass1 < <(jq -r --args '.unused[].ref | select(. as $r | $ARGS.positional | index($r) | not)' \
                            "${pass2[@]}" <<<"$listing")
@@ -351,17 +349,17 @@ reclaim_in_use_new() {  # listing-json; stdin: flatpak's output
 # One look at the list against what was agreed to. Non-zero when the removal must stop, with the
 # outcome already recorded (nothing unused, or changed and why). Sets RECLAIM_DIGEST. Called only
 # from reclaim_remove, whose local `via` it records under.
-reclaim_compare() {  # listing expected-digest [before-snapshot.tsv]
+reclaim_compare() {  # listing expected-digest
   local classified
   RECLAIM_DIGEST=""
   if ! classified="$(reclaim_classify "$1" 2>/dev/null)"; then
     RECLAIM_RESULT=failed RECLAIM_ERROR="$KEMPT_RECLAIM_NO_LIST"; reclaim_record "$via" "$2"; return 1
   fi
-  # Nothing unused any more. After an update that is simply nothing to do. For kempt reclaim, the
-  # set the person agreed to went back into use since they were shown it: changed, as cmd_reclaim
-  # says when it sees the same first, never "nothing unused was found" (a success in the widget).
+  # Nothing unused any more: the set the person agreed to went back into use since they were shown
+  # it. Changed, as cmd_reclaim says when it sees the same first, never "nothing unused was found"
+  # (a success in the widget).
   if [[ "$(jq -r 'length' <<<"$classified" 2>/dev/null)" == 0 ]]; then
-    if [[ "$via" != update && -n "$2" ]]; then RECLAIM_RESULT=changed RECLAIM_WHY=digest
+    if [[ -n "$2" ]]; then RECLAIM_RESULT=changed RECLAIM_WHY=digest
     else RECLAIM_RESULT=nothing
     fi
     reclaim_record "$via" "$2"; return 1
@@ -372,43 +370,11 @@ reclaim_compare() {  # listing expected-digest [before-snapshot.tsv]
     RECLAIM_RESULT=changed RECLAIM_WHY=digest
   elif ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
     RECLAIM_RESULT=changed RECLAIM_WHY=unstable
-  elif [[ -n "${3:-}" ]] && ! reclaim_all_in_snapshot "$classified" "$3"; then
-    # After an update: a ref that was not installed when the run began was put there by the run, or
-    # by something running beside it, and the hour it has "been unused" belongs to another ref.
-    RECLAIM_RESULT=changed RECLAIM_WHY=new
   else
     return 0
   fi
   reclaim_record "$via" "$RECLAIM_DIGEST"
   return 1
-}
-
-# Every listed ref present in the run's before-snapshot, whose rows are `id/branch` for a runtime
-# and `id` for an app (flatpak_snapshot). `flatpak list` hides the .Locale, .Debug and .Sources
-# extensions without --all, so one of those counts as present when its parent is: a runtime on the
-# same branch, or an app (whose row has no branch). An extension whose parent is gone too is
-# present when a check saw it unused before the run began (its since predates the snapshot).
-reclaim_all_in_snapshot() {  # classified-json snapshot.tsv → 0 when all are there
-  local keys missing start
-  # An empty snapshot would put every key in the lookup table below, not none of them.
-  [[ -s "$2" ]] || return 1
-  start="$(date -r "$2" +%s 2>/dev/null)" || return 1
-  # One line per ref: the snapshot rows that would prove it present, tab-separated. `*` (never a
-  # row) stands for "seen unused before the run began".
-  keys="$(jq -r --argjson start "$start" '
-            .[] | (.ref | split("/")) as $r
-            | if $r[0] != "runtime" then $r[1]
-              elif ($r[1] | test("[.](Locale|Debug|Sources)$")) then
-                ($r[1] | sub("[.](Locale|Debug|Sources)$"; "")) as $p
-                | ((try (.since | fromdateiso8601) catch null) // $start) as $s
-                | [$p + "/" + $r[3], $p] + (if $s < $start then ["*"] else [] end) | join("\t")
-              else $r[1] + "/" + $r[3] end' \
-          <<<"$1" 2>/dev/null)" || return 1
-  [[ -n "$keys" ]] || return 1
-  missing="$(awk -F'\t' 'NR == FNR { have[$1] = 1; next }
-                         { for (i = 1; i <= NF; i++) if ($i in have || $i == "*") next; print }' \
-             "$2" - <<<"$keys" 2>/dev/null)" || return 1
-  [[ -z "$missing" ]]
 }
 
 # The outcome, in the two places that keep it: reclaim-last.json (the next check carries it into
@@ -426,40 +392,6 @@ reclaim_record() {  # via digest
     needs_auth) log_event "reclaim needs authorization, nothing removed" ;;
     *)          log_event "reclaim failed rc=${RECLAIM_RC:-?}${RECLAIM_PARTIAL:+, what was removed is unknown}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
   esac
-}
-
-# reclaim=automatic: remove the set the last check offered, after a successful run. Called AFTER
-# the run's fp-after snapshot, so runtimes removed here are not reported as removed by the update,
-# and only when every ref is in the run's fp-before snapshot (reclaim_remove). A removal that
-# fails or needs an administrator is recorded once (reclaim-last.json, then status in state.json)
-# and this step skips while the same set is on offer, so it is never a failure on every run.
-# Sets RECLAIM_RUN_JSON to {refs, bytes, status} for the history entry, or empty when nothing was
-# attempted. flatpak's output goes to the run log only; the outcome sentence to the log, and to the
-# terminal too when the output is live. Never fails: the run is over.
-reclaim_after_run() {  # log_file
-  RECLAIM_RUN_JSON=""
-  reclaim_as_root && return 0
-  flatpak_present || return 0
-  [[ "$(reclaim_effective_mode)" == automatic ]] || return 0
-  local offer digest
-  offer="$(jq -r -n '[inputs][0].reclaim | select(type == "object")
-                     | select(.status != "needs_auth" and .status != "failed") | .digest // ""' \
-           "$STATE_FILE" 2>/dev/null)" || return 0
-  digest="$offer"
-  [[ "$digest" =~ ^[0-9a-f]{16}$ ]] || return 0
-  run_heading "$1" "Unused Flatpak runtimes"
-  reclaim_remove update "$digest" "$SNAP_DIR/fp-before.tsv" >>"$1" 2>&1 || return 0
-  # The outcome in kempt reclaim's words: always into the log after flatpak's lines, and under the
-  # heading on a live terminal, where flatpak's own lines are not shown.
-  reclaim_outcome_lines update >>"$1" 2>&1 || true
-  [[ "${KEMPT_LIVE_OUTPUT:-}" != "1" ]] || reclaim_outcome_lines update || true
-  RECLAIM_RUN_JSON="$(jq -cn --slurpfile g <(printf '%s\n' "$RECLAIM_GONE") --arg b "$RECLAIM_BYTES" --arg s "$RECLAIM_RESULT" \
-    --arg p "${RECLAIM_PARTIAL:-}" --arg u "${RECLAIM_IN_USE:-}" \
-    '{refs: $g[0], bytes: (if $b == "" then null else ($b | tonumber) end), status: $s}
-     + (if $p == "" then {} else {partial: true} end)
-     + (if $u == "" then {} else {in_use: ($u | fromjson)} end)' 2>/dev/null)" \
-    || RECLAIM_RUN_JSON=""
-  return 0
 }
 
 # One optional block into the state cmd_check is assembling. A jq that fails leaves it as it was, so
@@ -1915,7 +1847,6 @@ cmd_update() {
   # Runtimes are counted, itemized and updated alongside the apps: `flatpak update` with no ref
   # updates both, so the check asks about both and the summary reports both.
   local fp_status=skipped fp_scopes=null   # apply_flatpak_updates writes these; see its header
-  local RECLAIM_RUN_JSON=""              # reclaim_after_run writes this
   apply_flatpak_updates
   # snapshots (after) + reports
   # Reports must never crash cmd_update after the system already changed - degrade to empty +
@@ -1971,8 +1902,6 @@ cmd_update() {
     if [[ "$fp_after_ok" == true ]]; then
       fp_report="$(tsv_diff_updates "$fp_before" "$SNAP_DIR/fp-after.tsv" | flatpak_report_scopes)" \
         || { fp_report="$empty_report"; log_warn "$log" "warning: flatpak report diff failed, so the summary is incomplete"; }
-      # Only here: after the snapshot the report is built from, and only on a run that worked.
-      [[ "$status" == ok ]] && { reclaim_after_run "$log" || true; }
     else
       log_warn "$log" "warning: flatpak snapshot after the run failed, so the summary is incomplete"
     fi
@@ -2082,15 +2011,14 @@ cmd_update() {
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
-        --argjson fp_scopes "$fp_scopes" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") \
+        --argjson fp_scopes "$fp_scopes" \
         --arg fb "$startup_base" '
-    ($dnfa[0]) as $dnf | ($fpa[0]) as $fp | ($fp_reclaimed[0]) as $fp_reclaimed |
+    ($dnfa[0]) as $dnf | ($fpa[0]) as $fp |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}
-                      + (if $fp_reclaimed == null then {} else {reclaimed: $fp_reclaimed} end)
                       + (if $fp_scopes == null then {} else {scopes: $fp_scopes} end)) }}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
     + (if $staged_nothing_why == "" then {} else {staged_nothing: $staged_nothing_why} end)
@@ -2188,13 +2116,7 @@ cmd_update() {
       discover_offer_pending && discover_tail=". Discover's update check can cancel this, so restart soon or run kempt discover-notifier off"
       notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}$discover_tail"
     elif [[ "$status" == "ok" ]]; then
-      # The space an automatic removal freed, when it freed some: the one moment it is news.
-      local freed_tail=""
-      if [[ -n "$RECLAIM_RUN_JSON" && "${RECLAIM_RESULT:-}" == removed && -n "${RECLAIM_BYTES:-}" \
-            && "${RECLAIM_BYTES:-0}" != 0 ]]; then
-        freed_tail=", ~$(human_bytes "$RECLAIM_BYTES") freed"
-      fi
-      notify "Kempt" "${phrase:-Update finished}$freed_tail$([[ "$reboot" == "true" ]] && echo ', restart needed')"
+      notify "Kempt" "${phrase:-Update finished}$([[ "$reboot" == "true" ]] && echo ', restart needed')"
     else
       # The same reason the summary and the event line carry: "see the log" is not an answer.
       # The widget's Last update row has Show Log for this run.
@@ -3380,11 +3302,9 @@ cmd_unstage() {
 }
 
 # What a removal came to, in words: success on stdout, anything else on stderr. Returns the exit
-# code `kempt reclaim` gives it. Reads only the RECLAIM_* globals reclaim_remove set, so the
-# automatic step after an update says the same sentences (reclaim_after_run). With "update", the
-# refusals are worded for a run where nothing was listed to the person first.
-reclaim_outcome_lines() {  # [update]
-  local rc=0 ctx="${1:-}"
+# code `kempt reclaim` gives it. Reads only the RECLAIM_* globals reclaim_remove set.
+reclaim_outcome_lines() {
+  local rc=0
   case "$RECLAIM_RESULT" in
     removed)
       if [[ -n "$RECLAIM_BYTES" && "$RECLAIM_BYTES" != 0 ]]; then
@@ -3418,24 +3338,14 @@ reclaim_outcome_lines() {  # [update]
       fi ;;
     nothing) echo "Nothing was removed. Flatpak found nothing unused to remove." ;;
     changed)
-      if [[ "$ctx" == update ]]; then
-        if [[ "$RECLAIM_WHY" == unstable ]]; then
-          echo "Nothing was removed. Some runtimes became unused less than an hour ago." >&2
-        else
-          echo "Nothing was removed. The unused runtimes changed since the last check." >&2
-        fi
-      elif [[ "$RECLAIM_WHY" == unstable ]]; then
+      if [[ "$RECLAIM_WHY" == unstable ]]; then
         echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
       else
         echo "What Flatpak can remove changed since this was shown. Nothing was removed." >&2
       fi
       rc=6 ;;
     needs_auth)
-      if [[ "$ctx" == update ]]; then
-        echo "Removing the unused runtimes needs an administrator. Nothing was removed." >&2
-      else
-        echo "Removing these needs an administrator. Nothing was removed." >&2
-      fi
+      echo "Removing these needs an administrator. Nothing was removed." >&2
       rc=5 ;;
     # The event log holds the same line with flatpak's exit code, for after this has scrolled away.
     # With RECLAIM_PARTIAL set here, flatpak failed and the list afterwards could not be read, so

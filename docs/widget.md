@@ -150,12 +150,10 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    Discover, does not get this message or the warning below. The **Discover** row in settings turns the
    notifier back on.
 10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
-    is at least 100 MB to free, or an amount Kempt could not measure. **Show Runtimes** lists the
+    is at least 1 GB to free. **Show Runtimes** lists the
     runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
     saw. If the list changed, or removing needs an administrator, nothing is removed and the widget
-    says so. When **Unused Flatpak runtimes** is **Remove after updates**, the message adds
-    *"Kempt removes them after the next update."* and the button reads **Free Up Space Now**.
-    Closing it hides it until the list changes or Plasma restarts.
+    says so. Closing it hides it until the list changes or Plasma restarts.
 
 **Check Installation** checks Kempt's own files and settings without a password. A message under
 the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it found,
@@ -381,8 +379,7 @@ The lowest value it offers is 15 minutes.
 **Restart…** button. With it off, the footer still says `restart pending`. Kempt never restarts on
 its own either way.
 
-**Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default), **Remove after updates**
-or **Never**. It is greyed out without Flatpak, or when Flatpak apps are left out of
+**Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default) or **Never**. It is greyed out without Flatpak, or when Flatpak apps are left out of
 updates.
 
 **Password prompts** has **Allow without password…** and **Require a password…**. Each asks for

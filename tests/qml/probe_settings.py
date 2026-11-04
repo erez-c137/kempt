@@ -35,7 +35,7 @@ for d in (VALUES, FAILGET, FAILSET, SLOWSET):
 DEFAULTS = (("include_flatpak", "true"), ("auto_accept", "true"),
             ("surface", "popup"), ("refresh_interval_min", "60"),
             ("widget_icon_size", "medium"), ("restart_reminder", "true"),
-            ("reclaim", "automatic"))
+            ("reclaim", "off"))
 # Whether flatpak is installed, as the page asks it: `command -v` on the first word of the CLI's
 # own uninstall command. Pointed at a file in the sandbox, so this probe decides the answer
 # rather than the box it runs on; removing the file is "flatpak is not installed".
@@ -189,7 +189,7 @@ NAMES = ("(function () { var r = [], i;"
 p.check("each unused-runtimes radio is named with its setting",
         ev0(NAMES % {"r": "reclaimRepeater"}),
         "|".join(["Unused Flatpak runtimes: Ask me first",
-                  "Unused Flatpak runtimes: Remove after updates", "Unused Flatpak runtimes: Never"]))
+                  "Unused Flatpak runtimes: Never"]))
 p.check("...and each surface radio",
         ev0(NAMES % {"r": "surfaceRepeater"}),
         "|".join(["Run updates in: Terminal window", "Run updates in: In this widget",
@@ -274,12 +274,12 @@ p.check("...and the unused-runtimes group untouched", group(evR, "reclaimRepeate
 
 before_icon = group(evR, "iconSizeRepeater")
 before_surface = group(evR, "surfaceRepeater")
-evR("reclaimRepeater.itemAt(2).toggle()")
-evR("reclaimRepeater.itemAt(2).toggled()")
+evR("reclaimRepeater.itemAt(0).toggle()")
+evR("reclaimRepeater.itemAt(0).toggled()")
 p.pump(60)
-p.check("clicking an unused-runtimes radio moves that choice", evR("page.reclaimKey"), "off")
+p.check("clicking an unused-runtimes radio moves that choice", evR("page.reclaimKey"), "ask")
 p.check("...leaving exactly one of its own buttons checked",
-        group(evR, "reclaimRepeater"), [1, 2])
+        group(evR, "reclaimRepeater"), [1, 0])
 p.check("...and the other two groups untouched",
         [group(evR, "surfaceRepeater"), group(evR, "iconSizeRepeater")],
         [before_surface, before_icon])
@@ -289,7 +289,7 @@ p.check("...and the other two groups untouched",
 # radio would leave both lit. Every group, clicked the way a mouse clicks.
 for _rep, _key, _other in (("surfaceRepeater", "surfaceKey", 1),
                            ("iconSizeRepeater", "iconSizeKey", 3),
-                           ("reclaimRepeater", "reclaimKey", 0)):
+                           ("reclaimRepeater", "reclaimKey", 1)):
     _sel = group(evR, _rep)[1]
     evR("%s.itemAt(%d).toggle()" % (_rep, _sel))
     evR("%s.itemAt(%d).toggled()" % (_rep, _sel))
@@ -661,17 +661,14 @@ p.check("...with the CLI's own ids", ev6("page.holds[0].id"), "dnf:vim-common")
 p.check("an untouched page writes nothing at all", p.calls_matching("config set"), [])
 
 # --- unused Flatpak runtimes ----------------------------------------------------------------------
-p.check("the stored reclaim setting is the selected radio", ev6("page.reclaimKey"), "automatic")
+p.check("the stored reclaim setting is the selected radio", ev6("page.reclaimKey"), "off")
 p.check("...and with flatpak installed and included, the group is usable",
         ev6("reclaimRepeater.itemAt(0).enabled"), True)
-p.check("...and with Remove after updates chosen, it says a shared computer is still asked first",
-        [ev6("reclaimNote.visible"), ev6("reclaimNote.text")],
-        [True, "Kempt still asks first on an image-based Fedora, or when more than one person may use this computer."])
 p.check("...under the label the plan gives it",
         ev6("reclaimRepeater.itemAt(0).Kirigami.FormData.label"), "Unused Flatpak runtimes:")
-p.check("...with its three choices in words",
-        [ev6("reclaimRepeater.itemAt(%d).text" % i) for i in range(3)],
-        ["Ask me first", "Remove after updates", "Never"])
+p.check("...with its two choices in words",
+        [ev6("reclaimRepeater.itemAt(%d).text" % i) for i in range(2)],
+        ["Ask me first", "Never"])
 ev6("reclaimRepeater.itemAt(0).toggle()")
 ev6("reclaimRepeater.itemAt(0).toggled()")
 p.clear_calls()
@@ -701,7 +698,7 @@ p.check("...and so is Include Flatpak apps", evNF("includeFlatpak.enabled"), Fal
 p.check("...which says why, under it", [evNF("includeFlatpakNote.visible"), evNF("includeFlatpakNote.text")],
         [True, "Flatpak is not installed."])
 p.check("...said once, so the group adds nothing", evNF("reclaimNote.visible"), False)
-p.check("...while the stored choice still shows", evNF("page.reclaimKey"), "automatic")
+p.check("...while the stored choice still shows", evNF("page.reclaimKey"), "off")
 open(FLATPAK_BIN, "w").write("#!/bin/sh\nexit 0\n")
 os.chmod(FLATPAK_BIN, 0o755)
 
@@ -714,7 +711,7 @@ p.check("an empty answer for reclaim is remembered as unknown",
 evOR("page.saveConfig()")
 p.wait_idle(evOR, "cfgExecutor")
 p.check("...so an untouched Apply writes nothing over it", stored("reclaim"), "(absent)")
-setval("reclaim", "automatic")
+setval("reclaim", "off")
 
 p.clear_calls()
 ev6('page.removeHold("dnf:vim-common")')

@@ -53,26 +53,19 @@ if command -v node >/dev/null 2>&1; then
                 backends: { dnf: { updated: [pkg("bash")] } }, reboot_needed: true },
       held: { status: "ok", surface: "offline", timestamp: at, staged_nothing: "held", backends: {} },
       nothing: { status: "ok", surface: "offline", timestamp: at, staged_nothing: "nothing_pending", backends: {} },
-      reclaimed: { status: "ok", surface: "terminal", timestamp: at, duration_sec: 30,
-                   backends: { flatpak: { updated: [pkg("org.example.App")],
-                     reclaimed: { status: "removed", refs: ["a", "b"], bytes: 300000000, in_use: ["c"] } } } },
     };
     for (const [name, json] of Object.entries(RUNS)) {
       const run = L.lastRunOf(JSON.stringify(json));
       tryAdd("postRunLine(" + name + ")", () => L.postRunLine(run));
       tryAdd("lastRunText(" + name + ")", () => L.lastRunText(run, now));
-      tryAdd("lastRunSubtitle(" + name + ")", () => L.lastRunSubtitle(run, ""));
+      tryAdd("lastRunSubtitle(" + name + ")", () => L.lastRunSubtitle(run));
     }
     tryAdd("doctorOutcomeOf(1, one FAIL)", () => L.doctorOutcomeOf(1, "FAIL  the helper is missing\n", ""));
     for (const rc of [0, 1, 3, 5, 75, 124]) {
       tryAdd("runStartMessage(" + rc + ")", () => L.runStartMessage(rc, "", ""));
       tryAdd("discardStagedMessage(" + rc + ")", () => L.discardStagedMessage(rc, "", ""));
       tryAdd("doctorOutcomeOf(" + rc + ")", () => L.doctorOutcomeOf(rc, "", ""));
-      for (const result of ["removed", "needs_auth", "partial", "failed"]) {
-        const last = { at: at, result: result, bytes: 300000000, refs: result === "partial" ? null : ["a"], in_use: ["c"] };
-        tryAdd("reclaimOutcomeOf(" + rc + ", " + result + ")",
-          () => L.reclaimOutcomeOf(rc, "", "", last, Date.parse(at)));
-      }
+      tryAdd("reclaimSaid(" + rc + ")", () => L.reclaimSaid(rc, "", ""));
     }
     process.stdout.write(out.join("\n") + "\n");
   ' "$UI/logic.js" "$FIXTURES" > "$TEXT"

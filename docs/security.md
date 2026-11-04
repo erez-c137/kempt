@@ -68,8 +68,7 @@ an active local session, with no password. Two cases can still ask for authentic
 [Accepted limitations](#accepted-limitations). Apps installed with `flatpak install --user` live in
 your home, so `flatpak update --user` needs no polkit at all. Kempt runs it after the system one.
 
-**Removing unused Flatpak runtimes runs as you too.** `kempt reclaim`, and the removal after an
-update with `reclaim=automatic`, run `flatpak uninstall --system --no-related --noninteractive`
+**Removing unused Flatpak runtimes runs as you too.** `kempt reclaim` runs `flatpak uninstall --system --no-related --noninteractive`
 with the refs you were shown, by name. `--no-related` stops Flatpak adding related refs.
 
 Kempt lists the runtimes again just before, and removes nothing unless the list is still that set.
@@ -88,9 +87,7 @@ dialog either. If polkit still refuses Flatpak's helper, the answer is the same.
 Kempt refuses to remove as root, under `sudo` or under `pkexec`. Flatpak counts the calling user's
 own apps as users of a system runtime. As root it would see root's apps instead of yours, and
 could remove a runtime one of yours needs. For the same reason, Flatpak cannot see another
-account's own apps. When more than one person may use the machine, `reclaim=automatic` acts as
-`ask`, so a person agrees to each removal.
-[configuration.md](configuration.md#unused-flatpak-runtimes) lists the signals.
+account's own apps, so a person agrees to each removal.
 
 ## Validate before exec
 

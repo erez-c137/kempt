@@ -3142,8 +3142,8 @@ STAGED_OK='{"status":"ok","surface":"offline","duration_sec":28,"timestamp":"202
 assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('$STAGED_OK'))")" "true" "a clean staging run's report repeats the staged message"
 assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"x\"}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"staged_nothing\":\"held\"}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"background\"}'))+'|'+L.reportRepeatsStaged(null)")" \
   "false|false|false|false" "...and a failed run, one that staged nothing, a live run and no run do not"
-assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-09-05T12:00:00+03:00\",\"backends\":{\"flatpak\":{\"reclaimed\":{\"status\":\"removed\",\"refs\":[\"a//1\"],\"in_use\":[\"a//1\"]}}}}'))+'|'+L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\"}'))")" \
-  "false|false" "...nor one whose report adds the in-use note, nor one with no time the Last update row could show"
+assert_eq "$(js "L.reportRepeatsStaged(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\"}'))")" \
+  "false" "...nor one with no time the Last update row could show"
 assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots")" \
   '["staged","restart"]' "...so the staged message stands alone and the report's slot goes to the next message"
 assert_eq "$(js "L.viewModel(Object.assign({}, $STACK_ALL, {offline_staged:null}),false,'',{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf('report')")" \
@@ -3169,14 +3169,14 @@ assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).riskyMessa
 # is no offer (nothing unused, or part of the list is younger than an hour), and so is an offer
 # under the size threshold. A size the CLI could not work out still shows, without a number.
 RC_OFFER='{mode:"ask",refs:[{ref:"runtime/org.kde.Platform/x86_64/5.15-23.08",commit:"a",since:"2026-09-29T08:00:00Z",eol:"org.kde.Platform 5.15 is no longer supported"},{ref:"runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",commit:"b",since:"2026-09-29T08:00:00Z",eol:null}],offerable_bytes:1530000000,digest:"0123456789abcdef",status:"ok"}'
-assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "100000000" "the threshold is 100 MB, in the SI bytes the footer uses"
+assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "1000000000" "the threshold is 1 GB, in the SI bytes the footer uses"
 assert_eq "$(js "L.reclaimOffered($RC_OFFER)")" "true" "an offer with a digest and 1.5 GB is shown"
-assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:99999999}))")" "false" \
-  "...one under 100 MB is not worth the room in a popup that fits two messages"
-assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:100000000}))")" "true" \
-  "...and exactly 100 MB is"
-assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:null}))")" "true" \
-  "...a size the CLI could not work out still shows"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:999999999}))")" "false" \
+  "...one under 1 GB is not worth the room in a popup that fits two messages"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:1000000000}))")" "true" \
+  "...and exactly 1 GB is"
+assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:null}))")" "false" \
+  "...and a size the CLI could not work out is no offer"
 assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{digest:''}))")" "false" \
   "an empty digest is no offer, whatever else the block says"
 assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{digest:42}))")" "false" \
@@ -3187,15 +3187,6 @@ assert_eq "$(js 'L.reclaimOffered("x")')" "false" "...and a block of the wrong t
 assert_eq "$(js "L.reclaimMessageOf($RC_OFFER)")" \
   "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
   "the line says how much, with the download footer's ~, and why it is safe"
-assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{offerable_bytes:null}))")" \
-  "Space can be freed. No installed app uses these Flatpak runtimes." \
-  "...and without a number when the size is unknown"
-assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{mode:'automatic'}))")" \
-  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes. Kempt removes them after the next update." \
-  "with reclaim=automatic it says the next update removes them"
-assert_eq "$(js "L.reclaimMessageOf(Object.assign($RC_OFFER,{mode:'automatic',status:'needs_auth'}))")" \
-  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
-  "...but not when the last automatic try needed an administrator: the next update skips this set"
 
 assert_eq "$(js "L.reclaimRefLineOf({ref:'runtime/org.freedesktop.Platform.GL.default/x86_64/24.08',eol:null})")" \
   "org.freedesktop.Platform.GL.default 24.08" "a ref reads as its id and branch"
@@ -3221,12 +3212,6 @@ assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimLines")" \
   "...one line per runtime for Show Runtimes"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimDigest")" "0123456789abcdef" \
   "...and the digest the button hands back to the CLI"
-assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimAutomatic")" "false" "...in ask mode"
-RC_AUTO_STATE="$(printf '%s' "$RC_STATE" | sed 's/mode:"ask"/mode:"automatic"/')"
-assert_eq "$(js "L.viewModel($RC_AUTO_STATE,false).reclaimAutomatic")" "true" \
-  "in automatic mode the button is Free Up Space Now"
-assert_eq "$(js "[L.viewModel($(printf '%s' "$RC_AUTO_STATE" | sed 's/digest:"0123456789abcdef",status:"ok"/digest:"0123456789abcdef",status:"failed"/'),false).reclaimAutomatic, L.viewModel($(printf '%s' "$RC_AUTO_STATE" | sed 's/digest:"0123456789abcdef",status:"ok"/digest:"0123456789abcdef",status:"needs_auth"/'),false).reclaimAutomatic].join()")" \
-  "false,false" "...but not after the automatic try failed or needed an administrator: the next update skips this set"
 assert_eq "$(js "L.viewModel($RC_STATE,false,'',{reclaimDismissed:'0123456789abcdef'}).messageSlots")" '[]' \
   "closed for this digest, it stays closed"
 assert_eq "$(js "L.viewModel($RC_STATE,false,'',{reclaimDismissed:'ffffffffffffffff'}).messageSlots")" '["reclaim"]' \
@@ -3235,93 +3220,19 @@ assert_eq "$(js "L.viewModel($RC_STATE,true).messageSlots")" '[]' "a run in flig
 assert_eq "$(js 'L.viewModel(S("live"),false).reclaimMessage')" "" \
   "a state without the block (flatpak off or absent, reclaim=off) has no offer"
 
-# --- reclaimOutcomeOf: what the popup says after Free Up Space ---------------------------------
-# The widget runs `kempt reclaim -y --expect=<digest>`. The size comes from
-# reclaim.last, which that run writes, so it is formatted the way the offer was ("~1.5 GB") rather
-# than the CLI's "about". A last record older than the press is some other removal: `kempt reclaim`
-# writes none when nothing at all is unused, so an old one must not be read as this press's.
-RC_PRESS=$(( $(date +%s) * 1000 ))
-RC_AT="$(date -Iseconds)"
-RC_LAST="{at:'$RC_AT',via:'widget',result:'removed',refs:['runtime/org.kde.Platform/x86_64/5.15-23.08'],bytes:1530000000,digest:'0123456789abcdef'}"
-RC_OUT='No installed app uses these Flatpak runtimes:\n  org.kde.Platform 5.15\nRemoving them frees about 1.5 GB.\nFreed about 1.5 GB.\n'
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(0, '$RC_OUT', '', $RC_LAST, $RC_PRESS))")" \
-  '{"ok":true,"text":"Freed ~1.5 GB."}' "a removal says how much it freed, in the offer's own spelling"
-assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
-  "Freed about 1.5 GB." "...a last record older than the press is not this press: the CLI's own last line is"
-assert_eq "$(js "L.reclaimOutcomeOf(0, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{bytes:null}), $RC_PRESS).text")" \
-  "Removed 2 runtimes." "...with no size, the CLI's count"
-# Flatpak removed extensions an app had just started using (reclaim.last.in_use): said after it.
-assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{in_use:['org.freedesktop.Platform.Locale//24.08']}), $RC_PRESS).text")" \
-  "Freed ~1.5 GB. Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back." \
-  "a removal that took an extension an app had just started using says so, and how to put it back"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null,in_use:['a//1','b//2']}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimPartialUnsized') Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." \
-  "...in the plural, after a partial removal too"
-assert_eq "$(js "L.reclaimOutcomeOf(0, '$RC_OUT', '', Object.assign($RC_LAST,{in_use:[],at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
-  "Freed about 1.5 GB." "...and says nothing of it for an empty list or an older record"
-# The same sentences as the terminal's.
-assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimInUseOne')" "...the singular in the CLI's words"
-# shellcheck disable=SC2016  # the CLI's source spells the count $k
-assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimInUseMore' | sed 's/%1/$k/')" "...and the plural"
-assert_eq "$(js "L.reclaimOutcomeOf(0, 'Nothing to remove. Every installed Flatpak runtime is in use.\n', '', null, $RC_PRESS).text")" \
-  "Nothing to remove. Every installed Flatpak runtime is in use." "...and nothing unused at all, as the CLI says it"
-assert_eq "$(js "L.reclaimOutcomeOf(0, '', '', null, $RC_PRESS).text")" "$(js 'L.COPY.reclaimNothing')" \
-  "...a success with nothing said still says something"
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(6, '', 'What Flatpak can remove changed since this was shown. Nothing was removed.\n', null, $RC_PRESS))")" \
+# --- reclaimSaid: what the popup says after Free Up Space ---------------------------------------
+# The widget runs `kempt reclaim -y --expect=<digest>` and repeats what the CLI said.
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(0, 'Removing them frees about 1.5 GB.\\nFreed about 1.5 GB.\\n', ''))")" \
+  '{"ok":true,"text":"Freed about 1.5 GB."}' "a removal says the CLI's last line"
+assert_eq "$(js "L.reclaimSaid(0, 'Freed about 1.5 GB.\\n', 'Flatpak also removed an extension an app uses.\\nsecond line\\n').text")" \
+  "Freed about 1.5 GB. Flatpak also removed an extension an app uses." "...and the first line of its note, on the same line"
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(0, '', ''))")" '{"ok":true,"text":"Nothing to remove. Every installed Flatpak runtime is in use."}' \
+  "a CLI that said nothing is nothing to remove"
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(6, '', 'What Flatpak can remove changed since this was shown. Nothing was removed.\\nmore\\n'))")" \
   '{"ok":false,"text":"What Flatpak can remove changed since this was shown. Nothing was removed."}' \
-  "exit 6: the set changed after it was shown, so nothing was removed"
-assert_eq "$(js "L.reclaimOutcomeOf(6, '', '', null, $RC_PRESS).text")" \
-  "What Flatpak can remove changed since this was shown. Nothing was removed." "...in those words when the CLI said nothing"
-# The CLI asks polkit without a dialog, so where an administrator is needed the press ends in exit 5
-# with this press's record saying needs_auth.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(5, '', '', Object.assign($RC_LAST,{result:'needs_auth',refs:[],bytes:null}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Removing these needs an administrator. Nothing was removed."}' \
-  "exit 5 with needs_auth says an administrator is needed and nothing was removed"
-assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Removing these needs an administrator. Nothing was removed.\n', Object.assign($RC_LAST,{result:'needs_auth',refs:[],bytes:null,error:'error: Failed to uninstall x: Flatpak system operation Uninstall not allowed for user'}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimNeedsAuth')" "...also when flatpak's helper refused after the check said yes"
-# A failed uninstall that removed nothing comes back as exit 1 with reclaim.last saying failed.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Could not free the space. Nothing was removed."}' \
-  "a failed uninstall that removed nothing says so"
-# Flatpak stopped part-way: what went is said, and so is that it was not everything. Never a success.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', 'Flatpak could not remove all of them: error: Failed to uninstall x\n', Object.assign($RC_LAST,{partial:true,error:'error: Failed to uninstall x'}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Freed ~1.5 GB. Flatpak could not remove all of them."}' \
-  "a partial removal says what it freed and that flatpak could not remove all of them"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 1 runtime.\n', '', Object.assign($RC_LAST,{partial:true,bytes:null}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimPartialUnsized')" "...and with no size, that some but not all went"
-# The list between the passes failed (reclaim.last.skipped): the extensions were left in place and
-# nothing was refused. What went comes first, as the CLI prints it.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '$RC_OUT', '', Object.assign($RC_LAST,{partial:true,skipped:true,error:'Flatpak did not answer when asked what is unused'}), $RC_PRESS))")" \
-  '{"ok":false,"text":"Freed ~1.5 GB. Some extensions were left in place because Flatpak did not answer when asked what is unused. This widget offers them again if they take 100 MB or more."}' \
-  "a second pass skipped for a failed list says the extensions were left in place, not that Flatpak refused"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'Removed 2 runtimes.\n', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
-  "Removed 2 runtimes. $(js 'L.COPY.reclaimSkipped')" "...with no size, the CLI's count first"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{partial:true,skipped:true,bytes:null}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimPartialUnsized') $(js 'L.COPY.reclaimSkipped')" "...and with no count either, that some went"
-assert_not_contains "$(js 'L.COPY.reclaimSkipped')" "kempt" "...never sending the person to the terminal"
-assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "100000000" "...and the 100 MB it names is the offer's floor"
-assert_contains "$(cat "$REPO_ROOT/bin/kempt")" "$(js 'L.COPY.reclaimSkipped' | sed 's/\. .*/./')" \
-  "...the reason in the CLI's words"
-# Flatpak failed and what is left could not be read: never "Nothing was removed".
-RC_UNKNOWN="Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null,partial:true})"
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(1, '', 'Flatpak stopped with an error: error: x\n', $RC_UNKNOWN, $RC_PRESS))")" \
-  '{"ok":false,"text":"Flatpak stopped with an error, so the removal may be partial. Press Check for Updates to see what is left."}' \
-  "a removal whose outcome is unknown says it may be partial"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', Object.assign($RC_LAST,{result:'failed',refs:null,bytes:null}), $RC_PRESS).text.indexOf('Nothing was removed')")" \
-  "-1" "...and a record with refs null never reads as nothing removed"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them: error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,error:'error: Failed to uninstall'}), $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimNothingRemoved')" "...also when the record carries flatpak's error line"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', 'Flatpak could not remove them. See: kempt log\n', Object.assign($RC_LAST,{result:'failed',refs:[],bytes:null,at:'2020-01-01T00:00:00+00:00'}), $RC_PRESS).text")" \
-  "Flatpak could not remove them. See: kempt log" "...but an older failure is not this press's: the CLI's words"
-assert_eq "$(js "L.reclaimOutcomeOf(5, '', 'Nothing was removed. Removing unused runtimes is turned off (reclaim is off).\n', null, $RC_PRESS).text")" \
-  "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." "...any other refusal in the CLI's words"
-assert_eq "$(js "L.reclaimOutcomeOf(3, '', 'another kempt update is running\n', null, $RC_PRESS).text")" \
-  "$(js 'L.COPY.reclaimBusy')" "exit 3: an update holds the lock"
-assert_eq "$(js "L.reclaimOutcomeOf(1, 'No installed app uses these Flatpak runtimes:\n', 'Flatpak could not remove them. See: kempt log\n', null, $RC_PRESS).text")" \
-  "Flatpak could not remove them. See: kempt log" "a failure is stderr's first line, never the list on stdout"
-assert_eq "$(js "L.reclaimOutcomeOf(124, '', '', null, $RC_PRESS).text")" "Could not free the space (exit 124)." \
-  "...and a failure with nothing said names its exit code"
-assert_eq "$(js "L.reclaimOutcomeOf(1, '', '', null, $RC_PRESS).ok")" "false" "...and is not a success"
+  "a refusal is the first line of what the CLI said, not a success"
+assert_eq "$(js "L.reclaimSaid(1, '', '').text === L.COPY.reclaimFailed.replace('%1', '1') && L.reclaimSaid(1, '', '').ok === false")" "true" \
+  "...and a failure with no words has the widget's own sentence"
 
 # The widget must outwait the engine. Killing `kempt reclaim` releases the update lock while its
 # `timeout flatpak uninstall` child keeps going, and Update Now would come back mid-removal. The
@@ -3340,88 +3251,11 @@ assert_eq "$(( _ck / 1000 >= _ls + _du ))" "1" "premise: the check allowance cov
 assert_eq "$(js "L.RECLAIM_TIMEOUT_MS >= ($_pk + $_un + 5 * $_ls + 2 * $_du + $_lw) * 1000 + $_ck")" "true" \
   "Free Up Space waits longer than the engine's worst case for kempt reclaim"
 # ...and if it still stops waiting, the removal may be running: say that, not the executor's words.
-assert_eq "$(js "JSON.stringify(L.reclaimOutcomeOf(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms', null, $RC_PRESS))")" \
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(124, '', 'timeout after ' + L.RECLAIM_TIMEOUT_MS + 'ms'))")" \
   '{"ok":false,"text":"Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes."}' \
   "the widget giving up says the removal may still finish"
-assert_eq "$(js "L.reclaimOutcomeOf(124, '', 'Flatpak could not remove them. See: kempt log', null, $RC_PRESS).text")" \
+assert_eq "$(js "L.reclaimSaid(124, '', 'Flatpak could not remove them. See: kempt log').text")" \
   "Flatpak could not remove them. See: kempt log" "...but an exit 124 the CLI explained keeps its words"
-
-# --- the last update row carries what an automatic reclaim freed -------------------------------
-RC_RUN='{timestamp:"2026-09-29T10:00:00+03:00",surface:"popup",status:"ok",backends:{dnf:{updated:[{name:"a",from:"1",to:"2"}]},flatpak:{updated:[],reclaimed:{refs:["runtime/x/x86_64/1","runtime/y/x86_64/2"],bytes:1530000000,status:"removed"}}}}'
-assert_eq "$(js "JSON.stringify([L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedBytes, L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedCount])")" \
-  "[1530000000,2]" "the run's entry says what automatic reclaim removed"
-assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_RUN)).changedCount")" "1" "...and the removed runtimes are not package changes"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_RUN)))")" "Updated 1 package · ~1.5 GB freed" \
-  "the line after the run says how much it freed"
-assert_eq "$(js "L.lastRunText(L.lastRunOf(JSON.stringify($RC_RUN)), Date.parse('2026-09-29T11:00:00+03:00'))")" \
-  "Last update 1 hour ago · 1 package · ~1.5 GB freed" "...and so does the Last update row"
-RC_NOSIZE="$(printf '%s' "$RC_RUN" | sed 's/bytes:1530000000/bytes:null/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_NOSIZE)))")" "Updated 1 package · 2 unused runtimes removed" \
-  "...without a size it says how many went"
-RC_ONE="$(printf '%s' "$RC_NOSIZE" | sed 's/refs:\["runtime\/x\/x86_64\/1","runtime\/y\/x86_64\/2"\]/refs:["runtime\/x\/x86_64\/1"]/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_ONE)))")" "Updated 1 package · 1 unused runtime removed" \
-  "...in the singular for one"
-RC_FAILED="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"failed"/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_FAILED)))")" "Updated 1 package" \
-  "...and a reclaim that did not remove anything is not mentioned: it never fails the run"
-assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_FAILED)).reclaimedCount")" "0" "...and counts nothing"
-
-# --- ...and extensions that removal took from an app, once per run --------------------------------
-RC_INUSE1="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"removed",in_use:["org.freedesktop.Platform.Locale\/\/24.08"]/')"
-RC_INUSE2="$(printf '%s' "$RC_RUN" | sed 's/status:"removed"/status:"removed",in_use:["a\/\/1","b\/\/2"]/')"
-RC_NOW="Date.parse('2026-09-29T11:00:00+03:00')"
-assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_INUSE2)).reclaimedInUse")" "2" "the run's entry says how many extensions went that an app uses"
-assert_eq "$(js "L.lastRunOf(JSON.stringify($RC_RUN)).reclaimedInUse")" "0" "...and none when it does not say"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE1)))")" \
-  "Updated 1 package · ~1.5 GB freed $(js 'L.COPY.reclaimInUseOne')" \
-  "the line after the run says an extension an app uses went, and how to put it back"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE2)))")" \
-  "Updated 1 package · ~1.5 GB freed Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." \
-  "...in the plural"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '')")" "$(js 'L.COPY.reclaimInUseOne')" \
-  "the Last update row says it too, for a run the popup did not watch"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE2)), '')")" \
-  "$(js "L.COPY.reclaimInUseMore.replace('%1', '2')")" "...in the plural"
-assert_eq "$(js "L.lastRunText(L.lastRunOf(JSON.stringify($RC_INUSE1)), $RC_NOW)")" \
-  "Last update 1 hour ago · 1 package · ~1.5 GB freed" "...under a title that stays as it was"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '2026-09-29T10:00:00+03:00')")" "" \
-  "...and not again once the popup has shown it for that run"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE1)), '2026-09-28T10:00:00+03:00')")" \
-  "$(js 'L.COPY.reclaimInUseOne')" "...while an earlier run's showing does not silence this one"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_RUN)), '')")" "" \
-  "a removal that took nothing an app uses adds nothing to the row"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_RUN)))")" "Updated 1 package · ~1.5 GB freed" \
-  "...or to the line after the run"
-RC_INUSE_FAILED="$(printf '%s' "$RC_INUSE1" | sed 's/status:"ok"/status:"failed",error:"dnf failed"/')"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_FAILED)), '')")" "Update failed: dnf failed" \
-  "a failed run's row still says why it failed, and nothing else"
-assert_eq "$(js "L.lastRunSubtitle(null, '')")" "" "...and no run, no line"
-# Install on Next Restart: Flatpak still updates live, so its removal can take an extension too.
-RC_INUSE_OFF="$(printf '%s' "$RC_INUSE1" | sed 's/surface:"popup"/surface:"offline"/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_OFF)))")" \
-  "$(js 'L.COPY.stagedUnknownCount') $(js 'L.COPY.reclaimInUseOne')" "a staging run's line says it too"
-RC_INUSE_OFF_HELD="$(printf '%s' "$RC_INUSE_OFF" | sed 's/status:"ok"/status:"ok",staged_nothing:"held"/')"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_OFF_HELD)))")" \
-  "$(js 'L.COPY.stagedNothingHeld') $(js 'L.COPY.reclaimInUseOne')" "...and one that staged nothing"
-# An entry with no stamp has no row and could never be marked seen: it says nothing of it.
-RC_INUSE_NOWHEN="$(printf '%s' "$RC_INUSE1" | sed 's/timestamp:"2026-09-29T10:00:00+03:00",//')"
-assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(JSON.stringify($RC_INUSE_NOWHEN)), '')")" "" \
-  "an entry with no timestamp does not show the sentence under the row"
-assert_eq "$(js "L.postRunLine(L.lastRunOf(JSON.stringify($RC_INUSE_NOWHEN)))")" "Updated 1 package · ~1.5 GB freed" \
-  "...or in the line after the run"
-# Marked seen only when it was on screen as the popup closed.
-RC_R1="L.lastRunOf(JSON.stringify($RC_INUSE1))"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, false, '')")" "true" \
-  "on screen: under the Last update row, with no report over it"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, true, L.postRunLine($RC_R1))")" "true" \
-  "...or in the post-run line that hides the row"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', false, true, 'Could not start the update (exit 2).')")" "false" \
-  "not on screen: a failed press's report hides the row"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '', true, false, '')")" "false" "...nor while the updating pane replaces it"
-assert_eq "$(js "L.reclaimInUseOnScreen($RC_R1, '2026-09-29T10:00:00+03:00', false, false, '')")" "false" \
-  "...nor once already seen"
-assert_eq "$(js "L.reclaimInUseOnScreen(L.lastRunOf(JSON.stringify($RC_RUN)), '', false, false, '')")" "false" \
-  "...nor for a run without it"
 
 # --- the footer carries the staleness the message used to ---------------------------------------
 # The stale box was raw CLI text in a blue "i" whose first word was "failed", with no next step -
@@ -3663,7 +3497,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldItems","heldLiveSurface","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldItems","heldLiveSurface","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","stageBlocked","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -3788,12 +3622,12 @@ assert_eq "$(js 'L.resolveIconSizeSetting("enormous")')" "auto" "an unknown valu
 assert_eq "$(js 'L.resolveIconSizeSetting("")')" "auto" "an empty value is auto"
 assert_eq "$(js 'L.resolveIconSizeSetting(null)')" "auto" "a missing value is auto"
 assert_eq "$(js 'L.resolveIconSizeSetting(undefined)')" "auto" "...and so is no value at all"
-# The reclaim setting, read the way the CLI's reclaim_mode reads it: only automatic and off are
-# themselves, case-folded, and anything else is ask - a typo must never read as automatic.
-assert_eq "$(js '["ask","automatic","off","OFF","Automatic"].map(L.resolveReclaimSetting).join(",")')" \
-  "ask,automatic,off,off,automatic" "the three reclaim settings survive, case-folded as the CLI does"
-assert_eq "$(js '["","auto","always",null,undefined,"toString"].map(L.resolveReclaimSetting).join(",")')" \
-  "ask,ask,ask,ask,ask,ask" "...and anything else is ask, never automatic"
+# The reclaim setting, read the way the CLI's reclaim_mode reads it: only off is itself,
+# case-folded, and anything else is ask.
+assert_eq "$(js '["ask","off","OFF"].map(L.resolveReclaimSetting).join(",")')" \
+  "ask,off,off" "the two reclaim settings survive, case-folded as the CLI does"
+assert_eq "$(js '["automatic","Automatic","","auto","always",null,undefined,"toString"].map(L.resolveReclaimSetting).join(",")')" \
+  "ask,ask,ask,ask,ask,ask,ask,ask" "...and anything else is ask, a saved automatic included"
 # Object.prototype keys are not settings. `toString` is a property of every object in JavaScript,
 # so a naive `key in table` lookup answers yes for it - and the index it would then read is a
 # function, which reaches Kirigami as an icon size.
@@ -4360,7 +4194,7 @@ assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
 # literals are DECLARED - so it would answer "found it" for a QML file that never wrote them. The
 # .qml files alone are the question.
 for _lit in stagedDiscardAction stagedDiscardTooltip \
-                        reclaimAction reclaimActionNow reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
+                        reclaimAction reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
             installOnNextRestartTooltip installOnNextRestartSystemTooltip \
             startupMute startupMuting startupMuteTooltip startupSetting startupSettingNote \
             startupStopMutingDescription startupNothingMuted; do

@@ -1739,17 +1739,14 @@ ev('root.actionDone = ""')
 
 # --- Free Up Space: the reclaim offer's button ------------------------------------------------
 # `kempt reclaim -y --expect=<digest>`: the digest is the consent (the CLI removes
-# nothing unless the set on offer is still the one shown), and the size reported is the one the
-# run wrote to reclaim.last, in the offer's own spelling.
-def reclaim_from(source, name, mode="ask", last=None, offer=True):
+# nothing unless the set on offer is still the one shown), and what the popup says is the CLI's own line.
+def reclaim_from(source, name, offer=True):
     doc = json.load(open(source))
-    block = {"mode": mode, "status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
+    block = {"mode": "ask", "status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
     if offer:
         block.update(offerable_bytes=1530000000, digest="0123456789abcdef", refs=[
             {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
              "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"}])
-    if last is not None:
-        block["last"] = last
     doc["reclaim"] = block
     path = os.path.join(p.sandbox, name)
     open(path, "w").write(json.dumps(doc))
@@ -1757,13 +1754,7 @@ def reclaim_from(source, name, mode="ask", last=None, offer=True):
 
 
 RC_OFFER = reclaim_from(UPTODATE, "state-reclaim.json")
-RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False, last={
-    "at": "@NOW@", "via": "widget", "result": "removed",
-    "refs": ["runtime/org.kde.Platform/x86_64/5.15-23.08"], "bytes": 1530000000,
-    "digest": "0123456789abcdef"})
-RC_AUTH = reclaim_from(UPTODATE, "state-reclaim-auth.json", last={
-    "at": "@NOW@", "via": "widget", "result": "needs_auth", "refs": [], "bytes": None,
-    "digest": "0123456789abcdef"})
+RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False)
 state(RC_OFFER)
 ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
 p.pump(100)
@@ -1792,8 +1783,8 @@ p.check("...presses while it is pending start nothing: exactly one reclaim",
         [p.call_count("reclaim"), p.call_count("unstage") + p.call_count("run")], [1, 0])
 p.check("...which removes only the set shown",
         p.argv("reclaim"), ["reclaim", "-y", "--expect=0123456789abcdef"])
-p.check("...and says how much it freed, in the offer's own spelling", ev("root.actionDone"),
-        "Freed ~1.5 GB.")
+p.check("...and says how much it freed, in the CLI's words", ev("root.actionDone"),
+        "Freed about 1.5 GB.")
 p.check("...as the thing that just happened, not as a failure",
         [ev("root.reportFailed"), lev("reportMessage.visible")], [False, True])
 p.check("...and the offer is gone after the re-check", lev("reclaimMessage.visible"), False)
@@ -1815,11 +1806,11 @@ p.check("a set that changed since it was shown removes nothing, and says so",
         "What Flatpak can remove changed since this was shown. Nothing was removed.")
 p.check("...in red, because what was asked for did not happen", ev("root.reportFailed"), True)
 
-# polkit would ask for a password: the CLI never lets it, so this is exit 5 with needs_auth.
-open(CHECKSRC, "w").write(RC_AUTH)
-open(RECLAIMST, "w").write(RC_AUTH)
+# polkit would ask for a password: the CLI never lets it, so this is exit 5 in the CLI's words.
+open(CHECKSRC, "w").write(RC_OFFER)
+open(RECLAIMST, "w").write("")
 open(RECLAIMRC, "w").write("5")
-open(RECLAIMERR, "w").write("")
+open(RECLAIMERR, "w").write("Removing these needs an administrator. Nothing was removed.\n")
 ev('root.actionMessage = ""; root.actionDone = ""')
 lev("reclaimMessage.actions[0].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
@@ -1837,8 +1828,8 @@ ev('root.actionMessage = ""; root.actionDone = ""')
 lev("reclaimMessage.actions[0].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
-p.check("an update holding the lock is a sentence, not the CLI's lowercase note",
-        ev("root.actionMessage"), ev("Logic.COPY.reclaimBusy"))
+p.check("an update holding the lock says what the CLI said",
+        ev("root.actionMessage"), "another kempt update is running")
 
 p.check("the label is back once the CLI has answered", lev("reclaimMessage.actions[0].text"),
         "Free Up Space")
@@ -1861,21 +1852,6 @@ p.check("a reclaim asked for during a run does not run", p.call_count("reclaim")
 ev("root.leaveUpdating()")
 settle()
 
-# reclaim=automatic: the line says the next update removes them, and the button is the one that
-# does not wait.
-state(reclaim_from(UPTODATE, "state-reclaim-auto.json", mode="automatic"))
-p.pump(100)
-p.check("with reclaim=automatic the button does not wait for the next update",
-        lev("reclaimMessage.actions[0].text"), "Free Up Space Now")
-p.check("...and the line says the next update would",
-        str(lev("reclaimMessage.text")).endswith("Kempt removes them after the next update."), True)
-_auto_failed = json.load(open(os.path.join(p.sandbox, "state-reclaim-auto.json")))
-_auto_failed["reclaim"]["status"] = "failed"
-open(os.path.join(p.sandbox, "state-reclaim-auto-failed.json"), "w").write(json.dumps(_auto_failed))
-state(os.path.join(p.sandbox, "state-reclaim-auto-failed.json"))
-p.pump(100)
-p.check("after the automatic try failed, the next update skips this set, so the button is plain",
-        lev("reclaimMessage.actions[0].text"), "Free Up Space")
 open(RECLAIMRC, "w").write("0")
 open(RECLAIMERR, "w").write("")
 open(CHECKSRC, "w").write(CONFLICT1)
@@ -3234,33 +3210,6 @@ p.check("...and the packages it installed under it",
 p.check("...with no second line for a run that went well and took nothing an app uses",
         lev("lastRunView.itemAtIndex(0).subtitle"), "")
 
-# A background run whose automatic removal took an extension an app uses: the row says so, once.
-inuse = json.loads(json.dumps(LAST_RUN))
-inuse["backends"]["flatpak"]["reclaimed"] = {"refs": ["runtime/x/x86_64/1"], "bytes": 1000000,
-                                             "status": "removed", "in_use": ["a//1"]}
-open(RUNJSON, "w").write(json.dumps(inuse))
-ev('root.reclaimInUseSeen = ""; root.postRunLine = ""; root.actionMessage = ""; root.actionDone = ""')
-ev("root.loadLastRun()")
-settle()
-p.pump(50)
-p.check("a run whose removal took an extension an app uses says so under the Last update row",
-        lev("lastRunView.itemAtIndex(0).subtitle"), ev("Logic.COPY.reclaimInUseOne"))
-ev('root.actionMessage = "Could not change the hold on bash."')
-p.pump(50)
-p.check("premise: a failed press's report hides the row", lev("lastRunView.visible"), False)
-ev("root.popupClosed()")
-p.check("...so closing the popup then does not count the sentence as seen",
-        ev("root.reclaimInUseSeen"), "")
-ev('root.actionMessage = ""')
-p.pump(50)
-p.check("premise: the row is back, with the sentence", lev("lastRunView.visible"), True)
-ev("root.popupClosed()")
-p.check("...and closing the popup over it marks that run seen", ev("root.reclaimInUseSeen"),
-        inuse["timestamp"])
-p.pump(50)
-p.check("...after which the row says it no more", lev("lastRunView.itemAtIndex(0).subtitle"), "")
-ev('root.reclaimInUseSeen = ""')
-
 # A run that failed still reads as failed once the transient line is gone: open, close, open again.
 failed_run = json.loads(json.dumps(LAST_RUN))
 failed_run["status"] = "failed"
@@ -3587,27 +3536,10 @@ _ASSEMBLED_IN_LOGIC = {
     "startupPageFailed",
     "startupPageFailedCode",
     "reclaimSized",         # -> reclaimMessageOf -> vm.reclaimMessage (the size goes into the %1)
-    "reclaimUnsized",       # -> reclaimMessageOf -> vm.reclaimMessage
-    "reclaimAutomatic",     # -> reclaimMessageOf -> vm.reclaimMessage, after either of those
     "reclaimEol",           # -> reclaimRefLineOf -> vm.reclaimLines
-    "reclaimFreed",         # -> reclaimOutcomeOf -> actionDone (the size goes into the %1)
-    "reclaimNothing",       # -> reclaimOutcomeOf -> actionDone
-    "reclaimChanged",       # -> reclaimOutcomeOf -> actionMessage
-    "reclaimNothingRemoved",  # -> reclaimOutcomeOf -> actionMessage
-    "reclaimNeedsAuth",     # -> reclaimOutcomeOf -> actionMessage
-    "reclaimPartial",       # -> reclaimOutcomeOf -> actionMessage (the size goes into the %1)
-    "reclaimPartialUnsized",  # -> reclaimOutcomeOf -> actionMessage
-    "reclaimSkipped",       # -> reclaimOutcomeOf -> actionMessage, after what went
-    "reclaimInUseOne",      # -> reclaimOutcomeOf, after the Freed or partial sentence; and a run's
-                            #    removal: postRunLine and the Last update row (lastRunSubtitle)
-    "reclaimInUseMore",     # -> the same places, with a count
-    "reclaimUnknown",       # -> reclaimOutcomeOf -> actionMessage
-    "reclaimBusy",          # -> reclaimOutcomeOf -> actionMessage
-    "reclaimFailed",        # -> reclaimOutcomeOf -> actionMessage (the exit code goes into the %1)
-    "reclaimTimedOut",      # -> reclaimOutcomeOf -> actionMessage, when the Executor gave up
-    "reclaimFreedTail",     # -> reclaimedTailOf -> postRunLine and lastRunText
-    "reclaimRemovedOne",    # -> reclaimedTailOf -> postRunLine and lastRunText
-    "reclaimRemovedMore",   # -> reclaimedTailOf -> postRunLine and lastRunText (a count)
+    "reclaimNothing",       # -> reclaimSaid -> actionDone
+    "reclaimFailed",        # -> reclaimSaid -> actionMessage (the exit code goes into the %1)
+    "reclaimTimedOut",      # -> reclaimSaid -> actionMessage, when the Executor gave up
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
     "restartFailed",        # -> root.restartError, rendered inside the restart message

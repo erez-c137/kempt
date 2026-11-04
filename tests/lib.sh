@@ -162,17 +162,12 @@ sandbox() {  # fresh dirs per test file; call first
   # feature is off in every file that does not opt in, and no existing state.json grows a block.
   # The other four fail loudly the moment a file turns the feature on without stubbing them:
   # the listing and du report failed and unknown_size, pkcheck says no, and getent reads as
-  # "cannot tell", which keeps automatic at ask.
+  # "cannot tell".
   export KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/UNSTUBBED-flatpak-uninstall"
   export KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/UNSTUBBED-flatpak-unused"
   export KEMPT_DU_CMD="$TESTTMP/UNSTUBBED-du"
   export KEMPT_PKCHECK="$TESTTMP/UNSTUBBED-pkcheck"
   export KEMPT_GETENT_CMD="$TESTTMP/UNSTUBBED-getent"
-  # The other two account signals, pinned at nothing: unset, they read the REAL nsswitch.conf and
-  # home directories, and the machine running the suite would decide which mode a test sees.
-  export KEMPT_NSSWITCH_FILE="$TESTTMP/no-nsswitch.conf" KEMPT_HOME_ROOTS="$TESTTMP/no-homes"
-  # ...and the files and service that decide whether an sss or winbind source there counts.
-  export KEMPT_SSSD_DIR="$TESTTMP/no-sssd" KEMPT_SMB_CONF="$TESTTMP/no-smb.conf"
   export KEMPT_SYSTEMCTL_CMD="$TESTTMP/UNSTUBBED-systemctl"
   # PINNED at `true`, not poisoned, and this is the seam where the usual "a path that does not
   # exist" would be exactly wrong. Unset, the runtime arms fall back to the REAL flatpak and every

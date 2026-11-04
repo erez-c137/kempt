@@ -427,9 +427,7 @@ What it removes:
 It never asks for a password. Removing needs an administrator (on Fedora, a member of the `wheel`
 group) logged in at the desktop, so over the network nothing is removed.
 
-With `reclaim=automatic` (see [configuration](configuration.md#keys)), a successful update removes
-the offered set, and its summary says how much was freed, under **Unused Flatpak runtimes** in a
-terminal. A removal writes an event line and no history entry.
+A removal writes an event line and no history entry.
 
 | Exit | When |
 | --- | --- |

@@ -496,45 +496,17 @@ var COPY = {
     // The offer, assembled by reclaimMessageOf. The size is formatDownload's "~" figure: the CLI's
     // own estimate, never a promise. The second sentence is why removing them is safe.
     reclaimSized: "%1 can be freed. No installed app uses these Flatpak runtimes.",
-    reclaimUnsized: "Space can be freed. No installed app uses these Flatpak runtimes.",
-    // Added with reclaim=automatic, where the next successful update removes them anyway.
-    reclaimAutomatic: "Kempt removes them after the next update.",
     // After a ref in the Show Runtimes list whose branch Flatpak marks end of life.
     reclaimEol: "(no longer supported)",
-    // The offer's two buttons. Free Up Space Now in automatic mode, where the next update removes
-    // them anyway; Freeing Up Space… while it runs. The QML repeats each literal for i18n.
+    // The offer's button, and Freeing Up Space… while it runs. The QML repeats each literal for i18n.
     reclaimAction: "Free Up Space",
-    reclaimActionNow: "Free Up Space Now",
     reclaimRunning: "Freeing Up Space…",
     reclaimTooltip: "Removes the Flatpak runtimes listed under Show Runtimes.",
     reclaimShowWhat: "Show Runtimes",
-    // After Free Up Space. The size one is filled from reclaim.last, in the offer's own spelling.
-    reclaimFreed: "Freed %1.",
+    // After Free Up Space, when the CLI said nothing.
     reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
-    reclaimChanged: "What Flatpak can remove changed since this was shown. Nothing was removed.",
-    reclaimNeedsAuth: "Removing these needs an administrator. Nothing was removed.",
-    // Added after a removal when reclaim.last.in_use names extensions Flatpak removed although an
-    // app had just started using them (the CLI's sentence, bin/kempt reclaim_outcome_lines). Also
-    // after a run whose automatic removal did the same (its entry's reclaimed.in_use).
-    reclaimInUseOne: "Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back.",
-    reclaimInUseMore: "Flatpak also removed %1 extensions that apps installed during the removal use. Run flatpak update to put them back.",
-    // Flatpak stopped part-way. The first is filled with the size of what did go.
-    reclaimPartial: "Freed %1. Flatpak could not remove all of them.",
-    reclaimPartialUnsized: "Flatpak removed some of them, but not all.",
-    // The list between the two passes failed, so the extensions were never tried and nothing was
-    // refused (reclaim.last.skipped). Said after what went. The leftover refs keep their since, so
-    // the next offer needs no new hour, and the popup shows an offer from RECLAIM_MIN_BYTES.
-    reclaimSkipped: "Some extensions were left in place because Flatpak did not answer when asked what is unused. This widget offers them again if they take 100 MB or more.",
-    // Flatpak failed and Kempt could not read what is left afterwards.
-    reclaimUnknown: "Flatpak stopped with an error, so the removal may be partial. Press Check for Updates to see what is left.",
-    reclaimNothingRemoved: "Could not free the space. Nothing was removed.",
-    reclaimBusy: "An update is already running. Nothing was removed.",
     reclaimFailed: "Could not free the space (exit %1).",
     reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes.",
-    // The Last update row and the line after a run, when automatic reclaim removed something.
-    reclaimFreedTail: "%1 freed",
-    reclaimRemovedOne: "1 unused runtime removed",
-    reclaimRemovedMore: "%1 unused runtimes removed",
 
     // A service that stopped starting after an update (state.json `startup`). Copy Command puts
     // `systemctl status <unit>` on the clipboard; nothing in the widget acts on a unit.
@@ -797,11 +769,10 @@ function resolveIconSizeSetting(value) {
     return Object.prototype.hasOwnProperty.call(ICON_SIZE_SETTINGS, s) ? s : "auto";
 }
 
-// resolveReclaimSetting(value) -> ask | automatic | off, read as the CLI's reclaim_mode reads it:
-// case-folded, and anything that is not exactly automatic or off is ask.
+// resolveReclaimSetting(value) -> ask | off, read as the CLI's reclaim_mode reads it: case-folded,
+// and anything that is not exactly off is ask.
 function resolveReclaimSetting(value) {
-    var s = String(value === undefined || value === null ? "" : value).toLowerCase();
-    return (s === "automatic" || s === "off") ? s : "ask";
+    return String(value === undefined || value === null ? "" : value).toLowerCase() === "off" ? "off" : "ask";
 }
 
 // resolveIconSize(setting, cell, steps) -> the pixel size the icon is actually asked for.
@@ -1720,8 +1691,8 @@ function startupPageOutcomeOf(stdout, stderr, rc, nowMs) {
 }
 
 // --- the reclaim offer ------------------------------------------------------------------------
-// Below this the message is not worth one of the two slots. SI bytes, as formatDownload counts.
-var RECLAIM_MIN_BYTES = 100 * 1000 * 1000;
+// Below 1 GB the message is not worth one of the two slots. SI bytes, as formatDownload counts.
+var RECLAIM_MIN_BYTES = 1000 * 1000 * 1000;
 var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, from
 // backends/flatpak.sh and lib/common.sh: KEMPT_RECLAIM_PKCHECK_TIMEOUT (10 s),
@@ -1741,30 +1712,19 @@ function reclaimBytesOf(reclaim) {
 }
 
 // reclaimOffered(state.reclaim) -> may the popup offer to remove these? Only with a digest: the
-// CLI leaves it empty when nothing is unused or part of the list is younger than an hour.
+// CLI leaves it empty when nothing is unused or part of the list is younger than an hour. A size
+// the CLI could not work out is not known to reach the minimum, so it is no offer.
 function reclaimOffered(reclaim) {
     if (!reclaim || typeof reclaim !== "object" || isArray(reclaim)) return false;
     if (typeof reclaim.digest !== "string" || !RECLAIM_DIGEST_RE.test(reclaim.digest)) return false;
     var bytes = reclaimBytesOf(reclaim);
-    return bytes === null || bytes >= RECLAIM_MIN_BYTES;
+    return bytes !== null && bytes >= RECLAIM_MIN_BYTES;
 }
 
-// reclaimMessageOf(state.reclaim) -> the offer's one line. The automatic sentence is left out
-// while the last automatic try needed an administrator or failed: the next update skips that set.
-// reclaimAutoPending(reclaim) -> will the next update remove this set? Not after an automatic try
-// that failed or needed an administrator: the CLI skips that set until it changes.
-function reclaimAutoPending(reclaim) {
-    return reclaimOffered(reclaim) && reclaim.mode === "automatic"
-        && reclaim.status !== "needs_auth" && reclaim.status !== "failed";
-}
-
+// reclaimMessageOf(state.reclaim) -> the offer's one line.
 function reclaimMessageOf(reclaim) {
     if (!reclaimOffered(reclaim)) return "";
-    var bytes = reclaimBytesOf(reclaim);
-    var line = bytes === null ? COPY.reclaimUnsized
-                              : fill(COPY.reclaimSized, "%1", formatDownload(bytes));
-    if (reclaimAutoPending(reclaim)) line += " " + COPY.reclaimAutomatic;
-    return line;
+    return fill(COPY.reclaimSized, "%1", formatDownload(reclaimBytesOf(reclaim)));
 }
 
 // reclaimRefLineOf({ref, eol}) -> "org.kde.Platform 5.15-23.08", the id and branch of a
@@ -2296,20 +2256,6 @@ function lastRunOf(text) {
         removed += arrayOf(backend.removed).length;
     }
 
-    // What automatic reclaim removed after this run (backends.flatpak.reclaimed). Only a removal
-    // counts: a failed or refused one never fails the run and is reported through the state.
-    var reclaimed = backends.flatpak && typeof backends.flatpak === "object"
-        ? backends.flatpak.reclaimed : null;
-    var reclaimedCount = 0, reclaimedBytes = null, reclaimedInUse = 0;
-    if (reclaimed && typeof reclaimed === "object" && reclaimed.status === "removed") {
-        reclaimedCount = arrayOf(reclaimed.refs).length;
-        // Extensions Flatpak took although an app installed during the removal uses them.
-        reclaimedInUse = arrayOf(reclaimed.in_use).length;
-        if (typeof reclaimed.bytes === "number" && isFinite(reclaimed.bytes) && reclaimed.bytes > 0) {
-            reclaimedBytes = reclaimed.bytes;
-        }
-    }
-
     var status = typeof entry.status === "string" ? entry.status : "";
     var when = typeof entry.timestamp === "string" ? entry.timestamp : "";
     return {
@@ -2343,36 +2289,7 @@ function lastRunOf(text) {
         // a build this one does not understand, and "I do not know" is the honest reading of it.
         stagedNothing: (entry.staged_nothing === "held" || entry.staged_nothing === "nothing_pending")
             ? entry.staged_nothing : null,
-        reclaimedCount: reclaimedCount,
-        reclaimedBytes: reclaimedBytes,
-        reclaimedInUse: reclaimedInUse
     };
-}
-
-// reclaimInUseSentence(n) -> "" or the sentence about n extensions Flatpak removed although an app
-// installed during the removal uses them. One spelling for Free Up Space and for a run's removal.
-function reclaimInUseSentence(n) {
-    if (!(n > 0)) return "";
-    return n === 1 ? COPY.reclaimInUseOne : fill(COPY.reclaimInUseMore, "%1", String(n));
-}
-
-// reclaimInUseTailOf(run) -> "" or " " + that sentence for the run's automatic removal. A failed
-// run removed nothing (reclaim runs only after a successful one), so it never carries this. Nor
-// does an entry with no readable stamp: it has no Last update row and could never be marked seen.
-function reclaimInUseTailOf(run) {
-    if (!run || run.failed || !isRenderableStamp(run.when)) return "";
-    var s = reclaimInUseSentence(run.reclaimedInUse);
-    return s === "" ? "" : " " + s;
-}
-
-// reclaimedTailOf(run) -> "" or the clause the run lines append: " · ~1.5 GB freed".
-function reclaimedTailOf(run) {
-    if (!run || run.failed || !(run.reclaimedCount > 0)) return "";
-    if (typeof run.reclaimedBytes === "number") {
-        return DOT + fill(COPY.reclaimFreedTail, "%1", formatDownload(run.reclaimedBytes));
-    }
-    return DOT + (run.reclaimedCount === 1 ? COPY.reclaimRemovedOne
-                  : fill(COPY.reclaimRemovedMore, "%1", String(run.reclaimedCount)));
 }
 
 // postRunLine(run) -> the transient line shown once, right after a run finishes.
@@ -2393,33 +2310,30 @@ function postRunLine(run) {
     // writes "offline (applied on reboot)" and its counts are real changes.
     // ...unless the run staged nothing, which is a successful `offline` run too and was described
     // in the same words as one that staged sixty packages.
-    // Flatpak still updates live on a staging run, so its automatic removal can report in_use too.
     if (run.surface === "offline" && run.stagedNothing !== null) {
-        return (run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending)
-            + reclaimInUseTailOf(run);
+        return run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending;
     }
-    if (run.surface === "offline") return COPY.stagedUnknownCount + reclaimInUseTailOf(run);
+    if (run.surface === "offline") return COPY.stagedUnknownCount;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
-    if (n === 0) return COPY.noPackageChanges + reclaimedTailOf(run) + reclaimInUseTailOf(run);
+    if (n === 0) return COPY.noPackageChanges;
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
     // long it took is described without it rather than described as instantaneous. A negative
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
     var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + "s" : "";
-    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + reclaimedTailOf(run)
-        + reclaimInUseTailOf(run);
+    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong;
 }
 
 // reportRepeatsStaged(run) -> does the post-run line only say what the staged message says?
 // A clean staging run reports "Updates are staged", and the staged message above it says the same
 // with the count and its Restart and Discard buttons. Two boxes for one fact, so the report gives
 // way while that message is on screen, and the Last update row (with Show Log) takes its place.
-// Anything the line adds keeps it: a run that staged nothing, a failure, an in-use note.
+// Anything the line adds keeps it: a run that staged nothing, a failure.
 function reportRepeatsStaged(run) {
     // A stamp the row cannot render would leave the Last update row with no title in its place.
     return !!run && !run.failed && run.surface === "offline" && run.stagedNothing === null
-        && isRenderableStamp(run.when) && reclaimInUseTailOf(run) === "";
+        && isRenderableStamp(run.when);
 }
 
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?
@@ -2565,72 +2479,17 @@ function doctorVerdictOf(rc, stdout, stderr) {
                                  : fill(COPY.doctorCouldNotRunCode, "%1", String(rc)) };
 }
 
-// reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) -> {ok, text}: what the popup reports after
-// Free Up Space (`kempt reclaim -y --expect=<digest>`). `last` is the state's
-// reclaim.last as read after the run, and only counts when it is at least as new as the press
-// (seconds, as runFinishedSince): the CLI writes none when nothing at all is unused.
-// stdout is never an error: with -y it starts with the list of runtimes, so on success the CLI's
-// LAST line is its outcome, and on failure stderr's first line is.
-function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
-    var fresh = null;
-    if (last && typeof last === "object" && typeof sinceMs === "number" && isFinite(sinceMs)) {
-        var at = stampMs(last.at);
-        if (isFinite(at) && Math.floor(at / 1000) >= Math.floor(sinceMs / 1000)) fresh = last;
-    }
-    // This press removed extensions an app had just started using: said after what was freed.
-    var inUse = fresh !== null && fresh.result === "removed" ? arrayOf(fresh.in_use).length : 0;
-    var withInUse = function (text) {
-        return inUse === 0 ? text : text + " " + reclaimInUseSentence(inUse);
-    };
-    if (rc === 0) {
-        if (fresh !== null && fresh.result === "removed" && typeof fresh.bytes === "number"
-                && isFinite(fresh.bytes) && fresh.bytes > 0) {
-            return { ok: true, text: withInUse(fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes))) };
-        }
-        var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
-        var tail = "";
-        for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
-        return { ok: true, text: withInUse(tail !== "" ? tail : COPY.reclaimNothing) };
-    }
-    // polkit's no, from Kempt's own check or from flatpak's helper: exit 5 and this press's record.
-    if (rc === 5 && fresh !== null && fresh.result === "needs_auth") {
-        return { ok: false, text: COPY.reclaimNeedsAuth };
-    }
-    // Flatpak failed after the removal began. `partial` with refs null: what went is unknown, and
-    // "nothing was removed" could be false. With refs: some went, and a plain "Freed" would be.
-    if (rc === 1 && fresh !== null && fresh.partial === true) {
-        if (fresh.refs === null) return { ok: false, text: COPY.reclaimUnknown };
-        if (fresh.result === "removed") {
-            var sized = typeof fresh.bytes === "number" && isFinite(fresh.bytes) && fresh.bytes > 0;
-            if (fresh.skipped === true) {
-                // What went first, as the CLI prints it: the size, or its "Removed N runtimes." count.
-                var first = COPY.reclaimPartialUnsized;
-                if (sized) {
-                    first = fill(COPY.reclaimFreed, "%1", formatDownload(fresh.bytes));
-                } else {
-                    var outLines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
-                    var outTail = "";
-                    for (var j = outLines.length - 1; j >= 0 && outTail === ""; j--) outTail = outLines[j].trim();
-                    if (/^Removed [0-9]+ runtimes?\.$/.test(outTail)) first = outTail;
-                }
-                return { ok: false, text: withInUse(first + " " + COPY.reclaimSkipped) };
-            }
-            if (sized) return { ok: false, text: withInUse(fill(COPY.reclaimPartial, "%1", formatDownload(fresh.bytes))) };
-            return { ok: false, text: withInUse(COPY.reclaimPartialUnsized) };
-        }
-    }
-    // A failed uninstall whose record says nothing is gone.
-    if (rc === 1 && fresh !== null && fresh.result === "failed" && isArray(fresh.refs) && fresh.refs.length === 0
-            && !(typeof fresh.bytes === "number" && fresh.bytes > 0)) {
-        return { ok: false, text: COPY.reclaimNothingRemoved };
-    }
-    if (rc === 3) return { ok: false, text: COPY.reclaimBusy };
+// reclaimSaid(rc, stdout, stderr) -> {ok, text}: what the popup reports after Free Up Space, in the
+// CLI's words. With -y stdout starts with the list of runtimes, so on success its LAST line is the
+// outcome, followed by what stderr added. On failure stderr's first line is the outcome.
+function reclaimSaid(rc, stdout, stderr) {
+    if (isExecutorTimeout(rc, stderr)) return { ok: false, text: COPY.reclaimTimedOut };
     var msg = firstLineOf(stderr);
-    // The Executor's own kill (Executor.qml): the CLI never answered, and its removal may be running.
-    if (rc === 124 && msg.indexOf("timeout after ") === 0) return { ok: false, text: COPY.reclaimTimedOut };
-    if (msg !== "") return { ok: false, text: msg };
-    if (rc === 6) return { ok: false, text: COPY.reclaimChanged };
-    return { ok: false, text: fill(COPY.reclaimFailed, "%1", String(rc)) };
+    if (rc !== 0) return { ok: false, text: msg !== "" ? msg : fill(COPY.reclaimFailed, "%1", String(rc)) };
+    var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
+    var tail = "";
+    for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
+    return { ok: true, text: ((tail !== "" ? tail : COPY.reclaimNothing) + " " + msg).trim() };
 }
 
 // lastRunText(run, nowMs) -> the persistent Last update row's title.
@@ -2670,33 +2529,13 @@ function lastRunText(run, nowMs, restartHeld) {
     // Failed goes in the words of the title, because the transient line that said so clears when
     // the popup closes and this row is what is left.
     return (run.failed ? "Last update failed " : "Last update ") + relativeTime(run.when, nowMs)
-        + DOT + what + reclaimedTailOf(run);
+        + DOT + what;
 }
 
-// lastRunSubtitle(run, seenWhen) -> the Last update row's second line, or "".
-// A failed run: why, as postRunLine says it. Otherwise the in-use sentence when the run's automatic
-// removal took extensions an app uses, and only until the popup has shown it once: `seenWhen` is
-// the timestamp of the run whose sentence the popup was closed over (main.qml's reclaimInUseSeen,
-// session-only like restartDismissed). The next run replaces the entry, and its flatpak update puts
-// the extensions back, so the sentence does not outlive its run either way.
-function lastRunSubtitle(run, seenWhen) {
-    if (!run) return "";
-    if (run.failed) return postRunLine(run);
-    if (typeof seenWhen === "string" && seenWhen !== "" && seenWhen === run.when) return "";
-    return reclaimInUseTailOf(run).trim();
-}
-
-// reclaimInUseOnScreen(run, seenWhen, updating, reportShown, reportText) -> is the in-use sentence
-// on screen right now? main.qml asks as the popup closes, and marks the run seen only on yes.
-// The updating pane replaces the main one. Otherwise the report slot, when shown, hides the Last
-// update row (FullRepresentation.qml), so the sentence is seen only if the report carries it: the
-// post-run line does, a failed press or a finished action does not.
-function reclaimInUseOnScreen(run, seenWhen, updating, reportShown, reportText) {
-    if (!run || updating === true) return false;
-    var tail = reclaimInUseTailOf(run);
-    if (tail === "") return false;
-    if (reportShown === true) return String(reportText === undefined || reportText === null ? "" : reportText).indexOf(tail.trim()) >= 0;
-    return lastRunSubtitle(run, seenWhen) !== "";
+// lastRunSubtitle(run) -> the Last update row's second line, or "": why a failed run failed, as
+// postRunLine says it.
+function lastRunSubtitle(run) {
+    return run && run.failed ? postRunLine(run) : "";
 }
 
 // isExecutorTimeout(rc, stderr) -> did Executor.qml's kill timer end this call? It reports that as
@@ -3520,12 +3359,11 @@ function viewModel(state, updating, cliError, opts) {
         // Which messages the popup may draw, in order, and never more than two. The rule and its
         // reasons are messageStack above.
         messageSlots: messageSlots,
-        // The reclaim offer: its line, one line per runtime for Show Runtimes, the digest the button
-        // passes to `kempt reclaim --expect`, and which of the two button labels applies.
+        // The reclaim offer: its line, one line per runtime for Show Runtimes, and the digest the
+        // popup passes to `kempt reclaim --expect`.
         reclaimMessage: reclaimMessage,
         reclaimLines: reclaimLines,
         reclaimDigest: reclaimDigest,
-        reclaimAutomatic: reclaimMessage !== "" && reclaimAutoPending(reclaim),
         // The startup banner: one entry per service with its text and the command Copy Command
         // copies, a heading only when there are several, the quiet already-failing line, the
         // one-time recovered line, and the digest `kempt startup ack` takes. The digest is ""
@@ -3584,7 +3422,7 @@ if (typeof module !== "undefined" && module.exports) {
         reclaimOffered: reclaimOffered,
         reclaimMessageOf: reclaimMessageOf,
         reclaimRefLineOf: reclaimRefLineOf,
-        reclaimOutcomeOf: reclaimOutcomeOf,
+        reclaimSaid: reclaimSaid,
         RECLAIM_TIMEOUT_MS: RECLAIM_TIMEOUT_MS,
         lastRunOf: lastRunOf,
         postRunLine: postRunLine,
@@ -3598,7 +3436,6 @@ if (typeof module !== "undefined" && module.exports) {
         doctorOutcomeOf: doctorOutcomeOf,
         lastRunText: lastRunText,
         lastRunSubtitle: lastRunSubtitle,
-        reclaimInUseOnScreen: reclaimInUseOnScreen,
         shellQuote: shellQuote,
         firstLineOf: firstLineOf,
         isExecutorTimeout: isExecutorTimeout,

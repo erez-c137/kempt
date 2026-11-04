@@ -25,6 +25,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`version` in the stage marker.** Nothing read it.
 - **Flatpak end-of-life notes after a run.** `kempt summary` and the history no longer name the app behind flatpak's notice. flatpak's own line stays in the run log, and `kempt reclaim` still marks an unused runtime as no longer supported.
 - **Security notifications and `notify_security`.** Kempt no longer sends a notification or animates the panel icon for security updates, and the setting is gone. The **Security** word on a package and the count stay, for everyone. Open the widget or run `kempt status` to see them.
+- **`reclaim=automatic`.** Kempt no longer removes unused Flatpak runtimes after an update. A saved `automatic` reads as `ask`. Press **Free Up Space** in the widget, shown when at least 1 GB can be freed, or run `kempt reclaim`.
 
 ### Security
 

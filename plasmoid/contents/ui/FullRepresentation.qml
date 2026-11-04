@@ -1485,7 +1485,7 @@ PlasmaExtras.Representation {
                     id: reclaimAction
                     // The label is also what a screen reader reads, so the running state is words.
                     text: popup.plasmoidItem.reclaimRunning ? i18n("Freeing Up Space…")
-                        : popup.vm.reclaimAutomatic ? i18n("Free Up Space Now") : i18n("Free Up Space")
+                        : i18n("Free Up Space")
                     icon.name: "edit-clear-all"
                     tooltip: i18n("Removes the Flatpak runtimes listed under Show Runtimes.")
                     Accessible.description: tooltip
@@ -1840,14 +1840,12 @@ PlasmaExtras.Representation {
                 }
                 icon: "documentinfo"
                 title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs, popup.vm.restartHeld)
-                // Only a failure earns a second line here, or extensions the run's automatic removal
-                // took from an app (once per run, see Logic.lastRunSubtitle), and it is logic.js's
-                // own sentence about that run rather than a new one written in QML. NOT the entry's
+                // Only a failure earns a second line here, and it is logic.js's own sentence about
+                // that run rather than a new one written in QML. NOT the entry's
                 // reboot_needed: that is a fact about the moment the run ended, and the state
                 // file's live answer is what the restart message above is bound to. Repeating the
                 // history entry here would go on claiming a restart after the user had done it.
-                subtitle: Logic.lastRunSubtitle(popup.plasmoidItem.lastRun,
-                                                popup.plasmoidItem.reclaimInUseSeen)
+                subtitle: Logic.lastRunSubtitle(popup.plasmoidItem.lastRun)
                 subtitleCanWrap: true
                 customExpandedViewContent: lastRunPackages
                 contextualActions: [
@@ -1862,8 +1860,7 @@ PlasmaExtras.Representation {
                     Kirigami.Action {
                         text: i18n("Check Installation")
                         icon.name: "tools-report-bug"
-                        enabled: Logic.mentionsDoctor(Logic.lastRunSubtitle(
-                            popup.plasmoidItem.lastRun, popup.plasmoidItem.reclaimInUseSeen))
+                        enabled: Logic.mentionsDoctor(Logic.lastRunSubtitle(popup.plasmoidItem.lastRun))
                         visible: enabled
                         onTriggered: source => popup.plasmoidItem.runDoctor()
                     }
