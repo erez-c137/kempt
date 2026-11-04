@@ -1,6 +1,6 @@
 # Working on Kempt
 
-A two-minute map for new contributors, and four rules that catch people out. `CONTRIBUTING.md` is
+A two-minute map for new contributors, and six rules that catch people out. `CONTRIBUTING.md` is
 the full guide.
 
 ## What it is
@@ -29,7 +29,7 @@ Nothing is setuid, and the CLI never runs as root.
 | `tests/` | About 4,000 assertions in plain bash, QML probes in `tests/qml/`, a container test in `tests/live/`, and the release check in `tests/release/`, which tests the built packages. |
 | `docs/` | User and design docs. Read `architecture.md` first. |
 
-## Four rules that catch people out
+## Six rules that catch people out
 
 **1. Never run an update while testing.** `kempt update`, `kempt run`, `pkexec` and the helpers in
 `libexec/` change the machine you are on. Use a container, or replace every seam in the same
@@ -51,6 +51,13 @@ container can test them against real dnf5.
 **4. Run the Qt probes through their supervisor.** `tests/qml/` runs the real QML engine. Run it
 with `tests/test_widget_qml.sh`, never by hand. Its watchdog stops a probe that hangs. Without it,
 stuck probes pile up until the machine runs out of memory.
+
+**5. Report who holds the restart, and never compete for it.** When another updater has the next
+restart, say so. Before adding code that reacts to another program, file the problem upstream.
+
+**6. The root helpers stay small and get a real run.** `libexec/kempt-refresh` and
+`libexec/kempt-apply` have a fixed line limit, to be set. Before a release they get a real run on
+Fedora with SELinux enforcing.
 
 ## Running things
 
