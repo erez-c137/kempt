@@ -985,7 +985,7 @@ MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("releaseUpgradeMessage", "the staged Fedora release upgrade"),
             ("imageBasedMessage", "the rpm-ostree message"),
             ("foldersPausedMessage", "updates paused over a system folder"),
-            ("riskyMessage", "the session-critical warning"),
+            ("questionMessage", "the question Update Now asks"),
             ("discoverOfferMessage", "the offer to turn off Discover's notifier"),
             ("reportMessage", "the report of the last thing that happened"),
             ("doctorMessage", "what Check Installation found")]
@@ -1008,7 +1008,8 @@ state(fixture("state-reboot-needed.json"))
 stack("with a restart owed", "restartMessage")
 
 state(fixture("state-risky-heavy.json"))
-stack("with a session-critical transaction pending", "riskyMessage")
+stack("with a session-critical transaction pending")
+p.check("...and the status line says what the set holds", "including a new kernel" in str(ev("root.vm.headerText")), True)
 
 # The same transaction, already staged. The staged message replaces the offer rather than
 # joining it: leaving "Install on Next Restart" on screen over an armed transaction is an
@@ -1309,15 +1310,22 @@ _held_runs = p.call_count("run")
 ev("root.startUpdate()")
 settle()
 p.check("Update Now asks first, and starts nothing", p.call_count("run") - _held_runs, 0)
-p.check("...in a message of its own, in its words",
-        [lev("heldChoiceMessage.visible"), lev("heldChoiceMessage.text")],
-        [True, ev("root.vm.heldChoiceMessage")])
-p.check("...with its two answers, and the footer button gone meanwhile",
-        [lev("heldChoiceMessage.actions.length"), lev("updateButton.visible")], [2, False])
-lev("heldChoiceMessage.actions[1].trigger()")
+p.check("...in the question's message, in its words",
+        [lev("questionMessage.visible"), lev("questionMessage.text"), lev("questionMessage.held")],
+        [True, ev("Logic.COPY.restartHeldAsk"), True])
+p.check("...as a warning", lev("questionMessage.type"), lev("Kirigami.MessageType.Warning"))
+p.check("...with one answer, and the footer button gone meanwhile",
+        [lev("questionMessage.actions[0].visible"), lev("questionMessage.actions[1].text"), lev("updateButton.visible")],
+        [False, "Update Now", False])
+lev("questionMessage.visible = false")
 settle()
-p.check("Cancel closes it and starts nothing",
+p.check("its close button closes it and starts nothing",
         [ev("root.heldChoiceOpen"), lev("updateButton.visible"), p.call_count("run") - _held_runs], [False, True, 0])
+ev("root.startUpdate()")
+settle()
+p.check("...and it asks again, because the binding came back", lev("questionMessage.visible"), True)
+ev("root.closeQuestion()")
+settle()
 ev("root.startUpdate()")
 settle()
 ev("root.popupClosed()")
@@ -1327,7 +1335,7 @@ ev("root.popupOpened()")
 settle()
 ev("root.startUpdate()")
 settle()
-lev("heldChoiceMessage.actions[0].trigger()")
+lev("questionMessage.actions[1].trigger()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
 settle()
 p.check("Update Now in it runs live, naming the surface",
@@ -2675,39 +2683,6 @@ p.check("the message's own action is what opens KDE's prompt",
 p.check("...labelled with a real ellipsis, KDE's mark for an action that opens something else",
         lev("restartMessage.actions[0].text"), ev("Logic.COPY.restartAction"))
 
-# --- the session-critical recommendation ----------------------------------------------------------
-state(fixture("state-risky-heavy.json"))
-p.check("the session-critical message says what to DO about it",
-        lev("riskyMessage.text"), ev("root.vm.riskyMessage"))
-# Information, not Warning. Nothing is wrong: there is a safer of two ways to do this, and an
-# amber box above a button labelled Install on Next Restart read as an order to restart now.
-p.check("...as Information, because nothing is broken - one path is safer than the other",
-        lev("riskyMessage.type"), lev("Kirigami.MessageType.Information"))
-p.check("...in the sentence that recommends the button standing under it",
-        lev("riskyMessage.text"),
-        "This update includes a kernel. The safest way is to install it on the next restart,"
-        " so nothing changes under the running desktop.")
-p.check("...never telling anybody to restart when something unnamed finishes",
-        "Restart when it finishes" in str(lev("riskyMessage.text")), False)
-# Two restart-shaped buttons used to share `system-reboot` and sit adjacent, one opening KDE's
-# logout prompt and the other staging a transaction.
-p.check("...under the icon for installing software, not the one for restarting a machine",
-        lev("riskyMessage.actions[0].icon.name"), "system-software-update")
-p.check("...and not the count sentence as well, which for a kernel-free set is the same words",
-        lev("riskyMessage.text") == ev("root.vm.riskySummary"), False)
-p.check("...offering the offline install under a name that is not dnf jargon",
-        lev("riskyMessage.actions[0].text"), ev("Logic.COPY.installOnNextRestart"))
-p.check("...with the argument for choosing it in the tooltip",
-        lev("riskyMessage.actions[0].tooltip"), ev("Logic.COPY.installOnNextRestartTooltip"))
-before_stage = len(p.calls_matching("run --surface=offline"))
-lev("riskyMessage.actions[0].trigger()")
-p.wait_for(ev, "root.updating", True, timeout_ms=8000)
-p.check("...and pressing it stages the update for the next restart",
-        len(p.calls_matching("run --surface=offline")) - before_stage, 1)
-ev("root.leaveUpdating()")
-settle()
-ev('root.postRunLine = ""')
-
 # --- ...and the state where that button must not be there at all ---------------------------------
 # A Fedora release upgrade staged outside Kempt. dnf5 keeps ONE stored transaction for that and
 # for an ordinary offline update alike, so pressing Install on Next Restart would cancel it -
@@ -2720,9 +2695,9 @@ _ru["release_upgrade"] = {"from": "44", "to": "45", "state": "armed"}
 _rupath = os.path.join(p.sandbox, "state-release-upgrade.json")
 open(_rupath, "w").write(json.dumps(_ru))
 state(_rupath)
-# The kernel message stays UP, carrying the summary instead of the recommendation - dropping it
-# took the warning off the screen while the live button stayed on it.
-stack("with a Fedora release upgrade staged", "releaseUpgradeMessage", "riskyMessage")
+# The status line keeps the risk on screen beside the live button.
+stack("with a Fedora release upgrade staged", "releaseUpgradeMessage")
+p.check("...with the risk on the status line", "including a new kernel" in str(ev("root.vm.headerText")), True)
 p.check("...naming the release the machine is about to move to",
         "Fedora 45" in str(lev("releaseUpgradeMessage.text")), True)
 p.check("...carrying logic.js's sentence rather than a second copy of it",
@@ -2734,23 +2709,14 @@ p.check("...announced to a screen reader in the same words",
 # No action of its own: restarting, or dropping the upgrade, are the person's to choose rather
 # than a button in an update widget.
 p.check("...and it asks for nothing", lev("releaseUpgradeMessage.actions.length"), 0)
-# What it CARRIES changed, not whether it is there: the recommendation is "install this on the
-# next restart instead", which is the one thing this state does not allow.
-p.check("...and the kernel message states the risk without recommending the restart install",
-        "next restart" in str(lev("riskyMessage.text")), False)
-p.check("...while still saying a session-critical package is pending",
-        "your running session depends on" in str(lev("riskyMessage.text")), True)
-# ...and the press itself is unreachable, which is the point of the whole exercise.
+# ...and the press is unreachable, which is the point of the whole exercise.
 _before_ru = p.call_count("update")
-p.check("Install on Next Restart is not offered at all",
-        lev("riskyMessage.actions[0].visible"), False)
-p.check("...nor merely greyed out with its explanation somewhere else",
-        lev("riskyMessage.actions[0].enabled"), False)
+p.check("Update Now asks no question offering Install on Next Restart", ev("root.vm.updateAsksFirst"), False)
+p.check("...and the menus do not offer it either", ev("root.vm.stageMenuOffered"), False)
 p.check("...and nothing was run", p.call_count("update") - _before_ru, 0)
 
 state(fixture("state-risky-heavy.json"))
-p.check("an ordinary box gets the button back, unchanged",
-        lev("riskyMessage.actions[0].visible"), True)
+p.check("an ordinary box gets the question back, unchanged", ev("root.vm.updateAsksFirst"), True)
 ev('root.postRunLine = ""')
 
 # --- ...and a machine dnf cannot update at all --------------------------------------------------
@@ -2785,8 +2751,7 @@ p.check("...and asks for nothing, because Discover is where this belongs",
 # The two buttons that would abort in pre-flight are gone rather than greyed.
 p.check("Update Now is not offered on a machine dnf cannot update",
         lev("updateButton.visible"), False)
-p.check("...nor Install on Next Restart, which aborts in the same place",
-        lev("riskyMessage.actions[0].visible"), False)
+p.check("Update Now asks no question there", ev("root.vm.updateAsksFirst"), False)
 # ...and Refresh stays: a check reads, changes nothing, and is how the list stays current.
 p.check("...while Refresh stays, because reading is not the thing that is refused",
         lev("refreshButton.visible && refreshButton.enabled"), True)
@@ -2808,41 +2773,39 @@ settle()
 p.check("Update Now on a session-critical set in the popup starts nothing",
         p.call_count("run") - runs_before, 0)
 _lead = ev("Logic.COPY.riskyAskLead")
-p.check("...and says so first, on screen, ending on the question",
-        lev("riskyMessage.text"),
-        _lead + " " + ev("root.vm.riskyMessage") + " " + ev("Logic.COPY.riskyAskQuestion"))
+p.check("...and gives the reason on screen", lev("questionMessage.text"), ev("Logic.COPY.kernelRestart"))
 p.check("...with Update Now off the footer while the question is open",
         lev("updateButton.visible"), False)
-p.check("...and out loud, once, ending on the question the buttons answer",
-        said(), [_lead + " " + ev("root.vm.riskyMessage") + " " + ev("Logic.COPY.riskyAskQuestion")])
+p.check("...and out loud, once, saying first that nothing is installed yet",
+        said(), [_lead + " " + ev("Logic.COPY.kernelRestart")])
 p.check("...and opens the choice instead", ev("root.riskyChoiceOpen"), True)
-p.check("...in the message that already carries the recommendation",
-        [lev("riskyMessage.visible"), lev("riskyMessage.asking")], [True, True])
+p.check("...in the question's message",
+        [lev("questionMessage.visible"), lev("questionMessage.asking")], [True, True])
+p.check("...which can be closed", lev("questionMessage.showCloseButton"), True)
 p.check("...offering Install on Next Restart first",
-        [lev("riskyMessage.actions[0].text"), lev("riskyMessage.actions[0].visible")],
+        [lev("questionMessage.actions[0].text"), lev("questionMessage.actions[0].visible")],
         [ev("Logic.COPY.installOnNextRestart"), True])
 p.check("...and Install Now beside it",
-        [lev("riskyMessage.actions[1].text"), lev("riskyMessage.actions[1].visible")],
+        [lev("questionMessage.actions[1].text"), lev("questionMessage.actions[1].visible")],
         [ev("Logic.COPY.installNow"), True])
 
 # Every way the question closes gives Update Now back to the footer, whenever its own rule allows
 # it. The rule here is the binding's, less the question.
 def footer_back(label):
-    p.check(label, [lev("riskyMessage.asking"), lev("updateButton.visible")],
+    p.check(label, [lev("questionMessage.asking"), lev("updateButton.visible")],
             [False, lev("popup.vm.actionable > 0 && !popup.plasmoidItem.updating"
                         " && !popup.vm.stagedArmed && popup.vm.updateOffered")])
 
 # Install Now: what Update Now would have run, plus the flag that says the person chose it.
-lev("riskyMessage.actions[1].trigger()")
+lev("questionMessage.actions[1].trigger()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
 settle()
 p.check("Install Now runs the update, saying the person already chose to install now",
         p.calls_matching("run")[-1:], ["run --risky-ok"])
 p.check("...and the choice closes", ev("root.riskyChoiceOpen"), False)
-p.check("...leaving the plain message for after the run", lev("riskyMessage.asking"), False)
+p.check("...and the message goes with it", lev("questionMessage.visible"), False)
 p.check("...and Update Now hidden only by the run now, not by the question",
         [ev("root.riskyChoiceOpen"), ev("root.updating"), lev("updateButton.visible")], [False, True, False])
-p.check("...without the lead-in", lev("riskyMessage.text"), ev("root.vm.riskyMessage"))
 ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
@@ -2854,7 +2817,7 @@ open(RUNRC, "w").write("4")
 lev("updateButton.clicked()")
 p.pump(100)
 p.clear_calls()
-lev("riskyMessage.actions[1].trigger()")
+lev("questionMessage.actions[1].trigger()")
 p.wait_for(ev, "root.runRequested", False, timeout_ms=8000)
 settle()
 p.check("...a run that fails is not asked again",
@@ -2866,12 +2829,12 @@ ev('root.actionMessage = ""')
 ev("root.riskyChoiceOpen = false")
 state(fixture("state-risky-heavy.json"))
 
-# Install on Next Restart from the choice stages, as it does from the plain message.
+# Install on Next Restart from the choice stages.
 lev("updateButton.clicked()")
 p.pump(100)
 p.check("a second Update Now asks again", ev("root.riskyChoiceOpen"), True)
 stages_before = len(p.calls_matching("run --surface=offline"))
-lev("riskyMessage.actions[0].trigger()")
+lev("questionMessage.actions[0].trigger()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
 settle()
 p.check("Install on Next Restart in the choice stages the update",
@@ -2887,8 +2850,7 @@ lev("updateButton.clicked()")
 p.pump(100)
 ev("root.popupClosed()")
 p.check("closing the popup closes an unanswered choice", ev("root.riskyChoiceOpen"), False)
-p.check("...and the plain message's Install Now goes with it",
-        lev("riskyMessage.actions[1].visible"), False)
+p.check("...and the message goes with it", lev("questionMessage.visible"), False)
 footer_back("...and Update Now comes back")
 p.check("premise: Update Now is on the footer here", lev("updateButton.visible"), True)
 
@@ -2903,7 +2865,7 @@ p.check("...is closed by a run started elsewhere, so it cannot come back if that
 ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
-p.check("...and it does not come back after the run", lev("riskyMessage.asking"), False)
+p.check("...and it does not come back after the run", lev("questionMessage.asking"), False)
 footer_back("...and Update Now is back after that run")
 # ...and so does a set that is no longer session-critical.
 lev("updateButton.clicked()")
@@ -3453,10 +3415,11 @@ _ASSEMBLED_IN_LOGIC = {
     "upToDate",             # -> countPhrase -> vm.headerText
     "everythingUpToDate",   # -> vm.emptyStateText
     "restartFailed",        # -> root.restartError, rendered inside the restart message
-    "kernelRestart",        # -> riskyMessageOf -> vm.riskyMessage
-    "kernelNvidiaRestart",  # -> riskyMessageOf -> vm.riskyMessage
-    "riskySessionOne",      # -> riskyMessageOf -> vm.riskyMessage (the family list goes in)
-    "riskySessionMore",     # -> riskyMessageOf -> vm.riskyMessage (a count and the family list)
+    "kernelRestart",        # -> riskyMessageOf -> vm.questionMessage
+    "kernelNvidiaRestart",  # -> riskyMessageOf -> vm.questionMessage
+    "riskySession",         # -> riskyMessageOf -> vm.questionMessage (the family list goes in)
+    "statusKernel",         # -> statusLineOf -> vm.headerText
+    "statusSession",        # -> statusLineOf -> vm.headerText
     "newBuild",             # -> versionTextOf, for an update whose version string did not move
     "held",                 # -> vm.footerText and vm.tooltipSub
     "restartPending",       # -> vm.footerText
@@ -3525,10 +3488,7 @@ _ASSEMBLED_IN_LOGIC = {
     "fetchWaitsForUnmetered",  # -> fetchMissedOf, for a fetch skipped on a metered connection
     "fetchMissed",          # -> fetchMissedOf, for an engine that does not say why
     "fetchCountsFrom",      # -> fetchMissedOf, joined on with the age of the lists in the %1
-    "riskyAskLead",         # -> FullRepresentation's risky message, in front of its words
-    "riskyAskQuestion",     # -> FullRepresentation's risky message and announcement, at its end
-    "riskySummaryOne",      # -> riskySummaryOf -> vm.riskyMessage, with no route to the next restart
-    "riskySummaryMore",     # -> riskySummaryOf -> vm.riskyMessage (a count and the family list)
+    "riskyAskLead",         # -> FullRepresentation's question, spoken in front of its words
     "stagedBannerOne",      # -> stagedVariantOf -> vm.stagedBanner, under the header's count
     "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner
     "stagedOthersOne",      # -> stagedOthersOf -> vm.stagedBanner, after the banner's sentence
@@ -3557,7 +3517,7 @@ _ASSEMBLED_IN_LOGIC = {
     "restartHeld",          # -> what `kempt status` prints, the same words
     "restartHeldBanner",    # -> vm.stagedBanner and vm.stagedMessage
     "restartHeldFooter",    # -> lastRunText
-    "restartHeldAsk",       # -> vm.heldChoiceMessage
+    "restartHeldAsk",       # -> vm.questionMessage
     "lastCheckFailedHeader",  # -> vm.headerText and vm.tooltipMain, over a failed check with nothing waiting
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))

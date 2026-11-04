@@ -167,33 +167,21 @@ var COPY = {
     discoverStatusOwn: "Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on.",
     discoverStatusOwnNoPath: "Discover's notifier is turned off by a startup file. Delete that file to turn it back on.",
 
-    // Four spellings, because two things vary: whether a kernel is in the set, and whether the
-    // NVIDIA driver is with it (that box has a second, worse failure mode - a kernel module built
-    // against a kernel that is not the running one - and naming it makes the advice credible).
-    // Each says what the BUTTON underneath does, never "restart when it finishes": recommending
-    // the live path over a button offering the offline one reads as an order to restart now.
+    // Three spellings, because two things vary: whether a kernel is in the set, and whether the
+    // NVIDIA driver is with it. Each is the reason for the question Update Now asks, whose buttons
+    // answer it.
     kernelRestart:
-        "This update includes a kernel. The safest way is to install it on the next restart, "
-        + "so nothing changes under the running desktop.",
+        "This update includes a new kernel, so the next restart is the safest time to install it.",
     kernelNvidiaRestart:
-        "This update includes a kernel and the NVIDIA driver. The safest way is to install them "
-        + "on the next restart, so nothing changes under the running desktop.",
-    // ...and the same recommendation with no kernel in the set. The family list is kept, capped
-    // where the count sentence caps it, because it is the evidence for the claim.
-    riskySessionOne:
-        "This update touches 1 package your running session depends on (%1). "
-        + "The safest way is to install it on the next restart.",
-    riskySessionMore:
-        "This update touches %1 packages your running session depends on (%2). "
-        + "The safest way is to install them on the next restart.",
-    // When Update Now turns that message into a choice: the lead-in goes in front of it on screen,
-    // because nothing else says the click did not start a run, and the question ends what is read
-    // out, because the focus lands on a button and a screen reader would read only that.
+        "This update includes a new kernel and NVIDIA driver, so the next restart is the safest time to install them.",
+    // ...and with no kernel in the set. The family list is the evidence for the claim.
+    riskySession:
+        "This update changes parts your desktop is using (%1), so the next restart is the safest time to install it.",
+    // Said before the question, out loud only: nothing else tells a listener the press started nothing.
     riskyAskLead: "Nothing is installed yet.",
-    riskyAskQuestion: "Install on the next restart, or now?",
-    // The same risk with no advice, for a box with no route to the next restart.
-    riskySummaryOne: "1 pending update touches a package your running session depends on (%1).",
-    riskySummaryMore: "%1 pending updates touch packages your running session depends on (%2).",
+    // The status line's half of the same fact, on screen before any press.
+    statusKernel: "%1, including a new kernel",
+    statusSession: "%1, including parts your desktop is using",
 
     // `held` is a suffix to a number ("3 held") rather than a sentence, because the same word has
     // to serve the tooltip too.
@@ -327,8 +315,7 @@ var COPY = {
         + "Kempt then shows what is still pending.",
     restartHeldFooter: "the next restart belongs to another updater",
     // Update Now with system updates waiting: a live run may cancel what that updater prepared.
-    restartHeldAsk: "The next restart belongs to another updater. If you update now, the update "
-        + "it prepared may no longer install.",
+    restartHeldAsk: "Another updater has prepared your next restart, and updating now may stop its update from installing.",
 
     // ...and the three the banner has once a hold lands behind the stage. These REPLACE
     // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
@@ -1071,16 +1058,6 @@ function riskyFamiliesOf(names) {
     return out.join(", ") + (fams.total > fams.shown.length ? ", …" : "");
 }
 
-// "20 pending updates touch packages your running session depends on (dbus, glibc, kernel, kf6,
-// ...).", from the same family names as the CLI's notification. Drawn only where the
-// recommendation below cannot be: there is no route to the next restart.
-function riskySummaryOf(names) {
-    if (!names || !names.length) return "";
-    return names.length === 1
-        ? fill(COPY.riskySummaryOne, "%1", riskyFamiliesOf(names))
-        : fill(fill(COPY.riskySummaryMore, "%1", String(names.length)), "%2", riskyFamiliesOf(names));
-}
-
 // pendingNamesOf(sections, riskyNames) -> "kernel-core, bash, curl and 7 more", for the panel
 // tooltip. The session-critical rows come first, then the list's own order. Only names that are
 // rows in the list, so the tooltip never names a package the popup does not show.
@@ -1116,23 +1093,25 @@ function pendingNamesOf(sections, riskyNames) {
 // a kernel that is about to stop being the running one.
 function riskyMessageOf(names) {
     if (!isArray(names) || names.length === 0) return "";
-    // The 0 is a cap of NONE and has to stay one. This is a LOOKUP, not a list being shown:
-    // RISKY_FAMILIES_SHOWN caps what riskySummaryOf PRINTS, and passing it here - the
-    // obvious-looking tidy-up - would make the kernel warning depend on where "kernel" falls in an
-    // alphabetical sort. Four families ahead of it (akmod, alsa, atk, bash) and the most important
-    // sentence this popup has silently stops being said.
-    if (familiesOf(names, 0).shown.indexOf("kernel") < 0) {
-        // No kernel: the offline install really is safer and nothing has to be said about the
-        // running kernel. Whole literals, because count, noun and pronoun move together.
-        var fams = riskyFamiliesOf(names);
-        return names.length === 1
-            ? fill(COPY.riskySessionOne, "%1", fams)
-            : fill(fill(COPY.riskySessionMore, "%1", String(names.length)), "%2", fams);
-    }
+    if (!riskyHasKernel(names)) return fill(COPY.riskySession, "%1", riskyFamiliesOf(names));
     for (var i = 0; i < names.length; i++) {
         if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return COPY.kernelNvidiaRestart;
     }
     return COPY.kernelRestart;
+}
+
+// statusLineOf(count, names) -> the status line over a set with a session-critical package in it.
+function statusLineOf(count, names) {
+    return fill(riskyHasKernel(names) ? COPY.statusKernel : COPY.statusSession, "%1", count);
+}
+
+function riskyHasKernel(names) {
+    // The 0 is a cap of NONE and has to stay one. This is a LOOKUP, not a list being shown:
+    // RISKY_FAMILIES_SHOWN caps what riskyFamiliesOf PRINTS, and passing it here - the
+    // obvious-looking tidy-up - would make the kernel warning depend on where "kernel" falls in an
+    // alphabetical sort. Four families ahead of it (akmod, alsa, atk, bash) and the most important
+    // sentence this popup has silently stops being said.
+    return familiesOf(names, 0).shown.indexOf("kernel") >= 0;
 }
 
 // stagedMessageOf(offline_staged) -> what the next restart will install, in one sentence.
@@ -1170,15 +1149,12 @@ var MESSAGE_CAP = 2;
 //            screen, and the footer wraps rather than cutting its last words off.
 //   fetchMissed  a Check for Updates whose fetch did not land. Below the banners, whose buttons
 //            act on the system: when it is crowded out the footer gives the lists' age instead.
-//   kernel   the offline recommendation: advice about a transaction that will still be there next
-//            time the popup is opened.
 //   reclaim  unused Flatpak runtimes. Last: the space stays free to take at any later open.
 // `releaseUpgrade` sits below the report and imageBased, above Kempt's own staged transaction:
 // the next restart replaces the whole operating system, which outranks anything below it, and it is the reason the offline
 // button is missing - a person looking for that button needs this message, not the one it displaced.
-// `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
-// comes first because it answers the Update Now press just made, and nothing runs until it is
-// answered.
+// `question` comes first because it answers the Update Now press just made, and nothing runs until
+// it is answered. Either a session-critical set or another updater's restart asks it, never both.
 // `discoverUnattended` sits right after `staged`: it says who may take the restart that message
 // is counting on. It draws once, so a restart or a failure it displaces is back on the next open.
 // `stageDiscoverWarning` sits under the failure and the restart: a person warned to restart soon
@@ -1191,8 +1167,8 @@ var MESSAGE_CAP = 2;
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
 // `foldersPaused` sits under imageBased: every button below it ends in the helper's refusal.
-var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "discoverUnattended", "startup",
-                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel",
+var MESSAGE_ORDER = ["question", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "discoverUnattended", "startup",
+                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed",
                      "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
@@ -2789,16 +2765,15 @@ function viewModel(state, updating, cliError, opts) {
     var stagedWarning = stagedVariant.type === "warning";
 
     // What to DO about a session-critical set, which is a different question from how big it is.
-    // Silent while a transaction is already staged: this message IS the "Install on Next Restart"
+    // Silent while a transaction is already staged: this question IS the "Install on Next Restart"
     // offer, and offering it over an armed transaction invites a second staging of the same
-    // updates. riskySummary is deliberately NOT silenced - those packages really are still pending
+    // updates. The status line still says what the set holds: those packages are still pending
     // until the restart runs.
     // isArray, not a duck-typed length check: a STRING has a numeric length and indexes into its
     // own characters, so `risky_pending: "kernel-core"` would walk out of here as "11
     // session-critical pending (c, e, k, l, ...)".
     // The recommendation is only printable where the route it recommends exists. Where it does not,
-    // the summary sentence stands in - it states the risk and advises nothing, which is the honest
-    // half to keep.
+    // the status line alone states the risk and advises nothing.
     var noOfflineRoute = releaseUpgrade || imageBased || restartHeld;
     // ...and on a box Kempt cannot update AT ALL, the risk is not the widget's to raise: no button
     // it offers can act on it, dnf's view is not what installs there, and a second message under
@@ -2806,14 +2781,12 @@ function viewModel(state, updating, cliError, opts) {
     // opposite - the live button stays on screen, so the warning has to stay with it.
     var riskyIsMoot = imageBased;
     var riskyPending = usable && isArray(state.risky_pending) ? state.risky_pending : [];
-    // Where the offline route exists, the recommendation - what to DO about a kernel. Where it does
-    // not, the summary, which states the same risk and advises nothing. Silence was the wrong third
-    // option: it took the warning off the screen while the live button stayed on it.
-    var riskyMessage = (staged || riskyIsMoot) ? ""
-        : (noOfflineRoute ? riskySummaryOf(riskyPending) : riskyMessageOf(riskyPending));
+    // What the question says. Where no route to the next restart exists there is nothing to choose,
+    // and the status line still names what the set holds.
+    var riskyMessage = (staged || noOfflineRoute) ? "" : riskyMessageOf(riskyPending);
     // Whether Update Now asks before it runs: a risky set, a route to the next restart, and a run
     // that would install it live with nobody asked. The offline surface already is the next restart.
-    var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute && runSurface === "popup";
+    var updateAsksFirst = riskyMessage !== "" && runSurface === "popup";
     var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
     // Nothing of Kempt's staged behind that restart: the banner stands by itself. Not beside what
     // the release-upgrade and image-based messages already say about the same restart.
@@ -2879,7 +2852,9 @@ function viewModel(state, updating, cliError, opts) {
         tooltipMain = headerText;
     } else {
         tooltipMain = countPhrase;
-        headerText = countPhrase;
+        // The kernel message of old in six words: what the set holds, before anything is pressed.
+        headerText = actionable > 0 && !riskyIsMoot && riskyPending.length > 0
+            ? statusLineOf(countPhrase, riskyPending) : countPhrase;
     }
 
     var lastSuccessText = usable ? formatStamp(state.last_success) : "";
@@ -3055,21 +3030,12 @@ function viewModel(state, updating, cliError, opts) {
         staged: staged || stageBlocked || restartHeldBanner,
         // Above everything except a report of something that just happened: it is the one message
         // that says what this machine is, and every other message here presumes a box Kempt can
-        // update. The kernel message is not displaced here but SILENCED (riskyIsMoot above): with
-        // no button of any kind on offer, a count of session-critical packages has nowhere to go.
+        // update. The status line says nothing of the set either (riskyIsMoot above): with no
+        // button of any kind on offer, a count of session-critical packages has nowhere to go.
         imageBased: imageBasedMessage !== "",
         foldersPaused: foldersPausedMessage !== "",
         releaseUpgrade: releaseUpgradeMessage !== "",
-        // The kernel message RECOMMENDS installing on the next restart, which a stored release
-        // upgrade does not allow - so what is shown there is the summary instead: the same fact,
-        // without the advice. Dropping it entirely took the warning off the screen while the live
-        // button stayed on it, which is the wrong half to lose. On an image-based box there is no
-        // live button either, and riskyIsMoot silences it outright.
-        // ...and while the choice is open the same message is in the first slot instead, so it is
-        // never drawn twice.
-        kernel: riskyMessage !== "" && !riskyChoice,
-        riskyChoice: riskyChoice,
-        heldChoice: heldChoice,
+        question: riskyChoice || heldChoice,
         discoverUnattended: discoverUnattended,
         // The same offer with the reason that matters while something is staged, and higher up.
         discoverOffer: discoverOffer && !staged,
@@ -3162,8 +3128,8 @@ function viewModel(state, updating, cliError, opts) {
         // wrong instead of a generic apology.
         staleReason: staleReason,
         // The fact, then what to do about it, on two lines. Empty means there is nothing to say,
-        // and that empty string is the popup's only gate - exactly how riskyMessage and
-        // stagedMessage already work. The other two follow it: the clipboard payload the button
+        // and that empty string is the popup's only gate - exactly how stagedMessage
+        // already works. The other two follow it: the clipboard payload the button
         // copies, and the button's own label, which names how many commands that is.
         engineFaultMessage: engineFaultMessage,
         engineFaultCopyText: engineFaultCopyText,
@@ -3176,19 +3142,16 @@ function viewModel(state, updating, cliError, opts) {
         problemHint: remedyCommand !== "" ? COPY.checkFailedHint
             : (problemNetwork || problemNoCache ? problemHint : ""),
         remedyCommand: remedyCommand,
-        // isArray, not a duck-typed length check - see the riskyMessage derivation above for what
-        // a string in this key otherwise renders as. These two must agree about the same key.
-        riskySummary: riskySummaryOf(
-            usable && isArray(state.risky_pending) ? state.risky_pending : []),
-        riskyMessage: riskyMessage,
+        // The question Update Now asks, and which of the two it is: the other updater's has no
+        // route to the next restart, so its one answer is to run now.
+        questionMessage: riskyChoice ? riskyMessage : (heldChoice ? COPY.restartHeldAsk : ""),
+        questionHeld: heldChoice,
         // Update Now opens the risky choice instead of running (main.qml, startUpdate).
         updateAsksFirst: updateAsksFirst,
         // Who holds the next restart, and what Update Now does about it (main.qml, startUpdate).
         restartHeld: restartHeld,
         updateAsksHeld: updateAsksHeld,
         heldLiveSurface: restartHeld ? "popup" : "",
-        heldChoiceMessage: updateAsksHeld
-            ? COPY.restartHeldAsk + (riskyPending.length > 0 ? " " + riskySummaryOf(riskyPending) : "") : "",
         stagedMessage: stageBlocked ? COPY.stageBlocked
             : restartHeldBanner ? COPY.restartHeldBanner : stagedMessage,
         // A Check for Updates whose fetch did not land: why, and how old the lists are. Shown in
@@ -3235,8 +3198,7 @@ function viewModel(state, updating, cliError, opts) {
         // Both refusals land here: on an image-based system `kempt update` aborts in pre-flight
         // whatever surface it was asked for, so staging is no more available than updating.
         offlineStageOffered: !noOfflineRoute,
-        // Install on Next Restart in the widget's menus, for the box whose footer says Update Now and
-        // whose kernel message is not up: after a lost stage, or a discard with the kernel held.
+        // Install on Next Restart in the widget's menus, for the box whose footer says Update Now.
         stageMenuOffered: !updating && !staged && !stageBlocked && !noOfflineRoute
             && !updateButton.stages && usable && backendActionable(state, "dnf") > 0,
         releaseUpgradeMessage: releaseUpgradeMessage,
@@ -3318,6 +3280,7 @@ if (typeof module !== "undefined" && module.exports) {
         CHECK_BODY_MS: CHECK_BODY_MS,
         CHECK_TIMEOUT_MS: CHECK_TIMEOUT_MS,
         riskyMessageOf: riskyMessageOf,
+        riskyFamiliesOf: riskyFamiliesOf,
         pendingNamesOf: pendingNamesOf,
         stagedMessageOf: stagedMessageOf,
         stagedVariantOf: stagedVariantOf,

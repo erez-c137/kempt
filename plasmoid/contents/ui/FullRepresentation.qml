@@ -233,16 +233,30 @@ PlasmaExtras.Representation {
         })(message);
     }
 
-    // The risky choice opens on the recommended answer, so Enter stages rather than installs.
-    // Later, not now: the message's buttons are laid out after the visibility change that shows them.
-    // `then` runs after the focus move, in the same turn, so what it says is queued behind the
-    // button's name rather than cut off by it.
-    function focusRiskyChoice(then) {
-        Qt.callLater(function () {
-            const button = popup.buttonFor(riskyMessage, riskyStageAction);
-            if (button && popup.canTakeFocus(button)) button.forceActiveFocus(Qt.TabFocusReason);
-            if (typeof then === "function") then();
-        });
+    // The question opens on its first answer, so on a session-critical set Enter stages rather than
+    // installs. Later, not now: the message's buttons are laid out after the visibility change that
+    // shows them. `then` runs after the focus move, in the same turn, so what it says is queued
+    // behind the button's name rather than cut off by it.
+    // The message was hidden until now and Kirigami lays its buttons out only once it is shown, so
+    // the button may not exist yet: look again for a moment, then speak either way.
+    function focusQuestion() {
+        questionFocus.tries = 25;
+        questionFocus.restart();
+    }
+    Timer {
+        id: questionFocus
+        property int tries: 0
+        interval: 20
+        repeat: true
+        onTriggered: {
+            const button = popup.buttonFor(questionMessage,
+                                           questionMessage.held ? questionRunAction : questionStageAction);
+            const landed = button && popup.canTakeFocus(button);
+            if (landed) button.forceActiveFocus(Qt.TabFocusReason);
+            if (!landed && --tries > 0) return;
+            stop();
+            if (questionMessage.asking) popup.announce(questionMessage.Accessible.name, false);
+        }
     }
 
     // Mute Until It Starts for the message at `at`. The callback is made here, not in the message:
@@ -959,27 +973,67 @@ PlasmaExtras.Representation {
             ]
         }
 
-        // Update Now while another updater holds the next restart, asked before anything runs.
+        // The question Update Now asks before anything runs: a session-critical set, whether now or
+        // on the next restart, or another updater's restart, whether to run at all. Its sentence is
+        // the reason; its buttons are the answers; closing it answers nothing and starts nothing.
         Kirigami.InlineMessage {
-            id: heldChoiceMessage
-            Component.onCompleted: popup.plainTextMessage(heldChoiceMessage)
+            id: questionMessage
+            Component.onCompleted: {
+                popup.plainTextMessage(questionMessage);
+                Qt.callLater(speakButtons);
+            }
             Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: popup.vm.heldChoiceMessage
-            Accessible.name: text
-            visible: popup.shows("heldChoice")
-            onVisibleChanged: if (visible) popup.announce(text, false)
+            readonly property bool asking: popup.shows("question")
+            readonly property bool held: popup.vm.questionHeld
+            // Information for the safer of two ways, Warning for what a run may cost another updater.
+            type: held ? Kirigami.MessageType.Warning : Kirigami.MessageType.Information
+            showCloseButton: true
+            text: popup.vm.questionMessage
+            // The lead-in is spoken only: on screen, the buttons show nothing has run.
+            Accessible.name: Logic.COPY.riskyAskLead + " " + text
+            visible: asking
+            // Its buttons' words for a screen reader (speakActionsAs), hooked as the banner's are.
+            function speakButtons() { popup.speakActionsAs(questionMessage); }
+            property var spokenHooks: []
+            // Polite: it answers the click. Said after the focus lands on the first answer, so it
+            // follows the button's name instead of being cut off by it.
+            onAskingChanged: {
+                if (!asking) return;
+                popup.focusQuestion();
+            }
+            // The close button breaks the visibility binding, as on the restart message: turn it
+            // into closing the question and put the binding back.
+            onVisibleChanged: {
+                Qt.callLater(speakButtons);
+                if (visible) return;
+                if (!popup.closedByButton(questionMessage, "question")) return;
+                popup.plasmoidItem.closeQuestion();
+                popup.rescueFocus();
+                visible = Qt.binding(function () { return questionMessage.asking; });
+            }
             actions: [
                 Kirigami.Action {
-                    text: i18n("Update Now")
+                    id: questionStageAction
+                    text: i18n("Install on Next Restart")
                     icon.name: "system-software-update"
-                    enabled: !popup.plasmoidItem.actionPending && !popup.plasmoidItem.runRequested
-                    onTriggered: source => { popup.plasmoidItem.startUpdate(true); popup.rescueFocus(); }
+                    tooltip: popup.stageTooltip
+                    // The popup opens here with Update Now gone, so this is where a listener hears
+                    // the heading's count.
+                    readonly property string spokenName: text
+                    readonly property string spokenDescription: popup.vm.headerText + "\n" + tooltip
+                    visible: !questionMessage.held
+                    enabled: visible && !popup.plasmoidItem.actionPending
+                    onTriggered: source => { popup.plasmoidItem.stageOffline(); popup.rescueFocus(); }
                 },
                 Kirigami.Action {
-                    text: i18n("Cancel")
-                    icon.name: "dialog-cancel"
-                    onTriggered: source => { popup.plasmoidItem.heldChoiceOpen = false; popup.rescueFocus(); }
+                    id: questionRunAction
+                    // Runs what Update Now would have run, and tells the CLI the person chose it,
+                    // so no notification repeats the question.
+                    text: questionMessage.held ? i18n("Update Now") : i18n("Install Now")
+                    tooltip: questionMessage.held ? "" : i18n("Installs the update now, while your desktop is running.")
+                    icon.name: questionMessage.held ? "system-software-update" : "run-build-install"
+                    enabled: !popup.plasmoidItem.runRequested && !popup.plasmoidItem.actionPending
+                    onTriggered: source => { popup.plasmoidItem.startUpdate(true); popup.rescueFocus(); }
                 }
             ]
         }
@@ -1053,83 +1107,6 @@ PlasmaExtras.Representation {
             text: popup.vm.releaseUpgradeMessage
             Accessible.name: text
             visible: popup.shows("releaseUpgrade")
-        }
-
-        // The offline recommendation. The CLI has already decided this transaction touches
-        // session-critical packages; the widget's job is to make acting on it one click.
-        //
-        // vm.riskyMessage and NOT vm.riskySummary, and only ever one of them: with no kernel in the
-        // set riskyMessageOf falls back to the very sentence riskySummary holds, so rendering both
-        // would print the same words twice inside one message.
-        Kirigami.InlineMessage {
-            id: riskyMessage
-            Layout.fillWidth: true
-            // INFORMATION, not Warning. Nothing here is broken: one of two ways of doing the same
-            // update is safer than the other, and the message says which. An amber box over a
-            // button labelled Install on Next Restart, before anything has started, reads as an
-            // order to restart the machine now.
-            type: Kirigami.MessageType.Information
-            // The same words become a question after Update Now on a surface that cannot ask for
-            // itself (logic.js, updateAsksFirst): staging, recommended, or installing now. The
-            // lead-in says the click did not start anything, and the question ends it on screen
-            // as it does out loud.
-            text: asking ? Logic.COPY.riskyAskLead + " " + popup.vm.riskyMessage
-                           + " " + Logic.COPY.riskyAskQuestion
-                         : popup.vm.riskyMessage
-            Accessible.name: text
-            readonly property bool asking: popup.shows("riskyChoice")
-            // Its buttons' words for a screen reader (speakActionsAs), hooked as the banner's are.
-            function speakButtons() { popup.speakActionsAs(riskyMessage); }
-            property var spokenHooks: []
-            Component.onCompleted: Qt.callLater(speakButtons)
-            onVisibleChanged: Qt.callLater(speakButtons)
-            visible: popup.shows("kernel") || asking
-            // Polite: it answers the click. Said after the focus lands on Install on Next Restart,
-            // so it follows the button's name instead of being cut off by it, and it ends on the
-            // question that button answers.
-            onAskingChanged: {
-                if (!asking) return;
-                popup.focusRiskyChoice(function () {
-                    if (!riskyMessage.asking) return;
-                    popup.announce(riskyMessage.text, false);
-                });
-            }
-            actions: [
-                Kirigami.Action {
-                    id: riskyStageAction
-                    // Named for what it does to the user rather than for the dnf5 flag behind it.
-                    text: i18n("Install on Next Restart")
-                    // ...and drawn as what it does: this INSTALLS software, at a moment of the
-                    // machine's choosing. `system-reboot` is Restart…'s alone - two adjacent
-                    // restart-shaped actions under one icon, one opening KDE's logout prompt and
-                    // one staging a transaction, is not a distinction anybody can make.
-                    icon.name: "system-software-update"
-                    tooltip: popup.stageTooltip
-                    // As the question after Update Now the popup opens here, with Update Now gone,
-                    // so this is where a listener hears the heading's count.
-                    readonly property string spokenName: text
-                    readonly property string spokenDescription: riskyMessage.asking
-                        ? popup.vm.headerText + "\n" + tooltip : tooltip
-                    // Gone, not greyed, while a Fedora release upgrade is stored: the message that
-                    // replaces this one says why, and a disabled button with its explanation in a
-                    // different message is a puzzle rather than an answer.
-                    visible: popup.vm.offlineStageOffered
-                    enabled: visible && !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.stageOffline(); popup.rescueFocus(); }
-                },
-                Kirigami.Action {
-                    id: riskyInstallNowAction
-                    // Only as the answer to Update Now. Runs what Update Now would have run, and
-                    // tells the CLI the person chose it, so no notification repeats the question.
-                    text: i18n("Install Now")
-                    tooltip: i18n("Installs the update now, while your desktop is running.")
-                    icon.name: "run-build-install"
-                    visible: riskyMessage.asking
-                    enabled: visible && !popup.plasmoidItem.runRequested
-                             && !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.startUpdate(true); popup.rescueFocus(); }
-                }
-            ]
         }
 
         // The one-time offer to turn off Discover's own update notifier, which counts updates on
@@ -1990,12 +1967,12 @@ PlasmaExtras.Representation {
                 // for a restart, and this button would start it again, live, over the top of it.
                 // ...and the fourth is a machine dnf cannot update at all, where the run would
                 // abort in pre-flight whatever it was asked to do.
-                // ...and the fifth is the risky question: while it is open, its two buttons are the
-                // answers, and a third that asks the same question again is noise. It comes back
-                // when the question closes, however that happens (main.qml, riskyChoiceOpen).
+                // ...and the fifth is the question: while it is open, its buttons are the answers,
+                // and another that asks the same question again is noise. It comes back when the
+                // question closes, however that happens (main.qml, closeQuestion).
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
                          && !popup.vm.stagedArmed && popup.vm.updateOffered
-                         && !riskyMessage.asking && !heldChoiceMessage.visible
+                         && !questionMessage.asking
                 // ...and refusing from the press until `kempt run` comes back. That call launches
                 // the surface and returns, and is allowed fifteen seconds to do it; startUpdate's
                 // guard tests `updating`, which is still false for all of them. Disabled rather
@@ -2010,7 +1987,7 @@ PlasmaExtras.Representation {
                 // delivers Space and Return to whatever holds activeFocus whether it is drawn or
                 // not, so what is left is an invisible button that starts `kempt run` on a box with
                 // nothing to update.
-                onVisibleChanged: if (!visible && activeFocus && !riskyMessage.asking) popup.focusPrimary()
+                onVisibleChanged: if (!visible && activeFocus && !questionMessage.asking) popup.focusPrimary()
 
                 // The belt to that braces. A control that is invisible and still operable is a trap
                 // however the keyboard reached it, and the focus move above is not the only route

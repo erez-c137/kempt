@@ -478,8 +478,8 @@ for index, what in ((1, "Install Now"), (0, "Install on Next Restart")):
     lev("updateButton.forceActiveFocus(Qt.TabFocusReason)")
     press(Qt.Key_Return)
     p.pump(150)
-    p.check("premise: Update Now opened the choice", lev("riskyMessage.asking"), True)
-    answer("riskyMessage", index, what)
+    p.check("premise: Update Now opened the choice", lev("questionMessage.asking"), True)
+    answer("questionMessage", index, what)
     if ev("root.updating"):
         ev("root.leaveUpdating()")
         settle()

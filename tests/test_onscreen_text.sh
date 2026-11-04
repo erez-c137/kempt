@@ -21,8 +21,8 @@ if command -v node >/dev/null 2>&1; then
     for (const [k, v] of Object.entries(L.COPY)) add("COPY." + k, v);
     // The sentences the view model builds out of the copy, for every state fixture, idle and
     // updating, plus the no-data state.
-    const FIELDS = ["tooltipMain", "tooltipSub", "headerText", "emptyStateText", "riskySummary",
-      "riskyMessage", "stagedMessage", "releaseUpgradeMessage", "imageBasedMessage", "foldersPausedMessage", "footerText",
+    const FIELDS = ["tooltipMain", "tooltipSub", "headerText", "emptyStateText",
+      "questionMessage", "stagedMessage", "releaseUpgradeMessage", "imageBasedMessage", "foldersPausedMessage", "footerText",
       "footerTooltip", "reclaimMessage", "engineFaultMessage"];
     const states = [["null", null]];
     for (const f of fs.readdirSync(process.argv[2]).filter((f) => /^state-.*\.json$/.test(f)))

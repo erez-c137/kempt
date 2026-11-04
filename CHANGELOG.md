@@ -7,6 +7,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A kernel, NVIDIA driver or desktop update now says so on the status line.** The message that used to sit in the widget before you pressed anything is gone. The status line reads "23 updates available, including a new kernel", and Update Now asks its question only when pressed. That question and the one about another updater's restart now share one message.
+
 ### Removed
 
 - **`install.sh`.** Kempt installs as a package. Developers use `tools/build-local.sh`, which builds the packages from a checkout. If you installed from a checkout, run `./install.sh --uninstall` from your current copy before you pull, then install the package. The `kempt doctor` rows that only applied to a checkout go too: `helpers:`, `policy:`, `widget:`, `install: packaged`, the commit line and `getfacl`, which the package requires.

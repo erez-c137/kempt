@@ -199,7 +199,6 @@ assert_eq "$(js 'V("live",false).badgeText')" "10" "the badge is the CLI's actio
 assert_eq "$(js 'V("live",false).badgeVisible')" "true" "...and it is shown"
 assert_eq "$(js 'V("live",false).headerText')" "10 updates available" "header names the count"
 assert_eq "$(js 'V("live",false).staleReason')" "" "a healthy check has no stale reason"
-assert_eq "$(js 'V("live",false).riskySummary')" "" "an everyday transaction raises no offline recommendation"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{}},false).headerText')" \
   "1 update available" "one update is singular"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).iconState')" \
@@ -667,20 +666,19 @@ assert_eq "$(js "$ru.releaseUpgradeMessage.indexOf(\"Updating now still works\")
   "...and what still does work, because only the staged path is affected"
 assert_eq "$(js "$noru.releaseUpgradeMessage")" "" "no upgrade stored, nothing said about one"
 # The kernel slot stays, and what it CARRIES changes. Its recommendation is "install this on the
-# next restart instead", which is the one thing this state does not allow - but dropping the
-# message took the warning off the screen while the live button stayed on it, which is the wrong
-# half to lose. So the summary sentence stands in: the same fact, advising nothing.
-assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade","kernel"]' \
-  "the risk is still on screen beside the release upgrade"
-assert_eq "$(js "$ru.riskyMessage.indexOf(\"your running session depends on\") >= 0")" "true" \
-  "...as the summary, which states the risk"
-assert_eq "$(js "$ru.riskyMessage.indexOf(\"next restart\") >= 0")" "false" \
-  "...and not the recommendation, which would advise a button that is not there"
+# next restart instead", which is the one thing this state does not allow. The status line keeps
+# the risk on screen beside the live button.
+assert_eq "$(js "$ru.messageSlots")" '["releaseUpgrade"]' \
+  "only the release upgrade is said in a message"
+assert_contains "$(js "$ru.headerText")" "including a new kernel" \
+  "...and the status line keeps the risk on screen"
+assert_eq "$(js "$ru.updateAsksFirst")" "false" \
+  "...with no question that would advise a button that is not there"
 assert_eq "$(js "$ru.offlineStageOffered")" "false" \
   "...with the button on that message gone, which is what makes the swap necessary"
-assert_eq "$(js "$noru.messageSlots")" '["kernel"]' \
-  "...while an ordinary risky transaction still gets the full recommendation"
-assert_eq "$(js "$noru.riskyMessage.indexOf(\"next restart\") >= 0")" "true" \
+assert_eq "$(js "$noru.messageSlots")" '[]' \
+  "...while an ordinary risky transaction waits for Update Now to ask"
+assert_eq "$(js "$noru.updateAsksFirst")" "true" \
   "...naming the safer route, because on that box the route exists"
 # dnf5 has ONE transaction slot, and a transaction whose target release differs from the system's
 # cannot be one Kempt built - so a marker alongside a release upgrade describes a transaction that
@@ -726,8 +724,9 @@ assert_eq "$(js "$ib.messageSlots[0]")" "imageBased" \
 # the live Update Now button stays on screen, so the risk has to stay with it. Here every button is
 # already gone, dnf's view is not what installs on this machine, and a count under the message that
 # says so would be a warning with nowhere to go.
-assert_eq "$(js "$ib.riskyMessage")" "" \
+assert_eq "$(js "$ib.headerText.indexOf(\"including\")")" "-1" \
   "no session-critical warning on a box where no button Kempt offers could act on it"
+assert_eq "$(js "$ib.updateAsksFirst")" "false" "...and no question either"
 # A check that found an unsafe folder says updates are paused, before anyone presses a button.
 FP='function (v) { var s = S("risky-heavy"); if (v !== undefined) s.unsafe_folder = v; return L.viewModel(s, false, "", {}); }'
 assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").foldersPausedMessage")" \
@@ -804,18 +803,19 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("risky-heavy"), {release_upgrade: {
   "false" "with no route to the next restart there is nothing to choose, so it runs as before"
 assert_eq "$(js 'L.viewModel(Object.assign(S("risky-heavy"), {offline_staged: {staged_at:"2026-09-02T10:31:00+03:00", count:3, armed:true}}), false, "", {surface: "popup"}).updateAsksFirst')" \
   "false" "...and nothing is asked over an update already staged"
-# The choice, once open, takes the first slot: it answers the press just made. It is the risky
-# message itself, so the plain one is not drawn as well.
-assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true}').messageSlots")" '["riskyChoice"]' \
-  "an open choice is the risky message, drawn once"
-assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true, reportShown: true}').messageSlots[0]")" "riskyChoice" \
+# The question, once open, takes the first slot: it answers the press just made.
+assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true}').messageSlots")" '["question"]' \
+  "an open question is one message"
+assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true, reportShown: true}').messageSlots[0]")" "question" \
   "...ahead of the report of the last thing that happened"
-assert_eq "$(js "$(risky_vm popup).messageSlots")" '["kernel"]' "closed, it is the plain recommendation"
-assert_eq "$(js 'L.viewModel(S("risky-heavy"), true, "", {surface: "popup", riskyChoiceOpen: true}).messageSlots.indexOf("riskyChoice")')" \
+assert_eq "$(js "$(risky_vm popup).messageSlots")" '[]' "closed, nothing is drawn until Update Now is pressed"
+assert_contains "$(js "$(risky_vm popup).headerText")" ", including a new kernel" "...and the status line says what the set holds"
+assert_eq "$(js 'L.viewModel(S("risky-heavy"), true, "", {surface: "popup", riskyChoiceOpen: true}).messageSlots.indexOf("question")')" \
   "-1" "...and nothing is asked over a run already under way"
-# The recommendation is the question: the same sentence, not a second wording of it.
-assert_eq "$(js "$(risky_vm popup).riskyMessage")" "$(js 'L.COPY.kernelRestart')" \
-  "the choice asks in the risky message's own words"
+assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true}').questionMessage")" "$(js 'L.COPY.kernelRestart')" \
+  "the question gives the reason"
+assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true}').questionHeld")" "false" "...and is not the other updater's"
+assert_eq "$(js "$(risky_vm popup).questionMessage")" "" "...and says nothing until asked"
 assert_eq "$(js 'L.COPY.installNow')" "Install Now" "the second answer is Install Now"
 assert_eq "$(js 'L.COPY.installNowTooltip')" "Installs the update now, while your desktop is running." \
   "...with a tooltip, as its sibling has"
@@ -832,8 +832,8 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), t
   "...and it waits out a run"
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {discoverAnswerKnown: false}).messageSlots')" '[]' \
   "it waits until the widget has looked for the CLI's answered marker"
-assert_eq "$(js 'L.messageStack({kernel: true, discoverOffer: true, reclaim: true})')" '["kernel","discoverOffer"]' \
-  "it waits below the risky advice and above the reclaim offer"
+assert_eq "$(js 'L.messageStack({restart: true, discoverOffer: true, reclaim: true})')" '["restart","discoverOffer"]' \
+  "it waits below the restart and above the reclaim offer"
 assert_eq "$(js 'L.COPY.discoverOffer')" "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them." \
   "its sentences, which say why"
 assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.discoverOn].join("|")')" \
@@ -1366,12 +1366,11 @@ shown="$(head -4 <<<"$fams" | while read -r f; do
            if [[ -n "$lbl" ]]; then printf '%s\n' "$lbl"; else printf '%s\n' "$f"; fi
          done | paste -sd, - | sed 's/,/, /g')"
 more=""; if (( n_fams > 4 )); then more=", …"; fi
-expect_risky="$n_risky pending updates touch packages your running session depends on ($shown$more)."
 assert_eq "$n_risky" "20" "fixture guard: the risky capture really carries 20 session-critical names"
-assert_eq "$(js 'V("risky-heavy",false).riskySummary')" "$expect_risky" \
-  "the offline recommendation names the count and the first four families, exactly like the CLI"
-assert_eq "$(js 'V("schema-v0",false).riskySummary')" "" \
-  "a state written before risky_pending existed derives no recommendation"
+assert_eq "$(js 'L.riskyFamiliesOf(S("risky-heavy").risky_pending)')" "$shown$more" \
+  "the widget names the first four families exactly like the CLI"
+assert_eq "$(js 'V("schema-v0",false).headerText.indexOf("including")')" "-1" \
+  "a state written before risky_pending existed claims nothing"
 assert_eq "$(js 'V("schema-v0",false).badgeText')" "10" \
   "...and the missing additive key does not break anything else (schema-1 readers tolerate absence)"
 
@@ -1425,11 +1424,11 @@ assert_eq "$(js 'L.versionTextOf("9","9").indexOf(L.COPY.newBuild) > 0')" "true"
 K='["kernel-core","kernel-modules"]'
 KN='["kernel-core","akmod-nvidia"]'
 assert_eq "$(js "L.riskyMessageOf($K)")" \
-  "This update includes a kernel. The safest way is to install it on the next restart, so nothing changes under the running desktop." \
+  "This update includes a new kernel, so the next restart is the safest time to install it." \
   "a kernel in the set names the kernel, and recommends the button underneath it"
 assert_eq "$(js "L.riskyMessageOf($K)")" "$(js 'L.COPY.kernelRestart')" "...in the copy table's words"
 assert_eq "$(js "L.riskyMessageOf($KN)")" \
-  "This update includes a kernel and the NVIDIA driver. The safest way is to install them on the next restart, so nothing changes under the running desktop." \
+  "This update includes a new kernel and NVIDIA driver, so the next restart is the safest time to install them." \
   "a kernel plus the NVIDIA driver names both"
 assert_eq "$(js "L.riskyMessageOf($KN)")" "$(js 'L.COPY.kernelNvidiaRestart')" "...in the copy table's words too"
 # The two tests are shaped DIFFERENTLY on purpose, and this is what pins the difference.
@@ -1449,17 +1448,17 @@ done
 # NVIDIA on its own is not a kernel update, and the message must not claim one. It falls back to
 # the count-and-families phrase, which is what the popup showed before this existed.
 assert_eq "$(js 'L.riskyMessageOf(["akmod-nvidia"])')" \
-  "This update touches 1 package your running session depends on (akmod). The safest way is to install it on the next restart." \
+  "This update changes parts your desktop is using (akmod), so the next restart is the safest time to install it." \
   "the driver without a kernel gets the same recommendation in the singular, not a kernel sentence"
 assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" \
-  "This update touches 2 packages your running session depends on (the system message bus, the core system library). The safest way is to install them on the next restart." \
+  "This update changes parts your desktop is using (the system message bus, the core system library), so the next restart is the safest time to install it." \
   "a risky set with no kernel in it recommends the same button, and says what is in it in words"
 # ...and an unlabelled family keeps its bare name in the same sentence. risky_regex is the user's to
 # extend, so the moment a label is derived rather than looked up, the popup starts describing
 # packages nobody wrote a description for. alsa, atk and bash are exactly that case.
 # The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", …".
 assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-libGL"])')" \
-  "This update touches 6 packages your running session depends on (alsa, atk, bash, the system message bus, …). The safest way is to install them on the next restart." \
+  "This update changes parts your desktop is using (alsa, atk, bash, the system message bus, …), so the next restart is the safest time to install it." \
   "...capped at four families, exactly as the count sentence is, labelled where Kempt has a label"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
@@ -1954,8 +1953,8 @@ assert_eq "$(js 'L.messageStack({report:true, doctor:true, staged:true})')" '["r
   "the result sits under the report whose button asked for it, outside the limit of two"
 assert_eq "$(js 'L.messageStack({doctor:true, staged:true, restart:true})')" '["doctor","staged","restart"]' \
   "...and first when the button was the placeholder's, pushing out neither banner"
-assert_eq "$(js 'L.messageStack({riskyChoice:true, report:true, doctor:true, staged:true})')" \
-  '["riskyChoice","report","doctor"]' \
+assert_eq "$(js 'L.messageStack({question:true, report:true, doctor:true, staged:true})')" \
+  '["question","report","doctor"]' \
   "with the session-critical choice and a report both up, the result still shows"
 assert_eq "$(js 'L.messageStack({engineFault:true, doctor:true, report:true})')" '["engineFault","doctor"]' \
   "the engine message keeps its result beside it"
@@ -2526,36 +2525,22 @@ assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,b
   "" "no successful check, no stamp to show - never the word never in a tooltip with no context"
 assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerTooltip")" "" "...and nothing at all with no state"
 
-# --- vm.riskyMessage: the message the offline recommendation actually shows ----------------------
-# riskySummary is unchanged and still exported: its own assertions above pin it, and the QML that
-# reads it today keeps working.
-assert_eq "$(js 'V("risky-heavy",false).riskyMessage')" "$(js 'L.COPY.kernelRestart')" \
+# --- the status line over a session-critical set -------------------------------------------------
+assert_eq "$(js 'V("risky-heavy",false).headerText')" "23 updates available, including a new kernel" \
   "a captured risky transaction with kernel-core in it names the kernel"
-assert_eq "$(js 'V("risky-heavy",false).riskySummary.indexOf("your running session depends on") >= 0')" "true" \
-  "...while riskySummary keeps its own, unchanged phrasing"
-assert_eq "$(js 'V("live",false).riskyMessage')" "" "an everyday transaction raises no message"
-assert_eq "$(js 'V("schema-v0",false).riskyMessage')" "" \
-  "a state written before risky_pending existed raises none either"
-assert_eq "$(js 'L.viewModel(null,false).riskyMessage')" "" "and neither does no state at all"
-
-# ...and the two answers in this one returned object have to agree about what a list IS.
-# risky_pending arriving as a STRING is not a list of one name: a duck-typed length check accepts
-# it and iterates its CHARACTERS into fake families, so "kernel-core" used to come back as
-# "11 session-critical pending (c, e, k, l, ...)" beside a riskyMessage of "" - one popup
-# contradicting itself in a single glance. Same for anything else that merely has a length.
+assert_eq "$(js 'V("live",false).headerText.indexOf("including")')" "-1" "an everyday transaction claims nothing"
+assert_eq "$(js 'L.viewModel(null,false).headerText.indexOf("including")')" "-1" "and neither does no state at all"
+RPG='{schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["glibc"]}'
+assert_eq "$(js "L.viewModel($RPG,false).headerText")" "1 update available, including parts your desktop is using" \
+  "a set without a kernel says parts of the desktop"
+assert_eq "$(js "L.viewModel($RPG,false).tooltipMain")" "1 update available" "...on the status line only"
+RPH='{schema:1,status:"ok",actionable:0,held_total:1,backends:{},risky_pending:["glibc"]}'
+assert_eq "$(js "L.viewModel($RPH,false).headerText.indexOf(\"including\")")" "-1" "nothing actionable, nothing to include"
+# A string has a length and characters, and is not a list of names; nor is an object with a length.
 RPS='{schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:"kernel-core"}'
 RPO='{schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:{length:3}}'
-assert_eq "$(js "L.viewModel($RPS,false).riskySummary")" "" "a string risky_pending is not a list of names"
-assert_eq "$(js "L.viewModel($RPS,false).riskyMessage")" "" "...and the message already refused it"
-assert_eq "$(js "L.viewModel($RPO,false).riskySummary")" "" \
-  "...nor is an object that merely carries a length"
-# The array path is untouched: riskySummaryOf itself is unchanged, only its caller's guard.
-assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["kernel-core","glibc"]},false).riskySummary')" \
-  "2 pending updates touch packages your running session depends on (the core system library, the Linux kernel)." \
-  "a genuine array still derives the summary it always did, now in the shared vocabulary"
-assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["glibc"]},false).riskySummary')" \
-  "1 pending update touches a package your running session depends on (the core system library)." \
-  "...and one is an update, singular"
+assert_eq "$(js "L.viewModel($RPS,false).headerText")" "1 update available" "a string risky_pending is not a list of names"
+assert_eq "$(js "L.viewModel($RPO,false).headerText")" "1 update available" "...nor is an object that merely carries a length"
 
 # --- vm.stagedMessage / vm.stagedShowRestart: a transaction that is already waiting --------------
 # The state key exists only when the CLI has reconciled its own marker against dnf5's status and
@@ -2668,23 +2653,22 @@ assert_eq "$(free "$PEND" "$OFFL" heldLiveSurface)" "" "...and no surface is nam
 
 # Its own question with system updates, none for Flatpak alone.
 assert_eq "$(held "$PEND" "$OFFL" updateAsksHeld)" "true" "system updates waiting: Update Now asks"
-assert_eq "$(held "$PEND" "$OFFL" heldChoiceMessage)" "The next restart belongs to another updater. If you update now, the update it prepared may no longer install." "...saying what it can cost"
+assert_eq "$(held "$PEND" '{surface:"offline",heldChoiceOpen:true}' questionMessage)" "Another updater has prepared your next restart, and updating now may stop its update from installing." "...saying what it can cost"
+assert_eq "$(held "$PEND" '{surface:"offline",heldChoiceOpen:true}' questionHeld)" "true" "...as the other updater's question"
 assert_eq "$(held 'backends:{flatpak:{actionable:2,status:"ok"}},actionable:2' "$OFFL" updateAsksHeld)" "false" "Flatpak alone asks nothing"
 assert_eq "$(free "$PEND" "$OFFL" updateAsksHeld)" "false" "...and nobody holding it asks nothing"
-assert_eq "$(held "$PEND" "$OFFL" 'messageSlots.indexOf("heldChoice")')" "-1" "the question is not up until it is asked"
-assert_eq "$(held "$PEND" '{surface:"offline",heldChoiceOpen:true}' 'messageSlots.indexOf("heldChoice")')" "0" "...and comes first when it is"
-assert_eq "$(free "$PEND" '{surface:"offline",heldChoiceOpen:true}' 'messageSlots.indexOf("heldChoice")')" "-1" "...and goes when the holder does"
+assert_eq "$(held "$PEND" "$OFFL" 'messageSlots.indexOf("question")')" "-1" "the question is not up until it is asked"
+assert_eq "$(held "$PEND" '{surface:"offline",heldChoiceOpen:true}' 'messageSlots.indexOf("question")')" "0" "...and comes first when it is"
+assert_eq "$(free "$PEND" '{surface:"offline",heldChoiceOpen:true}' 'messageSlots.indexOf("question")')" "-1" "...and goes when the holder does"
 
-# The kernel banner: the risk, no advice, no route.
+# The status line: the risk, no advice, no route.
 RISK=',risky_pending:["kernel-core"]'
-assert_eq "$(held "$PEND$RISK" '{surface:"popup",configuredSurface:"popup"}' riskyMessage)" "1 pending update touches a package your running session depends on (the Linux kernel)." "a risky set shows the summary"
-assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' 'riskyMessage.indexOf("restart")')" "-1" "...which advises nothing"
-assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' 'messageSlots.indexOf("kernel") >= 0')" "true" "...and is never silent"
+assert_contains "$(held "$PEND$RISK" '{surface:"popup"}' headerText)" "including a new kernel" "a risky set is on the status line"
+assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' messageSlots)" '["staged"]' "...and asks for no message of its own"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' offlineStageOffered)" "false" "...with no staging button"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' stageMenuOffered)" "false" "...and none in the menus"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' updateAsksFirst)" "false" "...and no question offering one"
 assert_eq "$(free "$PEND$RISK" '{surface:"popup"}' updateAsksFirst)" "true" "...which is there when nobody holds it"
-assert_contains "$(held "$PEND$RISK" '{surface:"popup"}' heldChoiceMessage)" "1 pending update touches a package your running session depends on (the Linux kernel)." "the question names the risk too"
 
 # Install on Next Restart in the menus: where staging is possible and the footer does not offer it.
 assert_eq "$(free "$PEND" '{surface:"popup",configuredSurface:"popup"}' stageMenuOffered)" "true" "the menus offer staging when the footer says Update Now"
@@ -2724,7 +2708,7 @@ assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1
 # Held with updates paused too: both are true, so both show, and the question has nothing to warn about.
 assert_eq "$(held "$PEND" '{}' updateAsksHeld)" "true" "held with system updates: Update Now asks"
 assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' updateAsksHeld)" "false" "...but not with updates paused, when the helper refuses the run"
-assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{heldChoiceOpen:true}' 'messageSlots.indexOf("heldChoice")')" "-1" "...and a question already open goes"
+assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{heldChoiceOpen:true}' 'messageSlots.indexOf("question")')" "-1" "...and a question already open goes"
 assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' 'messageSlots.slice(0, 2).join()')" "foldersPaused,staged" "...while the pause and the held restart both stay said, the pause first"
 assert_eq "$(free "$PEND,$DU,image_based:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and not on an image-based Fedora, which is told to use Discover"
 assert_eq "$(free "$PEND,discover_offer:true,image_based:true" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...nor the plain offer"
@@ -2744,9 +2728,9 @@ assert_eq "$(vm '{}' '' 0 'stagedShowRestart')" "false" "nothing staged offers n
 # 10:31, nothing appeared to change, staged again at 10:36. riskyMessage is the whole content of
 # that offer, so silencing it is what takes the button off the screen.
 RISKY=',risky_pending:["kernel-core","kernel-modules"]'
-assert_eq "$(vm '{}' "$RISKY" 0 'riskyMessage')" "$(js 'L.COPY.kernelRestart')" \
+assert_eq "$(vm '{surface:"popup"}' "$RISKY" 0 'updateAsksFirst')" "true" \
   "premise: a session-critical transaction does raise the offer"
-assert_eq "$(vm '{}' "$RISKY$STG" 0 'riskyMessage')" "" \
+assert_eq "$(vm '{surface:"popup"}' "$RISKY$STG" 0 'updateAsksFirst')" "false" \
   "...and never while a transaction is already staged"
 # The count keeps telling the truth: those packages ARE still pending until the restart runs, and
 # the staged message is what explains why nothing is being offered about them.
@@ -2925,13 +2909,13 @@ assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
 # what explains why "Install on Next Restart" is not being offered, and a warning variant is the
 # state where a second offer to stage the same transaction would be worst.
 RISKYPEND=',risky_pending:["kernel-core","kernel-modules"]'
-sr() { js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:$2,offline_staged:$1$RISKYPEND},false,\"\",{}).riskyMessage"; }
-assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{}$RISKYPEND},false).riskyMessage")" \
-  "$(js 'L.COPY.kernelRestart')" "premise: this transaction does raise the offline offer"
-assert_eq "$(sr "$ARMED" "$NOBK")" "" "...silenced by the plain armed banner, as it already was"
-assert_eq "$(sr "$CONF1" "$NOBK")" "" "...silenced by the conflict banner too"
-assert_eq "$(sr "$CONF3" "$NOBK")" "" "...by the plural one"
-assert_eq "$(sr "$GENERIC" "$HELDDNF")" "" "...and by the generic one"
+sr() { js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:$2,offline_staged:$1$RISKYPEND},false,\"\",{surface:\"popup\"}).updateAsksFirst"; }
+assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{}$RISKYPEND},false,\"\",{surface:\"popup\"}).updateAsksFirst")" \
+  "true" "premise: this transaction does raise the offline offer"
+assert_eq "$(sr "$ARMED" "$NOBK")" "false" "...silenced by the plain armed banner, as it already was"
+assert_eq "$(sr "$CONF1" "$NOBK")" "false" "...silenced by the conflict banner too"
+assert_eq "$(sr "$CONF3" "$NOBK")" "false" "...by the plural one"
+assert_eq "$(sr "$GENERIC" "$HELDDNF")" "false" "...and by the generic one"
 
 # --- "?" is a fault to look at, and "new" is what it means ---------------------------------------
 # The CLI writes "?" for a package that is not installed yet, and the row rendered "? → 9.9.9-1.fc44"
@@ -3048,11 +3032,11 @@ assert_eq "$(js 'L.messageStack({engineFault:true, report:true, staged:true, res
 assert_eq "$(js 'L.messageStack({report:true, staged:true, restart:true, kernel:true})')" \
   '["report","staged"]' \
   "otherwise at most two, in priority order - the thing you just did, then the thing that changed"
-assert_eq "$(js 'L.messageStack({staged:true, restart:true, kernel:true})')" \
-  '["staged","restart"]' "...and the kernel notice is what gives way to a staged banner"
-assert_eq "$(js 'L.messageStack({restart:true, kernel:true})')" '["restart","kernel"]' \
+assert_eq "$(js 'L.messageStack({staged:true, restart:true, reclaim:true})')" \
+  '["staged","restart"]' "...and the reclaim offer is what gives way to a staged banner"
+assert_eq "$(js 'L.messageStack({restart:true, reclaim:true})')" '["restart","reclaim"]' \
   "...two is two, whichever two they are"
-assert_eq "$(js 'L.messageStack({kernel:true})')" '["kernel"]' "one is one"
+assert_eq "$(js 'L.messageStack({reclaim:true})')" '["reclaim"]' "one is one"
 assert_eq "$(js 'L.messageStack({})')" "[]" "and none is none"
 assert_eq "$(js 'L.messageStack(undefined)')" "[]" "a caller with nothing to say is not an error"
 # Anything displaced shows NOTHING - it does not shuffle down a slot and it does not stack. The
@@ -3094,10 +3078,8 @@ assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).footerText
 # A run hides the whole stack, so the restart message is not what is carrying the fact then either.
 assert_eq "$(js "L.viewModel($STACK_ALL,true,'',{reportShown:false}).messageSlots.indexOf('restart')")" \
   "-1" "a run in flight is not a moment when the restart message is carrying anything"
-# The kernel notice is silenced by a staged transaction long before the cap is reached, which is
-# why it is last in the order and rarely the one displaced.
-assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).riskyMessage")" "" \
-  "premise: an armed stage silences the offline offer, so it is not competing here at all"
+assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false,surface:'popup'}).updateAsksFirst")" "false" \
+  "premise: an armed stage silences the question, so it is not competing here at all"
 
 # --- the reclaim offer: unused Flatpak runtimes -------------------------------------------------
 # The CLI's `reclaim` block, rendered as an Information message LAST in the stack. An empty digest
@@ -3132,7 +3114,7 @@ assert_eq "$(js "L.reclaimRefLineOf({ref:'odd',eol:null})")" "odd" \
 assert_eq "$(js 'L.reclaimRefLineOf(null)')" "" "...and a missing entry is nothing"
 
 # The stack: last, so everything else outranks it.
-assert_eq "$(js 'L.messageStack({kernel:true, reclaim:true})')" '["kernel","reclaim"]' \
+assert_eq "$(js 'L.messageStack({staged:true, reclaim:true})')" '["staged","reclaim"]' \
   "the reclaim offer is last in the stack"
 assert_eq "$(js 'L.messageStack({report:true, restart:true, reclaim:true})')" '["report","restart"]' \
   "...so any two other messages displace it"
@@ -3266,17 +3248,14 @@ assert_eq "$(js 'L.COPY.installOnNextRestartTooltip')" \
   "Installs system updates during the next restart. Flatpak apps update now." \
   "copy: and what it does, which is the whole argument for choosing it"
 assert_eq "$(js 'L.COPY.kernelRestart')" \
-  "This update includes a kernel. The safest way is to install it on the next restart, so nothing changes under the running desktop." \
+  "This update includes a new kernel, so the next restart is the safest time to install it." \
   "copy: the kernel sentence, which recommends the button standing under it"
 assert_eq "$(js 'L.COPY.kernelNvidiaRestart')" \
-  "This update includes a kernel and the NVIDIA driver. The safest way is to install them on the next restart, so nothing changes under the running desktop." \
+  "This update includes a new kernel and NVIDIA driver, so the next restart is the safest time to install them." \
   "copy: and the one that names the driver too"
-assert_eq "$(js 'L.COPY.riskySessionOne')" \
-  "This update touches 1 package your running session depends on (%1). The safest way is to install it on the next restart." \
-  "copy: a session-critical set with no kernel in it, in the singular"
-assert_eq "$(js 'L.COPY.riskySessionMore')" \
-  "This update touches %1 packages your running session depends on (%2). The safest way is to install them on the next restart." \
-  "copy: ...and in the plural, where the count and the pronoun move together"
+assert_eq "$(js 'L.COPY.riskySession')" \
+  "This update changes parts your desktop is using (%1), so the next restart is the safest time to install it." \
+  "copy: a session-critical set with no kernel in it"
 assert_eq "$(js 'L.COPY.held')" "held" "copy: held, never \"held back\" - the CLI says Held and the command is kempt hold"
 assert_eq "$(js 'L.COPY.restartPending')" "restart pending" "copy: the two-word fact in the footer"
 assert_eq "$(js 'L.COPY.noSuccessfulCheckYet')" "No successful check yet" \
@@ -3424,7 +3403,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldLiveSurface","iconState","imageBasedMessage","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldLiveSurface","iconState","imageBasedMessage","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -4025,7 +4004,7 @@ awk '/Kirigami\.InlineMessage \{/ { f = 1 } /--- the list, and what stands in fo
   "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml" > "$STACK"
 assert_eq "$([[ -s "$STACK" ]] && echo yes || echo no)" "yes" \
   "premise: the popup still has a message stack to scan"
-assert_eq "$(grep -cE 'Accessible.name: (text|popup.vm.stagedMessage)$' "$STACK")" "$(grep -c 'Kirigami.InlineMessage {' "$STACK")" \
+assert_eq "$(grep -cE 'Accessible.name: (text|popup.vm.stagedMessage|Logic.COPY.riskyAskLead \+ " " \+ text)$' "$STACK")" "$(grep -c 'Kirigami.InlineMessage {' "$STACK")" \
   "every message in the popup's stack announces its own text to a screen reader"
 # ...and the type is BOUND to the derived variant rather than declared. A hard-coded Positive here
 # is the bug this whole change exists to remove, and it is one careless edit away.

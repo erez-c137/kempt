@@ -148,9 +148,8 @@ PlasmoidItem {
     // The report on screen tells the person to run doctor, so it carries the button.
     readonly property bool reportOffersDoctor: Logic.mentionsDoctor(reportText)
 
-    // Update Now pressed with a session-critical set waiting: the risky
-    // message turns into a choice between staging and installing now. Closed by either answer, by
-    // a run starting and by the popup closing.
+    // Update Now pressed with a session-critical set waiting: the question asks whether to stage
+    // or install now. Closed by either answer, its close button, a run starting and the popup closing.
     property bool riskyChoiceOpen: false
 
     // The same for Update Now while another updater holds the next restart: a question of its own,
@@ -780,6 +779,11 @@ PlasmoidItem {
     // installNow is the risky choice's Install Now. Without it, a session-critical set opens that
     // choice instead of running.
     // --risky-ok tells the CLI the person has already chosen, so it does not notify them again.
+    function closeQuestion() {
+        riskyChoiceOpen = false;
+        heldChoiceOpen = false;
+    }
+
     function startUpdate(installNow) {
         // actionPending too: a stage still waiting its turn on the executor is a run on its way.
         if (updating || runRequested || actionPending) return;

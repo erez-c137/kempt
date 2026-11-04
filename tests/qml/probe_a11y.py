@@ -133,7 +133,7 @@ FOCUSED = """(function () {
   if (within(rowsView)) return "row:" + t;
   if (within(lastRunView))
     return it === lastRunView.currentItem ? "lastRun:row" : "lastRun:" + (it.Accessible.name || t);
-  var msgs = {restartMessage: restartMessage, riskyMessage: riskyMessage,
+  var msgs = {restartMessage: restartMessage, questionMessage: questionMessage,
               stagedMessage: stagedMessage, reportMessage: reportMessage};
   for (var k in msgs) if (within(msgs[k])) return k + ":" + t;
   return "elsewhere:" + t;
@@ -390,26 +390,24 @@ p.check("...and Shift+Tab walks that ring backwards, message buttons included",
 state(fixture("state-risky-heavy.json"))
 ev('root.postRunLine = ""')
 p.pump(120)
-p.check("a session-critical transaction is pending, so that message is up instead",
-        lev("riskyMessage.visible"), True)
+p.check("a session-critical transaction is pending, and no message is up until Update Now asks",
+        lev("questionMessage.visible"), False)
 lev("popup.focusPrimary()")
 p.pump(50)
-expected = (["refreshButton", "configureButton", "riskyMessage:Install on Next Restart"]
+expected = (["refreshButton", "configureButton"]
             + pins() + [*LASTRUN, "updateButton"])
-p.check("...so its action is the stop after the header, and the restart message's two are gone",
+p.check("...so the stop after the header is the list, and the restart message's two are gone",
         walk(len(expected)), expected)
 # As the question after Update Now, the popup opens on Install on Next Restart with Update Now
 # hidden, so that button says the heading's count as well.
 ev("root.riskyChoiceOpen = true")
 p.pump(150)
-_stage = "popup.buttonFor(riskyMessage, riskyStageAction)"
+_stage = "popup.buttonFor(questionMessage, questionStageAction)"
 p.check("asking, Install on Next Restart's description starts with the heading's count",
         [lev("updateButton.visible"), str(lev(_stage + ".Accessible.description")).split("\n")],
         [False, [lev("popup.vm.headerText"), lev("popup.stageTooltip")]])
 ev("root.riskyChoiceOpen = false")
 p.pump(150)
-p.check("...and only its tooltip once the question has closed",
-        lev(_stage + ".Accessible.description"), lev("popup.stageTooltip"))
 lev("popup.focusPrimary()")
 p.pump(20)
 p.check("...and backwards the same way", walk(len(expected), back=True), reverse_of(expected))
@@ -598,11 +596,12 @@ p.check("...as the alert it already was, rather than in place of it",
         lev("restartMessage.Accessible.role === Accessible.AlertMessage"), True)
 
 state(fixture("state-risky-heavy.json"))
+ev("root.riskyChoiceOpen = true")
 p.pump(120)
-p.check("the session-critical warning announces the sentence it is showing",
-        lev("riskyMessage.Accessible.name"), lev("riskyMessage.text"))
-p.check("...which is the one logic.js wrote, not a second copy",
-        lev("riskyMessage.Accessible.name"), lev("popup.vm.riskyMessage"))
+p.check("the question announces that nothing is installed yet, then the sentence it is showing",
+        lev("questionMessage.Accessible.name"), str(ev("Logic.COPY.riskyAskLead")) + " " + str(lev("questionMessage.text")))
+ev("root.riskyChoiceOpen = false")
+p.pump(120)
 
 # Staleness is no longer a message: it is three words on the footer's dateline, and the popup says
 # them out loud when the box goes stale - politely, because nothing needs interrupting.
@@ -904,7 +903,8 @@ _popup = _code("FullRepresentation.qml")
 _raw = open(os.path.join(harness.UI, "FullRepresentation.qml")).read()
 _stack = _raw[_raw.index("Kirigami.InlineMessage {"):_raw.index("--- the list, and what stands")]
 p.check("every message in the stack announces its own words",
-        _stack.count("Accessible.name: text") + _stack.count("Accessible.name: popup.vm.stagedMessage"),
+        _stack.count("Accessible.name: text") + _stack.count("Accessible.name: popup.vm.stagedMessage")
+        + _stack.count('Accessible.name: Logic.COPY.riskyAskLead + " " + text'),
         _stack.count("Kirigami.InlineMessage {"))
 
 # ==================================================================================================
