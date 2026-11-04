@@ -208,6 +208,8 @@ day.
 | `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |
+| `~/.local/state/kempt/discover-unattended-answered` | The widget drew its warning about Discover's automatic updates. Removed when the setting reads false and by `kempt discover-notifier on` |
+| `~/.local/state/kempt/offline-partial` | Which copy of dnf5's stored transaction is what is left of a stage partly installed outside Kempt, for `kempt doctor`. Removed once that copy changes |
 | `~/.local/state/kempt/discover-entry-written` | The autostart entry Kempt last wrote, so `kempt discover-notifier on` removes only Kempt's own |
 | `~/.local/state/kempt/security-seen.json` | The security advisory IDs already announced and already seen in the widget, so each set is announced once. An ID leaves when its package is no longer pending |
 | `~/.local/state/kempt/boot-times.json` | How long each of the last 11 boots took, for `kempt startup --all`. A check adds the boot once startup has finished (until then each check asks again, which takes a few milliseconds), and so does the page |

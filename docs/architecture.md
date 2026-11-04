@@ -224,6 +224,9 @@ cope with that.
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5. Never `false`. Additive. |
 | `reclaim` | object, optional | The Flatpak runtimes no installed app uses. See [below](#reclaim). Additive. |
 | `release_upgrade` | object, optional | A stored Fedora release upgrade. See [below](#release_upgrade). Absent, never `null`, when there is none. Additive. |
+| `restart_holder` | `none`, `kempt` or `other` | Who holds the next restart (`restart_holder()`). `other` is anything at `/system-update` that is not dnf5's own link: another updater's link, a dangling one, or a plain file. A reader acting on it asks again. Additive. |
+| `discover_unattended` | boolean | Discover's notifier would run and its `UseUnattendedUpdates` setting is on. Additive. |
+| `discover_unattended_warn` | `true`, optional | The widget has not drawn its warning about that setting yet. Never `false`. Additive. |
 | `discover_offer` | `true`, optional | The widget may offer to turn off Discover's notifier. See [below](#the-two-offers). Never `false`. Additive. |
 | `surface_offer` | `true`, optional | The widget may offer to run updates in the widget. See [below](#the-two-offers). Never `false`. Additive. |
 
@@ -477,7 +480,10 @@ reads the system (`harvest_offline`):
 | yes | present, not `ready` | - | different | unchanged, with every staged change already on the box | **Installed before the restart.** Same as the row above |
 | yes | `ready` | gone or another updater's | different | changed, with every staged change on the box | **Installed by another updater.** One history entry with surface `offline (installed by another updater)`, narrowed to the staged packages. Announced once, marker cleared |
 | yes | present, not `ready` | - | different | changed, with every staged change on the box | **Installed by another updater.** Same as the row above |
-| yes | `ready`, or present and not `ready` | gone or another updater's, or any | different | changed, with any staged change missing | **Detour boot.** Same three rules |
+| yes | `transaction-incomplete` | - | different | changed, with any staged change missing | **Detour boot.** Same three rules |
+| yes | `ready`, or present and not `ready` | gone or another updater's, or any | different | changed, with any staged change missing, and some of the marker's `staged_names` changed | **Partly installed outside Kempt.** One history entry with surface `offline (partly installed outside Kempt)`, narrowed to those names, without removals, with the versions on the box. Announced once, marker cleared, and `offline-partial` records which dnf5 copy is left for `kempt doctor` |
+| yes | `ready`, or present and not `ready` | gone or another updater's, or any | different | changed, with any staged change missing, and none of the marker's `staged_names` changed | **Detour boot.** Same three rules |
+| yes | `ready`, or present and not `ready` | gone or another updater's, or any | different | changed, and the question cannot be asked: dnf5's copy unreadable or replaced, rpm failing, or a marker with no names | **Cannot tell.** No history, no notification, `offline stage result unknown`. The marker is demoted and the next check asks again |
 | yes | absent | - | different | changed | **Harvested**: one history entry, diffed against the marker's snapshot copy, then attributed through dnf5's history ([below](#which-transaction-ran)). Surface `offline (applied on reboot)`, or `restart (staged update did not run)` when the history shows it did not |
 | yes | present (any status) | - | different | changed | **Not harvested.** Something else moved the package set. Recorded once as `harvest deferred`, and the marker stays |
 
