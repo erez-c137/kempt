@@ -95,6 +95,84 @@ assert_eq "$(state .restart_holder)" "other" "the state names another updater"
 assert_contains "$("$KEMPT" status 2>&1 || true)" "The next restart belongs to another updater" "...and status has a line saying so"
 no_link
 
+# --- kempt update to a restart -----------------------------------------------------------------
+gate_refuses() {  # label, then the environment and arguments
+  local label="$1" rc=0 err; shift
+  : > "$WORLD/calls"; : > "$WORLD/notifications"
+  local hist_before; hist_before="$(ls "$KEMPT_STATE_DIR/history" 2>/dev/null | wc -l)"
+  err="$(env "$@" 2>&1 >/dev/null)" || rc=$?
+  assert_eq "$rc" "5" "$label: refused with the code for this condition"
+  assert_eq "$(cat "$WORLD/calls")" "" "$label: no download and no Flatpak"
+  assert_contains "$err" "the next restart belongs to another updater" "$label: says why"
+  assert_eq "$(ls "$KEMPT_STATE_DIR/history" 2>/dev/null | wc -l)" "$hist_before" "$label: nothing recorded as a run"
+}
+foreign_link
+gate_refuses "a foreign link" "$KEMPT" update --surface=offline
+assert_contains "$(cat "$WORLD/notifications")" "the next restart belongs to another updater" "...and the notification says so"
+assert_not_contains "$(cat "$WORLD/notifications")" "install on" "...and promises nothing"
+rm -f "$LINK"; ln -s "$TESTTMP/no/such/target" "$LINK"
+gate_refuses "a dangling link" "$KEMPT" update --surface=offline
+rm -f "$LINK"; : > "$LINK"
+gate_refuses "a plain file" "$KEMPT" update --surface=offline
+
+foreign_link
+"$KEMPT" config set surface offline
+gate_refuses "the configured surface" "$KEMPT" update
+"$KEMPT" config set auto_accept false
+gate_refuses "a run with no terminal and auto_accept off" "$KEMPT" update --surface=offline </dev/null
+gate_refuses "...and the same from the configured surface" "$KEMPT" update </dev/null
+"$KEMPT" config set auto_accept true
+"$KEMPT" config set surface popup 2>/dev/null || true
+gate_refuses "a check that cannot answer" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-fails" "$KEMPT" update --surface=offline
+
+# Nothing to stage: the run carries on, so whatever else it does still happens.
+: > "$WORLD/calls"; rc=0
+KEMPT_REFRESH_HELPER="$TESTTMP/refresh-nothing" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "an empty check behind a foreign link carries on"
+for n in $(sed -n 's/^\([a-zA-Z0-9-]*\)\.[a-z0-9_]* .*/\1/p' "$FIXTURES/dnf-check-update.txt" | sort -u); do
+  "$KEMPT" hold "dnf:$n" >/dev/null 2>&1
+done
+: > "$WORLD/calls"; rc=0
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "every update held behind a foreign link carries on"
+for n in $(sed -n 's/^\([a-zA-Z0-9-]*\)\.[a-z0-9_]* .*/\1/p' "$FIXTURES/dnf-check-update.txt" | sort -u); do
+  "$KEMPT" unhold "dnf:$n" >/dev/null 2>&1
+done
+
+# Live stays open: that is the choice the widget offers, and the way the refusal names.
+: > "$WORLD/calls"; rc=0
+"$KEMPT" update --surface=popup >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "a live run behind a foreign link is not refused"
+assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-upgrade" "...and upgrades"
+
+# No foreign link: the gate does not get in the way.
+no_link
+: > "$WORLD/calls"; rc=0
+"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "0" "with nobody holding the restart the stage goes ahead"
+assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-offline-stage" "...and reaches dnf5"
+rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+
+# --- the risky prompt --------------------------------------------------------------------------
+export KEMPT_RISKY_RE='^bash$'
+foreign_link
+: > "$WORLD/calls"; : > "$WORLD/notifications"
+sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" 2>&1)" || true
+assert_contains "$sout" "Staging is not available: the next restart belongs to another updater" "the risky prompt drops staging"
+assert_not_contains "$sout" "[s]" "...and does not offer the key"
+assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/calls" || true)" "0" "...and answering s anyway never stages"
+assert_contains "$sout" "Staging is not available, because the next restart belongs to another updater. Answer u or a." "...and is turned down in words"
+assert_contains "$sout" "aborted" "...and the end of input ends the run"
+: > "$WORLD/notifications"
+KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=popup </dev/null >/dev/null 2>&1 || true
+assert_not_contains "$(cat "$WORLD/notifications")" "--surface=offline" "...and the notification gives no advice to stage"
+no_link
+: > "$WORLD/calls"
+sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" 2>&1)" || true
+assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-offline-stage" "with nobody holding the restart the same answer stages"
+rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+unset KEMPT_RISKY_RE
+
 # --- Discover's setting ---------------------------------------------------------------------------
 ENTRY=org.kde.discover.notifier.desktop
 SYS="$TESTTMP/xdg-autostart"; mkdir -p "$SYS"; export KEMPT_XDG_AUTOSTART_DIR="$SYS"

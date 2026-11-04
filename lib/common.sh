@@ -4187,7 +4187,7 @@ offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, h
 # and dnf5 refuses: comparing the package set with the stage's snapshot is what tells the two apart
 # without asking for a password to find out.
 offline_stage_restorable() {  # marker-json → 0 when only the restart step is missing
-  [[ "$(offline_system_status)" == ready && "$(offline_link_state)" == none ]] || return 1
+  [[ "$(offline_system_status)" == ready && "$(restart_holder)" == none ]] || return 1
   jq -e '.restore_failed == true' <<<"$1" >/dev/null 2>&1 && return 1
   offline_stage_rearmable "$1"
 }

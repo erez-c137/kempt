@@ -976,6 +976,26 @@ preflight_abort() {  # message
 # reads and writes the run's locals through bash's DYNAMIC scope rather than arguments. Each
 # header says what it reads and what it changes - that is the contract; do not reuse them.
 
+# A stage asked for while another updater holds the next restart would download and never install,
+# and the silent fall to a live run would cancel what that updater prepared. Refused with system
+# updates waiting: nothing is changed, Flatpak included. With none, the run has nothing to stage and
+# carries on. A check that cannot answer refuses too, since staging would run into the same answer.
+# Reads: wanted_stage. Exits 3 or 5, or returns.
+refuse_stage_behind_other_updater() {
+  [[ "$wanted_stage" == true ]] && restart_held_by_other || return 0
+  local cerr pending="" rc=0
+  cerr="$(mktemp)"
+  pending="$(dnf_check 2>"$cerr" | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || rc=$?
+  if grep -qxF -- "$KEMPT_HELPER_UPDATE_BUSY_TEXT" "$cerr"; then
+    rm -f "$cerr"
+    echo "another kempt update is running" >&2
+    exit 3
+  fi
+  rm -f "$cerr"
+  [[ $rc -eq 0 && "$pending" == 0 ]] && return 0
+  preflight_abort "the next restart belongs to another updater, so nothing was staged or changed. Restart when you are ready, or update now with: kempt update --surface=terminal"
+}
+
 # The risky-transaction recommendation, run BEFORE the lock is taken so an abort leaves no lock
 # residue and no history entry, having changed nothing at all.
 # Reads: surface, risky_ok. Writes: surface, risky_advice. Answering "s" at the prompt switches this
@@ -989,8 +1009,17 @@ recommend_offline_if_risky() {
   # offline stage entered through this prompt used to reach dnf5 and cancel the upgrade, logged by
   # Kempt as its own restage. The gate below closes that; this stops the prompt offering it at all,
   # because an option that always ends in a refusal is worse than one that is not there.
-  local relup_blocks=false
-  offline_release_upgrade >/dev/null && relup_blocks=true
+  # ...nor while another updater holds the next restart, which the stage could not install behind.
+  local relup_blocks=false no_stage_why="" no_stage_answer=""
+  if offline_release_upgrade >/dev/null; then
+    relup_blocks=true
+    no_stage_why="a Fedora release upgrade is stored, and staging would cancel it"
+    no_stage_answer="Staging would cancel the stored Fedora release upgrade"
+  elif restart_held_by_other; then
+    relup_blocks=true
+    no_stage_why="the next restart belongs to another updater"
+    no_stage_answer="Staging is not available, because the next restart belongs to another updater"
+  fi
   if [[ "$surface" != "offline" ]]; then
     local risky_list="" rerr rcount fams
     rerr="$(mktemp)"
@@ -1068,7 +1097,7 @@ recommend_offline_if_risky() {
         echo
         local ans tries prompt="  Your choice [s/u/a]: "
         if [[ "$relup_blocks" == true ]]; then
-          echo "  Staging is not available: a Fedora release upgrade is stored, and staging would cancel it."
+          echo "  Staging is not available: $no_stage_why."
           echo
           echo "      [u]  update now, live"
           echo "      [a]  abort  (default)"
@@ -1089,7 +1118,7 @@ recommend_offline_if_risky() {
           case "${ans,,}" in
             ""|n|no|a|abort)  echo "aborted"; exit 0 ;;
             s|stage)          if [[ "$relup_blocks" == true ]]; then
-                                echo "Staging would cancel the stored Fedora release upgrade. Answer u or a."
+                                echo "$no_stage_answer. Answer u or a."
                                 [[ $tries -eq 2 ]] && { echo "aborted"; exit 0; }
                                 continue
                               fi
@@ -1483,6 +1512,10 @@ cmd_update() {
   local auto; auto="$(config_get auto_accept)"
   # validate BEFORE the auto-accept guard so the two compose (unknown → terminal → still terminal)
   surface="$(resolve_surface "$surface")"
+  # Asked for a stage, whatever the next lines turn this run into. The gate for another updater's
+  # restart below answers this, not what the run became.
+  local wanted_stage=false
+  [[ "$surface" == offline ]] && wanted_stage=true
   # only a terminal can prompt - enforced HERE too (cmd_run also guards, but update can be invoked directly)
   # The one exception is a stage asked for at a terminal (what `kempt run --surface=offline` opens
   # with auto_accept off): dnf5 asks before staging there, and turning a request to install on the
@@ -1548,6 +1581,8 @@ cmd_update() {
       esac
     fi
   fi
+  [[ "$surface" == offline ]] && wanted_stage=true
+  refuse_stage_behind_other_updater
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
   trap release_lock EXIT
 

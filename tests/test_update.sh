@@ -70,6 +70,9 @@ cat > "$TESTTMP/refresh-stub.checkfails" <<STUB
 exit 0
 STUB
 chmod +x "$TESTTMP/refresh-stub.checkfails"
+# A fresh check that finds nothing to update.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/refresh-stub.nothing-pending"
+chmod +x "$TESTTMP/refresh-stub.nothing-pending"
 cat > "$TESTTMP/notify-stub" <<STUB
 #!/usr/bin/env bash
 echo "NOTIFY \$@" >> "$WORLD/notifications"
@@ -449,14 +452,28 @@ cp "$TESTTMP/marker.before-publish" "$marker"
 cp "$TESTTMP/pre.before-publish" "$pre"
 cp "$TESTTMP/state.before-publish" "$KEMPT_STATE_DIR/state.json" 2>/dev/null || true
 
-# A stage made while another updater's symlink stands. dnf5 creates /system-update only when it is
+# Another updater's symlink that appears while the stage downloads, past the gate that refuses one
+# already there. Prints the stand-in helper to use; the real work goes on to the helper it is given.
+link_appears_mid_stage() {  # next-helper → helper
+  local mid="$1.link-mid"
+  rm -f "$TESTTMP/foreign-system-update"
+  cat > "$mid" <<STUB
+#!/usr/bin/env bash
+[[ "\$1" == dnf-offline-stage ]] && ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+exec "$1" "\$@"
+STUB
+  chmod +x "$mid"
+  printf '%s\n' "$mid"
+}
+
+# A stage made as another updater's symlink arrives. dnf5 creates /system-update only when it is
 # absent, so the arm succeeds and the next restart installs the other updater's update. The run
 # must not promise the restart. Borrowed and given back like the section above.
 cp "$marker" "$TESTTMP/marker.before-foreign"
 cp "$pre" "$TESTTMP/pre.before-foreign"
-ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+mid_helper="$(link_appears_mid_stage "$TESTTMP/apply-stub")"
 : > "$WORLD/notifications"
-KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" \
+KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$mid_helper" \
   "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/foreign.err" || true
 assert_contains "$(cat "$WORLD/notifications")" "another updater has prepared the next restart, so they will not install then" \
   "a stage behind another updater's symlink is not promised for the restart"
@@ -556,10 +573,10 @@ assert_exit 0 "marker snapshot survives later runs" -- test -f "$pre"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 af_pre="$(jq -r .pre_snapshot "$marker")"
-ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+mid_helper="$(link_appears_mid_stage "$TESTTMP/apply-stub.armfail")"
 : > "$WORLD/apply-calls"
 armrc=0
-KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.armfail" \
+KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$mid_helper" \
   "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || armrc=$?
 assert_eq "$armrc" "1" "an arm that fails behind another updater's symlink still fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
@@ -664,11 +681,11 @@ sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 sf_pre="$(jq -r .pre_snapshot "$marker")"
-ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
+mid_helper="$(link_appears_mid_stage "$TESTTMP/apply-stub.stagefail")"
 : > "$WORLD/apply-calls"
 strc=0
 KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" \
-  KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
+  KEMPT_APPLY_HELPER="$mid_helper" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
 assert_eq "$strc" "1" "a rebuild that fails behind another updater's symlink fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and never runs the clean that would remove that symlink"
@@ -787,8 +804,8 @@ nf_pre="$(jq -r .pre_snapshot "$marker")"
 ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 ndrc=0
-KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.nothing" \
-  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || ndrc=$?
+KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.nothing-pending" KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" \
+  KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.nothing" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || ndrc=$?
 assert_eq "$ndrc" "0" "an empty stage behind another updater's symlink is not a failure"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and the clean that would remove that symlink is never run"
