@@ -883,9 +883,9 @@ ib_plain="$("$KEMPT" doctor 2>&1)" || true
 # "one more problem", which is true of the wrong row just as easily as of this one: the day any
 # other doctor row starts failing in this sandbox, a count like that passes for a reason nobody
 # asked for, and the day one stops it fails for another.
-assert_eq "$(printf '%s\n' "$ib_out" | grep -c '^FAIL  this system updates with rpm-ostree' || true)" "1" \
+assert_eq "$(printf '%s\n' "$ib_out" | grep -c '^FAIL  Kempt does not update atomic Fedora (Kinoite, Silverblue, bootc image mode); use Discover, rpm-ostree or bootc upgrade.' || true)" "1" \
   "on an image-based system doctor reports the rpm-ostree problem"
-assert_eq "$(printf '%s\n' "$ib_plain" | grep -c '^FAIL  this system updates with rpm-ostree' || true)" "0" \
+assert_eq "$(printf '%s\n' "$ib_plain" | grep -c '^FAIL  Kempt does not update atomic Fedora (Kinoite, Silverblue, bootc image mode); use Discover, rpm-ostree or bootc upgrade.' || true)" "0" \
   "...and on an ordinary one it says nothing of the kind"
 case "$ib_out" in
   *"FAIL"*"rpm-ostree"*) echo "ok: ...and says so as a FAIL, naming the tool that does update it" ;;
@@ -1360,9 +1360,9 @@ MOVE="t=\$(sudo mktemp -d $DCQ-unsafe.XXXXXX) && sudo mv -T --no-copy $DCQ \"\$t
 # Another user still writing there can make that last rm fail, so the row says how to finish later.
 RERUN="If the last step says the directory is not empty, run this again later: sudo rm -rf --one-file-system $DCQ-unsafe.*"
 KEMPT_DNF_CACHE_DIR="$DC" "$KEMPT" doctor > "$TESTTMP/dc.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/dc.txt")" "WARN  dnf cache: other users can change files in $DC (for example $DC)" \
-  "a cache root does not own is a WARN, even with nothing world-writable in it"
-assert_contains "$(tail -1 "$TESTTMP/dc.txt")" ", 1 warning" "...and the last line counts it"
+assert_contains "$(cat "$TESTTMP/dc.txt")" "FAIL  dnf cache: other users can change files in $DC (for example $DC)" \
+  "a cache root does not own is a FAIL, even with nothing world-writable in it"
+assert_contains "$(tail -1 "$TESTTMP/dc.txt")" "1 problem found" "...and the last line counts it"
 assert_contains "$(cat "$TESTTMP/dc.txt")" ". Do not use dnf5 clean all on it, because it can delete files outside the cache. Replace the cache with: $MOVE" \
   "...with the move-aside command, its path quoted for the shell, and a warning against dnf5 clean all"
 assert_contains "$(cat "$TESTTMP/dc.txt")" "Replace the cache with: $MOVE. $RERUN" \
@@ -1442,10 +1442,10 @@ assert_contains "$RLOQ" "\\342\\200\\256" "the C locale escapes the bidi control
 assert_contains "$out" "sudo chown -h root:root $DP $RLOQ && " \
   "...and as an octal escape in the fix, under a UTF-8 locale"
 assert_not_contains "$out" "$RLO" "...and never raw"
-# With no top, the walk goes on to /: $TESTTMP is the test user's, so it is named too. This assumes
-# the folders above $TESTTMP (TMPDIR, or /tmp) are root's or sticky, as on a stock system.
+# With no top, the walk goes on to /: $TESTTMP is the test user's, so it is named too, and so is a
+# sticky /tmp above it.
 out="$(KEMPT_DNF_PARENTS_TOP='' KEMPT_DNF_SYSIMAGE_DIR="$DP/libdnf5" "$KEMPT" doctor 2>&1)" || true
-assert_contains "$out" "other users can change $TESTTMP, $DP. " "with no top set, the walk goes past the test folder"
+assert_contains "$out" "$TESTTMP, $DP. They could" "with no top set, the walk goes past the test folder"
 out="$("$KEMPT" doctor 2>&1)" || true
 assert_not_contains "$out" "dnf folders' parents" "the sandbox's own folders add no row"
 rm -rf "$DP"
@@ -1474,21 +1474,21 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   assert_not_contains "$out" 'dnf cache' "...nor one that is only group-writable, group root"
   if other_ids "group-writable with a group other than root counts"; then
     out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 0:1000 f; chmod 664 f')"
-    assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+    assert_contains "$out" "FAIL  dnf cache: other users can change files in $NC (for example $NC/f)" \
       "group-writable with a group other than root counts"
   fi
   if other_ids "a file another user owns counts, though nobody else can write it"; then
     out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 1000:0 f; chmod 644 f')"
-    assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+    assert_contains "$out" "FAIL  dnf cache: other users can change files in $NC (for example $NC/f)" \
       "a file another user owns counts, though nobody else can write it"
   fi
   out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chmod 666 f')"
-  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+  assert_contains "$out" "FAIL  dnf cache: other users can change files in $NC (for example $NC/f)" \
     "a world-writable file counts"
   assert_contains "$out" "Replace the cache with: $NMOVE" "...with the move-aside command for that path"
   assert_not_contains "$out" "sudo dnf5 clean all" "...and never dnf5 clean all"
   out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir d; chmod 777 d')"
-  assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/d)" \
+  assert_contains "$out" "FAIL  dnf cache: other users can change files in $NC (for example $NC/d)" \
     "a world-writable directory counts too"
   # A link planted in the cache is reported only for itself. Doctor never reads through it.
   if other_ids "links to another user's world-writable files outside are not followed"; then
@@ -1497,7 +1497,7 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   fi
   if other_ids "a link another user owns is reported as the link itself"; then
     out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir r; ln -s / r/packages; chown -h 1000:1000 r/packages')"
-    assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/r/packages)" \
+    assert_contains "$out" "FAIL  dnf cache: other users can change files in $NC (for example $NC/r/packages)" \
       "a link another user owns is reported as the link itself"
   fi
   NS="$TESTTMP/ns-state"
@@ -1554,12 +1554,12 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
       "a root-owned directory with a default ACL entry is a FAIL, though its mode is 755"
     assert_contains "$out" "sudo setfacl -R -P -b $NS" "...and the fix drops the ACL entries"
     out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; setfacl -m u:0:rw f')"
-    assert_contains "$out" "WARN  dnf cache: other users can change files in $NC (for example $NC/f)" \
+    assert_contains "$out" "FAIL  dnf cache: other users can change files in $NC (for example $NC/f)" \
       "a cache file with an extra ACL entry counts too"
   else
     skip "setfacl is not installed, so the ACL cases did not run"
   fi
-  # A parent's mode and ACL entries, as root: sticky and group-root writes stay quiet, like the rows above.
+  # A parent's mode and ACL entries, as root: group-root writes stay quiet, sticky or not they count otherwise.
   NP="$TESTTMP/ns-parent"
   ns_parent() {  # setup [env...] → doctor's "dnf folders' parents" row with the state folder in $NP/p
     local setup="$1" out; shift
@@ -1572,7 +1572,8 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
     "a world-writable parent is a FAIL"
   assert_contains "$(ns_parent 'chmod 777 .')" "Fix it with: sudo chown -h root:root $NP/p && sudo chmod go-w $NP/p. Then" \
     "...fixed with chown and chmod go-w"
-  assert_eq "$(ns_parent 'chmod 1777 .')" "" "...but not with the sticky bit, which keeps others from renaming root's folder"
+  assert_contains "$(ns_parent 'chmod 1777 .')" "FAIL  dnf folders' parents: other users can change $NP/p. " \
+    "...and with the sticky bit too, because dnf5 recreates its folders and anyone could create the name first"
   assert_eq "$(ns_parent 'chmod 775 .')" "" "a parent writable by group root adds no row"
   if other_ids "a parent another user owns, or writable by another group, is a FAIL"; then
     assert_contains "$(ns_parent 'chown 0:1000 .; chmod 775 .')" "other users can change $NP/p. " \
@@ -1718,12 +1719,11 @@ rm -f "$REFRESH_DNF_FAILED_FILE"
 assert_not_contains "$(cat "$TESTTMP/off.txt")" "last check failed" "a state that is not stale adds no row"
 rm -f "$STATE_FILE"
 
-# The folder checks above read ACLs with getfacl, and skip them where it is missing: the RPM requires
-# the acl package, a checkout install does not. Doctor says so, rather than passing a check it could
-# only half run.
+# The folder checks above read ACLs with getfacl. The RPM requires the acl package, a checkout install
+# does not, and without it the root helper refuses, so doctor's row is a FAIL.
 out="$(KEMPT_GETFACL="$TESTTMP/no-such-getfacl" "$KEMPT" doctor 2>&1)" || true
-assert_contains "$out" "WARN  getfacl: not found, so the dnf folder checks cannot see ACL entries. Install it with: sudo dnf install acl" \
-  "a missing getfacl is a warning that names the package"
+assert_contains "$out" "FAIL  getfacl: not found, so Kempt cannot see ACL entries on the dnf folders. Until this is fixed, Kempt will not install, stage or discard updates. Install it with: sudo dnf install acl" \
+  "a missing getfacl is a FAIL that says what stops and names the package"
 if command -v getfacl >/dev/null; then
   out="$("$KEMPT" doctor 2>&1)" || true
   assert_not_contains "$out" "getfacl: not found" "...and no row at all when getfacl is there"

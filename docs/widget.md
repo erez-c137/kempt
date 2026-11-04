@@ -247,7 +247,8 @@ when Kempt is set to install on the next restart. With system updates waiting it
 > The next restart belongs to another updater. If you update now, the update it prepared may no
 > longer install.
 
-Flatpak apps alone do not ask.
+Flatpak apps alone do not ask. Nor does Update Now while updates are paused, because the run would
+be refused.
 
 If Discover is set to install updates by itself, a warning says it can take over your next restart,
 with **Turn Off**. It shows once, whatever Kempt's mode, and comes back only

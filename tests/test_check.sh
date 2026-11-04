@@ -946,6 +946,20 @@ assert_eq "$(jq -r .schema "$st")" "1" "...additively: the schema does not move"
 assert_eq "$(jq -r 'has("image_based")' "$st")" "false" \
   "...and an ordinary Fedora carries no such key at all, never image_based: false"
 
+# --- a folder that has the root helper refusing, published before anyone presses ----------------
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r 'has("unsafe_folder")' "$st")" "false" "an ordinary box publishes no unsafe folder, and no empty one"
+UNSAFE_CACHE="$TESTTMP/unsafe-cache"; mkdir -p "$UNSAFE_CACHE"; chmod 777 "$UNSAFE_CACHE"
+KEMPT_DNF_CACHE_DIR="$UNSAFE_CACHE" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r .unsafe_folder "$st")" "$UNSAFE_CACHE" "a check names the folder other users can change"
+assert_eq "$(jq -r .status "$st")" "ok" "...and the check itself still worked"
+assert_eq "$(jq -r .schema "$st")" "1" "...additively"
+KEMPT_DNF_CACHE_DIR="$UNSAFE_CACHE" KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" check >/dev/null
+assert_eq "$(jq -r 'has("unsafe_folder")' "$st")" "false" "...but not on an image-based system, where dnf does not update anything"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r 'has("unsafe_folder")' "$st")" "false" "...and it goes when the folder is safe again"
+rm -rf "$UNSAFE_CACHE"
+
 # --- a staged Fedora release upgrade, published so the widget knows before the press ------------
 # dnf5 keeps ONE stored transaction for offline updates and release upgrades alike, so staging over
 # one cancels it and Kempt refuses to. The popup's Install on Next Restart button is the press that

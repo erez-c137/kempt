@@ -228,6 +228,19 @@ chmod u+w "$marker_dir"
 assert_eq "$rc" "1" "an unwritable state directory is still a plain failure"
 assert_contains "$(cat "$TESTTMP/err")" "could not be put back" "...with its sentence"
 
+# Refused over the folders: the helper's sentence, not a guess at the folders from the user's side.
+S_CHECK="Kempt could not check /var/lib/secret (Permission denied). Run kempt doctor."
+apply_stub refused-check 'dnf-offline-arm) echo "kempt-apply: '"$S_CHECK"'" >&2; exit 3 ;;'
+staged_lost
+restore refused-check
+assert_eq "$rc" "5" "a refusal over the folders is a refusal"
+assert_eq "$(cat "$TESTTMP/err")" "Your staged update was not put back. $S_CHECK" "...in the helper's sentence"
+
+apply_stub refused-earlier 'dnf-offline-arm) echo "kempt-apply: '"$S_CHECK"'" >&2; echo "kempt-apply: refusing dnf-offline-arm: something stored" >&2; exit 3 ;;'
+staged_lost
+restore refused-earlier
+assert_not_contains "$(cat "$TESTTMP/err")" "$S_CHECK" "only the helper's last line is its reason"
+
 # A marker with no cookie cannot say the transaction is this stage, so nothing is armed on its word.
 staged_lost
 jq -c 'del(.rpmdb_cookie)' "$marker" > "$marker.new" && mv "$marker.new" "$marker"

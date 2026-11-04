@@ -260,7 +260,8 @@ Live updates still work, and the risky-transaction prompt offers only `[u]` and 
 nothing changed, Flatpak included, even with `auto_accept` off, because a quiet fall to a live run
 could cancel what that updater prepared. A live run with no terminal and no `--risky-ok` stops the
 same way. The widget asks first and passes the flag. With no system updates waiting, both carry on.
-To update anyway, use `kempt update --surface=terminal`. While the restart is held, the
+To update anyway, use `kempt update --surface=terminal`, unless other users can also change dnf's
+folders: then the message names the folder, and `kempt doctor` has the fix. While the restart is held, the
 risky-transaction prompt offers only `[u]` and `[a]`.
 
 **When the staged update will not install.** A restart may have skipped it, or a dnf command of

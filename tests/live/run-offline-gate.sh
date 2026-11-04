@@ -9,7 +9,7 @@ name="kempt-offline-gate-$$"
 img="localhost/kempt-offline-gate:$$"
 podman rm -f "$name" >/dev/null 2>&1 || true
 trap 'podman rm -f "$name" >/dev/null 2>&1 || true; podman rmi -f "$img" >/dev/null 2>&1 || true' EXIT
-printf 'FROM %s\nRUN dnf5 -y -q install systemd jq util-linux && dnf5 clean all\nCMD ["/sbin/init"]\n' "$BASE" \
+printf 'FROM %s\nRUN dnf5 -y -q install systemd jq util-linux acl findutils && dnf5 clean all\nCMD ["/sbin/init"]\n' "$BASE" \
   | podman build -q -t "$img" -f - >/dev/null
 podman run -d --name "$name" --systemd=always "$img" >/dev/null
 # Right after podman run the system bus may not exist yet, and then --wait returns at once with an

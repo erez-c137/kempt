@@ -717,6 +717,15 @@ assert_eq "$(js "$ib.messageSlots[0]")" "imageBased" \
 # says so would be a warning with nowhere to go.
 assert_eq "$(js "$ib.riskyMessage")" "" \
   "no session-critical warning on a box where no button Kempt offers could act on it"
+# A check that found an unsafe folder says updates are paused, before anyone presses a button.
+FP='function (v) { var s = S("risky-heavy"); if (v !== undefined) s.unsafe_folder = v; return L.viewModel(s, false, "", {}); }'
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").foldersPausedMessage")" \
+  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." "an unsafe folder puts the paused message up"
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").messageSlots.indexOf(\"foldersPaused\") >= 0")" "true" "...in its slot"
+assert_eq "$(js "($FP)().foldersPausedMessage")" "" "...and an ordinary box says nothing"
+for _bad in '""' 7 true null; do
+  assert_eq "$(js "($FP)($_bad).foldersPausedMessage")" "" "...and neither does an unsafe_folder of $_bad"
+done
 assert_eq "$(js "$ib.messageSlots")" '["imageBased"]' \
   "...so the one message about what this machine is stands alone"
 # The counts and the list are NOT suppressed. They are what dnf can see, the message says so, and
@@ -1801,13 +1810,25 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"\
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\"}"))')" \
   "Update failed" "...and so does one with no error field at all"
 # The root helper's refusal over a dnf folder other users can change reaches the Last update row
-# as the CLI worded it, and the row offers Check Installation, where doctor prints the fix.
+# in its short form, and the row offers Check Installation, where doctor prints the fix.
 UNSAFE_RUN='{\"status\":\"failed\",\"error\":\"nothing was installed, because other users can change files in /usr/lib/sysimage/libdnf5. See: kempt doctor\"}'
 assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), '')")" \
-  "Update failed: nothing was installed, because other users can change files in /usr/lib/sysimage/libdnf5. See: kempt doctor" \
+  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." \
   "a run the helper refused over an unsafe dnf folder says so on the Last update row"
+HELPER_RUN='{\"status\":\"failed\",\"error\":\"Updates paused for safety: users other than root can change /var/lib. Run kempt doctor for the fix.\"}'
+assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$HELPER_RUN\"))")" \
+  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." \
+  "...and so does the helper's own sentence"
 assert_eq "$(js "L.mentionsDoctor(L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), ''))")" "true" \
   "...and the row offers Check Installation"
+# Only the sentences about what others can change get that short form. The rest are shown as they are.
+for _why in "Kempt could not check /var/lib/secret (Permission denied). Run kempt doctor." \
+            "Updates paused for safety: Kempt is running in a different mount namespace from the system, so what it checks is not what dnf5 would use. Run kempt doctor." \
+            "Updates paused for safety: /var is on a mount made by a user other than root. Run kempt doctor for the fix."; do
+  _run="{\\\"status\\\":\\\"failed\\\",\\\"error\\\":\\\"nothing was installed. $_why\\\"}"
+  assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$_run\"))")" "Update failed: nothing was installed. $_why" \
+    "the Last update row shows the helper's words: ${_why:0:40}"
+done
 # Failure wins over the counts. A run that upgraded four packages and then failed is a failed run,
 # and saying "Updated 4 packages" about it would be the popup's worst possible lie.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"dnf exited 1\",\"duration_sec\":38,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
@@ -1932,9 +1953,9 @@ assert_eq "$(js "L.discardStagedMessage(9, '', '')")" \
 
 # --- Check Installation: `kempt doctor`, run from the widget -------------------------------------
 # Every widget sentence that names kempt doctor names the button too. None of them sends anybody
-# to a terminal any more.
+# to a terminal any more. One sentence keeps the CLI's words on purpose, with the button beside it.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /kempt doctor/.test(L.COPY[k]) && L.COPY[k].indexOf("Check Installation") < 0; })')" \
-  '["engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
+  '["updatesPausedFolder","engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /doctor in a terminal/.test(L.COPY[k]); })')" \
   "[]" "...and none of them asks for a terminal"
 assert_eq "$(js 'L.COPY.doctorAction')" "Check Installation" "the button's label"
@@ -2792,6 +2813,11 @@ assert_contains "$(js "L.lastRunText($LAST,$NOW,false)")" "staged for restart" "
 DU='discover_unattended:true,discover_unattended_warn:true,discover_offer:true'
 assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "Discover set to update itself: warned"
 assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...over the plain offer"
+# Held with updates paused too: both are true, so both show, and the question has nothing to warn about.
+assert_eq "$(held "$PEND" '{}' updateAsksHeld)" "true" "held with system updates: Update Now asks"
+assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' updateAsksHeld)" "false" "...but not with updates paused, when the helper refuses the run"
+assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{heldChoiceOpen:true}' 'messageSlots.indexOf("heldChoice")')" "-1" "...and a question already open goes"
+assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' 'messageSlots.slice(0, 2).join()')" "foldersPaused,staged" "...while the pause and the held restart both stay said, the pause first"
 assert_eq "$(free "$PEND,$DU,image_based:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and not on an image-based Fedora, which is told to use Discover"
 assert_eq "$(free "$PEND,discover_offer:true,image_based:true" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...nor the plain offer"
 assert_eq "$(free "$PEND,discover_offer:true" '{}' 'messageSlots.indexOf("discoverOffer") >= 0')" "true" "...which other systems still get"
@@ -3699,7 +3725,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldItems","heldLiveSurface","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldItems","heldLiveSurface","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

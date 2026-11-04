@@ -139,13 +139,13 @@ declare -A WORD_BUDGET=(
   [CONTRIBUTING.md]=1700
   [SECURITY.md]=420
   [tests/README.md]=310
-  [docs/architecture.md]=4540
+  [docs/architecture.md]=4590
   [docs/configuration.md]=1150
   [docs/install.md]=1550
   [docs/RELEASING.md]=840
   [docs/ROADMAP.md]=1750
-  [docs/security.md]=3830
-  [docs/usage.md]=3400
+  [docs/security.md]=3935
+  [docs/usage.md]=3420
   [docs/widget.md]=3200
 )
 # A new doc needs a row, so it cannot grow outside the table.

@@ -1087,6 +1087,16 @@ PlasmaExtras.Representation {
             visible: popup.shows("imageBased")
         }
 
+        // The last check found a dnf folder other users can change, so the root helper refuses updates.
+        Kirigami.InlineMessage {
+            id: foldersPausedMessage
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Warning
+            text: popup.vm.foldersPausedMessage
+            Accessible.name: text
+            visible: popup.shows("foldersPaused")
+        }
+
         // A Fedora release upgrade staged outside Kempt. dnf5 keeps ONE stored transaction for that
         // and for an ordinary offline update alike, so staging updates for a restart would cancel it
         // - and re-downloading a release upgrade is gigabytes. The CLI refuses the press; this is

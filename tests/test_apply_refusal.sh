@@ -184,7 +184,7 @@ stage_real
 reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-live-clean-refused" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_exit 0 "a refused supersede clean keeps the marker for the doctor" -- test -f "$marker"
-grep -q 'left in place because the stored offline transaction could not be read. See: kempt doctor' "$TESTTMP/err" \
+grep -q 'superseded the staged transaction. The staged update was left in place. Run kempt doctor.' "$TESTTMP/err" \
   && echo "ok: ...and warns that it was left in place" || { echo "FAIL: no warning"; _fail=1; cat "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean"
 
@@ -228,6 +228,66 @@ KEMPT_APPLY_HELPER="$TESTTMP/apply-live-unsafe" "$KEMPT" update --surface=backgr
 assert_eq "$(last_error)" "nothing was installed, because other users can change files in dnf's folders. See: kempt doctor" \
   "...and without a folder to name, it says dnf's folders"
 rm -rf "$UNSAFE"
+
+# --- the helper's own sentence, because only it knows ------------------------------------------------
+# A user's reading cannot see what root was denied, or tell a namespace from a folder, and what is
+# stored may be a second problem the helper never reached. So its last line is what the run reports.
+S_CHECK="Kempt could not check /var/lib/secret (Permission denied). Run kempt doctor."
+S_NS="Updates paused for safety: Kempt is running in a different mount namespace from the system, so what it checks is not what dnf5 would use. Run kempt doctor."
+S_FUSE="Updates paused for safety: /var is on a mount made by a user other than root. Run kempt doctor for the fix."
+S_UNSAFE="Updates paused for safety: users other than root can change files in /var/cache/libdnf5. Run kempt doctor for the fix."
+says() { printf 'echo "kempt-apply: %s" >&2; exit 3' "$1"; }
+i=0
+for sentence in "$S_CHECK" "$S_NS" "$S_FUSE" "$S_UNSAFE"; do
+  i=$(( i + 1 ))
+  apply_stub "w-stage-$i" "dnf-offline-stage) $(says "$sentence") ;;"
+  stored offline-ready.toml; rm -f "$marker"; reset_run
+  KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stage-$i" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+  assert_eq "$(last_error)" "nothing was staged. $sentence" "a refused stage reports the helper's sentence: ${sentence:0:40}"
+  apply_stub "w-arm-$i" "dnf-offline-arm) $(says "$sentence") ;;"
+  stored offline-ready.toml; rm -f "$marker"; reset_run
+  KEMPT_APPLY_HELPER="$TESTTMP/apply-w-arm-$i" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+  assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart. $sentence" "...and a refused arm"
+  assert_eq "$(calls dnf-offline-clean)" "0" "...which is not unwound"
+  apply_stub "w-live-$i" "dnf-upgrade) $(says "$sentence") ;;"
+  stored offline-ready.toml; rm -f "$marker"; reset_run
+  KEMPT_APPLY_HELPER="$TESTTMP/apply-w-live-$i" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
+  assert_eq "$(last_error)" "nothing was installed. $sentence" "...and a refused live update"
+done
+# Folders caused it, and a release upgrade is stored as well: the helper's word stands.
+apply_stub w-stage-relup "dnf-offline-stage) cp '$RELUP' '$TOML'; $(says "$S_CHECK") ;;"
+stored offline-ready.toml; rm -f "$marker"; reset_run
+KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stage-relup" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+assert_eq "$(last_error)" "nothing was staged. $S_CHECK" "a stored release upgrade is not blamed when the helper named the folders"
+apply_stub w-arm-relup "dnf-offline-arm) cp '$RELUP' '$TOML'; $(says "$S_FUSE") ;;"
+stored offline-ready.toml; rm -f "$marker"; reset_run
+KEMPT_APPLY_HELPER="$TESTTMP/apply-w-arm-relup" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart. $S_FUSE" "...nor at the arm"
+# And when the helper did refuse over what is stored, the CLI's reason still says so.
+apply_stub w-stage-stored 'dnf-offline-stage) cp "'"$RELUP"'" "'"$TOML"'"; echo "kempt-apply: refusing dnf-offline-stage: a Fedora release upgrade (44 -> 45) is stored" >&2; exit 3 ;;'
+stored offline-ready.toml; rm -f "$marker"; reset_run
+KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stage-stored" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
+assert_contains "$(last_error)" "a Fedora release upgrade (44 -> 45) is stored" "a refusal over a stored release upgrade keeps its reason"
+# An earlier line in the log says nothing about this refusal: only the last line counts.
+apply_stub w-stale "dnf-upgrade) echo 'kempt-apply: $S_CHECK' >&2; echo 'something else' >&2; exit 3 ;;"
+stored offline-ready.toml; rm -f "$marker"; reset_run
+KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stale" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>&1 || true
+assert_not_contains "$(last_error)" "could not check" "a sentence that is not the helper's last line is not its reason"
+# A clean refused over the folders, with a release upgrade stored by then.
+stage_real
+apply_stub w-clean "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) $(says "$S_CHECK") ;;"
+reset_run
+KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
+assert_contains "$(cat "$TESTTMP/err")" "this update superseded the staged transaction. The staged update was left in place. $S_CHECK" \
+  "a clean refused over the folders says the helper's sentence"
+no_clean_advice "...and does not advise a clean"
+# ...with a stored record it cannot read by then: the helper's word still stands.
+stage_real
+apply_stub w-clean-unread "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) sed -i '/releasever/d' '$TOML'; $(says "$S_CHECK") ;;"
+reset_run
+KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean-unread" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
+assert_contains "$(cat "$TESTTMP/err")" "The staged update was left in place. $S_CHECK" "an unreadable record is not blamed when the helper named the folders"
+assert_not_contains "$(cat "$TESTTMP/err")" "could not be read" "...and is not mentioned"
 
 # dnf_status starts unknown and every path names it. A run that reached history says ok or failed.
 assert_eq "$(cat "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | jq -r 'select(.dnf != null) | .dnf.status' | grep -vxE 'ok|failed' | sort -u)" "" \

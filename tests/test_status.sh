@@ -23,6 +23,15 @@ put() { cp "$FIXTURES/state-$1.json" "$STATE_FILE"; }
 status() { "$KEMPT" status 2>&1 || true; }  # the text; status_rc is the exit code
 status_rc() { local rc=0; "$KEMPT" status "$@" >/dev/null 2>&1 || rc=$?; echo "$rc"; }
 
+# A folder the helper would refuse over is said under the header, whatever the header says.
+jq '.backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0 | .unsafe_folder = "/var/cache/libdnf5"' "$FIXTURES/state-live.json" > "$STATE_FILE"
+assert_contains "$(status)" "Updates paused for safety: other users can change files in /var/cache/libdnf5. Run kempt doctor for the fix." \
+  "status says updates are paused when a check found an unsafe folder"
+jq '.unsafe_folder = 7' "$FIXTURES/state-live.json" > "$STATE_FILE"
+assert_not_contains "$(status)" "paused for safety" "...and a value that is not a name says nothing"
+put live
+assert_not_contains "$(status)" "paused for safety" "...and an ordinary state says nothing"
+
 # --- the states ------------------------------------------------------------------------------------
 rm -f "$STATE_FILE"
 assert_eq "$(status)" "No update data yet
