@@ -3579,10 +3579,6 @@ p.check("...with the reason under it",
 open(RUNJSON, "w").write(json.dumps(LAST_RUN))
 ev("root.loadLastRun()")
 settle()
-p.pump(50)
-open(RUNJSON, "w").write(json.dumps(LAST_RUN))
-ev("root.loadLastRun()")
-settle()
 
 ev("root.lastRun = null")
 p.pump(50)

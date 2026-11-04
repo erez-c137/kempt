@@ -2871,19 +2871,17 @@ reconcile_detour_stage() {  # marker-json toml-status [none, when nothing of it 
 # A restart that installed none of a stage is a failed run, and until one says so the staging run is
 # the last update on record, which `kempt status` reads as "staged". Written only while that staging
 # run is still the newest entry, which also makes it once: this entry then takes its place.
-record_stage_did_not_run() {  # dnf5's status word
-  local newest surface="restart (staged update did not run)" ts hist
+record_stage_did_not_run() {
+  local newest ts hist
   # shellcheck disable=SC2012  # the listing status_last_run reads, and its reasons
   newest="$(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r | awk 'NR==1' || true)"
   [[ -n "$newest" ]] || return 0
   jq -e '.surface == "offline" and (.backends.dnf.status? // .status) == "ok" and ((.staged_nothing // "") == "")' \
     "$newest" >/dev/null 2>&1 || return 0
-  [[ "$1" != transaction-incomplete ]] || surface="offline (restart did not finish)"
   ts="$(date +%Y%m%dT%H%M%S)"
   hist="$HIST_DIR/$ts.json"
-  [[ -e "$hist" ]] && hist="$HIST_DIR/$ts-offline.json"
-  jq -n --arg ts "$(now_iso)" --arg surface "$surface" '
-    {timestamp:$ts, surface:$surface, status:"failed", reboot_needed:false, log:"",
+  jq -n --arg ts "$(now_iso)" '
+    {timestamp:$ts, surface:"restart (staged update did not run)", status:"failed", reboot_needed:false, log:"",
      error:"the restart installed none of the staged update",
      backends:{dnf:{updated:[],added:[],removed:[],status:"failed",skipped_held:[]},
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist" \
@@ -3069,10 +3067,10 @@ harvest_offline() {
         fi
       elif [[ "$toml_status" != ready ]]; then
         reconcile_detour_stage "$marker" "$toml_status" none
-        record_stage_did_not_run "$toml_status"
+        record_stage_did_not_run
       else
         reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
-        record_stage_did_not_run "$toml_status"
+        record_stage_did_not_run
       fi
     fi
     return 0
@@ -3112,7 +3110,7 @@ harvest_offline() {
         if [[ "$partly_count" == 0 ]]; then
           rm -f "$now_snap"
           reconcile_detour_stage "$marker" "$toml_status" none
-          record_stage_did_not_run "$toml_status"
+          record_stage_did_not_run
           return 0
         fi
         # Already told it can no longer install, so a second report would only contradict that.
