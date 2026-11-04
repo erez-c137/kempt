@@ -464,11 +464,11 @@ _do = json.load(open(fixture("state-live.json")))
 _do["discover_offer"] = True
 _dopath = os.path.join(p.sandbox, "state-discover-offer.json")
 open(_dopath, "w").write(json.dumps(_do))
-for index, what in ((0, "Turn Off Discover's Notifier"), (1, "Keep Discover's Notifier")):
+for index, what in ((0, "Turn Off Discover's Update Checks"),):
     ev("root.discoverOfferAnswered = false")
     state(_dopath)
-    p.check("premise: the offer about Discover is up", lev("discoverOfferMessage.visible"), True)
-    answer("discoverOfferMessage", index, what)
+    p.check("premise: the offer about Discover is up", lev("discoverMessage.visible"), True)
+    answer("discoverMessage", index, what)
 ev('root.actionDone = ""')
 
 # The risky choice: Update Now on a session-critical set opens it, and each answer closes it.

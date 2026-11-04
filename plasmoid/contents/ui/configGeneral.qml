@@ -729,11 +729,11 @@ KCM.SimpleKCM {
             visible: page.discoverSetting !== null
             text: !page.discoverSetting ? ""
                 : page.discoverSetting.state === "on"
-                    ? i18n("Discover also shows update notifications, with its own count.")
-                : page.discoverSetting.state === "off" ? i18n("Discover's notifier is off.")
+                    ? i18n("Discover also checks for updates, with its own count.")
+                : page.discoverSetting.state === "off" ? i18n("Discover's update checks are off.")
                 : page.discoverSetting.path
-                    ? i18n("Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on.", page.discoverSetting.path)
-                : i18n("Discover's notifier is turned off by a startup file. Delete that file to turn it back on.")
+                    ? i18n("Discover's update checks are turned off by a startup file: %1. Delete that file to turn them back on.", page.discoverSetting.path)
+                : i18n("Discover's update checks are turned off by a startup file. Delete that file to turn them back on.")
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
@@ -743,7 +743,7 @@ KCM.SimpleKCM {
             id: discoverButton
             visible: page.discoverSetting !== null && page.discoverSetting.verb !== ""
             text: page.discoverSetting && page.discoverSetting.verb === "on"
-                ? i18n("Turn On Discover's Notifier") : i18n("Turn Off Discover's Notifier")
+                ? i18n("Turn On Discover's Update Checks") : i18n("Turn Off Discover's Update Checks")
             icon.name: page.discoverSetting && page.discoverSetting.verb === "on"
                 ? "notifications" : "notifications-disabled"
             enabled: !page.discoverBusy

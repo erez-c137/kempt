@@ -159,11 +159,11 @@ PlasmoidItem {
     onUpdateAsksHeldChanged: if (!updateAsksHeld) heldChoiceOpen = false
 
     // The warning about Discover's setting. Drawing it clears the CLI's flag, so it stays up for this
-    // open of the popup from here. Turn Off hides it at once, ahead of the check it runs.
+    // open of the popup from here. Turn Off and close hide it at once, Turn Off ahead of the check it runs.
     property bool discoverWarningKept: false
     property bool discoverWarningAckSent: false
-    property bool discoverTurnedOff: false
-    readonly property bool discoverWarningDrawn: vm.messageSlots.indexOf("discoverUnattended") >= 0
+    property bool discoverWarningGone: false
+    readonly property bool discoverWarningDrawn: vm.discoverSerious && vm.messageSlots.indexOf("discover") >= 0
     onDiscoverWarningDrawnChanged: acknowledgeDiscoverWarning()
 
     // The one-time offer to turn off Discover's notifier was answered in this session. Either button runs
@@ -285,7 +285,7 @@ PlasmoidItem {
                                                 riskyChoiceOpen: riskyChoiceOpen,
                                                 heldChoiceOpen: heldChoiceOpen,
                                                 discoverWarningKept: discoverWarningKept,
-                                                discoverTurnedOff: discoverTurnedOff,
+                                                discoverWarningGone: discoverWarningGone,
                                 checkUnfinished: checkFailNote,
                                                 discoverOfferAnswered: discoverOfferAnswered,
                                                 discoverAnswerKnown: discoverAnswerKnown,
@@ -1034,13 +1034,20 @@ PlasmoidItem {
         doCheck(false, true, false, true);
     }
 
-    // The answer to the Discover offer: "off" turns Discover's notifier off, "keep" changes
+    // The message's close button: an answer to the mild form, and only a dismissal of the serious one,
+    // which says something that stays true.
+    function closeDiscover() {
+        if (vm.discoverSerious) discoverWarningGone = true;
+        else setDiscoverNotifier("keep");
+    }
+
+    // The answer to the mild Discover message: "off" turns Discover's notifier off, "keep" changes
     // nothing. Both record the answer in the CLI's marker, so a check then publishes state.json
     // without discover_offer, and readDiscoverAnswered finds it after a restart either way.
     function setDiscoverNotifier(verb) {
         if (verb !== "off" && verb !== "keep") return;
         discoverOfferAnswered = true;
-        if (verb === "off") discoverTurnedOff = true;
+        if (verb === "off") discoverWarningGone = true;
         actionMessage = "";
         actionDone = "";
         executor.run(kemptCmd + " discover-notifier " + verb, Logic.ANSWER_TIMEOUT_MS,
@@ -1049,7 +1056,7 @@ PlasmoidItem {
             if (!said.ok) {
                 // Not done, so not answered: the offer comes back with the reason above it.
                 root.discoverOfferAnswered = false;
-                root.discoverTurnedOff = false;
+                root.discoverWarningGone = false;
                 root.actionMessage = said.text;
                 return;
             }
@@ -1257,7 +1264,7 @@ PlasmoidItem {
         // A warning read once is not read again, and a Turn Off that came back is the check's to report.
         discoverWarningKept = false;
         discoverWarningAckSent = false;
-        discoverTurnedOff = false;
+        discoverWarningGone = false;
         // Same rule as doCheck: the apology is about a press the user has walked away from, and it
         // must not be waiting for them next time they open this.
         restartError = "";

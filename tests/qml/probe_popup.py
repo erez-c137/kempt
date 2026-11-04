@@ -984,7 +984,7 @@ MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("stagedMessage", "the staged-transaction message"),
             ("blockedMessage", "why Kempt cannot go ahead"),
             ("questionMessage", "the question Update Now asks"),
-            ("discoverOfferMessage", "the offer to turn off Discover's notifier"),
+            ("discoverMessage", "the message about Discover"),
             ("reportMessage", "the report of the last thing that happened"),
             ("doctorMessage", "what Check Installation found")]
 
@@ -1279,14 +1279,13 @@ STAGED_OFFER = os.path.join(p.sandbox, "state-staged-offer.json")
 json.dump(offer_doc, open(STAGED_OFFER, "w"))
 state(STAGED_OFFER)
 settle()
-p.check("a staged update with Discover's notifier on warns, with the offer's own answers",
-        [lev("stageDiscoverWarningMessage.visible"), lev("discoverOfferMessage.visible"),
-         lev("stageDiscoverWarningMessage.actions.length")], [True, False, 2])
-p.check("...in the copy's words", lev("stageDiscoverWarningMessage.text"), ev("Logic.COPY.stageDiscoverWarning"))
+p.check("a staged update with Discover's notifier on says so, with one button",
+        [lev("discoverMessage.visible"), lev("discoverMessage.actions.length")], [True, 1])
+p.check("...in the copy's words", lev("discoverMessage.text"), ev("Logic.COPY.discoverMild"))
 state(CONFLICT1)
 settle()
 p.check("...and without the offer pending it does not",
-        lev("stageDiscoverWarningMessage.visible"), False)
+        lev("discoverMessage.visible"), False)
 
 # --- another updater holds the next restart ------------------------------------------------------
 def held_state(name, **extra):
@@ -1398,24 +1397,37 @@ ev("root.popupOpened()")
 settle()
 p.check("...and once drawn, it is marked, once",
         len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before, 1)
-p.check("...its button says what the sentence means", lev("discoverUnattendedMessage.actions[0].text"), "Turn Off")
-p.check("...the warning up, one button, the plain offer not",
-        [lev("discoverUnattendedMessage.visible"), lev("discoverUnattendedMessage.actions.length"), lev("discoverOfferMessage.visible")],
-        [True, 1, False])
-p.check("...in the copy's words", lev("discoverUnattendedMessage.text"), ev("Logic.COPY.discoverUnattended"))
+p.check("...its button says what it does", lev("discoverMessage.actions[0].text"), ev("Logic.COPY.discoverOff"))
+p.check("...the warning up, as a warning, with one button",
+        [lev("discoverMessage.visible"), lev("discoverMessage.type === Kirigami.MessageType.Warning"), lev("discoverMessage.actions.length")],
+        [True, True, 1])
+p.check("...in the copy's words", lev("discoverMessage.text"), ev("Logic.COPY.discoverUnattended"))
 _quiet = held_state("state-unattended-seen.json", discover_unattended=True)
 state(_quiet)
 settle()
-p.check("...and stays up for this open after the flag clears", lev("discoverUnattendedMessage.visible"), True)
+p.check("...and stays up for this open after the flag clears", lev("discoverMessage.visible"), True)
 ev("root.popupClosed()")
 settle()
 ev("root.popupOpened()")
 settle()
-p.check("...and not on the next", lev("discoverUnattendedMessage.visible"), False)
+p.check("...and not on the next", lev("discoverMessage.visible"), False)
 state(held_state("state-unattended.json", discover_unattended=True, discover_unattended_warn=True))
 settle()
-lev("discoverUnattendedMessage.actions[0].trigger()")
-p.check("Turn Off hides it at once", lev("discoverUnattendedMessage.visible"), False)
+_dn_before = len(p.calls_matching("discover-notifier"))
+lev("discoverMessage.visible = false")
+settle()
+p.check("closing it hides it", lev("discoverMessage.visible"), False)
+p.check("...and answers nothing: only the seen mark runs",
+        [c for c in p.calls_matching("discover-notifier")[_dn_before:] if not c.endswith(" seen")], [])
+ev("root.popupClosed()")
+settle()
+ev("root.popupOpened()")
+settle()
+state(held_state("state-unattended.json", discover_unattended=True, discover_unattended_warn=True))
+settle()
+p.check("...and the binding came back, so a later warning shows", lev("discoverMessage.visible"), True)
+lev("discoverMessage.actions[0].trigger()")
+p.check("Turn Off hides it at once", lev("discoverMessage.visible"), False)
 settle()
 p.check("...and runs the notifier's off", p.calls_matching("discover-notifier")[-1], "discover-notifier off")
 ev("root.popupClosed()")
@@ -2900,22 +2912,24 @@ _do["discover_offer"] = True
 _dopath = os.path.join(p.sandbox, "state-discover-offer.json")
 open(_dopath, "w").write(json.dumps(_do))
 state(_dopath)
-p.check("the offer to turn off Discover's notifier is made", lev("discoverOfferMessage.visible"), True)
-p.check("...in the words on screen", lev("discoverOfferMessage.text"), ev("Logic.COPY.discoverOffer"))
-p.check("...with the two answers",
-        [lev("discoverOfferMessage.actions[0].text"), lev("discoverOfferMessage.actions[1].text")],
-        [ev("Logic.COPY.discoverOfferOff"), ev("Logic.COPY.discoverOfferKeep")])
+p.check("the mild Discover message is up", lev("discoverMessage.visible"), True)
+p.check("...in the words on screen", lev("discoverMessage.text"), ev("Logic.COPY.discoverMild"))
+p.check("...as information", lev("discoverMessage.type === Kirigami.MessageType.Information"), True)
+p.check("...with one button and a close",
+        [lev("discoverMessage.actions.length"), lev("discoverMessage.actions[0].text"), lev("discoverMessage.showCloseButton")],
+        [1, ev("Logic.COPY.discoverOff"), True])
+p.check("...and a tooltip that says should", lev("discoverMessage.actions[0].tooltip"), ev("Logic.COPY.discoverOffTip"))
 
-# Turn Off Discover's Notifier: the command, then a check, and the offer is gone.
+# Turn Off Discover's Update Checks: the command, then a check, and the offer is gone.
 p.clear_calls()
-lev("discoverOfferMessage.actions[0].trigger()")
+lev("discoverMessage.actions[0].trigger()")
 p.pump(50)
 settle()
-p.check("Turn Off Discover's Notifier runs kempt discover-notifier off",
+p.check("Turn Off Discover's Update Checks runs kempt discover-notifier off",
         p.calls_matching("discover-notifier"), ["discover-notifier off"])
 p.check("...and checks, so state.json drops the offer", p.call_count("check") >= 1, True)
 p.check("...and the offer stays gone on this session's answer alone",
-        [ev("root.kemptState.discover_offer"), lev("discoverOfferMessage.visible")], [True, False])
+        [ev("root.kemptState.discover_offer"), lev("discoverMessage.visible")], [True, False])
 p.check("...and the popup shows the CLI's own confirmation, as good news",
         [lev("reportMessage.visible"), lev("reportMessage.text"),
          lev("reportMessage.type === Kirigami.MessageType.Positive")],
@@ -2933,26 +2947,27 @@ ev('root.actionDone = ""')
 
 # A failed answer is not an answer: the offer comes back, with the CLI's reason.
 ev("root.discoverOfferAnswered = false")
+ev("root.discoverWarningGone = false")  # the Turn Off above hid it for this open
 ev('root.actionMessage = ""')
 p.pump(50)
 open(DNRC, "w").write("1")
-lev("discoverOfferMessage.actions[1].trigger()")
+lev("discoverMessage.visible = false")
 p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
 settle()
 open(DNRC, "w").write("")
-p.check("Keep Discover's Notifier that could not be recorded leaves the offer unanswered",
+p.check("A close that could not be recorded leaves the offer unanswered",
         ev("root.discoverOfferAnswered"), False)
-p.check("...so the offer is back", lev("discoverOfferMessage.visible"), True)
+p.check("...so the offer is back", lev("discoverMessage.visible"), True)
 p.check("...under the CLI's reason", ev("root.actionMessage"),
         "could not write /home/you/.config/autostart/org.kde.discover.notifier.desktop")
 ev('root.actionMessage = ""')
 p.clear_calls()
-lev("discoverOfferMessage.actions[1].trigger()")
+lev("discoverMessage.visible = false")
 p.pump(50)
 settle()
-p.check("Keep Discover's Notifier runs kempt discover-notifier keep, which only records the answer",
+p.check("Close runs kempt discover-notifier keep, which only records the answer",
         p.calls_matching("discover-notifier"), ["discover-notifier keep"])
-p.check("...and the offer goes", lev("discoverOfferMessage.visible"), False)
+p.check("...and the offer goes", lev("discoverMessage.visible"), False)
 ev("root.discoverOfferAnswered = false")
 
 # After a plasmashell restart the answer in memory is gone, and state.json may still carry the
@@ -2964,20 +2979,20 @@ _marker = os.path.join(_marker_dir, "discover-offer-answered")
 ev("root.discoverAnswerKnown = false")
 p.pump(50)
 p.check("until the widget has looked for the answered marker, the offer waits",
-        lev("discoverOfferMessage.visible"), False)
+        lev("discoverMessage.visible"), False)
 open(_marker, "w").close()
 ev("root.readDiscoverAnswered()")
 p.wait_for(ev, "root.discoverAnswerKnown", True, timeout_ms=8000)
 settle()
 p.check("an answer the CLI recorded keeps the offer gone after a restart",
-        [ev("root.discoverOfferAnswered"), lev("discoverOfferMessage.visible")], [True, False])
+        [ev("root.discoverOfferAnswered"), lev("discoverMessage.visible")], [True, False])
 os.remove(_marker)
 ev("root.discoverOfferAnswered = false")
 ev("root.discoverAnswerKnown = false")
 ev("root.readDiscoverAnswered()")
 p.wait_for(ev, "root.discoverAnswerKnown", True, timeout_ms=8000)
 settle()
-p.check("...and with no marker, the offer is made", lev("discoverOfferMessage.visible"), True)
+p.check("...and with no marker, the offer is made", lev("discoverMessage.visible"), True)
 # Settings answers through the same CLI verb, from a dialog that cannot reach this file. The next
 # open looks for the marker again, so the offer does not outlive an answer given there.
 open(_marker, "w").close()
@@ -2985,7 +3000,7 @@ ev("root.popupOpened()")
 p.wait_for(ev, "root.discoverOfferAnswered", True, timeout_ms=8000)
 settle()
 p.check("an answer given in Settings hides the offer the next time the popup opens",
-        lev("discoverOfferMessage.visible"), False)
+        lev("discoverMessage.visible"), False)
 os.remove(_marker)
 ev("root.discoverOfferAnswered = false")
 state(fixture("state-live.json"))
@@ -3445,7 +3460,8 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
     "stagedDiscardCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
-    "stageDiscoverWarning", # -> the banner's text, written as a literal in the QML
+    "discoverMild",         # -> vm.discoverMessage
+    "discoverUnattended",   # -> vm.discoverMessage
     "stagedDiscardDone",    # -> discardStagedMessage, for a discard the CLI did not describe
     "stagedDiscardRefused",  # -> discardStagedMessage, for a silent exit 5
     "stagedDiscardBusy",    # -> discardStagedMessage, for a silent exit 3

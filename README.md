@@ -78,7 +78,7 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
 - **You choose when to restart.** When an update needs one, Kempt opens KDE's restart prompt, which
   you can cancel.
 - **A self-check.** `kempt doctor` checks the install one line at a time.
-- **One count.** Kempt can turn off Discover's notifier, so you see one number.
+- **One count.** Kempt can turn off Discover's update checks, so you see one number.
 
 ![The widget after staging: 55 updates install on the next restart, with buttons to restart now or discard the staged update](docs/images/kempt-staged.png)
 

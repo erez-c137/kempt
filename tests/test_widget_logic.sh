@@ -800,7 +800,7 @@ assert_eq "$(js 'L.COPY.installNowTooltip')" "Installs the update now, while you
   "...with a tooltip, as its sibling has"
 
 # --- the one offer to turn off Discover's notifier ------------------------------------------------
-assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).messageSlots')" '["discoverOffer"]' \
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).messageSlots')" '["discover"]' \
   "a notifier that starts with the session is offered once"
 assert_eq "$(js 'L.viewModel(S("live"), false, "", {}).messageSlots')" '[]' "no discover_offer in the state, no offer"
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: "true"}), false, "", {}).messageSlots')" '[]' \
@@ -811,15 +811,18 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), t
   "...and it waits out a run"
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {discoverAnswerKnown: false}).messageSlots')" '[]' \
   "it waits until the widget has looked for the CLI's answered marker"
-assert_eq "$(js 'L.messageStack({restart: true, discoverOffer: true, reclaim: true})')" '["restart","discoverOffer"]' \
+assert_eq "$(js 'L.messageStack({restart: true, discover: "mild", reclaim: true})')" '["restart","discover"]' \
   "it waits below the restart and above the reclaim offer"
-assert_eq "$(js 'L.COPY.discoverOffer')" "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them." \
-  "its sentences, which say why"
-assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.discoverOn].join("|")')" \
-  "Turn Off Discover's Notifier|Keep Discover's Notifier|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
-for _lit in discoverUnattended discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
+assert_eq "$(js 'L.COPY.discoverMild')" "Discover also checks for updates, and that can cancel updates waiting for your next restart." \
+  "its sentence, which says why"
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).discoverMessage === L.COPY.discoverMild')" "true" \
+  "...which is what the message carries"
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).discoverSerious')" "false" "...not the serious one"
+assert_eq "$(js '[L.COPY.discoverOff, L.COPY.discoverOn].join("|")')" \
+  "Turn Off Discover's Update Checks|Turn On Discover's Update Checks" "...its button, and the way back in Settings"
+for _lit in discoverOff discoverOffTip discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" \
-    "$(case $_lit in discoverOfferOff) echo 3 ;; discoverOfferKeep) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
+    "$(case $_lit in discoverOff) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
 # What Settings shows, from `kempt discover-notifier status --json`.
 dn() { js "JSON.stringify(L.discoverSettingOf('$1'))"; }
@@ -832,7 +835,7 @@ assert_eq "$(dn '{"installed":true,"enabled":false,"running":false,"by_kempt":fa
   "Settings: off by the person's own entry, with no button, since on cannot undo it, and the file to delete"
 assert_eq "$(dn '{"installed":true,"enabled":false,"running":false,"by_kempt":false}')" '{"state":"own","verb":"","path":""}' \
   "...with no path when status gives none"
-assert_eq "$(js 'L.COPY.discoverStatusOwn')" "Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on." \
+assert_eq "$(js 'L.COPY.discoverStatusOwn')" "Discover's update checks are turned off by a startup file: %1. Delete that file to turn them back on." \
   "...and the line says how to undo it"
 assert_eq "$(dn '{"installed":false,"enabled":false,"running":false,"by_kempt":false}')" 'null' "Settings: not installed, nothing shown"
 assert_eq "$(dn 'not json')" 'null' "...and nothing for an answer that is not JSON"
@@ -2572,13 +2575,13 @@ assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
   "...and stands down when the restart message is already offering it"
 
 # --- the Discover offer while something is staged ----------------------------------------------
-assert_eq "$(js 'L.COPY.stageDiscoverWarning.indexOf("—")')" "-1" "the staged Discover warning has no long dash"
-assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, restart: true})')" '["staged","restart"]' \
+assert_eq "$(js 'L.COPY.discoverMild.indexOf("—")')" "-1" "the Discover message has no long dash"
+assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", restart: true})')" '["staged","restart"]' \
   "a restart owed keeps its button over the Discover warning"
-assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, startup: true})')" '["staged","startup"]' \
+assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", startup: true})')" '["staged","startup"]' \
   "...and a service that stopped starting keeps its message"
-assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, fetchMissed: true})')" '["staged","stageDiscoverWarning"]' \
-  "...and the warning still outranks calmer news"
+assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", reclaim: true})')" '["staged","discover"]' \
+  "...and it still outranks the reclaim offer"
 
 # --- a stage another updater's restart stands in front of ---------------------------------------
 # Discover, through PackageKit, prepared the next restart: dnf5 will not run behind its symlink, so
@@ -2677,26 +2680,26 @@ assert_contains "$(js "L.lastRunText($LAST,$NOW,false)")" "staged for restart" "
 
 # Discover's setting.
 DU='discover_unattended:true,discover_unattended_warn:true,discover_offer:true'
-assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "Discover set to update itself: warned"
+assert_eq "$(free "$PEND,$DU" '{}' discoverSerious)" "true" "Discover set to update itself: warned"
 assert_eq "$(js 'L.COPY.discoverUnattended')" "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates." "...in one plain sentence"
-assert_eq "$(js 'L.messageStack({staged: true, discoverUnattended: true, startup: true, restart: true})')" '["staged","discoverUnattended"]' \
+assert_eq "$(js 'L.messageStack({staged: true, discover: "serious", startup: true, restart: true})')" '["staged","discover"]' \
   "...ranked right after what is staged, above a service failure and a restart"
-assert_eq "$(js 'L.messageStack({discoverUnattended: true, startup: true, restart: true})')" '["discoverUnattended","startup"]' \
+assert_eq "$(js 'L.messageStack({discover: "serious", startup: true, restart: true})')" '["discover","startup"]' \
   "...and before everything under it with nothing staged"
-assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...over the plain offer"
+assert_eq "$(free "$PEND,$DU" '{}' 'discoverMessage === L.COPY.discoverUnattended')" "true" "...over the mild sentence"
 # Held with updates paused too: both are true, so both show, and the question has nothing to warn about.
 assert_eq "$(held "$PEND" '{}' updateAsksHeld)" "true" "held with system updates: Update Now asks"
 assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' updateAsksHeld)" "false" "...but not with updates paused, when the helper refuses the run"
 assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{heldChoiceOpen:true}' 'messageSlots.indexOf("question")')" "-1" "...and a question already open goes"
 assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' 'messageSlots.slice(0, 2).join()')" "blocked,staged" "...while the pause and the held restart both stay said, the pause first"
-assert_eq "$(free "$PEND,$DU,image_based:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and not on an image-based Fedora, which is told to use Discover"
-assert_eq "$(free "$PEND,discover_offer:true,image_based:true" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...nor the plain offer"
-assert_eq "$(free "$PEND,discover_offer:true" '{}' 'messageSlots.indexOf("discoverOffer") >= 0')" "true" "...which other systems still get"
-assert_eq "$(free "$PEND,$DU" '{surface:"terminal",discoverOfferAnswered:true}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "...in any mode, the offer answered or not"
-assert_eq "$(free "$PEND,discover_unattended:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...not once it was drawn"
-assert_eq "$(free "$PEND,discover_unattended:true" '{discoverWarningKept:true}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "...but it stays up for the open that drew it"
-assert_eq "$(free "$PEND,$DU" '{discoverTurnedOff:true}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and Turn Off hides it at once"
-assert_eq "$(free "$PEND,discover_unattended:false,discover_unattended_warn:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and a setting reading false never warns"
+assert_eq "$(free "$PEND,$DU,image_based:true" '{}' 'messageSlots.indexOf("discover")')" "-1" "...and not on an image-based Fedora, which is told to use Discover"
+assert_eq "$(free "$PEND,discover_offer:true,image_based:true" '{}' 'messageSlots.indexOf("discover")')" "-1" "...nor the mild form"
+assert_eq "$(free "$PEND,discover_offer:true" '{}' 'messageSlots.indexOf("discover") >= 0')" "true" "...which other systems still get"
+assert_eq "$(free "$PEND,$DU" '{surface:"terminal",discoverOfferAnswered:true}' discoverSerious)" "true" "...in any mode, the offer answered or not"
+assert_eq "$(free "$PEND,discover_unattended:true" '{}' 'messageSlots.indexOf("discover")')" "-1" "...not once it was drawn"
+assert_eq "$(free "$PEND,discover_unattended:true" '{discoverWarningKept:true}' discoverSerious)" "true" "...but it stays up for the open that drew it"
+assert_eq "$(free "$PEND,$DU" '{discoverWarningGone:true}' 'messageSlots.indexOf("discover")')" "-1" "...and Turn Off or close hides it at once, without the mild form coming up under it"
+assert_eq "$(free "$PEND,discover_unattended:false,discover_unattended_warn:true" '{}' 'messageSlots.indexOf("discover")')" "-1" "...and a setting reading false never warns"
 assert_eq "$(js 'L.COPY.restartHeldBanner + L.COPY.restartHeldAsk + L.COPY.discoverUnattended + L.COPY.restartHeld + L.COPY.stageBlocked' | grep -c -E '—| - |popup' || true)" "0" "the new copy has no dashes and no popup"
 assert_eq "$(vm '{restartDismissed:true}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
   "...and takes it back when that message is dismissed for this session"
@@ -3382,7 +3385,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","blockedMessage","blockedOffersDoctor","blockedWarns","checkAnswerText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldLiveSurface","iconState","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","blockedMessage","blockedOffersDoctor","blockedWarns","checkAnswerText","discoverMessage","discoverSerious","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldLiveSurface","iconState","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

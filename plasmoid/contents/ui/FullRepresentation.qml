@@ -953,20 +953,30 @@ PlasmaExtras.Representation {
             ]
         }
 
-        // Discover set to install updates by itself. Drawn once per setting (main.qml), and its one
-        // button is the notifier's off: with the notifier stopped nothing reads that setting.
+        // Discover, in one of two sentences. Its button is the notifier's off: with the notifier
+        // stopped nothing reads Discover's setting. Closing the mild form answers it for good, and
+        // the serious one, drawn once per setting (main.qml), for this open.
         Kirigami.InlineMessage {
-            id: discoverUnattendedMessage
-            Component.onCompleted: popup.plainTextMessage(discoverUnattendedMessage)
+            id: discoverMessage
+            Component.onCompleted: popup.plainTextMessage(discoverMessage)
             Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: i18n("Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.")
+            type: popup.vm.discoverSerious ? Kirigami.MessageType.Warning : Kirigami.MessageType.Information
+            showCloseButton: true
+            text: popup.vm.discoverMessage
             Accessible.name: text
-            visible: popup.shows("discoverUnattended")
+            visible: popup.shows("discover")
+            onVisibleChanged: {
+                if (visible) return;
+                if (!popup.closedByButton(discoverMessage, "discover")) return;
+                popup.plasmoidItem.closeDiscover();
+                popup.rescueFocus();
+                visible = Qt.binding(function () { return popup.shows("discover"); });
+            }
             actions: [
                 Kirigami.Action {
-                    text: i18n("Turn Off")
+                    text: i18n("Turn Off Discover's Update Checks")
                     icon.name: "notifications-disabled"
+                    tooltip: i18n("Turning off Discover's update checks should stop that.")
                     enabled: !popup.plasmoidItem.actionPending
                     onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
                 }
@@ -1038,30 +1048,6 @@ PlasmaExtras.Representation {
             ]
         }
 
-        // The Discover offer, while something it can cancel is staged. Same answers, same marker.
-        Kirigami.InlineMessage {
-            id: stageDiscoverWarningMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: i18n("Discover's update check can cancel your staged updates before you restart. Turning off its notifier should stop that.")
-            Accessible.name: text
-            visible: popup.shows("stageDiscoverWarning")
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Turn Off Discover's Notifier")
-                    icon.name: "notifications-disabled"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
-                },
-                Kirigami.Action {
-                    text: i18n("Keep Discover's Notifier")
-                    icon.name: "dialog-ok"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("keep"); popup.rescueFocus(); }
-                }
-            ]
-        }
-
         // Why Kempt cannot go ahead on this box: logic.js picks the cause and words it. No button of
         // its own on an image-based box, where Discover is the answer and an update widget launching
         // another updater is not a button anybody asked for.
@@ -1079,31 +1065,6 @@ PlasmaExtras.Representation {
                     visible: popup.vm.blockedOffersDoctor
                     enabled: visible
                     onTriggered: source => popup.plasmoidItem.runDoctor()
-                }
-            ]
-        }
-
-        // The one-time offer to turn off Discover's own update notifier, which counts updates on
-        // its own schedule. Either answer ends it. Settings can turn the notifier back on.
-        Kirigami.InlineMessage {
-            id: discoverOfferMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: i18n("Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.")
-            Accessible.name: text
-            visible: popup.shows("discoverOffer")
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Turn Off Discover's Notifier")
-                    icon.name: "notifications-disabled"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
-                },
-                Kirigami.Action {
-                    text: i18n("Keep Discover's Notifier")
-                    icon.name: "dialog-ok"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("keep"); popup.rescueFocus(); }
                 }
             ]
         }

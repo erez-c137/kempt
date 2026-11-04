@@ -140,13 +140,13 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    yet."*, ends *"Install on the next restart, or now?"* and adds **Install Now**. **Install on Next
    Restart** gets the keyboard focus. While a Fedora
    release upgrade is stored, it does not ask, and **Update Now** updates live.
-9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
-   from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
-   starts with your session.
-   **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
-   nothing. Either answer hides the message for good. An image-based Fedora, which is told to use
-   Discover, does not get this message or the warning below. The **Discover** row in settings turns the
-   notifier back on.
+9. **"Discover also checks for updates, and that can cancel updates waiting for your next
+   restart."** It shows while Discover's notifier starts with your session.
+   **Turn Off Discover's Update Checks** turns it off for you. Closing the message changes nothing.
+   Either answer hides the message for good. When Discover is set to install updates by itself, the
+   same message says so as a warning, one time, right under what is waiting for the restart. An
+   image-based Fedora, which is told to use Discover, gets neither. The **Discover** row in settings
+   turns the checks back on.
 10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
     is at least 1 GB to free. **Show Runtimes** lists the
     runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
@@ -375,8 +375,8 @@ root can read the polkit rules. What the first one allows is in
 [security.md](security.md#passwordless-mode).
 
 **Discover** shows only when Discover's update notifier is installed. It says whether the notifier
-is on, with **Turn Off Discover's Notifier**, or turned off by Kempt, with
-**Turn On Discover's Notifier**, which acts at once, without **Apply**. When a startup file of your
+is on, with **Turn Off Discover's Update Checks**, or turned off by Kempt, with
+**Turn On Discover's Update Checks**, which acts at once, without **Apply**. When a startup file of your
 own keeps it off, the row names that file, says to delete it, and has no button.
 
 **Services** (`notify_startup`, on by default) shows the message about services that did not start
@@ -397,13 +397,12 @@ Each button runs a command described in [usage.md](usage.md).
 | **Install Now** | `kempt run --risky-ok` |
 | **Install on Next Restart** | `kempt run --surface=offline` |
 | **Discard Staged Update** | `kempt unstage` |
-| **Turn Off Discover's Notifier**, on the warning beside a staged update | `kempt discover-notifier off` |
-| **Turn Off**, on the warning about Discover's automatic updates | `kempt discover-notifier off`. Drawing that warning runs `kempt discover-notifier seen` |
+| Drawing the warning about Discover's automatic updates | `kempt discover-notifier seen` |
 | **Update Now**, while another updater holds the next restart | `kempt run --surface=<a live surface>`, after its own question when system updates are waiting |
 | The padlock | `kempt hold` or `kempt unhold` |
 | **Check Installation** | `kempt doctor` |
 | **Free Up Space** | `kempt reclaim -y --expect=<digest>` |
-| **Turn Off Discover's Notifier**, **Turn On Discover's Notifier**, **Keep Discover's Notifier** | `kempt discover-notifier off`, `on`, `keep` |
+| **Turn Off Discover's Update Checks**, **Turn On Discover's Update Checks**, closing the mild message | `kempt discover-notifier off`, `on`, `keep` |
 | **Allow without password…**, **Require a password…** | `kempt enable-passwordless`, `kempt disable-passwordless` |
 | **Copy Command** for a service | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |

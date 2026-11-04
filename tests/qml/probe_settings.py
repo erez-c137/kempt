@@ -881,8 +881,8 @@ p.check("the page asks the CLI for the notifier's state",
 p.check("on, it says Discover counts on its own and offers to turn it off",
         [ev13("discoverStatus.visible"), ev13("discoverStatus.text"),
          ev13("discoverButton.visible"), ev13("discoverButton.text")],
-        [True, "Discover also shows update notifications, with its own count.",
-         True, "Turn Off Discover's Notifier"])
+        [True, "Discover also checks for updates, with its own count.",
+         True, "Turn Off Discover's Update Checks"])
 
 open(DNSLOW, "w").close()
 p.clear_calls()
@@ -901,7 +901,7 @@ p.check("...then asks again",
         ["discover-notifier off", "discover-notifier status --json"])
 p.check("...and turned off by Kempt, the row offers to turn it back on",
         [ev13("discoverStatus.text"), ev13("discoverButton.text")],
-        ["Discover's notifier is off.", "Turn On Discover's Notifier"])
+        ["Discover's update checks are off.", "Turn On Discover's Update Checks"])
 p.check("...which is an action, not an unsaved change", ev13("page.unsavedChanges"), False)
 
 open(DNFAIL, "w").write("A startup file keeps Discover's notifier off: /x. Delete it, then run kempt discover-notifier on.\n")
@@ -917,8 +917,8 @@ p.check("...a refusal shows the CLI's reason",
         "A startup file keeps Discover's notifier off: /x. Delete it, then run kempt discover-notifier on.")
 p.check("...and off by the person's own entry, the row says so with no button",
         [ev13("discoverStatus.text"), ev13("discoverButton.visible")],
-        ["Discover's notifier is turned off by a startup file: /h/.config/autostart/x.desktop."
-         " Delete that file to turn it back on.", False])
+        ["Discover's update checks are turned off by a startup file: /h/.config/autostart/x.desktop."
+         " Delete that file to turn them back on.", False])
 open(DNFAIL, "w").write("")
 open(DNSTATUS, "w").write("")
 

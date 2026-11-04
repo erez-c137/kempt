@@ -150,22 +150,20 @@ var COPY = {
     settingTimedOut: "Kempt did not answer in time. The setting may not have changed. Try again.",
     holdTimedOut: "Kempt did not answer in time. The hold may not have changed. Try again.",
 
-    // The one offer to turn off Discover's own update notifier, while it starts with the session.
-    // Turning it back on is in Settings, under the same name.
-    discoverOffer: "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.",
-    stageDiscoverWarning:
-        "Discover's update check can cancel your staged updates before you restart. Turning off its notifier should stop that.",
-    // Discover is set to install updates by itself, which puts its update ahead of Kempt's at the
-    // next restart. Not the offer above: that one is about a count.
+    // One message on Discover, in two sentences on one flag the CLI publishes. Serious: Discover is
+    // set to install updates by itself, which puts its update ahead of Kempt's at the next restart.
+    // Mild: its notifier starts with the session. Turning it back on is in Settings.
+    discoverMild: "Discover also checks for updates, and that can cancel updates waiting for your next restart.",
     discoverUnattended:
         "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.",
-    discoverOfferOff: "Turn Off Discover's Notifier",
-    discoverOfferKeep: "Keep Discover's Notifier",
-    discoverOn: "Turn On Discover's Notifier",
-    discoverStatusOn: "Discover also shows update notifications, with its own count.",
-    discoverStatusOff: "Discover's notifier is off.",
-    discoverStatusOwn: "Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on.",
-    discoverStatusOwnNoPath: "Discover's notifier is turned off by a startup file. Delete that file to turn it back on.",
+    discoverOff: "Turn Off Discover's Update Checks",
+    // "should": nobody has confirmed it always stops an install.
+    discoverOffTip: "Turning off Discover's update checks should stop that.",
+    discoverOn: "Turn On Discover's Update Checks",
+    discoverStatusOn: "Discover also checks for updates, with its own count.",
+    discoverStatusOff: "Discover's update checks are off.",
+    discoverStatusOwn: "Discover's update checks are turned off by a startup file: %1. Delete that file to turn them back on.",
+    discoverStatusOwnNoPath: "Discover's update checks are turned off by a startup file. Delete that file to turn them back on.",
 
     // Three spellings, because two things vary: whether a kernel is in the set, and whether the
     // NVIDIA driver is with it. Each is the reason for the question Update Now asks, whose buttons
@@ -1129,20 +1127,17 @@ var MESSAGE_CAP = 2;
 // button is missing - a person looking for that button needs this message, not the one it displaced.
 // `question` comes first because it answers the Update Now press just made, and nothing runs until
 // it is answered. Either a session-critical set or another updater's restart asks it, never both.
-// `discoverUnattended` sits right after `staged`: it says who may take the restart that message
-// is counting on. It draws once, so a restart or a failure it displaces is back on the next open.
-// `stageDiscoverWarning` sits under the failure and the restart: a person warned to restart soon
-// needs the restart banner's button, and a failure is worse news than something that may happen.
-// `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
-// only one of the two is ever on screen.
+// `discover`, in its serious form, moves up to right after `staged`: it says who may take the
+// restart that message is counting on. It draws once, so what it displaces is back on the next open.
+// In its mild form it stays last but one: it is about something that may happen.
 // `startup` (a service that stopped starting after an update) sits above the restart: a live run
 // that broke a service and owes a restart shows its report and the failure, and the footer says
 // `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
-var MESSAGE_ORDER = ["question", "report", "blocked", "staged", "discoverUnattended", "startup",
-                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed",
-                     "discoverOffer", "reclaim"];
+var MESSAGE_ORDER = ["question", "report", "blocked", "staged", "startup",
+                     "restart", "startupRecovered", "fetchMissed",
+                     "discover", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1156,9 +1151,13 @@ var MESSAGE_ORDER = ["question", "report", "blocked", "staged", "discoverUnatten
 function messageStack(wants) {
     var w = (wants && typeof wants === "object") ? wants : {};
     if (w.engineFault) return w.doctor ? ["engineFault", "doctor"] : ["engineFault"];
-    var out = [], i;
-    for (i = 0; i < MESSAGE_ORDER.length && out.length < MESSAGE_CAP; i++) {
-        if (w[MESSAGE_ORDER[i]]) out.push(MESSAGE_ORDER[i]);
+    var out = [], i, order = MESSAGE_ORDER;
+    if (w.discover === "serious") {
+        order = MESSAGE_ORDER.filter(function (key) { return key !== "discover"; });
+        order.splice(order.indexOf("staged") + 1, 0, "discover");
+    }
+    for (i = 0; i < order.length && out.length < MESSAGE_CAP; i++) {
+        if (w[order[i]]) out.push(order[i]);
     }
     if (w.doctor) {
         var at = out.indexOf("report");
@@ -2770,7 +2769,7 @@ function viewModel(state, updating, cliError, opts) {
         && backendActionable(state, "dnf") > 0;
     var heldChoice = opts.heldChoiceOpen === true && updateAsksHeld && !updating;
 
-    // The one offer to turn off Discover's notifier. The CLI publishes discover_offer while the
+    // The mild Discover message. The CLI publishes discover_offer while the
     // notifier starts with the session and nobody has answered. It waits for the widget to read
     // the CLI's answered marker, which a state.json from before the answer does not reflect.
     var discoverOffer = usable && !imageBased && state.discover_offer === true && !updating
@@ -2778,9 +2777,10 @@ function viewModel(state, updating, cliError, opts) {
     // Discover's setting, over the offer: it says the larger thing. Kept up once drawn, for as long
     // as this popup stays open (main.qml), since drawing it is what clears the CLI's flag.
     var discoverUnattended = usable && !imageBased && state.discover_unattended === true && !updating
-        && opts.discoverTurnedOff !== true
+        && opts.discoverWarningGone !== true
         && (state.discover_unattended_warn === true || opts.discoverWarningKept === true);
-    if (discoverUnattended) discoverOffer = false;
+    // ...and closing the serious form does not bring up the mild one under it in the same open.
+    if (discoverUnattended || opts.discoverWarningGone === true) discoverOffer = false;
 
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`
     // means "nothing to say", NEVER "no restart needed": backends/dnf.sh's dnf_reboot_needed
@@ -3005,10 +3005,8 @@ function viewModel(state, updating, cliError, opts) {
         // set either (riskyIsMoot above): with no button on offer, the set has nowhere to go.
         blocked: blockedMessage !== "",
         question: riskyChoice || heldChoice,
-        discoverUnattended: discoverUnattended,
+        discover: discoverUnattended ? "serious" : (discoverOffer ? "mild" : false),
         // The same offer with the reason that matters while something is staged, and higher up.
-        discoverOffer: discoverOffer && !staged,
-        stageDiscoverWarning: discoverOffer && staged && !stageBlocked,
         reclaim: reclaimShown && !updating,
         startup: startupWanted,
         startupRecovered: startupRecoveredWanted
@@ -3170,6 +3168,8 @@ function viewModel(state, updating, cliError, opts) {
         // Install on Next Restart in the widget's menus, for the box whose footer says Update Now.
         stageMenuOffered: !updating && !staged && !stageBlocked && !noOfflineRoute
             && !updateButton.stages && usable && backendActionable(state, "dnf") > 0,
+        discoverMessage: discoverUnattended ? COPY.discoverUnattended : (discoverOffer ? COPY.discoverMild : ""),
+        discoverSerious: discoverUnattended,
         blockedMessage: blockedMessage,
         // A warning for the one cause that needs fixing, and the button for every cause Kempt can
         // explain: doctor names the folder, and the upgrade's commands for the state it is in.
