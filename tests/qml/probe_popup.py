@@ -812,6 +812,29 @@ p.check("...and triggering it runs the same check the Refresh button does",
         p.call_count("check") - before_check, 1)
 p.check("...one that fetches fresh metadata first", p.calls_matching("check")[-1], "check --refresh")
 
+# Install on Next Restart from the same menus, on a box whose footer says Update Now.
+def menu_state(name):
+    open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, name))
+    ev("root.doCheck()")
+    settle()
+
+menu_source = open(CHECKSRC).read()
+menu_state("state-live.json")
+p.check("the menu offers Install on Next Restart with updates pending",
+        [ev("stageAction.visible"), ev("stageAction.enabled"), ev("stageAction.text")],
+        [True, True, ev("Logic.COPY.installOnNextRestart")])
+before_stage = len(p.calls_matching("run --surface=offline"))
+ev("stageAction.trigger()")
+settle()
+p.check("...and the press is the existing stage",
+        len(p.calls_matching("run --surface=offline")) - before_stage, 1)
+ev("root.updating = false")
+menu_state("state-held-only.json")
+p.check("...and it goes with nothing pending", ev("stageAction.visible"), False)
+open(CHECKSRC, "w").write(menu_source)
+ev("root.doCheck()")
+settle()
+
 # --- the pins that keep the drivable seams honest ---------------------------------------------------
 # Everything above drives popupOpened()/popupClosed() directly, because writing `expanded` from a
 # probe segfaults the process (see this file's header). These are what tie those functions back to
@@ -898,8 +921,8 @@ p.check("...the status heading included, which is the pending count and not a se
 # `visibleActions`). With Check for Updates alone the heading drew a refresh icon and ours was
 # hidden under it. Startup Page is the second action, so the heading now draws the menu, no
 # refresh icon, and ours is the only one-click Check for Updates in the tray as everywhere else.
-p.check("two actions are registered, so a tray heading draws them as a menu",
-        "Plasmoid.contextualActions = [checkAction, startupAction];"
+p.check("at least two actions are registered, so a tray heading draws them as a menu",
+        "Plasmoid.contextualActions = [checkAction, startupAction, stageAction];"
         in " ".join(open(os.path.join(harness.UI, "main.qml")).read().split()), True)
 p.check("...and the refresh button stays in a tray heading",
         lev("refreshButton.visible"), True)
@@ -1141,7 +1164,7 @@ p.check("...the banner tells it in the person's own order of events, with both w
         "the cost of the one on the button",
         lev("stagedMessage.text"),
         "You held kernel-core after the update was staged, so it still"
-        " installs. Discard the staged update and stage again to skip kernel-core, or stop holding kernel-core to keep the"
+        " installs. To skip kernel-core, discard the staged update and use Install on Next Restart again, or stop holding kernel-core to keep the"
         " current plan. Discarding deletes the downloaded packages, so staging again downloads them again.")
 p.check("...as a Warning, because the reassurance is no longer true",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
@@ -1232,7 +1255,7 @@ state(CONFLICT3)
 p.check("three held packages read as the first one and a count, every word moved with it",
         lev("stagedMessage.text"),
         "You held kernel-core and 2 more after the update was staged, so they"
-        " still install. Discard the staged update and stage again to skip them, or stop holding them to keep the current"
+        " still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current"
         " plan. Discarding deletes the downloaded packages, so staging again downloads them again.")
 p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
@@ -1241,7 +1264,7 @@ stack("with a staged list that could not be read and dnf packages held", "staged
 p.check("...the banner says may, because that is what is known",
         lev("stagedMessage.text"),
         "You added holds after the update was staged, so it may still install"
-        " held packages. Discard the staged update and stage again to apply your holds. Discarding deletes"
+        " held packages. To apply your holds, discard the staged update and use Install on Next Restart again. Discarding deletes"
         " the downloaded packages, so staging again downloads them again.")
 p.check("...as a warning all the same", lev("stagedMessage.type"),
         lev("Kirigami.MessageType.Warning"))

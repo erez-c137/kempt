@@ -89,6 +89,10 @@ closed. It is also in the right-click and **More actions** menus.
 The **gear** opens **Configure Kempt…**, the same as the right-click menu. Inside the system tray,
 the tray's own heading has a gear and a **More actions** menu, so the widget hides its gear.
 
+**Install on Next Restart** is in the right-click and **More actions** menus too, when system
+updates are waiting, nothing is staged and the main button says **Update Now**. Another updater's
+restart, a stored Fedora upgrade or an image-based system removes it.
+
 ### Messages
 
 Messages appear only when they apply. **At most two show at once**, and the ones lower in this
@@ -180,9 +184,10 @@ because there is no way to edit a stored update and the restart would still inst
 
 ```
  (!) You held kernel-core after the update was staged, so it still installs.
-     Discard the staged update and stage again to skip kernel-core, or stop
-     holding kernel-core to keep the current plan. Discarding deletes the
-     downloaded packages, so staging again downloads them again.
+     To skip kernel-core, discard the staged update and use Install on Next
+     Restart again, or stop holding kernel-core to keep the current plan.
+     Discarding deletes the downloaded packages, so staging again downloads
+     them again.
                                                     [Discard Staged Update]
 ```
 
@@ -190,8 +195,8 @@ With several held packages it names the first and counts the rest:
 
 ```
  (!) You held kernel-core and 2 more after the update was staged, so they
-     still install. Discard the staged update and stage again to skip them,
-     or stop holding them to keep the current plan.
+     still install. To skip them, discard the staged update and use Install
+     on Next Restart again, or stop holding them to keep the current plan.
 ```
 
 When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
@@ -199,9 +204,9 @@ When Kempt cannot read what the staged update contains and you hold dnf packages
 
 ```
  (!) You added holds after the update was staged, so it may still install
-     held packages. Discard the staged update and stage again to apply your
-     holds. Discarding deletes the downloaded packages, so staging again
-     downloads them again.                          [Discard Staged Update]
+     held packages. To apply your holds, discard the staged update and use
+     Install on Next Restart again. Discarding deletes the downloaded
+     packages, so staging again downloads them again.                          [Discard Staged Update]
 ```
 
 While the warning shows, neither it nor the restart message has **Restart…**, because a restart

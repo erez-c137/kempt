@@ -1557,6 +1557,18 @@ PlasmoidItem {
         onTriggered: root.showStartupPage()
     }
 
+    // Install on Next Restart from the same menus, where the footer button says Update Now. The
+    // press is the same as the kernel message's. The literal is repeated from
+    // Logic.COPY.installOnNextRestart, as checkAction's is.
+    PlasmaCore.Action {
+        id: stageAction
+        text: i18n("Install on Next Restart")
+        icon.name: "system-software-update"
+        visible: root.vm.stageMenuOffered
+        enabled: visible && !root.actionPending && !root.runRequested
+        onTriggered: root.stageOffline()
+    }
+
     // A request rather than a call, because the popup item is built lazily on the open this asks
     // for and may not exist yet. The popup takes it (sets it back to false) when it opens the page,
     // whether it was already there or is built by this open. Only a closed widget is opened:
@@ -1581,7 +1593,7 @@ PlasmoidItem {
 
     function claimContextualActions() {
         try {
-            Plasmoid.contextualActions = [checkAction, startupAction];
+            Plasmoid.contextualActions = [checkAction, startupAction, stageAction];
             root.contextualActionsClaimed = true;
         } catch (e) {
             console.warn("kempt: could not register the contextual actions:", e);

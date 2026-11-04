@@ -95,6 +95,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the setting off and on again warns again. `kempt discover-notifier on` says automatic updates resume
   if the setting is still on, and `kempt discover-notifier status` shows the setting. An image-based
   Fedora gets neither this warning nor the offer to turn off the notifier.
+- **Install on Next Restart in the widget's right-click and More actions menus.** It shows when
+  system updates are waiting, nothing is staged and the main button says Update Now, so a lost or
+  discarded stage always has a way back here.
 - **The package recommends `rpm-plugin-systemd-inhibit`,** which holds off a shutdown while packages
   are changing.
 

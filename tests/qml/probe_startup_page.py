@@ -151,7 +151,7 @@ p.check("the widget's menu offers Startup Report, with the icon the button had",
         [ev("startupAction.text"), ev("startupAction.icon.name")], ["Startup Report", "system-run"])
 p.check("...registered with Check for Updates", ev("root.contextualActionsClaimed"), True)
 _MAIN = " ".join(open(os.path.join(harness.UI, "main.qml")).read().split())
-p.check("...beside it, in that order", "Plasmoid.contextualActions = [checkAction, startupAction];" in _MAIN, True)
+p.check("...beside it, in that order", "Plasmoid.contextualActions = [checkAction, startupAction, stageAction];" in _MAIN, True)
 # Writing `expanded` outside plasmashell segfaults the probe, so the closed case is pinned here and
 # the request it leaves is driven at the end of this file.
 p.check("...and a closed widget opens first, through the property only main.qml writes",

@@ -2713,9 +2713,23 @@ assert_eq "$(held "$PEND$RISK" '{surface:"popup",configuredSurface:"popup"}' ris
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' 'riskyMessage.indexOf("restart")')" "-1" "...which advises nothing"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' 'messageSlots.indexOf("kernel") >= 0')" "true" "...and is never silent"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' offlineStageOffered)" "false" "...with no staging button"
+assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' stageMenuOffered)" "false" "...and none in the menus"
 assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' updateAsksFirst)" "false" "...and no question offering one"
 assert_eq "$(free "$PEND$RISK" '{surface:"popup"}' updateAsksFirst)" "true" "...which is there when nobody holds it"
 assert_contains "$(held "$PEND$RISK" '{surface:"popup"}' heldChoiceMessage)" "1 pending update touches a package your running session depends on (the Linux kernel)." "the question names the risk too"
+
+# Install on Next Restart in the menus: where staging is possible and the footer does not offer it.
+assert_eq "$(free "$PEND" '{surface:"popup",configuredSurface:"popup"}' stageMenuOffered)" "true" "the menus offer staging when the footer says Update Now"
+assert_eq "$(free "$PEND" '{surface:"terminal",configuredSurface:"terminal"}' stageMenuOffered)" "true" "...on the terminal surface too"
+assert_eq "$(free "$PEND" '{surface:"offline",configuredSurface:"offline"}' stageMenuOffered)" "false" "...not when the footer already is Install on Next Restart"
+assert_eq "$(free 'backends:{flatpak:{actionable:2,status:"ok"}},actionable:2' '{surface:"popup"}' stageMenuOffered)" "false" "...not for Flatpak alone, which never stages"
+assert_eq "$(free 'backends:{dnf:{actionable:0,status:"ok"}},actionable:0' '{surface:"popup"}' stageMenuOffered)" "false" "...not with nothing pending"
+assert_eq "$(free "$PEND,offline_staged:{staged_at:\"2026-08-26T12:00:00+03:00\",count:3,armed:true}" '{surface:"popup"}' stageMenuOffered)" "false" "...not over a stage"
+assert_eq "$(free "$PEND,offline_stage_blocked:{staged_at:\"2026-08-26T12:00:00+03:00\",count:3}" '{surface:"popup"}' stageMenuOffered)" "false" "...not while another updater stands in front of a stage"
+assert_eq "$(free "$PEND,release_upgrade:{state:\"armed\",from:\"44\",to:\"45\"}" '{surface:"popup"}' stageMenuOffered)" "false" "...not over a stored release upgrade"
+assert_eq "$(free "$PEND,image_based:true" '{surface:"popup"}' stageMenuOffered)" "false" "...not on an image-based box"
+assert_eq "$(held "$PEND" '{surface:"popup"}' stageMenuOffered)" "false" "...not while another updater holds the restart"
+assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",last_success:\"2026-08-26T12:00:00+03:00\",$PEND},true,\"\",{surface:\"popup\"}).stageMenuOffered")" "false" "...not during a run"
 
 # A stage already made, then held.
 assert_eq "$(held "$PEND$BLK" "$OFFL" stagedBanner)" "$(js 'L.COPY.stageBlocked')" "a blocked stage keeps its own banner"
@@ -2820,7 +2834,7 @@ assert_eq "$(sv "$ARMED" "$NOBK" 'stagedStagedAt')" "2026-09-02T10:31:00+03:00" 
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedType')" "warning" \
   "a hold on a package the staged update contains flips the banner to a warning"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core after the update was staged, so it still installs. Discard the staged update and stage again to skip kernel-core, or stop holding kernel-core to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
+  "You held kernel-core after the update was staged, so it still installs. To skip kernel-core, discard the staged update and use Install on Next Restart again, or stop holding kernel-core to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...naming the package, what the next restart will do with it, both remedies and the cost"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
   "...and the Restart… button goes away: offering it here is offering the thing they feared"
@@ -2829,13 +2843,13 @@ assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
 # kernel-modules into one decision, which is right for "what is risky about this transaction" and
 # wrong here, where the person is owed the count of packages their holds did not stop.
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core and 2 more after the update was staged, so they still install. Discard the staged update and stage again to skip them, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
+  "You held kernel-core and 2 more after the update was staged, so they still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "three held packages read as the first one and a count, with every word moved to the plural"
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedType')" "warning" "...still a warning"
 # Two is the boundary the singular must not catch: one other package is "and 1 more", not a second
 # whole sentence, and it is still the plural everywhere else.
 assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","systemd"],names_source:"transaction"}' "$NOBK" 'stagedMessage')" \
-  "You held glibc and 1 more after the update was staged, so they still install. Discard the staged update and stage again to skip them, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
+  "You held glibc and 1 more after the update was staged, so they still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...and two is the plural with a 1 in it, not the singular"
 
 # names_source "none" means the staged package list could not be read AT ALL - an older stage, or a
@@ -2845,7 +2859,7 @@ assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","syst
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedType')" "warning" \
   "an unreadable staged list over a held dnf package warns rather than reassuring"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedMessage')" \
-  "You added holds after the update was staged, so it may still install held packages. Discard the staged update and stage again to apply your holds. Discarding deletes the downloaded packages, so staging again downloads them again." \
+  "You added holds after the update was staged, so it may still install held packages. To apply your holds, discard the staged update and use Install on Next Restart again. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...saying may, because that is what is known"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedShowRestart')" "false" "...with no restart offered"
 
@@ -3021,13 +3035,13 @@ CONF1='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict
 CONF3='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:["dbus","glibc","systemd"],names_source:"transaction"}'
 CONFU='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:[],names_source:"none"}'
 assert_eq "$(js "L.stagedVariantOf($CONF1,true).message")" \
-  "You held dbus after the update was staged, so it still installs. Discard the staged update and stage again to skip dbus, or stop holding dbus to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
+  "You held dbus after the update was staged, so it still installs. To skip dbus, discard the staged update and use Install on Next Restart again, or stop holding dbus to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "one held package: the user's order of events, both remedies, and the cost as a second sentence"
 assert_eq "$(js "L.stagedVariantOf($CONF3,true).message")" \
-  "You held dbus and 2 more after the update was staged, so they still install. Discard the staged update and stage again to skip them, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
+  "You held dbus and 2 more after the update was staged, so they still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...three of them: the first named, the rest counted, and every word moving with the number"
 assert_eq "$(js "L.stagedVariantOf($CONFU,true).message")" \
-  "You added holds after the update was staged, so it may still install held packages. Discard the staged update and stage again to apply your holds. Discarding deletes the downloaded packages, so staging again downloads them again." \
+  "You added holds after the update was staged, so it may still install held packages. To apply your holds, discard the staged update and use Install on Next Restart again. Discarding deletes the downloaded packages, so staging again downloads them again." \
   "...and a list that could not be read says may, and still carries the cost"
 # %1 appears three times in the singular template, so a replace() that stops at the first one would
 # ship a banner reading "Rebuild it to skip %1".
@@ -3329,13 +3343,13 @@ assert_eq "$(js 'L.COPY.stagedHeaderUnknown')" "Updates staged for the next rest
 # and left "Staged" with no antecedent once the green banner was gone, and the second way out -
 # stop holding the package and the plan stands - was offered nowhere at all.
 assert_eq "$(js 'L.COPY.stagedConflictOne')" \
-  "You held %1 after the update was staged, so it still installs. Discard the staged update and stage again to skip %1, or stop holding %1 to keep the current plan." \
+  "You held %1 after the update was staged, so it still installs. To skip %1, discard the staged update and use Install on Next Restart again, or stop holding %1 to keep the current plan." \
   "copy: the staged banner when one held package is in the transaction anyway"
 assert_eq "$(js 'L.COPY.stagedConflictMore')" \
-  "You held %1 and %2 more after the update was staged, so they still install. Discard the staged update and stage again to skip them, or stop holding them to keep the current plan." \
+  "You held %1 and %2 more after the update was staged, so they still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan." \
   "copy: ...and when there are more of them, named first and counted after"
 assert_eq "$(js 'L.COPY.stagedConflictUnknown')" \
-  "You added holds after the update was staged, so it may still install held packages. Discard the staged update and stage again to apply your holds." \
+  "You added holds after the update was staged, so it may still install held packages. To apply your holds, discard the staged update and use Install on Next Restart again." \
   "copy: ...and when the staged list could not be read, which is a may and not a does"
 # The cost, as the banner's SECOND SENTENCE rather than as a tooltip nobody has hovered. It is the
 # one fact that decides whether pressing the button is a good idea.
@@ -3451,7 +3465,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldLiveSurface","iconState","imageBasedMessage","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldLiveSurface","iconState","imageBasedMessage","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

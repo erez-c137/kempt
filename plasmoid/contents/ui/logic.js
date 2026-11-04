@@ -344,16 +344,16 @@ var COPY = {
     // after the mechanism it has no antecedent once the green banner is gone.
     stagedConflictOne:
         "You held %1 after the update was staged, so it still installs. "
-        + "Discard the staged update and stage again to skip %1, or stop holding %1 to keep the current plan.",
+        + "To skip %1, discard the staged update and use Install on Next Restart again, or stop holding %1 to keep the current plan.",
     stagedConflictMore:
         "You held %1 and %2 more after the update was staged, so they still install. "
-        + "Discard the staged update and stage again to skip them, or stop holding them to keep the current plan.",
+        + "To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan.",
     // "may", because that is exactly what is known: names_source "none" means an empty conflict
     // list is "cannot tell", never "no conflict". The spec's rule is that names may CONFIRM a
     // conflict and may never DENY one, so silence here would be denying one on no evidence.
     stagedConflictUnknown:
         "You added holds after the update was staged, so it may still install held packages. "
-        + "Discard the staged update and stage again to apply your holds.",
+        + "To apply your holds, discard the staged update and use Install on Next Restart again.",
     // The cost, as the banner's SECOND SENTENCE rather than only in the action's tooltip, which
     // discloses it only to somebody who has already hovered the button they are deciding about.
     stagedDiscardCost: "Discarding deletes the downloaded packages, so staging again downloads them again.",
@@ -3269,6 +3269,10 @@ function viewModel(state, updating, cliError, opts) {
         // Both refusals land here: on an image-based system `kempt update` aborts in pre-flight
         // whatever surface it was asked for, so staging is no more available than updating.
         offlineStageOffered: !noOfflineRoute,
+        // Install on Next Restart in the widget's menus, for the box whose footer says Update Now and
+        // whose kernel message is not up: after a lost stage, or a discard with the kernel held.
+        stageMenuOffered: !updating && !staged && !stageBlocked && !noOfflineRoute
+            && !updateButton.stages && usable && backendActionable(state, "dnf") > 0,
         releaseUpgradeMessage: releaseUpgradeMessage,
         // ...and the same for Update Now, which is the primary button. HIDDEN rather than
         // disabled, exactly as it is for a box with nothing pending: there is no action to offer
