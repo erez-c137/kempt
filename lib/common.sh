@@ -4406,7 +4406,7 @@ staged_summary_line() {  # [state file, the published one by default] → one li
 # notification body: one truth, rendered once) ---
 render_summary() {  # history-json-file → human text
   # The reclaim setting now, for the end-of-life hint: with reclaim=off, kempt reclaim refuses.
-  jq -r --arg reclaim "$(reclaim_mode 2>/dev/null || echo ask)" "$KEMPT_JQ_COUNTS"'
+  jq -r "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     # NOT always an arrow. A Flatpak runtime can update without its version string moving - most
     # runtimes carry a date, or nothing, as their version, and the commit is what differs - so
@@ -4492,30 +4492,6 @@ render_summary() {  # history-json-file → human text
        else empty end),
     heldline,
     shortfall,
-    # Flatpak end-of-life notes, one per ref, saying which app is behind the notice and whether
-    # anything needs doing. `// []` keeps entries written before the field existed rendering.
-    # An unused one points at `kempt reclaim`, which shows what goes and asks, rather than at the
-    # flatpak command that removes every unused runtime without a list. With reclaim=off that
-    # command refuses, so the flatpak one is the hint again.
-    # NO APOSTROPHES IN HERE either (see above).
-    def names(a): if (a|length) == 1 then a[0]
-                  else (a[0:-1] | join(", ")) + " and " + a[-1] end;
-    def eolline: if .kind == "app" then
-                   "Note: " + .apps[0] + " has reached end-of-life and gets no more updates"
-                   + (if .reason != "" then " (" + .reason + ")" else "" end) + "."
-                 elif (.apps|length) == 0 then
-                   "Note: " + .id + (if .branch != "" then " " + .branch else "" end)
-                   + " has reached end-of-life and no installed app uses it. "
-                   + (if $reclaim == "off" then "To remove it once nothing needs it: flatpak uninstall --unused"
-                      else "To remove it: kempt reclaim" end)
-                 else
-                   "Note: " + names(.apps) + (if (.apps|length) == 1 then " uses " else " use " end)
-                   + .id + (if .branch != "" then " " + .branch else "" end)
-                   + ", which has reached end-of-life and gets no more updates. Nothing to do now:"
-                   + (if (.apps|length) == 1 then " when its developer moves it to a supported runtime, a normal update installs that."
-                      else " when their developers move them to a supported runtime, a normal update installs that." end)
-                 end;
-    ((.backends.flatpak.eol? // [])[] | eolline),
     # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means
     # the check could not work the answer out, which it reports the same way, and the state
     # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not

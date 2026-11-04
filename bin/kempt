@@ -1196,21 +1196,16 @@ recommend_offline_if_risky() {
 # never fatal: crashing loses the history entry and notification for a system that already changed.
 # The system installation first, then the per-user one when there is one. Each is updated on its
 # own, so a failure in one never stops the other, and each failure gets its own log line.
-# Reads: include_fp, yflag, log. Writes: fp_status, fp_scopes, fp_eol, and status (which only
+# Reads: include_fp, yflag, log. Writes: fp_status, fp_scopes, and status (which only
 # ever moves to "failed").
 apply_flatpak_updates() {
   # NOT `local`: this is the caller's variable (see the header). A `local` would shadow it, leave
   # cmd_update's copy unset, and take the run down on the history entry under `set -u`.
   fp_status="skipped"
   fp_scopes='null'
-  fp_eol='[]'
   if is_true "$include_fp"; then
     fp_status="ok"
     run_heading "$log" "Apps (flatpak)"
-    # Where flatpak's output starts in the log, so the end-of-life scan below reads flatpak's lines
-    # and nothing dnf printed.
-    local fp_from=0
-    [[ -f "$log" ]] && fp_from="$(stat -c %s "$log" 2>/dev/null || echo 0)"
     local held_fp scope scope_status scope_list outcomes=""
     held_fp="$(holds_for flatpak)"
     scope_list="$(flatpak_scopes)"
@@ -1239,13 +1234,6 @@ apply_flatpak_updates() {
       fp_scopes="$(jq -cSRn '[inputs | select(length > 0) | split(" ") | {(.[0]): .[1]}] | add' \
                    <<<"$outcomes" 2>/dev/null)" || fp_scopes='null'
       [[ -n "$fp_scopes" ]] || fp_scopes='null'
-    fi
-    # The update is over by now, so nothing here may fail the run: a lookup that fails, or prints
-    # something that is not a JSON array, means no notes and nothing else.
-    local eol
-    if eol="$(tail -c +$(( fp_from + 1 )) "$log" 2>/dev/null | flatpak_eol_notices 2>/dev/null)" \
-       && jq -e 'type == "array"' <<<"$eol" >/dev/null 2>&1; then
-      fp_eol="$eol"
     fi
   fi
 }
@@ -1975,7 +1963,7 @@ cmd_update() {
   # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
   # Runtimes are counted, itemized and updated alongside the apps: `flatpak update` with no ref
   # updates both, so the check asks about both and the summary reports both.
-  local fp_status=skipped fp_scopes=null fp_eol='[]'   # apply_flatpak_updates writes these; see its header
+  local fp_status=skipped fp_scopes=null   # apply_flatpak_updates writes these; see its header
   local RECLAIM_RUN_JSON=""              # reclaim_after_run writes this
   apply_flatpak_updates
   # snapshots (after) + reports
@@ -2143,14 +2131,14 @@ cmd_update() {
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
-        --argjson fp_eol "$fp_eol" --argjson fp_scopes "$fp_scopes" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") \
+        --argjson fp_scopes "$fp_scopes" --slurpfile fp_reclaimed <(printf '%s\n' "${RECLAIM_RUN_JSON:-null}") \
         --arg fb "$startup_base" '
     ($dnfa[0]) as $dnf | ($fpa[0]) as $fp | ($fp_reclaimed[0]) as $fp_reclaimed |
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
        dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
-       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held, eol:$fp_eol}
+       flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}
                       + (if $fp_reclaimed == null then {} else {reclaimed: $fp_reclaimed} end)
                       + (if $fp_scopes == null then {} else {scopes: $fp_scopes} end)) }}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)

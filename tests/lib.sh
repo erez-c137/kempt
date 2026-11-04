@@ -188,10 +188,6 @@ sandbox() {  # fresh dirs per test file; call first
   # assertions came back describing the runtimes installed on the machine running the suite.
   export KEMPT_FLATPAK_SNAP_CMD="true"
   export KEMPT_FLATPAK_SNAP_RUNTIME_CMD="true"
-  # The end-of-life lookups, pinned at `true` for the same reason: unset, a run whose stub prints
-  # an end-of-life notice would read the apps and runtimes of the machine running the suite.
-  export KEMPT_FLATPAK_APP_RUNTIME_CMD="true"
-  export KEMPT_FLATPAK_INFO_CMD="true"
   # The per-user installation, absent by default: a directory that does not exist switches the whole
   # arm off, so no file sees per-user apps unless it creates "$KEMPT_FLATPAK_USER_DIR/repo". The
   # lookups are pinned at `true` and the two commands that change or fetch are poisoned, for the
@@ -200,7 +196,6 @@ sandbox() {  # fresh dirs per test file; call first
   export KEMPT_FLATPAK_USER_REMOTE_CMD="true" KEMPT_FLATPAK_USER_LIST_CMD="true"
   export KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD="true" KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD="true"
   export KEMPT_FLATPAK_USER_SNAP_CMD="true" KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD="true"
-  export KEMPT_FLATPAK_USER_APP_RUNTIME_CMD="true" KEMPT_FLATPAK_USER_INFO_CMD="true"
   # One remote for each installation, so the refresh arm runs as it does on a stock Fedora box. Unset,
   # flatpak_refresh would read the remotes of the machine running the suite.
   export KEMPT_FLATPAK_REMOTES_CMD="echo flathub" KEMPT_FLATPAK_USER_REMOTES_CMD="echo flathub"
