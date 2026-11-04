@@ -121,9 +121,8 @@ the same cache the update uses.
 cp -a . ../%{name}-pristine
 
 # The polkit action pins the helper path with an exec.path annotation, and the library must agree
-# with it or pkexec refuses to run the helper. The dev installer uses /usr/local/libexec; a
-# packaged build uses the FHS libexec dir. install.sh names the same path a third time, but it is
-# not packaged - a checkout install is the only thing that runs it.
+# with it or pkexec refuses to run the helper. The tree says /usr/local/libexec; a packaged build
+# uses the FHS libexec dir.
 sed -i 's|/usr/local/libexec|%{_libexecdir}|g' \
     polkit/io.github.erez_c137.kempt.policy \
     lib/common.sh
@@ -144,7 +143,7 @@ ln -s %{_datadir}/%{name}/bin/kempt %{buildroot}%{_bindir}/kempt
 
 # Two files the CLI reads out of its own tree at runtime, and the tree is $ROOT here rather than a
 # checkout. Verified by installing the package without them: `kempt --version` printed
-# "kempt unknown", and `kempt doctor` reported the install as an incomplete checkout.
+# "kempt unknown".
 install -p -m 0644 VERSION %{buildroot}%{_datadir}/%{name}/VERSION
 # `kempt enable-passwordless` renders this template into /etc/polkit-1/rules.d. Without it that
 # command has nothing to render and fails on the day someone runs it, not before.
@@ -182,7 +181,7 @@ install -d %{buildroot}%{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt
 cp -a plasmoid/metadata.json plasmoid/contents \
     %{buildroot}%{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt/
 
-# The icon ladder, same six rungs install.sh puts into the user's hicolor theme. No icon-cache
+# The icon ladder, six rungs in the hicolor theme. No icon-cache
 # scriptlet: hicolor-icon-theme's own file triggers fire for any package touching that tree.
 for pair in scalable:kempt.svg 64x64:kempt-48.svg 48x48:kempt-48.svg \
             32x32:kempt-32.svg 22x22:kempt-22.svg 16x16:kempt-16.svg; do

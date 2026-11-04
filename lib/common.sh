@@ -38,15 +38,12 @@ KEMPT_REFRESH_HELPER_PATH="${KEMPT_REFRESH_HELPER_PATH:-/usr/local/libexec/kempt
 KEMPT_APPLY_HELPER_PATH="${KEMPT_APPLY_HELPER_PATH:-/usr/local/libexec/kempt-apply}"
 KEMPT_REFRESH_HELPER="${KEMPT_REFRESH_HELPER:-$KEMPT_REFRESH_HELPER_PATH}"
 KEMPT_APPLY_HELPER="${KEMPT_APPLY_HELPER:-$KEMPT_APPLY_HELPER_PATH}"
-# Where install.sh puts the two polkit actions. A seam so `kempt doctor` can be tested without
+# Where the two polkit actions live. A seam so `kempt doctor` can be tested without
 # writing to /usr/share.
+KEMPT_REINSTALL_HINT="Reinstall it with: sudo dnf reinstall kempt"
 KEMPT_POLICY_FILE="${KEMPT_POLICY_FILE:-/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy}"
-# Where kpackagetool6 puts the panel widget for the current user - the same path install.sh names
-# as PLASMOID_DIR. Nothing here installs or runs it; `kempt doctor` reads it, and asks two
-# different questions of the one directory: in a checkout, whether the copy still matches the tree
-# it came from; in a package, whether it exists at all, because there it is a store install
-# shadowing the packaged widget. ONE variable for one directory - two would drift, and doctor would
-# report on two different paths. The seam drives either question from a staged tree.
+# Where kpackagetool6 puts the panel widget for the current user. Nothing here installs or runs it;
+# `kempt doctor` asks whether it exists, because a copy there shadows the packaged widget.
 KEMPT_PLASMOID_DIR="${KEMPT_PLASMOID_DIR:-$HOME/.local/share/plasma/plasmoids/io.github.erez_c137.kempt}"
 # Where the PACKAGE puts the widget, as opposed to the user-scope directory above. Read by doctor
 # only, and only to tell a packaged install that the panel half is a separate package.
@@ -1410,25 +1407,17 @@ stderr_tail() {  # file → one line
 # a MISSING helper as "timeout: failed to run command '<path>': No such file or directory", which
 # reads as "the update check timed out" and sends the reader hunting a network problem they do not
 # have; the real cause is a helper that was never installed. Anything else passes through untouched.
-# How to put Kempt's own files back. A checkout has install.sh, and a package does not ship it.
-reinstall_hint() {  # [again] → the fix for this kind of install, as a sentence without a full stop
-  if [[ -r "$KEMPT_ROOT/install.sh" ]]; then
-    printf 'Run ./install.sh%s' "${1:+ $1}"
-  else
-    printf 'Reinstall it with: sudo dnf reinstall kempt'
-  fi
-}
 explain_helper_error() {  # stderr-tail → the tail, the missing-helper message, or an authorization one
   local t="$1" h
   # uutils' timeout, which some distributions ship, leaves the path out of this message.
   if [[ "$t" == *"timeout: failed to execute"*"No such file"* ]]; then
-    printf '%s\n' "root helper not installed. $(reinstall_hint "") (see: kempt doctor)"
+    printf '%s\n' "root helper not installed. $KEMPT_REINSTALL_HINT (see: kempt doctor)"
     return 0
   fi
   if [[ "$t" == *"No such file"* ]]; then
     for h in "$KEMPT_REFRESH_HELPER" "$KEMPT_APPLY_HELPER"; do
       if [[ "$t" == *"$h"* || "$t" == *"${h##*/}"* ]]; then
-        printf '%s\n' "root helper not installed. $(reinstall_hint "") (see: kempt doctor)"
+        printf '%s\n' "root helper not installed. $KEMPT_REINSTALL_HINT (see: kempt doctor)"
         return 0
       fi
     done

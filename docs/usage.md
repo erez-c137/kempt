@@ -119,7 +119,7 @@ The full schema is in [architecture.md](architecture.md#state-json-schema-v1).
 When a backend fails (network down, repo unavailable), `status` is `"stale"`, `error` holds the
 message, and the previous item lists are kept. A missing root helper reads
 `root helper not installed. Reinstall it with: sudo dnf reinstall kempt (see: kempt doctor)`.
-On a checkout, it says `Run ./install.sh` instead. A missing or corrupt state file starts from an
+A missing or corrupt state file starts from an
 empty list. **Empty output with exit 0 means "no data, keep what you had"**, never
 zero updates.
 
@@ -720,15 +720,15 @@ Checks this install, one line per check. Use it when the widget says it cannot c
 counts you do not trust. A missing root helper makes every dnf check fail, so the system package
 count never changes.
 
-On a checkout install:
+A healthy report:
 
 ```
-info  kempt 0.1.x (/home/you/src/kempt)
-ok    root helper (refresh): /usr/local/libexec/kempt-refresh (root:root 0755)
-ok    root helper (apply): /usr/local/libexec/kempt-apply (root:root 0755)
+info  kempt 0.1.x (/usr/share/kempt)
+ok    root helper (refresh): /usr/libexec/kempt-refresh (root:root 0755)
+ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
-ok    polkit exec.path (refresh): /usr/local/libexec/kempt-refresh
-ok    polkit exec.path (apply): /usr/local/libexec/kempt-apply
+ok    polkit exec.path (refresh): /usr/libexec/kempt-refresh
+ok    polkit exec.path (apply): /usr/libexec/kempt-apply
 ok    flatpak: /usr/bin/flatpak
 ok    Discover's update notifier: turned off for this user (/home/you/.config/autostart/org.kde.discover.notifier.desktop)
 ok    package lists: refreshed 2026-08-26T20:58:03+03:00
@@ -759,15 +759,13 @@ What a `FAIL` means:
 | Check | FAIL means |
 | --- | --- |
 | The system uses dnf (second line) | An image-based Fedora, where `kempt update` stops (exit 5). Use Discover or `rpm-ostree upgrade`. |
-| Both root helpers exist at the expected paths, `root:root` 0755 | `install.sh` has not run, or the helpers were replaced. Checks stay `stale`, updates cannot run. |
+| Both root helpers exist at the expected paths, `root:root` 0755 | The package is damaged, or the helpers were replaced. Checks stay `stale`, updates cannot run. |
 | The polkit action file is installed | Background checks cannot authorize. |
-| Each polkit `exec.path` names the helper this CLI uses | Every privileged step asks for a password, and background checks time out after 120 s. Usually a package over a checkout install, or the reverse; the line names both fixes. `info` when the policy cannot be read. |
-| `getfacl` is present (a `FAIL` row only when it is missing) | The dnf folder checks cannot see ACL entries. Install the `acl` package. |
+| Each polkit `exec.path` names the helper this CLI uses | Every privileged step asks for a password, and background checks time out after 120 s. The line names the fix. `info` when the policy cannot be read. |
 | `flatpak` is present (a `WARN` row only when `include_flatpak=true` is set by hand) | Kempt skips Flatpak. Otherwise `info`. |
 | Every config line is `key=value` with a valid key | That line is ignored, so the setting never applies. |
 | The state directory is writable | No state, history or logs. |
-| `helpers:`, `policy:`, `widget:` match the checkout | `DIFFER`: you pulled without re-running `./install.sh`, so root still runs the old helpers. `git pull` updates only the CLI. The line names the fix. `not installed` is `info`. |
-| `widget engine:` (last on both kinds of install) names this `kempt` | A leftover `~/.local/bin/kempt` shadows the installed one, because the panel puts `~/.local/bin` first on its `PATH`. `info` when the widget finds none. |
+| `widget engine:` (last) names this `kempt` | A leftover `~/.local/bin/kempt` shadows the installed one, because the panel puts `~/.local/bin` first on its `PATH`. `info` when the widget finds none. |
 | A staged update is ready for the restart, or absent | It was downloaded but will never install. Run `sudo dnf5 offline clean`. |
 | `/system-update` is absent, or points at a ready update | The next restart starts the offline updater and installs nothing. Run `sudo dnf5 offline clean`. |
 

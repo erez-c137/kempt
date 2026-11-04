@@ -47,7 +47,6 @@ engine could replace the bash one.
 | `polkit/` | The two action definitions plus the passwordless rule template |
 | `plasmoid/` | The Plasma 6 panel widget: a client of the CLI with no package-manager knowledge |
 | `plasmoid/contents/ui/logic.js` | The widget's whole derivation layer, in engine-agnostic JS so node can test it |
-| `install.sh` | Symlink install, staged install (`--destdir`), uninstall |
 | `tests/` | Fixture-driven bash test suite, no framework dependency |
 | `tests/qml/` | PySide6 probes that execute the real QML against a stubbed CLI (see below) |
 

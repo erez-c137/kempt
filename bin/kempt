@@ -3783,7 +3783,7 @@ policy_exec_path() {  # action_id file -> the annotated path, or "" if there is 
 }
 
 # The half of the polkit action a readable file can still get wrong. The RPM installs the helpers
-# under /usr/libexec and rewrites the annotation to match (kempt.spec); install.sh uses
+# under /usr/libexec and rewrites the annotation to match (kempt.spec); an old checkout install used
 # /usr/local/libexec. A box carrying both hands pkexec a path no action names, so it falls back to
 # an authentication dialog a background check cannot answer: priv_refresh times out after 120s and
 # the check reports stale, forever.
@@ -3804,7 +3804,7 @@ doctor_exec_path() {  # label action_id helper_seam annotated_path
     doctor_ok "polkit exec.path ($label): $pinned"
   else
     # Both paths and both remedies: which one is wrong depends on the install the reader meant.
-    doctor_fail "polkit exec.path ($label): the policy pins $pinned, this CLI runs $annotated. pkexec has no action for that path, so every privileged run falls back to an authentication dialog and background checks time out. Fix it with ./install.sh in a checkout, or: sudo dnf reinstall kempt for the package"
+    doctor_fail "polkit exec.path ($label): the policy pins $pinned, this CLI runs $annotated. pkexec has no action for that path, so every privileged run falls back to an authentication dialog and background checks time out. Fix it with: sudo dnf reinstall kempt"
   fi
 }
 
@@ -3821,8 +3821,8 @@ doctor_widget_engine() {
     doctor_info "widget engine: no kempt on the widget's PATH ($KEMPT_WIDGET_PATH), so the panel reports the engine as missing"
     return 0
   fi
-  # Resolved, because ~/.local/bin/kempt is a symlink on every checkout install: the question is
-  # which FILE runs, not which name came first.
+  # Resolved, because ~/.local/bin/kempt may be a symlink: the question is which FILE runs, not
+  # which name came first.
   w="$(readlink -f "$w" 2>/dev/null || printf '%s' "$w")"
   if [[ "$w" == "$SELF" ]]; then
     doctor_ok "widget engine: $w"
@@ -3834,7 +3834,7 @@ doctor_widget_engine() {
 doctor_helper() {  # label seam_path annotated_path
   local label="$1" path="$2" annotated="$3" own dir down
   if [[ ! -e "$path" ]]; then
-    doctor_fail "root helper ($label) not installed: $path. $(reinstall_hint "")"
+    doctor_fail "root helper ($label) not installed: $path. $KEMPT_REINSTALL_HINT"
     return 0
   fi
   # Not the path polkit execs, so its ownership says nothing about what root would run.
@@ -3844,7 +3844,7 @@ doctor_helper() {  # label seam_path annotated_path
   if [[ "$own" == "root:root 755" ]]; then
     doctor_ok "root helper ($label): $path (root:root 0755)"
   else
-    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. $(reinstall_hint again)"
+    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. $KEMPT_REINSTALL_HINT"
   fi
   # The directory, too: whoever can write to it can rename the helper away and put their own file
   # at the path polkit runs as root, however the helper itself is owned. Quiet when it is sound, so
@@ -3853,37 +3853,6 @@ doctor_helper() {  # label seam_path annotated_path
   down="$(stat -L -c '%U:%G %a' "$dir" 2>/dev/null)" || return 0
   if [[ "${down%%:*}" != root ]] || (( 8#${down##* } & 8#022 )); then
     doctor_fail "root helper directory ($label) is $down, expected root-owned and not group- or world-writable: $dir. Fix it with: sudo chown root:root $dir && sudo chmod 755 $dir"
-  fi
-}
-
-# --- install skew -------------------------------------------------------------------------------
-# A checkout install is a SYMLINK for the CLI and a COPY for everything that cannot be one: the two
-# root helpers (root execs a file it owns, never a link into a user's tree), the polkit action, and
-# the widget kpackagetool6 copies into the user's plasmoid directory. So `git pull` moves the CLI
-# and silently leaves those three behind, root still running the last ./install.sh's code.
-# Compared by CONTENT, never mtime: the installer rewrites files it did not change, and a fresh
-# clone is younger than a correct install. No privilege needed - the copies are world-readable.
-doctor_install_copies() {  # label fix src dst [src dst ...]; a directory is compared whole
-  local label="$1" fix="$2" src dst unknown=0 missing=0 differ=0
-  shift 2
-  while [[ $# -gt 1 ]]; do
-    src="$1"; dst="$2"; shift 2
-    if [[ ! -r "$src" ]]; then unknown=1
-    elif [[ ! -e "$dst" ]]; then missing=1
-    elif [[ -d "$src" ]]; then
-      if ! command -v diff >/dev/null; then unknown=1
-      elif ! diff -rq "$src" "$dst" >/dev/null 2>&1; then differ=1; fi
-    elif ! same_content "$src" "$dst"; then differ=1; fi
-  done
-  if [[ $unknown -eq 1 ]]; then
-    doctor_info "$label: not compared, because the checkout has no copy or diff is not installed"
-  elif [[ $missing -eq 1 ]]; then
-    # info, not FAIL: a missing helper or action is already a FAIL above, and the widget is optional.
-    doctor_info "$label: not installed. Run ./install.sh"
-  elif [[ $differ -eq 1 ]]; then
-    doctor_fail "$label: DIFFER from checkout. $fix"
-  else
-    doctor_ok "$label: match checkout"
   fi
 }
 
@@ -3901,7 +3870,7 @@ doctor_privileged_rows() {
   if [[ -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_ok "polkit action: $KEMPT_POLICY_FILE"
   else
-    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. $(reinstall_hint "")"
+    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. $KEMPT_REINSTALL_HINT"
   fi
   # ...and the half a readable file can still get wrong: which helper path it pins.
   doctor_exec_path refresh io.github.erez_c137.kempt.refresh \
@@ -3923,11 +3892,6 @@ doctor_image_based_row() {
 }
 
 doctor_tool_rows() {
-  # getfacl: the root helper refuses every verb without it, because it cannot see ACL entries. The
-  # RPM requires the acl package; a checkout install does not.
-  command -v "$KEMPT_GETFACL" >/dev/null 2>&1 \
-    || doctor_fail "getfacl: not found, so Kempt cannot see ACL entries on the dnf folders. $KEMPT_FOLDERS_HOLD Install it with: sudo dnf install acl"
-
   # flatpak: ask about the command the BACKEND runs (first word of its seam), never a hardcoded
   # name a test or a power user may have redirected.
   local fp_cmd; fp_cmd="${KEMPT_FLATPAK_LIST_CMD%% *}"
@@ -4082,7 +4046,7 @@ doctor_scan_tree() {  # dir [links] → DOCTOR_TREE_HIT, the first entry another
   fi
   # An ACL entry gives access the mode bits do not show, and a default one passes it to every file
   # root writes there later. getfacl -s lists only entries with more than the mode; -P stays off links.
-  command -v "$KEMPT_GETFACL" >/dev/null 2>&1 || return 0   # doctor_tool_rows has a row for that
+  command -v "$KEMPT_GETFACL" >/dev/null 2>&1 || return 0   # the package requires it
   rc=0
   out="$(LC_ALL=C "$KEMPT_GETFACL" -R -P -s -p -- "$d" 2>&1)" || rc=$?
   while IFS= read -r line; do
@@ -4555,10 +4519,6 @@ doctor_state_dir_row() {
   fi
 }
 
-# Which kind of install this is. install.sh is the file a checkout has and a package does not: it
-# is what a fix message would tell you to run, and exactly what a packaged tree does not ship.
-install_is_packaged() { [[ ! -r "$ROOT/install.sh" ]]; }
-
 # dnf5 still holds a transaction at `ready` whose packages are all installed, with no symlink of
 # its own in front of it: another updater installed the same updates. Nothing will run it again.
 # Advice only. `kempt unstage` removes it, but `dnf5 offline clean` also removes another updater's
@@ -4738,53 +4698,24 @@ doctor_offline_rows() {
   fi
 }
 
-doctor_version_row() {
-  # The opening line names the release and the tree. On a git checkout this one names the commit.
-  [[ -e "$ROOT/.git" ]] || return 0
-  local sha tree=clean
-  sha="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)"
-  [[ -n "$sha" ]] || return 0
-  [[ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]] || tree=dirty
-  doctor_info "version: kempt $(kempt_version) (checkout $sha $tree)"
-}
-
 doctor_install_rows() {
-  # A packaged install has nothing to compare and nothing to drift: the RPM ships bin/, lib/ and
-  # backends/ under /usr/share/kempt and none of libexec/, polkit/ or plasmoid/, because the
-  # package manager owns those three and keeps them in step. install.sh's absence is what says
-  # which kind of install this is - it is the file the fix message would name, and exactly what a
-  # packaged tree does not ship.
-  if install_is_packaged; then
-    doctor_info "install: packaged, so the package manager keeps these files in step"
-    # ...and the one thing a packaged install can be silently wrong about. kpackagetool6 (the KDE
-    # Store route) installs into the USER's plasmoid directory, the package into /usr/share, and
-    # Plasma PREFERS the user one - so a store install predating the package stays the widget
-    # Plasma loads, invisibly, and no other row would catch it.
-    # Only in this branch: on a checkout that directory IS the install, and the message would tell
-    # a developer to delete their own widget. The skew comparison below covers that case.
-    # Shadowing needs TWO copies: with only the CLI package installed, the store copy is the one
-    # widget on the box, and failing the checkup over it tells somebody to delete their only panel.
-    # That case gets the same remedy as a pointer instead: install the widget package, THEN remove
-    # the store copy.
-    if [[ -d "$KEMPT_PLASMOID_DIR" && ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
-      doctor_info "store widget in use: the panel runs the KDE Store copy in $KEMPT_PLASMOID_DIR, and package updates do not reach it. Install the widget package with: sudo dnf install kempt-plasmoid, then remove the store copy with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
-    elif [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
-      doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR. Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
-    elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
-      # The panel half is its own package, so a working CLI can sit on a box with no widget and
-      # nothing would say why. info, not FAIL: the CLI is the whole tool for anyone who wanted it.
-      # ...and what going without it means, because the CLI alone is not a quieter widget.
-      doctor_info "panel widget not installed. It is a separate package: sudo dnf install kempt-plasmoid. Without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
-    fi
-  else
-    doctor_install_copies helpers "Run ./install.sh" \
-      "$ROOT/libexec/kempt-refresh" "$KEMPT_REFRESH_HELPER_PATH" \
-      "$ROOT/libexec/kempt-apply"   "$KEMPT_APPLY_HELPER_PATH"
-    doctor_install_copies policy "Run ./install.sh" \
-      "$ROOT/polkit/io.github.erez_c137.kempt.policy" "$KEMPT_POLICY_FILE"
-    # plasmashell --replace too: kpackagetool6 upgrades in place, and Plasma keeps the QML it loaded.
-    doctor_install_copies widget "Run ./install.sh, then plasmashell --replace" \
-      "$ROOT/plasmoid" "$KEMPT_PLASMOID_DIR"
+  # The RPM ships bin/, lib/ and backends/ under /usr/share/kempt, and the package manager keeps the
+  # helpers, the policy and the widget in step. What it cannot see is a widget in the user's own
+  # directory. kpackagetool6 (the KDE Store route) installs there, and Plasma PREFERS that copy, so
+  # a store install predating the package stays the widget Plasma loads, and no other row catches it.
+  # Shadowing needs TWO copies: with only the CLI package installed, the store copy is the one
+  # widget on the box, and failing the checkup over it tells somebody to delete their only panel.
+  # That case gets the same remedy as a pointer instead: install the widget package, THEN remove
+  # the store copy.
+  if [[ -d "$KEMPT_PLASMOID_DIR" && ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
+    doctor_info "store widget in use: the panel runs the KDE Store copy in $KEMPT_PLASMOID_DIR, and package updates do not reach it. Install the widget package with: sudo dnf install kempt-plasmoid, then remove the store copy with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
+  elif [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
+    doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR. Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
+  elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
+    # The panel half is its own package, so a working CLI can sit on a box with no widget and
+    # nothing would say why. info, not FAIL: the CLI is the whole tool for anyone who wanted it.
+    # ...and what going without it means, because the CLI alone is not a quieter widget.
+    doctor_info "panel widget not installed. It is a separate package: sudo dnf install kempt-plasmoid. Without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
   fi
 }
 
@@ -4824,11 +4755,8 @@ cmd_doctor() {
   doctor_state_dir_row
   doctor_offline_rows
   doctor_startup_row
-  doctor_version_row
   doctor_install_rows
-  # Outside that branch on purpose: both kinds of install can be shadowed for the widget alone - a
-  # leftover ~/.local/bin/kempt from a checkout wins over /usr/bin/kempt for the panel and for
-  # nothing else.
+  # A leftover ~/.local/bin/kempt wins over /usr/bin/kempt for the panel and for nothing else.
   doctor_widget_engine
 
   doctor_recent_events
@@ -4850,7 +4778,7 @@ cmd_doctor() {
 }
 
 # Turns Discover's update notifier off or on for this user, or says where it stands. The work is
-# in lib/common.sh, shared with install.sh's question.
+# in lib/common.sh.
 cmd_discover_notifier() {
   case "${1:-}" in
     off|on|keep) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }

@@ -941,9 +941,8 @@ function parseState(text) {
 function looksLikeState(state) {
     if (!state || typeof state !== "object") return false;
     // A declared schema we do not know is NOT rendered optimistically. Version skew is the normal
-    // state of this pair, not an edge case: the CLI is installed as a symlink into the checkout
-    // while the widget is a COPY, so after a `git pull` the CLI is new and the widget is whatever
-    // was last installed - and a schema 2 field could mean anything.
+    // state of this pair, not an edge case: the CLI and the widget are separate packages, and Plasma
+    // keeps the QML it loaded until it restarts - and a schema 2 field could mean anything.
     if (typeof state.schema === "number" && state.schema !== 1) return false;
     if (typeof state.actionable === "number") return true;
     if (state.backends && typeof state.backends === "object") return true;

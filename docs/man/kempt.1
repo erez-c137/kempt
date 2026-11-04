@@ -277,16 +277,6 @@ removes it.
 .IP
 Run it when the widget says it cannot check, or shows counts you do not trust. A missing root
 helper makes every dnf check fail, so the system package count never changes.
-.IP
-The report ends with the install. In a checkout,
-.BR helpers: ", " policy: " and " widget:
-compare the installed copies with the checkout.
-.B DIFFER
-means you pulled without re\-running
-.BR ./install.sh ,
-and the line names the fix. A packaged install prints
-.B "install: packaged"
-instead.
 .TP
 .BI hold " backend:name"
 Skip a package or app in Kempt runs, and keep reporting it as pending.
@@ -393,10 +383,8 @@ Everything else is false.
 The full reference is
 .IR docs/configuration.md .
 .SH FILES
-Where two paths are given, the first is the package and the second a checkout install. Files in
-your home directory are the same for both.
 .TP
-.IR /usr/bin/kempt " or " ~/.local/bin/kempt
+.I /usr/bin/kempt
 The command, a symlink into
 .I /usr/share/kempt
 or the checkout.
@@ -440,11 +428,8 @@ fails when it is not the one this CLI uses.
 .I /etc/polkit-1/rules.d/49-kempt.rules
 Present only while passwordless mode is on.
 .TP
-.IR /usr/share/plasma/plasmoids/io.github.erez_c137.kempt/ " or " ~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/
-The Plasma widget. A checkout install copies it, so re\-run
-.B ./install.sh
-after changing
-.IR plasmoid/ .
+.I /usr/share/plasma/plasmoids/io.github.erez_c137.kempt/
+The Plasma widget.
 .SH EXIT STATUS
 Most commands use these codes. Each command above lists its own cases.
 .TP

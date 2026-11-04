@@ -92,23 +92,14 @@ discard the staged update and keep working.*
 
 ## From a checkout
 
-```bash
-git clone https://github.com/erez-c137/kempt.git
-cd kempt
-./install.sh          # one password prompt: the root helpers and polkit action, then the widget
-kempt doctor
-```
-
-`install.sh` links `bin/kempt` into `~/.local/bin`, so keep the checkout where it is. If `kempt` is
-not found afterwards, log out and back in. The
-[contributing guide](CONTRIBUTING.md#installing-from-a-checkout) covers the details, and the
-[install guide](docs/install.md#from-a-checkout-developers) how to update and undo it.
+To try unreleased changes, `tools/build-local.sh` builds the packages from your checkout and installs
+them. The [contributing guide](CONTRIBUTING.md#installing-from-a-checkout) covers the details.
 
 ## Documentation
 
 | Document | What is in it |
 | --- | --- |
-| [docs/install.md](docs/install.md) | Installing from the package or a checkout, passwordless updates, and removing Kempt |
+| [docs/install.md](docs/install.md) | Installing from the package, passwordless updates, and removing Kempt |
 | [docs/widget.md](docs/widget.md) | What the panel widget shows, and what each message, button and setting does |
 | [docs/usage.md](docs/usage.md) | Every command with its options, output and exit codes |
 | [docs/configuration.md](docs/configuration.md) | Every setting with its default, holds, and where Kempt keeps its files |

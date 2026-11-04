@@ -7,7 +7,7 @@ step 4 checks the upgrade from the last release on every release.
 
 Kempt has no self-update code. The package manager already handles signatures, rollback and
 dependencies, and gives the administrator one place to audit. So Kempt ships as a package and
-shows up in its own list like any other update. Only checkout installs upgrade by hand (step 10).
+shows up in its own list like any other update.
 
 ## The release
 
@@ -157,15 +157,3 @@ shows up in its own list like any other update. Only checkout installs upgrade b
    A store install has no `kempt` command behind it. Before uploading, unpack the archive on a
    machine without the command-line tool and check the widget says *"Kempt's engine is not
    installed"*.
-
-10. **Checkout installs upgrade by hand.** The command is a symlink into the checkout; the rest are
-    copies.
-
-    ```bash
-    git pull && ./install.sh && plasmashell --replace     # or log out and back in
-    kempt doctor                                          # every copy matches the checkout
-    ```
-
-    The `helpers:`, `policy:` and `widget:` lines at the end of `kempt doctor` compare each
-    installed copy with the checkout. `DIFFER` means a pull that was never installed. See
-    [usage](usage.md#doctor).

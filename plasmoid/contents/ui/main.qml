@@ -303,8 +303,8 @@ PlasmoidItem {
                                                 startupRecoveredKept: startupRecoveredKept })
 
     // --- the CLI -------------------------------------------------------------------------------
-    // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
-    // in ~/.local/bin - so the prefix finds it from a symlink install or from a package.
+    // plasmashell does not necessarily inherit a login shell's PATH, so the prefix finds the CLI
+    // wherever a package or a leftover ~/.local/bin link puts it.
     // KEMPT_VIA=widget changes nothing the CLI does; it is read only by lib/common.sh's log_event,
     // which stamps each line of `kempt log` with `widget` or `cli`.
     readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" KEMPT_VIA=widget kempt"

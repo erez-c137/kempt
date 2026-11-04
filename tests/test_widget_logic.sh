@@ -328,7 +328,7 @@ assert_eq "$(js 'V("held-only",false).rows.length > 0')" "true" \
   "...and it has rows to show instead"
 
 # --- the other family: never succeeded, nothing known. NOT calm. -------------------------------
-# This is what a box looks like when install.sh never ran: the check cannot run at all, so there
+# This is what a box looks like when the root helper is missing: the check cannot run at all, so there
 # is no count, no history and nothing to be reassuring about. Rendering "Up to date" here - which
 # a purely status-driven mapping would - is a clean lie, and the most damaging one this widget
 # could tell. It belongs with the errors: emblem, honest words, and the command that diagnoses it.
@@ -2092,9 +2092,8 @@ assert_eq "$(js "$S($FRESH, 60, $T - 5 * $DAY)")" "false" "...however far into i
 
 # --- a state object that is not schema v1: say so, never invent a count ---
 assert_eq "$(js 'L.viewModel({hello:"world"},false).iconState')" "error" "an unrecognisable state object => error"
-# Version skew between CLI and widget is NORMAL here, not exotic: install.sh symlinks the CLI into
-# the checkout but COPIES the widget, so a `git pull` routinely leaves a new CLI talking to an old
-# widget. A schema this build does not know must never be badged as if it were understood.
+# Version skew between CLI and widget is NORMAL here, not exotic: they are separate packages, and
+# Plasma keeps the QML it loaded. A schema this build does not know must never be badged as if it were understood.
 assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:5,held_total:0,backends:{}},false).iconState')" \
   "error" "a future schema is refused, not guessed at"
 assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:5,held_total:0,backends:{}},false).badgeText')" \

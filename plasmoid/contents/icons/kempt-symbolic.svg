@@ -31,7 +31,7 @@
 
   SHIPPED BUT UNREFERENCED, deliberately. No code loads this file: the plasmoid's
   panel icon comes from metadata.json's "Icon": "kempt", which resolves through the
-  icon THEME (install.sh copies contents/icons/kempt.svg into hicolor), and nothing
+  icon THEME (the package puts contents/icons/kempt.svg into hicolor), and nothing
   names kempt-symbolic. It is here for the planned panel-icon-choice setting, which
   will let the user pick the monochrome comb instead of the themed update icon. Do
   not "clean up" as dead weight; do not assume a change here reaches the panel.

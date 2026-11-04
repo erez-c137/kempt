@@ -28,7 +28,7 @@ body:
       options:
         - COPR package (dnf install kempt)
         - KDE Store / Get New Widgets (widget only)
-        - Git checkout (install.sh)
+        - Built from a checkout (tools/build-local.sh)
         - Other / not sure
     validations:
       required: true
