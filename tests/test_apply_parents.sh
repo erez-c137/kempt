@@ -88,13 +88,13 @@ chmod -R 755 .
 mi="$R/mountinfo"; printf "1 0 0:1 / / rw - ext4 /dev/root rw\n" > "$mi"; export KEMPT_MOUNTINFO="$mi"
 mount_at() { printf "2 1 0:2 / %s rw - %s src %s\n" "$1" "$2" "$3" >> "$mi"; }
 fuse_at() { mount_at "$1" "${2:-fuse.sshfs}" "rw,user_id=${3:-1000},group_id=1000"; }
-fail_stub() {  # path tool message [times] → a stand-in that fails on that path, the first times if given, and is otherwise the tool
+fail_stub() {  # path tool message [times] [status] → a stand-in that fails on that path, the first times if given, and is otherwise the tool
   local s="$R/stub-$2" n="$R/stub-$2.count"
   : > "$n"
   { printf "%s\n" "#!/bin/bash" "for a; do if [[ \"\$a\" == \"$1\" ]]; then"
     [[ -z "${4:-}" ]] || printf "%s\n" "  c=\$(wc -l < $n); echo x >> $n; if (( c >= $4 )); then exec /usr/bin/$2 \"\$@\"; fi"
     [[ -z "$3" ]] || printf "%s\n" "  echo \"$2: \$a: $3\" >&2"
-    printf "%s\n" "  exit 1; fi; done" "exec /usr/bin/$2 \"\$@\""
+    printf "%s\n" "  exit ${5:-1}; fi; done" "exec /usr/bin/$2 \"\$@\""
   } > "$s"
   chmod 755 "$s"; echo "$s"
 }
@@ -356,6 +356,16 @@ find silent in the trees|export KEMPT_FIND="$(fail_stub -ignore_readdir_race fin
 getfacl EACCES in the trees|export KEMPT_GETFACL="$(fail_stub -R getfacl "Permission denied")"
 atomic system|: > marker; export KEMPT_OSTREE_MARKER="$R/marker"
 another mount namespace|ln -s "mnt:[1]" ns1; export KEMPT_MNT_NS_INIT="$R/ns1"
+the vanished words with exit 127 on a parent|export KEMPT_FIND="$(fail_stub "$R/var/lib" find "No such file or directory" "" 127)"
+the vanished words with exit 127 from getfacl|export KEMPT_GETFACL="$(fail_stub "$R/var/lib" getfacl "No such file or directory" "" 127)"
+the vanished words with exit 127 in the trees|export KEMPT_FIND="$(fail_stub -ignore_readdir_race find "No such file or directory" "" 127)"
+the vanished words with exit 127 from getfacl -R|export KEMPT_GETFACL="$(fail_stub -R getfacl "No such file or directory" "" 127)"
+no find at all|export KEMPT_FIND="$R/no-such-find"
+root FUSE with an empty source|printf "2 1 0:2 / %s rw - fuse.x  rw,user_id=0,group_id=0\n" "$R/var" >> "$mi"
+user FUSE with an empty source|printf "2 1 0:2 / %s rw - fuse.x  rw,user_id=1000,group_id=1000\n" "$R/var" >> "$mi"
+a mount line with a field too many|printf "2 1 0:2 / %s rw - fuse x src rw,user_id=0\n" "$R/srv" >> "$mi"
+awk cannot run|mount --bind /dev/null "$(readlink -f /usr/bin/awk)"
+writable offline folder in the state|mkdir -p usr/lib/sysimage/libdnf5/offline; chmod 777 usr/lib/sysimage/libdnf5/offline
 TABLE
 if command -v setfacl >/dev/null; then
   parity "write ACL on /var" 'setfacl -m u:0:rwx var'
@@ -369,6 +379,90 @@ if other_ids "the parity cases with a second user"; then
   parity "/var/lib another group, not writable" 'chown 0:1000 var/lib'
   parity "a file another user owns in the cache" ': > var/cache/libdnf5/repo/f; chown 1000 var/cache/libdnf5/repo/f'
 fi
+
+# --- a tool that could not run has answered nothing, whatever its words -----------------------------
+refuses "a find that could not start, in the vanished words, refuses over a writable /var/lib" dnf-offline-stage \
+  'chmod 777 var/lib; export KEMPT_FIND="$(fail_stub "$R/var/lib" find "No such file or directory" "" 127)"' "Kempt could not check $R/var/lib"
+refuses "...and over a good one" dnf-offline-stage \
+  'export KEMPT_FIND="$(fail_stub "$R/var/lib" find "No such file or directory" "" 127)"' "Kempt could not check $R/var/lib"
+refuses "...and so does a getfacl that could not start" dnf-offline-stage \
+  'export KEMPT_GETFACL="$(fail_stub "$R/var/lib" getfacl "No such file or directory" "" 127)"' "Kempt could not check $R/var/lib"
+refuses "...and in a tree, find" dnf-offline-arm \
+  'export KEMPT_FIND="$(fail_stub -ignore_readdir_race find "No such file or directory" "" 127)"' "Kempt could not check"
+refuses "...and in a tree, getfacl" dnf-offline-arm \
+  'export KEMPT_GETFACL="$(fail_stub -R getfacl "No such file or directory" "" 127)"' "Kempt could not check"
+refuses "no find at the set path refuses" dnf-offline-stage 'export KEMPT_FIND="$R/no-such-find"' "Kempt could not check"
+refuses "...and no getfacl at the set path too" dnf-offline-stage 'export KEMPT_GETFACL="$R/no-such-getfacl"' "Kempt could not check"
+apply dnf-offline-stage 'rm -rf var/lib/dnf/offline'
+assert_eq "$RC" "0" "premise: a real missing folder is still status 1 from the real tools, and passes"
+
+# --- clean deletes through the offline folder in dnf5's state ----------------------------------------
+refuses "clean refuses a writable offline folder in the state" dnf-offline-clean \
+  'mkdir -p usr/lib/sysimage/libdnf5/offline; chmod 777 usr/lib/sysimage/libdnf5/offline' "$UNSAFE $STATE/offline."
+if other_ids "clean over an offline folder another user owns"; then
+  refuses "...and one another user owns" dnf-offline-clean 'mkdir -p usr/lib/sysimage/libdnf5/offline; chown 1000 usr/lib/sysimage/libdnf5/offline' "$UNSAFE $STATE/offline."
+fi
+passes "...and passes with no such folder" dnf-offline-clean ':'
+passes "...and with a root-owned one" dnf-offline-clean 'mkdir -p usr/lib/sysimage/libdnf5/offline'
+passes "...and over a writable file in it, whose contents are not its concern" dnf-offline-clean \
+  'mkdir -p usr/lib/sysimage/libdnf5/offline; : > usr/lib/sysimage/libdnf5/offline/f; chmod 666 usr/lib/sysimage/libdnf5/offline/f'
+
+# --- a mount with an empty source keeps its options ----------------------------------------------------
+passes "a root FUSE with an empty source passes" dnf-offline-stage \
+  'printf "2 1 0:2 / %s rw - fuse.x  rw,user_id=0,group_id=0\n" "$R/var" >> "$mi"'
+refuses "...and a user's is refused" dnf-offline-stage \
+  'printf "2 1 0:2 / %s rw - fuse.x  rw,user_id=1000,group_id=1000\n" "$R/var" >> "$mi"' "is on a mount made by a user other than root"
+refuses "a line with more fields than the kernel writes is not guessed at" dnf-offline-stage \
+  'printf "2 1 0:2 / %s rw - fuse.x src rw,user_id=1000 rw,user_id=0\n" "$R/var" >> "$mi"' "a line in it could not be read"
+
+# --- doctor as an ordinary user: what root is refused, the user may not see --------------------------------
+# In a namespace with a second uid, on a tmpfs that uid can reach. The helper runs without capabilities,
+# so a folder's mode stops it as a server would stop root.
+if other_ids "doctor as an ordinary user"; then
+  as_user() {  # setup → OUT: the helper's line, HELPER=<status>, then doctor's rows for the dnf folders
+    OUT="$(timeout 120 unshare --map-auto --map-root-user --mount env REPO="$REPO_ROOT" SETUP="$1" bash -c '
+      mount -t tmpfs -o mode=755 none /mnt || exit 9
+      mkdir -p /mnt/repo /mnt/h && cp -r "$REPO"/bin "$REPO"/lib "$REPO"/libexec "$REPO"/backends "$REPO"/VERSION /mnt/repo/ 2>/dev/null
+      chown -R 1000:1000 /mnt/h; chmod -R a+rX /mnt/repo
+      R=/mnt/root; mkdir -p $R/usr/lib/sysimage/libdnf5 $R/var/lib/dnf/offline $R/var/cache/libdnf5/repo/packages; chmod -R 755 $R
+      mi=/mnt/mi; printf "1 0 0:1 / / rw - ext4 /dev/root rw\n" > $mi; chmod 644 $mi
+      export KEMPT_DNF_SYSIMAGE_DIR=$R/usr/lib/sysimage/libdnf5 KEMPT_DNF_OFFLINE_PKG_DIR=$R/var/lib/dnf/offline KEMPT_DNF_CACHE_DIR=$R/var/cache/libdnf5
+      export KEMPT_DNF_PARENTS_TOP=$R KEMPT_APPLY_ECHO=1 KEMPT_MOUNTINFO=$mi KEMPT_MNT_NS_INIT=/proc/self/ns/mnt KEMPT_OFFLINE_LINK=/mnt/no-link
+      export HOME=/mnt/h XDG_CONFIG_HOME=/mnt/h/c XDG_STATE_HOME=/mnt/h/s XDG_CACHE_HOME=/mnt/h/x KEMPT_CONFIG_DIR=/mnt/h/c KEMPT_STATE_DIR=/mnt/h/st
+      cd / || exit 9
+      eval "$SETUP"
+      rc=0
+      setpriv --bounding-set=-all --inh-caps=-all bash /mnt/repo/libexec/kempt-apply dnf-offline-clean 2>&1 | awk "/^kempt-apply:/" ; rc=${PIPESTATUS[0]}
+      echo "HELPER=$rc"
+      setpriv --reuid=1000 --regid=1000 --clear-groups --bounding-set=-all --inh-caps=-all /mnt/repo/bin/kempt doctor 2>&1 | grep -E "^(FAIL|WARN) +(dnf |Kempt )" || true
+    ' 2>&1)" || true
+  }
+  NFS='printf "2 1 0:2 / %s rw - nfs4 srv:/x rw,vers=4.2\n" $R/var >> $mi'
+  as_user 'chmod 700 $R/var/cache/libdnf5/repo'
+  assert_contains "$OUT" "HELPER=0" "premise: without a network file system nothing stops root at a folder only it can read"
+  assert_not_contains "$OUT" "network file system" "...and stock has root-only folders, which doctor says nothing about"
+  assert_not_contains "$OUT" "FAIL  dnf" "...and fails nothing"
+  as_user "chmod 000 \$R/var/lib/dnf; $NFS"
+  assert_contains "$OUT" "HELPER=3" "premise: a server's refusal stops the helper on a parent"
+  assert_contains "$OUT" "Kempt could not check" "premise: ...in its could-not-check words"
+  assert_contains "$OUT" "WARN  dnf folders: /mnt/root/var" "doctor as a user warns when a walked name is on a network file system"
+  assert_contains "$OUT" "network file system (nfs4)" "...and says which"
+  assert_not_contains "$OUT" "FAIL  dnf" "...and cannot fail over it"
+  as_user "$NFS"
+  assert_contains "$OUT" "WARN  dnf folders: /mnt/root/var" "it warns before anything is refused, since it cannot see that coming"
+  for t in nfs cifs smb3 ceph; do
+    as_user "printf '2 1 0:2 / %s rw - $t srv rw\n' \$R/var/cache >> \$mi"
+    assert_contains "$OUT" "network file system ($t)" "...and on $t"
+  done
+  as_user 'printf "2 1 0:2 / %s rw - nfs4 srv:/x rw\n" $R/var/cache/libdnf5/repo >> $mi'
+  assert_contains "$OUT" "WARN  dnf folders: /mnt/root/var/cache/libdnf5/repo" "...and on a mount inside one of the folders"
+  as_user 'printf "2 1 0:2 / %s rw - nfs4 srv:/x rw\n" $R/srv >> $mi'
+  assert_not_contains "$OUT" "network file system" "a network mount elsewhere is not its concern"
+  as_user 'printf "2 1 0:2 / %s rw - ext4 /dev/x rw\n" $R/var >> $mi'
+  assert_not_contains "$OUT" "network file system" "...and neither is a local one"
+fi
+doctor_in_ns 'printf "2 1 0:2 / %s rw - nfs4 srv:/x rw\n" "$R/var" >> "$mi"'
+assert_not_contains "$OUT" "network file system" "doctor as root reads what the helper reads, and needs no such warning"
 
 # --- the seam rule: at a path polkit binds to, no setting counts, whatever the uid map says -------------------
 # These runs cannot reach dnf5: the namespace differs from PID 1's, which is what they prove the helper sees.

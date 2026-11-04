@@ -1048,6 +1048,7 @@ MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("stagedMessage", "the staged-transaction message"),
             ("releaseUpgradeMessage", "the staged Fedora release upgrade"),
             ("imageBasedMessage", "the rpm-ostree message"),
+            ("foldersPausedMessage", "updates paused over a system folder"),
             ("riskyMessage", "the session-critical warning"),
             ("surfaceOfferMessage", "the offer to update in the popup"),
             ("discoverOfferMessage", "the offer to turn off Discover's notifier"),
@@ -2875,6 +2876,16 @@ _ib["image_based"] = True
 _ibpath = os.path.join(p.sandbox, "state-image-based.json")
 open(_ibpath, "w").write(json.dumps(_ib))
 state(_ibpath)
+_fp = json.loads(open(fixture("state-risky-heavy.json")).read())
+_fp["unsafe_folder"] = "/var/cache/libdnf5"
+_fppath = os.path.join(p.sandbox, "state-unsafe-folder.json")
+open(_fppath, "w").write(json.dumps(_fp))
+state(_fppath)
+p.check("a check that found an unsafe folder says updates are paused",
+        lev("foldersPausedMessage.text"), ev("root.vm.foldersPausedMessage"))
+p.check("...as a warning", lev("foldersPausedMessage.type"), lev("Kirigami.MessageType.Warning"))
+p.check("...and it is drawn", lev("foldersPausedMessage.visible"), True)
+state(_ibpath)
 stack("on an image-based Fedora", "imageBasedMessage")
 p.check("...naming the tool that does update this machine",
         "rpm-ostree" in str(lev("imageBasedMessage.text")), True)
@@ -3738,7 +3749,7 @@ _ASSEMBLED_IN_LOGIC = {
     "userAppsUncheckedShort",  # -> vm.footerText and vm.tooltipSub
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
-    "updatesPausedFolder",  # -> postRunLine, for a run the helper refused over a system folder
+    "updatesPausedFolder",  # -> postRunLine, for a run the helper refused over a system folder, and vm.foldersPausedMessage
     "stagedNothingHeld",    # -> postRunLine, for a staging run that staged nothing
     "stagedNothingNonePending",  # -> postRunLine, the other reason it can have staged nothing
     "lastRunNothingStaged",  # -> lastRunText, the past-tense row for the same run

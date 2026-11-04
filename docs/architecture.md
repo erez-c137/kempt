@@ -222,6 +222,7 @@ cope with that.
 | `offline_stage_blocked` | object, optional | `staged_at` and `count` of a stage Kempt made that will **not** install on the next restart, because another updater has prepared it. Absent otherwise. Additive. |
 | `offline_stage_restorable` | object, optional | `staged_at` and `count` of a stage that another program took the restart step from, while no packages have changed since. `kempt restore-stage` can set it to install again. Additive. |
 | `image_based` | `true`, optional | Present **only** on an image-based Fedora (Silverblue, Kinoite, Bazzite, a bootc image), detected by `/run/ostree-booted`. `kempt update` aborts there in pre-flight with exit 5. Never `false`. Additive. |
+| `unsafe_folder` | string, optional | A dnf folder, or one above it, that other users can change, so the root helper refuses updates. `kempt status` and the widget say updates are paused. Read as the user, so a folder only root can read counts for nothing here. Absent when there is none, and on an image-based system. Additive. |
 | `reclaim` | object, optional | The Flatpak runtimes no installed app uses. See [below](#reclaim). Additive. |
 | `release_upgrade` | object, optional | A stored Fedora release upgrade. See [below](#release_upgrade). Absent, never `null`, when there is none. Additive. |
 | `discover_offer` | `true`, optional | The widget may offer to turn off Discover's notifier. See [below](#the-two-offers). Never `false`. Additive. |

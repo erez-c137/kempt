@@ -1312,7 +1312,8 @@ var MESSAGE_CAP = 2;
 // `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
-var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "stageRestorable", "startup",
+// `foldersPaused` sits under imageBased: every button below it ends in the helper's refusal.
+var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "stageRestorable", "startup",
                      "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
                      "discoverOffer", "reclaim"];
 
@@ -2986,6 +2987,8 @@ function viewModel(state, updating, cliError, opts) {
     // primary button off the screen, so nothing unexpected may switch it on.
     var imageBased = usable && state.image_based === true;
     var imageBasedMessage = imageBased ? COPY.imageBased + "\n" + COPY.imageBasedUse : "";
+    var foldersPausedMessage = usable && !imageBased && typeof state.unsafe_folder === "string"
+        && state.unsafe_folder !== "" ? COPY.updatesPausedFolder : "";
 
     // Guarded the same way, and both halves or neither: "a Fedora  upgrade" with a hole where the
     // number goes is worse than saying nothing at all.
@@ -3333,6 +3336,7 @@ function viewModel(state, updating, cliError, opts) {
         // update. The kernel message is not displaced here but SILENCED (riskyIsMoot above): with
         // no button of any kind on offer, a count of session-critical packages has nowhere to go.
         imageBased: imageBasedMessage !== "",
+        foldersPaused: foldersPausedMessage !== "",
         releaseUpgrade: releaseUpgradeMessage !== "",
         // The kernel message RECOMMENDS installing on the next restart, which a stored release
         // upgrade does not allow - so what is shown there is the summary instead: the same fact,
@@ -3538,6 +3542,7 @@ function viewModel(state, updating, cliError, opts) {
         updateButtonTooltip: updateButton.tooltip,
         stageTooltipNamesFlatpak: flatpakPending,
         imageBasedMessage: imageBasedMessage,
+        foldersPausedMessage: foldersPausedMessage,
         // Published rather than left as a literal in the QML's Accessible.description, so the
         // words a screen reader hears and the words the tooltip shows are one decision. The QML
         // still writes the literal for i18n extraction; the probe ties the two together.

@@ -22,7 +22,7 @@ if command -v node >/dev/null 2>&1; then
     // The sentences the view model builds out of the copy, for every state fixture, idle and
     // updating, plus the no-data state.
     const FIELDS = ["tooltipMain", "tooltipSub", "headerText", "emptyStateText", "riskySummary",
-      "riskyMessage", "stagedMessage", "releaseUpgradeMessage", "imageBasedMessage", "footerText",
+      "riskyMessage", "stagedMessage", "releaseUpgradeMessage", "imageBasedMessage", "foldersPausedMessage", "footerText",
       "footerTooltip", "reclaimMessage", "engineFaultMessage"];
     const states = [["null", null]];
     for (const f of fs.readdirSync(process.argv[2]).filter((f) => /^state-.*\.json$/.test(f)))

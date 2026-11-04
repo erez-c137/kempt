@@ -717,6 +717,15 @@ assert_eq "$(js "$ib.messageSlots[0]")" "imageBased" \
 # says so would be a warning with nowhere to go.
 assert_eq "$(js "$ib.riskyMessage")" "" \
   "no session-critical warning on a box where no button Kempt offers could act on it"
+# A check that found an unsafe folder says updates are paused, before anyone presses a button.
+FP='function (v) { var s = S("risky-heavy"); if (v !== undefined) s.unsafe_folder = v; return L.viewModel(s, false, "", {}); }'
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").foldersPausedMessage")" \
+  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." "an unsafe folder puts the paused message up"
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").messageSlots.indexOf(\"foldersPaused\") >= 0")" "true" "...in its slot"
+assert_eq "$(js "($FP)().foldersPausedMessage")" "" "...and an ordinary box says nothing"
+for _bad in '""' 7 true null; do
+  assert_eq "$(js "($FP)($_bad).foldersPausedMessage")" "" "...and neither does an unsafe_folder of $_bad"
+done
 assert_eq "$(js "$ib.messageSlots")" '["imageBased"]' \
   "...so the one message about what this machine is stands alone"
 # The counts and the list are NOT suppressed. They are what dnf can see, the message says so, and
@@ -1812,6 +1821,14 @@ assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$HELPER_RUN\"))")" \
   "...and so does the helper's own sentence"
 assert_eq "$(js "L.mentionsDoctor(L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), ''))")" "true" \
   "...and the row offers Check Installation"
+# Only the sentences about what others can change get that short form. The rest are shown as they are.
+for _why in "Kempt could not check /var/lib/secret (Permission denied). Run kempt doctor." \
+            "Updates paused for safety: Kempt is running in a different mount namespace from the system, so what it checks is not what dnf5 would use. Run kempt doctor." \
+            "Updates paused for safety: /var is on a mount made by a user other than root. Run kempt doctor for the fix."; do
+  _run="{\\\"status\\\":\\\"failed\\\",\\\"error\\\":\\\"nothing was installed. $_why\\\"}"
+  assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$_run\"))")" "Update failed: nothing was installed. $_why" \
+    "the Last update row shows the helper's words: ${_why:0:40}"
+done
 # Failure wins over the counts. A run that upgraded four packages and then failed is a failed run,
 # and saying "Updated 4 packages" about it would be the popup's worst possible lie.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"dnf exited 1\",\"duration_sec\":38,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
@@ -3624,7 +3641,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","foldersPausedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

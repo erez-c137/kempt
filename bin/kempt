@@ -733,6 +733,14 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # The folder that has the root helper refusing updates, or absent: `kempt status` and the widget
+  # say so now, instead of a list of updates that cannot install. One read of the same rules doctor uses.
+  local unsafe_folder
+  if [[ "$image_based" == null ]] && unsafe_folder="$(apply_unsafe_dir 2>/dev/null)" \
+     && merged="$(jq --arg d "$unsafe_folder" '. + {unsafe_folder: $d}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   # true or absent, like image_based: the popup's one offer of the popup default, to an install
   # surface_migrate kept on the terminal.
   if surface_offer_pending \
@@ -1422,8 +1430,8 @@ reconcile_stage_after_live_run() {
           log_event "offline stage dropped (superseded by live update)"
         elif [[ $sup_clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Marker kept, like the failure below: doctor reads it against what is stored.
-          if clean_refused_over_folders; then
-            log_warn "$log" "warning: this update superseded the staged transaction. $KEMPT_CLEAN_LEFT"
+          if clean_refused_over_folders "$log"; then
+            log_warn "$log" "warning: this update superseded the staged transaction. $(clean_left_words "$log")"
           else
             log_warn "$log" "warning: this update superseded the staged transaction, but it was left in place because $(apply_refusal_reason). See: kempt doctor"
           fi
@@ -1597,6 +1605,7 @@ cmd_update() {
   # stage_discarded: ...and a transaction stored before it was removed, because it held what the
   # empty stage just excluded.
   local stage_discarded=false
+  local refused_why=""
   local reason_override="" notify_tail="" staged_fresh="" staged_check_names="" staged_check_ok=false
   # run_busy_reason: the busy sentence apply_with_retry claimed, if any. run_failed_otherwise: a
   #   failure that was not a lock. Together they decide exit 7 at the end.
@@ -1666,7 +1675,9 @@ cmd_update() {
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
-      if unsafe_dir="$(apply_unsafe_dir)"; then
+      if refused_why="$(log_folder_refusal "$log")"; then
+        reason_override="nothing was staged. $refused_why"
+      elif unsafe_dir="$(apply_unsafe_dir)"; then
         reason_override="nothing was staged, because other users can change files in $unsafe_dir. See: kempt doctor"
       else
         reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
@@ -1732,8 +1743,8 @@ cmd_update() {
           log_event "offline stage discarded (the stored one would have installed what is now held)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
-          if clean_refused_over_folders; then
-            reason_override="nothing new was staged. $KEMPT_CLEAN_LEFT"
+          if clean_refused_over_folders "$log"; then
+            reason_override="nothing new was staged. $(clean_left_words "$log")"
           else
             reason_override="nothing new was staged, and the previous staged update was left in place because $(apply_refusal_reason). See: kempt doctor"
           fi
@@ -1746,7 +1757,9 @@ cmd_update() {
         # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
-        if unsafe_dir="$(apply_unsafe_dir)"; then
+        if refused_why="$(log_folder_refusal "$log")"; then
+          reason_override="the updates were staged, but not set to install on the next restart. $refused_why"
+        elif unsafe_dir="$(apply_unsafe_dir)"; then
           reason_override="the updates were staged, but not set to install on the next restart, because other users can change files in $unsafe_dir. See: kempt doctor"
         else
           reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
@@ -1777,9 +1790,9 @@ cmd_update() {
         fi
         if [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Never "run: sudo dnf5 offline clean" here: that is the command the refusal protects against.
-          if clean_refused_over_folders; then
-            log_warn "$log" "warning: the updates could not be set to install. $KEMPT_CLEAN_LEFT"
-            notify_tail=". $KEMPT_CLEAN_LEFT"
+          if clean_refused_over_folders "$log"; then
+            notify_tail=". $(clean_left_words "$log")"
+            log_warn "$log" "warning: the updates could not be set to install$notify_tail"
           else
             log_warn "$log" "warning: the staged update that could not be set to install was left in place because $(apply_refusal_reason). See: kempt doctor"
             notify_tail=". The stored transaction was left in place. See: kempt doctor"
@@ -1839,8 +1852,8 @@ cmd_update() {
           fi
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Marker kept, as in the branch below, so doctor can compare it with what is stored.
-          if clean_refused_over_folders; then
-            reason_override="could not rebuild the staged update. $KEMPT_CLEAN_LEFT"
+          if clean_refused_over_folders "$log"; then
+            reason_override="could not rebuild the staged update. $(clean_left_words "$log")"
           else
             reason_override="could not rebuild the staged update, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
           fi
@@ -1868,11 +1881,14 @@ cmd_update() {
       dnf_status="ok"
     else
       dnf_status="failed"; status="failed"
-      # The helper refuses a live upgrade for one reason only: other users can change dnf5's
-      # folders. Nothing ran.
+      # The helper refuses a live upgrade over dnf5's folders and the mount namespace. Nothing ran.
       if [[ $live_rc -eq $KEMPT_APPLY_REFUSED ]]; then
-        unsafe_dir="$(apply_unsafe_dir)" || unsafe_dir="dnf's folders"
-        reason_override="nothing was installed, because other users can change files in $unsafe_dir. See: kempt doctor"
+        if refused_why="$(log_folder_refusal "$log")"; then
+          reason_override="nothing was installed. $refused_why"
+        else
+          unsafe_dir="$(apply_unsafe_dir)" || unsafe_dir="dnf's folders"
+          reason_override="nothing was installed, because other users can change files in $unsafe_dir. See: kempt doctor"
+        fi
         log_event "live update refused by the root helper"
       fi
     fi
@@ -2636,6 +2652,11 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
   # update, a reclaim and an unstage all take.
   update_running_elsewhere && echo "Kempt is changing the system right now"
   [[ -n "$detail" ]] && printf '%s\n' "$detail"
+  local unsafe_folder
+  unsafe_folder="$(jq -r '.unsafe_folder | strings' <<<"${doc:-null}" 2>/dev/null)" || unsafe_folder=""
+  if [[ -n "$unsafe_folder" ]]; then
+    echo "Updates paused for safety: other users can change files in $(doctor_plain_name "$unsafe_folder"). Run kempt doctor for the fix."
+  fi
 
   # While a stage is armed the pending sections and the security count read as work still waiting,
   # so they give way to the staged line, as they do in the widget's tooltip.
@@ -3223,10 +3244,16 @@ cmd_unstage() {
   fi
   # NOT through apply_with_retry: that tees into a run log this command does not have, and this is
   # one short verb rather than a transaction. A package lock held by something else fails plainly.
-  local rc=0
-  priv_apply dnf-offline-clean || rc=$?
+  local rc=0 err="" refused_why=""
+  { err="$(priv_apply dnf-offline-clean 2>&1 >&3)" || rc=$?; } 3>&1
+  if [[ $rc -eq $KEMPT_APPLY_REFUSED ]] && refused_why="$(helper_folder_refusal "$err")"; then
+    err=""
+  fi
+  [[ -z "$err" ]] || printf '%s\n' "$err" >&2
   if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
-    if clean_refused_over_folders; then
+    if [[ -n "$refused_why" ]]; then
+      echo "The staged update was left in place. $refused_why" >&2
+    elif clean_refused_over_folders; then
       echo "$KEMPT_CLEAN_LEFT" >&2
     else
       echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
@@ -3312,7 +3339,10 @@ cmd_restore_stage() {
   local rc=0 err="" unsafe_dir=""
   offline_armed || err="$(priv_apply dnf-offline-arm 2>&1 >/dev/null)" || rc=$?
   if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
-    if unsafe_dir="$(apply_unsafe_dir)"; then
+    local refused_why
+    if refused_why="$(helper_folder_refusal "$err")"; then
+      echo "Your staged update was not put back. $refused_why" >&2
+    elif unsafe_dir="$(apply_unsafe_dir)"; then
       echo "Your staged update was not put back, because other users can change files in $unsafe_dir. See: kempt doctor" >&2
     else
       echo "Your staged update was not put back, because $(apply_refusal_reason). See: kempt doctor" >&2
@@ -4429,7 +4459,7 @@ doctor_scan_tree() {  # dir [links] → DOCTOR_TREE_HIT, the first entry another
   fi
   if (( rc )); then
     doctor_first_check_error "$out"
-    if [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then DOCTOR_CHECK_ERROR="${DOCTOR_CHECK_ERROR:-the check failed}"; return 1; fi
+    if (( rc != 1 )) || [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then DOCTOR_CHECK_ERROR="${DOCTOR_CHECK_ERROR:-the check failed}"; return 1; fi
   fi
   # An ACL entry gives access the mode bits do not show, and a default one passes it to every file
   # root writes there later. getfacl -s lists only entries with more than the mode; -P stays off links.
@@ -4441,7 +4471,7 @@ doctor_scan_tree() {  # dir [links] → DOCTOR_TREE_HIT, the first entry another
   done <<<"$out"
   if (( rc )); then
     doctor_first_check_error "$out"
-    if [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then DOCTOR_CHECK_ERROR="${DOCTOR_CHECK_ERROR:-the check failed}"; return 1; fi
+    if (( rc != 1 )) || [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then DOCTOR_CHECK_ERROR="${DOCTOR_CHECK_ERROR:-the check failed}"; return 1; fi
   fi
   return 0
 }
@@ -4463,14 +4493,35 @@ apply_unsafe_dir() {  # → the first such folder; rc 1 when there is none
 }
 # A clean the helper refused. Over a folder problem, the unwind's words are these. Over what is
 # stored, the caller keeps its own sentence with the reason in it.
-clean_refused_over_folders() {
+clean_refused_over_folders() {  # run log or "" → 0 when the folders are why
   local relup
+  [[ -n "${1:-}" ]] && log_folder_refusal "$1" >/dev/null && return 0
   relup="$(offline_release_upgrade)" && return 1
   [[ -e "$KEMPT_OFFLINE_LINK" || -L "$KEMPT_OFFLINE_LINK" ]] && [[ "$(offline_link_state)" != dnf5 ]] && return 1
   [[ -e "$KEMPT_OFFLINE_TOML" || -L "$KEMPT_OFFLINE_TOML" ]] && ! offline_stored_is_readable && return 1
   return 0
 }
 KEMPT_CLEAN_LEFT="The staged update was left in place. Run kempt doctor."
+clean_left_words() {  # run log → KEMPT_CLEAN_LEFT, in the helper's words when it gave a folder reason
+  local why
+  if why="$(log_folder_refusal "$1")"; then printf 'The staged update was left in place. %s\n' "$why"
+  else printf '%s\n' "$KEMPT_CLEAN_LEFT"; fi
+}
+# The helper's own sentence for a refusal over the folders or the mount namespace. It alone knows
+# which: a user's reading cannot see what root was denied, and what is stored may be a second problem
+# the helper never reached. Its line is the last thing it prints.
+helper_folder_refusal() {  # the helper's output → the sentence; rc 1 when the last line is about something else
+  local line="${1##*$'\n'}"
+  case "$line" in
+    "kempt-apply: Updates paused for safety: "*|"kempt-apply: Kempt could not check "*)
+      doctor_plain_name "${line#kempt-apply: }"; echo ;;
+    *) return 1 ;;
+  esac
+}
+log_folder_refusal() {  # run log → the sentence, as above
+  [[ -f "$1" ]] || return 1
+  helper_folder_refusal "$(tail -n 1 -- "$1")"
+}
 # Every byte outside printable ASCII becomes ?: control characters, C1 bytes and Unicode bidi
 # controls alike, so a planted name cannot move the cursor or reorder the line. Root's dnf5 paths
 # are ASCII, so nothing real is lost.
@@ -4635,16 +4686,21 @@ doctor_load_mounts() {  # → 0 with the arrays filled; 1 with DOCTOR_CHECK_ERRO
     read -r -a f <<<"$line"
     n=${#f[@]} i=6
     while (( i < n )) && [[ "${f[i]}" != - ]]; do i=$(( i + 1 )); done
-    if ! (( n >= 5 && i + 2 < n )); then DOCTOR_CHECK_ERROR="a line in it could not be read"; return 1; fi
+    if ! (( n >= 5 && (n - i - 1 == 2 || n - i - 1 == 3) )); then DOCTOR_CHECK_ERROR="a line in it could not be read"; return 1; fi
     doctor_decode_mount_name "${f[4]}"
     DOCTOR_MOUNT_POINTS+=("$REPLY")
     DOCTOR_MOUNT_TYPES+=("${f[i + 1]}")
-    DOCTOR_MOUNT_OPTS+=("${f[i + 3]:-}")
+    DOCTOR_MOUNT_OPTS+=("${f[n - 1]}")
   done
 }
 doctor_mount_is_users() {  # index → 0 when it is a FUSE mount root did not make
   case "${DOCTOR_MOUNT_TYPES[$1]}" in fuse|fuse.*|fuseblk) ;; *) return 1 ;; esac
   [[ ",${DOCTOR_MOUNT_OPTS[$1]}," != *,user_id=0,* ]]
+}
+# A server can refuse root where it lets the user read, and root is who checks when an update runs.
+doctor_mount_is_remote() {  # index → 0 when it is a network file system
+  case "${DOCTOR_MOUNT_TYPES[$1]}" in nfs|nfs4|cifs|smb3|ceph) return 0 ;; esac
+  return 1
 }
 doctor_mount_of() {  # path → REPLY, the index of the mount it sits on: longest prefix, later of equals
   local i mp best=-1 best_len=-1
@@ -4666,7 +4722,7 @@ doctor_dnf_parents_scan() {
   local -A seen=()
   local -a walk=() leaves=()
   DOCTOR_PARENT_SHOWN=() DOCTOR_PARENT_OWN=() DOCTOR_PARENT_MODE=() DOCTOR_PARENT_ACL=()
-  DOCTOR_PARENT_FUSE=() DOCTOR_PARENT_ERRORS=() DOCTOR_PARENT_NOTE=""
+  DOCTOR_PARENT_FUSE=() DOCTOR_PARENT_ERRORS=() DOCTOR_PARENT_NOTE="" DOCTOR_PARENT_REMOTE=()
   for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR" "$KEMPT_DNF_CACHE_DIR"; do
     # Made absolute but not normalised: ".." is the resolver's to take, from where a link leads.
     [[ -n "$d" ]] || continue
@@ -4697,11 +4753,17 @@ doctor_dnf_parents_scan() {
     if (( REPLY >= 0 )) && doctor_mount_is_users "$REPLY"; then
       DOCTOR_PARENT_FUSE+=("$p"$'\t'"${DOCTOR_MOUNT_POINTS[REPLY]}"$'\t'"${DOCTOR_MOUNT_OPTS[REPLY]}")
     fi
+    if (( REPLY >= 0 && EUID != 0 )) && doctor_mount_is_remote "$REPLY"; then
+      DOCTOR_PARENT_REMOTE+=("$p"$'\t'"${DOCTOR_MOUNT_TYPES[REPLY]}")
+    fi
   done
   for d in "${leaves[@]}"; do
     for i in "${!DOCTOR_MOUNT_POINTS[@]}"; do
       if [[ "${DOCTOR_MOUNT_POINTS[i]}" == "$d"/* ]] && doctor_mount_is_users "$i"; then
         DOCTOR_PARENT_FUSE+=("${DOCTOR_MOUNT_POINTS[i]}"$'\t'"${DOCTOR_MOUNT_POINTS[i]}"$'\t'"${DOCTOR_MOUNT_OPTS[i]}")
+      fi
+      if [[ "${DOCTOR_MOUNT_POINTS[i]}" == "$d"/* ]] && (( EUID != 0 )) && doctor_mount_is_remote "$i"; then
+        DOCTOR_PARENT_REMOTE+=("${DOCTOR_MOUNT_POINTS[i]}"$'\t'"${DOCTOR_MOUNT_TYPES[i]}")
       fi
     done
   done
@@ -4710,7 +4772,7 @@ doctor_dnf_parents_scan() {
     out="$(LC_ALL=C "$KEMPT_FIND" -P "$p" -prune -printf '%U %G %m %y\n' 2>&1)" || rc=$?
     if (( rc )); then
       doctor_first_check_error "$out"
-      if [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then
+      if (( rc != 1 )) || [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then
         DOCTOR_PARENT_ERRORS+=("$p"$'\t'"${DOCTOR_CHECK_ERROR:-the check failed}")
       fi
       continue
@@ -4730,12 +4792,19 @@ doctor_dnf_parents_scan() {
       out="$(LC_ALL=C "$KEMPT_GETFACL" -P -s -n -E -p -- "$p" 2>&1)" || rc=$?
       if (( rc )); then
         doctor_first_check_error "$out"
-        if [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then
+        if (( rc != 1 )) || [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then
           DOCTOR_PARENT_ERRORS+=("$p"$'\t'"${DOCTOR_CHECK_ERROR:-the check failed}")
           continue
         fi
-      elif doctor_acl_grants_write <<<"$out"; then
-        acl_hit=true
+      else
+        rc=0
+        doctor_acl_grants_write <<<"$out" || rc=$?
+        if (( rc == 0 )); then
+          acl_hit=true
+        elif (( rc != 1 )); then
+          DOCTOR_PARENT_ERRORS+=("$p"$'\t'"its ACL entries could not be read")
+          continue
+        fi
       fi
     fi
     [[ "$bad" == true ]] || $acl_hit || continue
@@ -4770,6 +4839,12 @@ doctor_dnf_parents_row() {
     DOCTOR_CHECK_ERROR="${e#*$'\t'}"
     doctor_could_not_check "dnf folders" "${e%%$'\t'*}" "$KEMPT_FOLDERS_HOLD"
   done
+  # Not a FAIL: a stock system has root-only folders too, so a user's check cannot tell a refusal from
+  # them. When this one does refuse, the update's own message gives the helper's reason.
+  if (( ${#DOCTOR_PARENT_REMOTE[@]} )); then
+    p="${DOCTOR_PARENT_REMOTE[0]%%$'\t'*}"
+    doctor_warn "dnf folders: $(doctor_plain_name "$p") is on a network file system ($(doctor_plain_name "${DOCTOR_PARENT_REMOTE[0]#*$'\t'}")). The server can refuse root where it lets your user read, and this check runs as your user, so it may not see what stops an update. If Kempt refuses one, its message gives the reason."
+  fi
   local -A said=()
   for e in "${DOCTOR_PARENT_FUSE[@]}"; do
     IFS=$'\t' read -r p mp opts <<<"$e"
