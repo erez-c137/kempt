@@ -39,8 +39,8 @@ environment. Set `KEMPT_PKEXEC=` to empty. Point `KEMPT_APPLY_HELPER`, `KEMPT_RE
 sandbox for you: source it and call `sandbox`.
 
 **2. Seams are how tests replace commands.** Every outside command the CLI runs goes through a
-`KEMPT_*` variable. `docs/architecture.md` lists them all. `tests/test_docs.sh` reads the list from
-the code, so a new seam without a row in that table fails the suite.
+`KEMPT_*` variable, and the comment where it is read says what it replaces. Add no seam read in
+`libexec/` without a test.
 
 **3. `tests/live/offline-gate.sh` breaks dnf5 inside a container.** It hides `/usr/bin/dnf5`,
 empties dnf5's package cache and points every repository at a dead address, and it refuses to run

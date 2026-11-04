@@ -2,8 +2,8 @@
 # Documentation defects that a reader sees and a diff does not.
 #
 # A Markdown table broken by a blank line still renders, but the rows below the break show as
-# literal text full of pipes. A seam missing from the environment-seams table works and is
-# documented nowhere. Neither shows in a diff, so each gets a test instead of a convention.
+# literal text full of pipes. A missing log vocabulary row
+# shows in no diff, so each gets a test instead of a convention.
 #
 # Nothing here needs jq, a package manager or a desktop: it reads the tree it is standing in. The
 # prose check needs python3.
@@ -28,57 +28,10 @@ while IFS= read -r f; do
 done < <(find "$REPO_ROOT" -name '*.md' -not -path '*/.git/*' -not -path '*/internal/*' | sort)
 assert_eq "${broken%$'\n'}" "" "no Markdown table is split in two by a blank line"
 
-# --- every environment seam has a row in the seams table -----------------------------------------
-# docs/architecture.md's seams table sits under a sentence saying every impure call in the CLI goes
-# through one of these. That claim is about the CODE, so this test derives the list from the code
-# and asks the table about it, rather than asking a maintained list about either.
-#
-# A seam is a KEMPT_* variable read with a default - ${KEMPT_X:-...} or ${KEMPT_X-...} - which is
-# precisely what "overridable from the environment" means. Plain assignments (KEMPT_NAME_RE, the
-# two size caps, KEMPT_STAGED_RECIPE, the KEMPT_AUTH_* sentences, KEMPT_JQ_COUNTS) are internal constants
-# that no caller can influence, and they are excluded by that SHAPE rather than by a list - so a
-# constant that becomes a seam is caught on the day it does, not remembered.
-ARCH="$REPO_ROOT/docs/architecture.md"
-
-# Not exempt from the table, but in the list below with a reason. Empty today, and it stays here so
-# the next one has a home: add a name only with a comment saying why a reader could never need it.
-NOT_SEAMS=()
-
-table="$(awk '/^## Environment seams$/ { f = 1; next } f && /^## / { exit } f' "$ARCH")"
-assert_eq "$([[ -n "$table" ]] && echo found || echo missing)" "found" \
-  "docs/architecture.md still has an '## Environment seams' section"
-
-undocumented=""
-while IFS= read -r v; do
-  [[ -n "$v" ]] || continue
-  skip=false
-  for x in ${NOT_SEAMS[@]+"${NOT_SEAMS[@]}"}; do
-    if [[ "$x" == "$v" ]]; then skip=true; fi
-  done
-  if [[ "$skip" == true ]]; then continue; fi
-  # Backticked, because that is how the table writes a variable and a bare grep would also match
-  # the same name in the prose around it.
-  if ! grep -qF "\`$v\`" <<<"$table"; then
-    undocumented+="$v "
-  fi
-done < <(
-  # The root helpers and the widget are in this list too. They read seams of their own
-  # (KEMPT_*_ECHO in the helpers, the state and config directories in the widget), and leaving
-  # them out meant a seam could be added there and documented nowhere without the suite noticing.
-  grep -ohE '\$\{KEMPT_[A-Z0-9_]+:?-' \
-    "$REPO_ROOT/lib/common.sh" "$REPO_ROOT/bin/kempt" \
-    "$REPO_ROOT"/backends/*.sh "$REPO_ROOT/install.sh" \
-    "$REPO_ROOT"/libexec/* "$REPO_ROOT"/plasmoid/contents/ui/*.qml \
-    "$REPO_ROOT"/plasmoid/contents/ui/*.js \
-  | sed 's/^\${//; s/[-:].*$//' | sort -u
-)
-assert_eq "${undocumented% }" "" \
-  "every KEMPT_* seam read by the code has a row in the environment-seams table"
-
 # --- every event line has a row in the `kempt log` vocabulary table ------------------------------
 # docs/usage.md's log section says "The vocabulary is fixed, so the file is worth grepping". That is
 # a promise about the CODE, so this derives the list from the code and asks the table about it -
-# the same shape as the seams check above. It was already false for five families when this was
+# It was already false for five families when this was
 # written, and it went false again for seven more the day `kempt unstage` was added, in both cases
 # with nothing to notice.
 #

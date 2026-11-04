@@ -22,7 +22,7 @@ tests/run_tests.sh
 
 You need bash 4+, `jq`, `flock` (util-linux), GNU coreutils and `python3`. You do not need dnf,
 Flatpak, polkit or root: every outside command goes through an
-[environment seam](docs/architecture.md#environment-seams), and the suite stubs them all.
+environment variable, and the suite stubs them all.
 
 Two optional tools add the widget's tests, which are more than half the suite. `node` runs the
 tests of `logic.js`. `python3` with PySide6 (`python3-pyside6`) runs the probes that load the real

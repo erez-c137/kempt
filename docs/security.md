@@ -23,6 +23,10 @@ The helpers are `/usr/libexec/kempt-{refresh,apply}` from the package and
 `/usr/local/libexec/...` from a checkout install. Each polkit action's `exec.path` pins the path
 for that build, and `kempt doctor` prints it. pkexec matches an action by that path alone.
 
+`libexec/kempt-apply` honours a test setting (a `KEMPT_*` variable) only when not root, or as root
+when its uid map is not the full identity and its own path is not one a polkit action binds to.
+pkexec only ever runs those paths, so a real root run reads none of them.
+
 Either way, both helpers are `root:root` 0755 **copies**, installed once by `install.sh` or owned
 by the package. The CLI, its library and the backends run as you.
 
