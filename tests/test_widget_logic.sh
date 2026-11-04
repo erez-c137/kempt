@@ -1801,11 +1801,15 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"\
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\"}"))')" \
   "Update failed" "...and so does one with no error field at all"
 # The root helper's refusal over a dnf folder other users can change reaches the Last update row
-# as the CLI worded it, and the row offers Check Installation, where doctor prints the fix.
+# in its short form, and the row offers Check Installation, where doctor prints the fix.
 UNSAFE_RUN='{\"status\":\"failed\",\"error\":\"nothing was installed, because other users can change files in /usr/lib/sysimage/libdnf5. See: kempt doctor\"}'
 assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), '')")" \
-  "Update failed: nothing was installed, because other users can change files in /usr/lib/sysimage/libdnf5. See: kempt doctor" \
+  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." \
   "a run the helper refused over an unsafe dnf folder says so on the Last update row"
+HELPER_RUN='{\"status\":\"failed\",\"error\":\"Updates paused for safety: users other than root can change /var/lib. Run kempt doctor for the fix.\"}'
+assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$HELPER_RUN\"))")" \
+  "Updates paused: a system folder has unsafe permissions. Run kempt doctor." \
+  "...and so does the helper's own sentence"
 assert_eq "$(js "L.mentionsDoctor(L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), ''))")" "true" \
   "...and the row offers Check Installation"
 # Failure wins over the counts. A run that upgraded four packages and then failed is a failed run,
@@ -1932,9 +1936,9 @@ assert_eq "$(js "L.discardStagedMessage(9, '', '')")" \
 
 # --- Check Installation: `kempt doctor`, run from the widget -------------------------------------
 # Every widget sentence that names kempt doctor names the button too. None of them sends anybody
-# to a terminal any more.
+# to a terminal any more. One sentence keeps the CLI's words on purpose, with the button beside it.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /kempt doctor/.test(L.COPY[k]) && L.COPY[k].indexOf("Check Installation") < 0; })')" \
-  '["engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
+  '["updatesPausedFolder","engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /doctor in a terminal/.test(L.COPY[k]); })')" \
   "[]" "...and none of them asks for a terminal"
 assert_eq "$(js 'L.COPY.doctorAction')" "Check Installation" "the button's label"

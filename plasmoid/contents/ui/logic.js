@@ -279,6 +279,9 @@ var COPY = {
     showLog: "Show Log",
     noPackageChanges: "No package changes",
     updateFailed: "Update failed",
+    // The root helper refused because a folder of dnf's, or one above it, is not root's alone. A
+    // short form of the CLI's reason; the row offers Check Installation, where doctor has the fix.
+    updatesPausedFolder: "Updates paused: a system folder has unsafe permissions. Run kempt doctor.",
 
     // THREE spellings, because two things vary independently: the count can be unknown (a marker
     // written before the CLI recorded one), and one update is not the plural with a 1 in it: noun
@@ -2404,6 +2407,7 @@ function postRunLine(run) {
         // The CLI's own worked-out reason (run_failure_reason), not a generic apology - first line
         // only, because a panel is one line wide and the log is one click away.
         var why = firstLineOf(run.error);
+        if (/(other users|users other than root) can change/.test(why)) return COPY.updatesPausedFolder;
         return why === "" ? COPY.updateFailed : COPY.updateFailed + ": " + why;
     }
     // The staging run's entry has empty package lists BY CONSTRUCTION - nothing changes until the
