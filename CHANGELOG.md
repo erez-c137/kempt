@@ -18,6 +18,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget's offer to update inside it, and keeping `terminal` on upgrade.** An install from before 0.1.8 whose config file names no `surface` now updates in the widget, with no offer first. To keep a terminal window, run `kempt config set surface terminal`.
 - **Recognizing the Discover startup file that `install.sh` wrote before 0.1.8.** `kempt discover-notifier on` now treats that file as your own and leaves it. To turn the notifier back on, delete it from `~/.config/autostart`.
 - **The `background` surface and In the background.** A run in the widget does the same work, so saved settings now read as **In this widget**. Keep your updates out of sight by leaving the widget closed: a finished run still sends a desktop notification.
+- **Some `kempt doctor` rows.** jq, dnf, apps for you only, unused Flatpak runtimes, shutdown protection during installs, the program files check, the overridden privileged paths check and the network mount warning are gone. A missing tool or a refused update still gives its own reason when you hit it, and `kempt reclaim` lists the runtimes.
 
 ### Security
 

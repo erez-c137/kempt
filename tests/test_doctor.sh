@@ -69,7 +69,7 @@ assert_eq "$(grep -c '^FAIL' "$TESTTMP/last_output" || true)" "0" \
 # every check reports, pass or fail: a silent doctor is a useless doctor. Matched against the
 # REPORT LINES only - the usage text mentions half these words, so a plain grep over the whole
 # output passes vacuously.
-for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' 'jq' \
+for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' \
             'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
             'package lists' \
             'polkit exec.path (refresh)' 'polkit exec.path (apply)' 'widget engine' 'startup'; do
@@ -86,9 +86,9 @@ assert_exit 2 "doctor takes no arguments" "$KEMPT" doctor --all
 kempt_init_dirs
 rm -f "$LAST_REFRESH_FILE" "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
-grep -qE '^info +package lists: never refreshed' "$TESTTMP/doc-meta" \
+grep -qE '^info +package lists: no dnf refresh recorded yet' "$TESTTMP/doc-meta" \
   && echo "ok: a box that has never fetched metadata says so, rather than dating it" \
-  || { echo "FAIL: no never-refreshed metadata row"; _fail=1; }
+  || { echo "FAIL: no metadata row on a box that never fetched"; _fail=1; }
 touch -d '3 days ago' "$LAST_REFRESH_DNF_FILE"
 "$KEMPT" doctor > "$TESTTMP/doc-meta" 2>&1 || true
 grep -qE '^info +package lists are 3 days old' "$TESTTMP/doc-meta" \
@@ -414,89 +414,6 @@ assert_eq "$(grep -qE '^info .*flatpak' "$TESTTMP/last_output" && echo yes || ec
   "a disabled backend is information, not a failure"
 "$KEMPT" config set include_flatpak true
 
-# Apps installed with --user: one line saying how many, and never a failure.
-assert_contains "$("$KEMPT" doctor 2>&1)" "apps for you only: none" "no per-user installation: doctor says none"
-mkdir -p "$TESTTMP/ufp/repo"; : > "$TESTTMP/ufp/repo/config"
-assert_contains "$(KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_LIST_CMD="cat $FIXTURES/flatpak-list.tsv" "$KEMPT" doctor 2>&1)" \
-  "apps for you only: 2, checked and updated with the system ones" "a per-user installation: doctor counts its apps"
-assert_exit 0 "a per-user list that fails is information, not a failure" \
-  env KEMPT_FLATPAK_USER_DIR="$TESTTMP/ufp" KEMPT_FLATPAK_USER_LIST_CMD=false "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" "apps for you only: the list failed, so updates skip them and checks keep their last known updates" \
-  "...said as such, with what checks and updates then do"
-
-# --- the listing behind reclaim ------------------------------------------------------------------
-# The listing helper needs PyGObject and the Flatpak typelib in flatpak-libs, and the flatpak
-# command pulls in neither. Without them every check reports the listing failed and nothing says
-# why, so doctor runs the helper wherever the feature is on.
-printf '#!/usr/bin/env bash\necho "cannot load libflatpak from Python: Namespace Flatpak not available" >&2\nexit 3\n' \
-  > "$TESTTMP/unused-nogi"
-printf '#!/usr/bin/env bash\necho "flatpak did not answer: boom" >&2\nexit 1\n' > "$TESTTMP/unused-broken"
-printf '#!/usr/bin/env bash\necho "{\\"installation\\":\\"/var/lib/flatpak\\",\\"unused\\":[],\\"used\\":[]}"\n' \
-  > "$TESTTMP/unused-ok"
-chmod +x "$TESTTMP/unused-nogi" "$TESTTMP/unused-broken" "$TESTTMP/unused-ok"
-assert_exit 1 "a listing helper that cannot load libflatpak fails doctor" \
-  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor
-assert_contains "$(grep '^FAIL' "$TESTTMP/last_output")" \
-  "unused Flatpak runtimes: Kempt cannot list them because Python cannot load libflatpak (cannot load libflatpak from Python: Namespace Flatpak not available)" \
-  "...naming what failed"
-assert_contains "$(grep '^FAIL' "$TESTTMP/last_output")" "sudo dnf install flatpak-libs python3-gobject-base" \
-  "...and the packages to install"
-# Any other failure is flatpak's own (no system bus, a damaged installation), not a missing
-# package: said, with its reason, but doctor's verdict stays about Kempt.
-assert_exit 0 "a listing that fails some other way is reported, not a doctor failure" \
-  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-broken" "$KEMPT" doctor
-assert_contains "$(grep '^info' "$TESTTMP/last_output")" "the listing failed (rc=1: flatpak did not answer: boom)" \
-  "...with its exit code and its own reason"
-assert_exit 0 "a listing that answers is an ok row" \
-  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-ok" "$KEMPT" doctor
-assert_eq "$(grep -cE '^ok +unused Flatpak runtimes: Kempt can list them' "$TESTTMP/last_output")" "1" \
-  "...saying the runtimes can be listed"
-# Under sudo or pkexec the listing would count root's apps, like a removal would: skipped, said.
-printf '#!/usr/bin/env bash\necho ran >> "%s/unused-root.calls"\nexit 3\n' "$TESTTMP" > "$TESTTMP/unused-root"
-chmod +x "$TESTTMP/unused-root"
-for elevated in SUDO_UID=1000 PKEXEC_UID=1000; do
-  assert_exit 0 "doctor with $elevated does not fail on the listing" \
-    env "$elevated" KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-root" "$KEMPT" doctor
-  assert_contains "$(grep '^info' "$TESTTMP/last_output")" "unused Flatpak runtimes: not checked as root" "...and says it skipped it"
-done
-assert_eq "$(cat "$TESTTMP/unused-root.calls" 2>/dev/null || echo never)" "never" "...without running the helper"
-"$KEMPT" config set reclaim off
-assert_exit 0 "reclaim=off: the listing is not run" \
-  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor
-assert_not_contains "$(cat "$TESTTMP/last_output")" "unused Flatpak runtimes" "...and has no row"
-"$KEMPT" config set reclaim ask
-"$KEMPT" config set include_flatpak false
-assert_exit 0 "include_flatpak=false: the listing is not run" \
-  env KEMPT_FLATPAK_UNINSTALL_CMD=true KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor
-"$KEMPT" config set include_flatpak true
-assert_exit 0 "no flatpak: the listing is not run" \
-  env KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/no-such-flatpak" KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/unused-nogi" "$KEMPT" doctor
-
-# --- the command behind the reboot verdict -----------------------------------------------------
-# `kempt check` is the hourly, detached path, so when this command cannot run its
-# "warning: restart check failed (rc=127)" goes to a stderr nobody is attached to, and the event
-# log records nothing about it either. reboot_needed then answers false on every check forever,
-# which is the safe direction and is also indistinguishable from "no restart is owed". Doctor is
-# where a permanently broken check becomes visible instead.
-#
-# info, not FAIL: nothing else in Kempt runs this command. The pending list and the update itself
-# both go through the root helper, so updates keep working exactly as they did - one derived
-# answer degrades, and it degrades safely.
-assert_exit 0 "a missing dnf command does not fail doctor" \
-  env KEMPT_DNF_CMD=kempt-no-such-dnf "$KEMPT" doctor
-assert_eq "$(grep -qE "^info .*dnf command 'kempt-no-such-dnf' not found" "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
-  "the info line names the missing dnf command"
-grep '^info .*dnf command' "$TESTTMP/last_output" | grep -q 'restart' \
-  && echo "ok: ...and says which answer degrades, not merely that a file is missing" \
-  || { echo "FAIL: the dnf info line does not say what stops working"; _fail=1; }
-# The healthy line names the command the BACKEND would run - first word of the seam - so a seam
-# carrying arguments is still resolved rather than reported as one long missing filename.
-assert_exit 0 "a dnf command carrying arguments still resolves" \
-  env KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no --setopt=keepcache=1" "$KEMPT" doctor
-grep -qF "ok    dnf: $TESTTMP/dnf-reboot-no" "$TESTTMP/last_output" \
-  && echo "ok: the ok line names the resolved dnf command" \
-  || { echo "FAIL: no dnf ok line"; _fail=1; }
-
 # The settings count pluralizes itself, and docs/usage.md's sample output is pinned to this
 # wording: "(2 settings)", never "(2 setting(s))".
 : > "$CONFIG_FILE"; "$KEMPT" config set surface terminal
@@ -530,35 +447,6 @@ assert_exit 1 "an unwritable state dir fails the checkup" "$KEMPT" doctor
 assert_contains "$(cat "$TESTTMP/last_output")" 'state dir not writable' \
   "the FAIL line names the state dir"
 chmod 700 "$KEMPT_STATE_DIR"
-
-# The checkout is load-bearing (the CLI is a symlink into it), and the pieces that are NOT sourced
-# at startup can go missing without anything noticing until the day they are needed.
-CO="$TESTTMP/checkout"
-mkdir -p "$CO"
-cp -r "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" "$REPO_ROOT/polkit" "$CO/"
-# install.sh too: its presence is what makes this a CHECKOUT rather than a packaged tree, and the
-# row below now says which one it is describing. Without it this fixture was a package wearing a
-# checkout's name.
-cp "$REPO_ROOT/install.sh" "$CO/"
-rm -f "$CO/polkit/49-kempt.rules.in"
-assert_exit 1 "an incomplete checkout fails the checkup" "$CO/bin/kempt" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" 'checkout incomplete' \
-  "the FAIL line says the checkout is incomplete"
-assert_contains "$(cat "$TESTTMP/last_output")" '49-kempt.rules.in' \
-  "...and names the missing file"
-
-# ...and the same tree with no install.sh is a PACKAGE, so the row calls it what it is. A packaged
-# box has no checkout, and a report that says "checkout intact" on one line and "install: packaged"
-# on the next is asking the reader to know which of the two it means.
-rm -f "$CO/install.sh"
-assert_exit 1 "the same tree without install.sh still fails" "$CO/bin/kempt" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" 'program files incomplete' \
-  "...and a packaged install is told about its program files, not about a checkout"
-# The ROW's wording, not the bare word: this fixture's own directory is named "checkout", and a
-# path is not a claim about the install.
-grep -qE 'checkout (intact|incomplete)' "$TESTTMP/last_output" \
-  && { echo "FAIL: a packaged report still calls its files a checkout"; _fail=1; } \
-  || echo "ok: ...and never calls them a checkout"
 
 # --- install skew: the copies that `git pull` cannot move ---------------------------------------
 # The CLI is a symlink into the checkout, so a pull updates it the moment it lands. The two root
@@ -610,7 +498,7 @@ rm -rf "$S_WIDGET"; bash "$REPO_ROOT/install.sh" --destdir "$STAGE" >/dev/null
 # so, and a box with no kpackagetool6 gets a working CLI without it), so a missing one is an info.
 rm -rf "$S_WIDGET"
 assert_exit 0 "a widget that was never installed is not a problem" -- doctor_staged
-assert_contains "$(cat "$TESTTMP/last_output")" 'info  widget: not installed (the CLI works without it)' \
+assert_contains "$(cat "$TESTTMP/last_output")" 'info  widget: not installed. Run ./install.sh' \
   "...and says so in one line"
 
 # A missing root helper IS a problem, but it is already a FAIL on its own line: counting it twice
@@ -635,16 +523,16 @@ else
   echo "skip: not a git checkout - the no-git version line is asserted below"
 fi
 
-# A tree with no .git still reports a version: git is a diagnostic here, never a requirement.
+# A tree with no .git still names its release, on the opening line: git is never a requirement.
 NOGIT="$TESTTMP/nogit"
 mkdir -p "$NOGIT"
 cp -r "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" "$REPO_ROOT/polkit" \
       "$REPO_ROOT/libexec" "$REPO_ROOT/plasmoid" "$REPO_ROOT/VERSION" "$NOGIT/"
 cp "$REPO_ROOT/install.sh" "$NOGIT/install.sh"
 env KEMPT_POLICY_FILE="$S_POLICY" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
-grep -qE "^info  version: kempt $(cat "$REPO_ROOT/VERSION")$" "$TESTTMP/skew.txt" \
+grep -qE "^info  kempt $(cat "$REPO_ROOT/VERSION") \(" "$TESTTMP/skew.txt" \
   && echo "ok: a checkout with no git history still names its release" \
-  || { echo "FAIL: version line wrong without git"; _fail=1; grep '^info  version' "$TESTTMP/skew.txt" | sed 's/^/    /'; }
+  || { echo "FAIL: opening line wrong without git"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
 
 # A packaged install has nothing to compare: the RPM ships bin/, lib/ and backends/ and none of
 # libexec/, polkit/ or plasmoid/, because those become files the package manager owns. install.sh
@@ -742,37 +630,6 @@ env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$TESTTMP/absent-user-widge
     KEMPT_SYSTEM_PLASMOID_DIR="$SYS_WIDGET" "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
 assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'panel widget not installed' \
   "...and stays quiet once the widget package is there"
-
-# --- a packaged install refuses to certify a hijacked update path -------------------------------
-# The seams below are how the suite runs, and on a real box they are how `kempt update` becomes a
-# no-op that reports success: six lines in ~/.config/environment.d pointing them at /bin/true, and
-# every other row in this report goes on describing an install those lines have stepped around. A
-# checkout catches it by comparing files; a packaged install has no checkout to compare, so this
-# is the only thing standing between a box that quietly stopped updating and a report saying it is
-# healthy.
-# Read-only, because that is what makes it a package rather than a fixture: the row is gated on a
-# tree the caller cannot write, which is the one thing about a packaged install that an
-# environment variable cannot fake.
-chmod a-w "$NOGIT"
-for seam in KEMPT_PKEXEC KEMPT_APPLY_HELPER KEMPT_REFRESH_HELPER; do
-  env KEMPT_POLICY_FILE="$S_POLICY" KEMPT_PLASMOID_DIR="$TESTTMP/absent-user-widget" \
-      "$NOGIT/bin/kempt" doctor > "$TESTTMP/skew.txt" 2>&1 || true
-  grep -qF "privileged path overridden in the environment" "$TESTTMP/skew.txt" \
-    && grep -qF "$seam" "$TESTTMP/skew.txt" \
-    && echo "ok: a packaged install names $seam as an override rather than certifying itself" \
-    || { echo "FAIL: $seam override not reported"; _fail=1; sed 's/^/    /' "$TESTTMP/skew.txt"; }
-done
-assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'all checks passed' \
-  "...and does not end with 'all checks passed'"
-chmod u+w "$NOGIT"
-# The fix has to be findable: the person reading this did not set these on purpose.
-assert_contains "$(cat "$TESTTMP/skew.txt")" 'look in ~/.config/environment.d and your shell profile' \
-  "...and says where such a setting comes from"
-# A CHECKOUT is where the suite lives, and there the file comparisons already tell the truth about
-# what is installed, so the same seams must NOT fail - or no test in this suite could run doctor.
-doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
-assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'privileged path overridden' \
-  "a checkout says nothing about them - its file comparisons answer the question"
 
 # On a CHECKOUT install that same directory IS the install - install.sh puts it there with the
 # same kpackagetool6 - so there is nothing shadowing anything and nothing to remove. A warning
@@ -1611,62 +1468,10 @@ fi
 rm -rf "$DC" "$DS"
 
 
-# --- shutdown protection during package installs ---------------------------------------------------
-# Fedora blocks shutdown and sleep while packages install, through libdnf5's plugin or rpm's. The
-# row reads which are installed and whether libdnf5's is on, and the last line counts its WARN.
-warns_of() { local l; l="$(tail -1 "$1")"
-  [[ "$l" =~ ([0-9]+)\ warnings?$ ]] && { echo "${BASH_REMATCH[1]}"; return; }; echo 0; }
-IC="$TESTTMP/inhibit.conf"
-"$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "ok    shutdown during package installs: blocked by rpm-plugin-systemd-inhibit" \
-  "rpm's plugin installed is an ok row"
-base_warns="$(warns_of "$TESTTMP/inh.txt")"
-printf '[main]\nname = systemd-inhibit\nenabled = 1\n' > "$IC"
-KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
-  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "ok    shutdown during package installs: blocked by libdnf5-plugin-systemd-inhibit" \
-  "libdnf5's plugin installed with enabled = 1 is an ok row"
-printf '[main]\nname = systemd-inhibit\n' > "$IC"
-KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
-  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "blocked by libdnf5-plugin-systemd-inhibit" \
-  "...and so is a config with no enabled key, which libdnf5 reads as on"
-printf '[main]\nname = systemd-inhibit\nenabled = False \n' > "$IC"
-KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
-  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed but turned off in $IC" \
-  "libdnf5's plugin turned off, with no rpm plugin, is a WARN naming the file"
-assert_eq "$(warns_of "$TESTTMP/inh.txt")" "$(( base_warns + 1 ))" "...and the last line counts it"
-printf '[other]\nenabled = 0\n[main]\nname = systemd-inhibit\n' > "$IC"
-KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
-  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "blocked by libdnf5-plugin-systemd-inhibit" \
-  "an enabled key outside [main] does not turn the plugin off"
-KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$TESTTMP/no-such.conf" \
-  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed, but its config file $TESTTMP/no-such.conf is missing" \
-  "with no config file libdnf5 never loads its plugin, so that is a WARN that says the file is missing"
-printf '[main]\nname = systemd-inhibit\n  enabled = 0\n' > "$IC"
-KEMPT_RPM_INHIBIT_CMD="echo libdnf5-plugin-systemd-inhibit" KEMPT_DNF_INHIBIT_CONF="$IC" \
-  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "blocked by libdnf5-plugin-systemd-inhibit" \
-  "an indented enabled line continues the value above it, as libdnf5 reads it, so it is not a key"
-printf '[main]\nenabled = 0\n' > "$IC"
-KEMPT_RPM_INHIBIT_CMD="printf libdnf5-plugin-systemd-inhibit\nrpm-plugin-systemd-inhibit\n" KEMPT_DNF_INHIBIT_CONF="$IC" \
-  "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "ok    shutdown during package installs: blocked by rpm-plugin-systemd-inhibit" \
-  "rpm's plugin covers for libdnf5's when that one is off"
-KEMPT_RPM_INHIBIT_CMD="false" "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked. A shutdown or sleep while packages install can leave the system half updated. To block it, run: sudo dnf5 install rpm-plugin-systemd-inhibit" \
-  "neither plugin is a WARN with the command that installs one"
-assert_eq "$(warns_of "$TESTTMP/inh.txt")" "$(( base_warns + 1 ))" "...and the last line counts it"
-KEMPT_RPM_INHIBIT_CMD="echo package rpm-plugin-systemd-inhibit is not installed" "$KEMPT" doctor > "$TESTTMP/inh.txt" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/inh.txt")" "WARN  shutdown during package installs: not blocked." \
-  "rpm's not-installed line is not read as the package"
-
-
 # --- offline: the failed fetch and the failed check are WARN rows, and the last line counts them ---
 # A box where every check fails offline must not read "no problems" with nothing beside it.
+warns_of() { local l; l="$(tail -1 "$1")"
+  [[ "$l" =~ ([0-9]+)\ warnings?$ ]] && { echo "${BASH_REMATCH[1]}"; return; }; echo 0; }
 rm -f "$STATE_FILE" "$REFRESH_DNF_FAILED_FILE"
 "$KEMPT" doctor > "$TESTTMP/off.txt" 2>&1 || true
 off_base="$(warns_of "$TESTTMP/off.txt")"

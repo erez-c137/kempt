@@ -745,16 +745,12 @@ ok    root helper (apply): /usr/local/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 ok    polkit exec.path (refresh): /usr/local/libexec/kempt-refresh
 ok    polkit exec.path (apply): /usr/local/libexec/kempt-apply
-ok    jq: /usr/bin/jq (jq-1.8.1)
 ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
-ok    dnf: /usr/bin/dnf5
-ok    unused Flatpak runtimes: Kempt can list them
 ok    Discover's update notifier: turned off for this user (/home/you/.config/autostart/org.kde.discover.notifier.desktop)
 ok    package lists: refreshed 2026-08-26T20:58:03+03:00
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
-ok    checkout intact: /home/you/src/kempt
 info  version: kempt 0.1.x (checkout a1b2c3d clean)
 ok    helpers: match checkout
 ok    policy: match checkout
@@ -783,14 +779,11 @@ What a `FAIL` means:
 | Both root helpers exist at the expected paths, `root:root` 0755 | `install.sh` has not run, or the helpers were replaced. Checks stay `stale`, updates cannot run. |
 | The polkit action file is installed | Background checks cannot authorize. |
 | Each polkit `exec.path` names the helper this CLI uses | Every privileged step asks for a password, and background checks time out after 120 s. Usually a package over a checkout install, or the reverse; the line names both fixes. `info` when the policy cannot be read. |
-| `jq` is present | Always passes when doctor runs; without `jq` every command exits 3. |
-| `getfacl` is present (a `WARN` row only when it is missing) | The dnf folder checks cannot see ACL entries. Install the `acl` package. |
+| `getfacl` is present (a `FAIL` row only when it is missing) | The dnf folder checks cannot see ACL entries. Install the `acl` package. |
 | The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4. `info` when updates do not run in a terminal. |
 | `flatpak` is present (a `WARN` row only when `include_flatpak=true` is set by hand) | Kempt skips Flatpak. Otherwise `info`. |
-| Kempt can list unused Flatpak runtimes (only when Flatpak is on and `reclaim` is not `off`) | Nothing can offer to free space. It fails when `flatpak-libs` or `python3-gobject-base` is missing, and says to install them. Other listing errors are `info`, with Flatpak's reason. |
 | Every config line is `key=value` with a valid key | That line is ignored, so the setting never applies. |
 | The state directory is writable | No state, history or logs. |
-| The checkout still has `lib/`, `backends/` and the passwordless rules template | The checkout is damaged. |
 | `helpers:`, `policy:`, `widget:` match the checkout | `DIFFER`: you pulled without re-running `./install.sh`, so root still runs the old helpers. `git pull` updates only the CLI. The line names the fix. `not installed` is `info`. |
 | `widget engine:` (last on both kinds of install) names this `kempt` | A leftover `~/.local/bin/kempt` shadows the installed one, because the panel puts `~/.local/bin` first on its `PATH`. `info` when the widget finds none. |
 | A staged update is ready for the restart, or absent | It was downloaded but will never install. Run `sudo dnf5 offline clean`. |
@@ -803,9 +796,7 @@ when off for you, and `info` when it starts with your session, naming
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
 
-`shutdown during package installs` is `WARN` unless `rpm-plugin-systemd-inhibit`, or an enabled
-`libdnf5-plugin-systemd-inhibit`, is installed. `dnf cache` warns and the other dnf rows fail
-when other users can change dnf's folders or one above them. Each gives the fix.
+The dnf rows fail when other users can change dnf's folders or one above them. Each gives the fix.
 
 | Line | What it means |
 | --- | --- |

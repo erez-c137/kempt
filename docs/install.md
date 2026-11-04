@@ -102,15 +102,11 @@ ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 ok    polkit exec.path (refresh): /usr/libexec/kempt-refresh
 ok    polkit exec.path (apply): /usr/libexec/kempt-apply
-ok    jq: /usr/bin/jq (jq-1.8.1)
 ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
-ok    dnf: /usr/bin/dnf5
-info  package lists: never refreshed on this computer. The next check on mains power and an unmetered connection fetches them
+info  package lists: no dnf refresh recorded yet. Fetch them now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its package lists, and sudo dnf5 makecache --refresh shows why
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
 ok    state dir writable: /home/you/.local/state/kempt (created on first use)
-ok    program files intact: /usr/share/kempt
-info  version: kempt 0.1.x
 info  install: packaged, so the package manager keeps these files in step
 ok    widget engine: /usr/share/kempt/bin/kempt
 
@@ -120,11 +116,8 @@ Recent events (kempt log):
 kempt doctor: all checks passed
 ```
 
-Four rows differ from a checkout install:
+Two rows differ from a checkout install:
 
-- **`program files intact`** checks that `lib/`, `backends/` and the passwordless rules template
-  are present under `/usr/share/kempt`. A checkout install names this row after the checkout.
-- **`version:`** has no commit, because there is no `.git` to read one from.
 - **`install: packaged`** means `install.sh` is absent from the tree. The package does not ship it.
 - **`widget engine`** finds `kempt` on the widget's own `PATH` (`~/.local/bin` first) and compares
   it with the CLI that printed the report. A leftover `~/.local/bin/kempt` from an old checkout

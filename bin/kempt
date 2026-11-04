@@ -4248,9 +4248,8 @@ doctor_helper() {  # label seam_path annotated_path
     doctor_info "root helper ($label): $path (set by an environment variable, ownership not checked)"
     return 0
   fi
-  # stat can fail on an unreachable path, and a helper we cannot INSPECT is not a broken one.
-  own="$(stat -c '%U:%G %a' "$path" 2>/dev/null)" || {
-    doctor_info "root helper ($label): $path (present, ownership not readable)"; return 0; }
+  # stat can fail on an unreachable path, and a helper we cannot inspect is not a broken one.
+  own="$(stat -c '%U:%G %a' "$path" 2>/dev/null)" || return 0
   if [[ "$own" == "root:root 755" ]]; then
     doctor_ok "root helper ($label): $path (root:root 0755)"
   else
@@ -4273,45 +4272,27 @@ doctor_helper() {  # label seam_path annotated_path
 # and silently leaves those three behind, root still running the last ./install.sh's code.
 # Compared by CONTENT, never mtime: the installer rewrites files it did not change, and a fresh
 # clone is younger than a correct install. No privilege needed - the copies are world-readable.
-doctor_install_files() {  # label src dst [src dst ...]
-  local label="$1"; shift
-  local src dst missing=0 differ=0 nosrc=0
+doctor_install_copies() {  # label fix src dst [src dst ...]; a directory is compared whole
+  local label="$1" fix="$2" src dst unknown=0 missing=0 differ=0
+  shift 2
   while [[ $# -gt 1 ]]; do
     src="$1"; dst="$2"; shift 2
-    if [[ ! -r "$src" ]]; then nosrc=1
+    if [[ ! -r "$src" ]]; then unknown=1
     elif [[ ! -e "$dst" ]]; then missing=1
+    elif [[ -d "$src" ]]; then
+      if ! command -v diff >/dev/null; then unknown=1
+      elif ! diff -rq "$src" "$dst" >/dev/null 2>&1; then differ=1; fi
     elif ! same_content "$src" "$dst"; then differ=1; fi
   done
-  # One label covers several files (the helpers are two) because the fix is one command.
-  if [[ $nosrc -eq 1 ]]; then
-    doctor_info "$label: not compared, because the checkout has no copy to compare against"
+  if [[ $unknown -eq 1 ]]; then
+    doctor_info "$label: not compared, because the checkout has no copy or diff is not installed"
   elif [[ $missing -eq 1 ]]; then
-    # info, not FAIL: a missing installed copy is already a FAIL above, and one problem must not
-    # be counted twice.
+    # info, not FAIL: a missing helper or action is already a FAIL above, and the widget is optional.
     doctor_info "$label: not installed. Run ./install.sh"
   elif [[ $differ -eq 1 ]]; then
-    doctor_fail "$label: DIFFER from checkout. Run ./install.sh"
+    doctor_fail "$label: DIFFER from checkout. $fix"
   else
     doctor_ok "$label: match checkout"
-  fi
-}
-
-doctor_install_dir() {  # label src dst
-  local label="$1" src="$2" dst="$3"
-  if [[ ! -d "$src" ]]; then
-    doctor_info "$label: not compared, because the checkout has no copy to compare against"
-  elif [[ ! -d "$dst" ]]; then
-    # The widget is optional: a box with no kpackagetool6 gets a working CLI and no plasmoid.
-    doctor_info "$label: not installed (the CLI works without it)"
-  elif ! command -v diff >/dev/null; then
-    doctor_info "$label: not compared, because diff is not installed"
-  elif diff -rq "$src" "$dst" >/dev/null 2>&1; then
-    doctor_ok "$label: match checkout"
-  else
-    # `plasmashell --replace` as well as the installer: kpackagetool6 upgrades the package in
-    # place and Plasma keeps the QML it already loaded, so a re-install alone changes nothing the
-    # user can see.
-    doctor_fail "$label: DIFFER from checkout. Run ./install.sh, then plasmashell --replace"
   fi
 }
 
@@ -4351,9 +4332,6 @@ doctor_image_based_row() {
 }
 
 doctor_tool_rows() {
-  # jq: a missing one exits 3 before this command runs, so this line only ever says ok - it names
-  # WHICH jq answered rather than catching an absence.
-  doctor_ok "jq: $(command -v jq) ($(jq --version 2>/dev/null || echo 'version unknown'))"
   # getfacl: the root helper refuses every verb without it, because it cannot see ACL entries. The
   # RPM requires the acl package; a checkout install does not.
   command -v "$KEMPT_GETFACL" >/dev/null 2>&1 \
@@ -4387,64 +4365,6 @@ doctor_tool_rows() {
     doctor_warn "Flatpak is not installed, so Kempt skips it although include_flatpak is on. Install flatpak, or run: kempt config set include_flatpak false"
   else
     doctor_info "Flatpak is not installed, so Kempt checks system packages only"
-  fi
-  # Apps installed with `flatpak install --user`. Listed only when that installation exists,
-  # because any --user command creates one.
-  if command -v "$fp_cmd" >/dev/null && is_true "$(config_get include_flatpak)"; then
-    local fp_user_n=0
-    if flatpak_user_present; then
-      # shellcheck disable=SC2086  # the seam may carry its own arguments
-      fp_user_n="$($KEMPT_FLATPAK_USER_LIST_CMD 2>/dev/null </dev/null | awk -F'\t' 'NF && $1 !~ /^#/' | wc -l)" \
-        || fp_user_n="?"
-    fi
-    case "$fp_user_n" in
-      0) doctor_info "apps for you only: none" ;;
-      \?) doctor_info "apps for you only: the list failed, so updates skip them and checks keep their last known updates" ;;
-      1) doctor_info "apps for you only: 1, checked and updated with the system ones" ;;
-      *) doctor_info "apps for you only: $fp_user_n, checked and updated with the system ones" ;;
-    esac
-  fi
-
-  # The reboot verdict is the one thing Kempt asks a dnf command directly, on the hourly DETACHED
-  # path where its "restart check failed (rc=127)" reaches a stderr nobody reads and no event line -
-  # so a permanently broken check looks exactly like a permanently answered one: reboot_needed
-  # false, forever. This row is where it becomes visible. First word of the seam, like flatpak
-  # above. info, not FAIL: updates are untouched and it degrades in the safe direction.
-  local dnf_cmd; dnf_cmd="${KEMPT_DNF_CMD%% *}"
-  if command -v "$dnf_cmd" >/dev/null; then
-    doctor_ok "dnf: $(command -v "$dnf_cmd")"
-  else
-    doctor_info "dnf command '$dnf_cmd' not found. Updates still work (they go through the root helper), but reboot_needed answers false on every check whether or not a restart is owed; install dnf5, or point KEMPT_DNF_CMD at the right command"
-  fi
-}
-
-# The listing behind `kempt reclaim` and the widget's offer. Its Python bindings come from two
-# packages, and the flatpak command needs neither, so without them every check just reports the
-# listing failed. Asked only where the feature is on: flatpak present, include_flatpak true and
-# reclaim not off. Exit 3 is the helper's "cannot load libflatpak from Python".
-doctor_reclaim_row() {
-  flatpak_present || return 0
-  is_true "$(config_get include_flatpak)" || return 0
-  [[ "$(reclaim_mode)" != off ]] || return 0
-  # As root the helper would list against root's apps, which is not the listing a check makes.
-  if reclaim_as_root; then
-    doctor_info "unused Flatpak runtimes: not checked as root. Run kempt doctor as yourself to check the listing"
-    return 0
-  fi
-  local out rc=0 why
-  # shellcheck disable=SC2086  # the seam may carry its own arguments
-  out="$(timeout "$KEMPT_RECLAIM_LIST_TIMEOUT" $KEMPT_FLATPAK_UNUSED_CMD 2>&1 >/dev/null </dev/null 9>&-)" || rc=$?
-  if [[ $rc -eq 0 ]]; then
-    doctor_ok "unused Flatpak runtimes: Kempt can list them"
-    return 0
-  fi
-  why="$(error_line_of <<<"$out")" || why=""
-  if [[ $rc -eq 3 ]]; then
-    doctor_fail "unused Flatpak runtimes: Kempt cannot list them because Python cannot load libflatpak${why:+ ($why)}. Install the missing packages: sudo dnf install flatpak-libs python3-gobject-base"
-  else
-    # Not a missing package but flatpak itself failing (no system bus, a damaged installation):
-    # worth saying, not Kempt's to fail on.
-    doctor_info "unused Flatpak runtimes: the listing failed (rc=$rc${why:+: $why}), so kempt reclaim and the widget cannot offer to free space"
   fi
 }
 
@@ -4503,15 +4423,9 @@ doctor_metadata_row() {
   fi
   # With no dnf fetch on record, the WARN above already says what the rows below would: one row.
   [[ -z "$iso" && -n "$warned" ]] && return 0
-  # Refreshes have run, but no dnf fetch is on record. That is a box whose dnf fetch keeps failing,
-  # or one where only the Flatpak fetch has worked since the dnf stamp was added. The row is true
-  # for both: "never refreshed" would hide that fetches run.
-  if [[ -z "$iso" && -f "$LAST_REFRESH_FILE" ]]; then
-    doctor_info "package lists: no dnf refresh recorded yet. Fetch them now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its package lists, and sudo dnf5 makecache --refresh shows why"
-    return 0
-  fi
+  # No dnf fetch on record: none has run, or only a Flatpak one has worked. The row is true for both.
   if [[ -z "$iso" ]]; then
-    doctor_info "package lists: never refreshed on this computer. The next check on mains power and an unmetered connection fetches them"
+    doctor_info "package lists: no dnf refresh recorded yet. Fetch them now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its package lists, and sudo dnf5 makecache --refresh shows why"
     return 0
   fi
   days="$(metadata_age_days)"
@@ -4842,11 +4756,6 @@ doctor_mount_is_users() {  # index → 0 when it is a FUSE mount root did not ma
   case "${DOCTOR_MOUNT_TYPES[$1]}" in fuse|fuse.*|fuseblk) ;; *) return 1 ;; esac
   [[ ",${DOCTOR_MOUNT_OPTS[$1]}," != *,user_id=0,* ]]
 }
-# A server can refuse root where it lets the user read, and root is who checks when an update runs.
-doctor_mount_is_remote() {  # index → 0 when it is a network file system
-  case "${DOCTOR_MOUNT_TYPES[$1]}" in nfs|nfs4|cifs|smb3|ceph) return 0 ;; esac
-  return 1
-}
 doctor_mount_of() {  # path → REPLY, the index of the mount it sits on: longest prefix, later of equals
   local i mp best=-1 best_len=-1
   for i in "${!DOCTOR_MOUNT_POINTS[@]}"; do
@@ -4872,7 +4781,7 @@ doctor_dnf_parents_scan() {
   local -A seen=()
   local -a walk=() leaves=()
   DOCTOR_PARENT_SHOWN=() DOCTOR_PARENT_OWN=() DOCTOR_PARENT_MODE=() DOCTOR_PARENT_ACL=()
-  DOCTOR_PARENT_FUSE=() DOCTOR_PARENT_ERRORS=() DOCTOR_PARENT_NOTE="" DOCTOR_PARENT_REMOTE=()
+  DOCTOR_PARENT_FUSE=() DOCTOR_PARENT_ERRORS=() DOCTOR_PARENT_NOTE=""
   for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR" "$KEMPT_DNF_CACHE_DIR"; do
     # Made absolute but not normalised: ".." is the resolver's to take, from where a link leads.
     [[ -n "$d" ]] || continue
@@ -4903,17 +4812,11 @@ doctor_dnf_parents_scan() {
     if (( REPLY >= 0 )) && doctor_mount_is_users "$REPLY"; then
       DOCTOR_PARENT_FUSE+=("$p"$'\t'"${DOCTOR_MOUNT_POINTS[REPLY]}"$'\t'"${DOCTOR_MOUNT_OPTS[REPLY]}")
     fi
-    if (( REPLY >= 0 && EUID != 0 )) && doctor_mount_is_remote "$REPLY"; then
-      DOCTOR_PARENT_REMOTE+=("$p"$'\t'"${DOCTOR_MOUNT_TYPES[REPLY]}")
-    fi
   done
   for d in "${leaves[@]}"; do
     for i in "${!DOCTOR_MOUNT_POINTS[@]}"; do
       if [[ "${DOCTOR_MOUNT_POINTS[i]}" == "$d"/* ]] && doctor_mount_is_users "$i"; then
         DOCTOR_PARENT_FUSE+=("${DOCTOR_MOUNT_POINTS[i]}"$'\t'"${DOCTOR_MOUNT_POINTS[i]}"$'\t'"${DOCTOR_MOUNT_OPTS[i]}")
-      fi
-      if [[ "${DOCTOR_MOUNT_POINTS[i]}" == "$d"/* ]] && (( EUID != 0 )) && doctor_mount_is_remote "$i"; then
-        DOCTOR_PARENT_REMOTE+=("${DOCTOR_MOUNT_POINTS[i]}"$'\t'"${DOCTOR_MOUNT_TYPES[i]}")
       fi
     done
   done
@@ -4989,12 +4892,6 @@ doctor_dnf_parents_row() {
     DOCTOR_CHECK_ERROR="${e#*$'\t'}"
     doctor_could_not_check "dnf folders" "${e%%$'\t'*}" "$KEMPT_FOLDERS_HOLD"
   done
-  # Not a FAIL: a stock system has root-only folders too, so a user's check cannot tell a refusal from
-  # them. When this one does refuse, the update's own message gives the helper's reason.
-  if (( ${#DOCTOR_PARENT_REMOTE[@]} )); then
-    p="${DOCTOR_PARENT_REMOTE[0]%%$'\t'*}"
-    doctor_warn "dnf folders: $(doctor_plain_name "$p") is on a network file system ($(doctor_plain_name "${DOCTOR_PARENT_REMOTE[0]#*$'\t'}")). The server can refuse root where it lets your user read, and this check runs as your user, so it may not see what stops an update. If Kempt refuses one, its message gives the reason."
-  fi
   local -A said=()
   for e in "${DOCTOR_PARENT_FUSE[@]}"; do
     IFS=$'\t' read -r p mp opts <<<"$e"
@@ -5030,50 +4927,6 @@ doctor_mount_ns_row() {
   # Twice, for the second table: a mount made between the two reads is not a namespace.
   doctor_mount_ns_read || doctor_mount_ns_read && return 0
   doctor_fail "mount namespace: Kempt is running in a different mount namespace from the system (as in a toolbox, or a sandboxed terminal), so what it checks is not what dnf5 would use. $KEMPT_FOLDERS_HOLD Run Kempt from a terminal or session on the host."
-}
-
-# Fedora asks systemd to hold off shutdown and sleep while packages install, through either of two
-# plugins: libdnf5's for the whole dnf transaction, rpm's for the install step. KDE's logout screen
-# shows nothing about the hold, so a person can think shutdown is broken. Read-only on both counts.
-doctor_inhibit_installed() {  # → the installed plugin names, one a line
-  local out
-  if [[ -n "$KEMPT_RPM_INHIBIT_CMD" ]]; then
-    out="$($KEMPT_RPM_INHIBIT_CMD 2>/dev/null)" || true
-  else
-    # rpm -q prints "package X is not installed" on stdout for a missing one, and exits non-zero.
-    out="$(rpm -q --qf '%{NAME}\n' libdnf5-plugin-systemd-inhibit rpm-plugin-systemd-inhibit \
-             2>/dev/null)" || true
-  fi
-  grep -xE 'libdnf5-plugin-systemd-inhibit|rpm-plugin-systemd-inhibit' <<<"$out" || true
-}
-
-doctor_inhibit_enabled() {  # → 0 when libdnf5 runs its systemd-inhibit plugin
-  [[ -r "$KEMPT_DNF_INHIBIT_CONF" ]] || return 1
-  # The last `enabled` in [main] wins. Absent means on. libdnf5 reads 0, no, false and off as off.
-  # An indented line continues the value above it, as in libdnf5's parser, so it is never a key.
-  local v
-  v="$(awk '/^\[/ { sec = $0; gsub(/[[:space:]\[\]]/, "", sec); next }
-            sec == "main" && /^enabled[[:space:]]*=/ {
-              sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); val = tolower($0) }
-            END { print val }' "$KEMPT_DNF_INHIBIT_CONF" 2>/dev/null)" || return 1
-  [[ "$v" != 0 && "$v" != no && "$v" != false && "$v" != off ]]
-}
-
-doctor_inhibit_row() {
-  on_ostree && return 0
-  local have
-  have="$(doctor_inhibit_installed)"
-  if grep -qx libdnf5-plugin-systemd-inhibit <<<"$have" && doctor_inhibit_enabled; then
-    doctor_ok "shutdown during package installs: blocked by libdnf5-plugin-systemd-inhibit"
-  elif grep -qx rpm-plugin-systemd-inhibit <<<"$have"; then
-    doctor_ok "shutdown during package installs: blocked by rpm-plugin-systemd-inhibit"
-  elif grep -qx libdnf5-plugin-systemd-inhibit <<<"$have" && [[ ! -e "$KEMPT_DNF_INHIBIT_CONF" ]]; then
-    doctor_warn "shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed, but its config file $KEMPT_DNF_INHIBIT_CONF is missing, so dnf does not load it. Reinstall it, or run: sudo dnf5 install rpm-plugin-systemd-inhibit"
-  elif grep -qx libdnf5-plugin-systemd-inhibit <<<"$have"; then
-    doctor_warn "shutdown during package installs: not blocked. libdnf5-plugin-systemd-inhibit is installed but turned off in $KEMPT_DNF_INHIBIT_CONF. Set enabled = 1 there, or run: sudo dnf5 install rpm-plugin-systemd-inhibit"
-  else
-    doctor_warn "shutdown during package installs: not blocked. A shutdown or sleep while packages install can leave the system half updated. To block it, run: sudo dnf5 install rpm-plugin-systemd-inhibit"
-  fi
 }
 
 doctor_config_row() {
@@ -5128,24 +4981,7 @@ doctor_state_dir_row() {
 
 # Which kind of install this is. install.sh is the file a checkout has and a package does not: it
 # is what a fix message would tell you to run, and exactly what a packaged tree does not ship.
-# One definition, because two rows ask the question and a report that called itself packaged on one
-# line and a checkout on the next is worse than either answer alone.
 install_is_packaged() { [[ ! -r "$ROOT/install.sh" ]]; }
-
-doctor_files_row() {
-  # Whatever tree the CLI resolved, whole. What is sourced fails at startup; what is not (the
-  # passwordless rules template) fails only on the day somebody runs the command that needs it.
-  local missing=() rel kind=checkout
-  install_is_packaged && kind="program files"
-  for rel in lib/common.sh backends/dnf.sh backends/flatpak.sh polkit/49-kempt.rules.in; do
-    [[ -r "$ROOT/$rel" ]] || missing+=("$rel")
-  done
-  if [[ ${#missing[@]} -eq 0 ]]; then
-    doctor_ok "$kind intact: $ROOT"
-  else
-    doctor_fail "$kind incomplete: missing ${missing[*]} (in $ROOT)"
-  fi
-}
 
 # dnf5 still holds a transaction at `ready` whose packages are all installed, with no symlink of
 # its own in front of it: another updater installed the same updates. Nothing will run it again.
@@ -5327,24 +5163,13 @@ doctor_offline_rows() {
 }
 
 doctor_version_row() {
-  # Which build this is. The opening line already names the release and the tree; this one names
-  # the COMMIT, the difference between "0.1.0" and the twelve commits of 0.1.0 a reporter might be
-  # running. `dirty` covers untracked files too - a new backend file changes behaviour as much as
-  # an edited one. Every git call is tolerated failing: a tarball install has no .git, a packaged
-  # one need not have git, and a version line must never be the thing that stops the checkup.
-  local ver_line sha tree
-  ver_line="version: kempt $(kempt_version)"
-  sha=""
-  # The `if` form, not `[[ ... ]] && x=y`: see doctor_config_row - errexit would kill the checkup.
-  if [[ -e "$ROOT/.git" ]]; then
-    sha="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)"
-  fi
-  if [[ -n "$sha" ]]; then
-    tree=clean
-    [[ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]] || tree=dirty
-    ver_line="$ver_line (checkout $sha $tree)"
-  fi
-  doctor_info "$ver_line"
+  # The opening line names the release and the tree. On a git checkout this one names the commit.
+  [[ -e "$ROOT/.git" ]] || return 0
+  local sha tree=clean
+  sha="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)"
+  [[ -n "$sha" ]] || return 0
+  [[ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]] || tree=dirty
+  doctor_info "version: kempt $(kempt_version) (checkout $sha $tree)"
 }
 
 doctor_install_rows() {
@@ -5375,29 +5200,15 @@ doctor_install_rows() {
       # ...and what going without it means, because the CLI alone is not a quieter widget.
       doctor_info "panel widget not installed. It is a separate package: sudo dnf install kempt-plasmoid. Without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
     fi
-
-    # The environment can point this process at a different update path than the rows above
-    # describe, and on a PACKAGED install nothing else notices: a few lines in
-    # ~/.config/environment.d make `kempt update` report "0 updated" while running nothing, under
-    # a report that still says "all checks passed". Only the three seams that decide what RUNS -
-    # the others change what is READ, and the rows above cover those.
-    # Gated on a tree this user cannot WRITE, the one packaged-ness test an environment variable
-    # cannot fake. Without that gate the suite's own sandbox, which sets all three seams by
-    # design, trips the row on every run.
-    local overridden=() seam
-    for seam in KEMPT_PKEXEC KEMPT_APPLY_HELPER KEMPT_REFRESH_HELPER; do
-      [[ " $KEMPT_ENV_OVERRIDES " == *" $seam "* ]] && overridden+=("$seam")
-    done
-    if [[ ${#overridden[@]} -gt 0 && ! -w "$ROOT" ]]; then
-      doctor_fail "privileged path overridden in the environment: ${overridden[*]}. These are test settings, and while they are set this report describes a path that is not the one 'kempt update' takes. Unset them (look in ~/.config/environment.d and your shell profile) and run this again"
-    fi
   else
-    doctor_install_files helpers \
+    doctor_install_copies helpers "Run ./install.sh" \
       "$ROOT/libexec/kempt-refresh" "$KEMPT_REFRESH_HELPER_PATH" \
       "$ROOT/libexec/kempt-apply"   "$KEMPT_APPLY_HELPER_PATH"
-    doctor_install_files policy \
+    doctor_install_copies policy "Run ./install.sh" \
       "$ROOT/polkit/io.github.erez_c137.kempt.policy" "$KEMPT_POLICY_FILE"
-    doctor_install_dir widget "$ROOT/plasmoid" "$KEMPT_PLASMOID_DIR"
+    # plasmashell --replace too: kpackagetool6 upgrades in place, and Plasma keeps the QML it loaded.
+    doctor_install_copies widget "Run ./install.sh, then plasmashell --replace" \
+      "$ROOT/plasmoid" "$KEMPT_PLASMOID_DIR"
   fi
 }
 
@@ -5426,7 +5237,6 @@ cmd_doctor() {
   doctor_privileged_rows
 
   doctor_tool_rows
-  doctor_reclaim_row
   doctor_other_updater_row
   doctor_metadata_row
   doctor_last_check_row
@@ -5434,10 +5244,8 @@ cmd_doctor() {
   # Parents first: their fix makes it safe to run the fixes in the cache row, which delete as root.
   doctor_dnf_parents_row
   doctor_dnf_cache_row
-  doctor_inhibit_row
   doctor_config_row
   doctor_state_dir_row
-  doctor_files_row
   doctor_offline_rows
   doctor_startup_row
   doctor_version_row
