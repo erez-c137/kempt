@@ -101,8 +101,7 @@ var COPY = {
     // The state in words on the row. A glyph, a position and an opacity dip are not enough: a dip
     // is a contrast REDUCTION on rows a person deliberately protected.
     heldToken: "Held",
-    // A system package whose pending update fixes a security advisory, as a word on its row. Only
-    // for someone who turned notify_security on: the CLI asks dnf about advisories for nobody else.
+    // A system package whose pending update fixes a security advisory, as a word on its row.
     securityToken: "Security",
     // ...and how many of them, in the panel tooltip after the pending names.
     securityCount: "%1 security updates",
@@ -2081,9 +2080,9 @@ function checkArgs(automatic, refresh, anyway) {
 // How long the widget waits for any `kempt check` before giving up on it. A ceiling for EVERY check,
 // because an automatic one fetches too once the 3-hour interval is up, and a kill mid-fetch leaves
 // a root dnf5 running unwatched. A check with no fetch ends in seconds anyway.
-// CHECK_BODY_MS is the check without its fetch: 120 s for its own queries, and 30 s for what
-// notify_security adds (lib/common.sh: the 15 s advisory query, two 5 s waits for the writers'
-// lock and the 5 s notification). The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT (120 s) once per
+// CHECK_BODY_MS is the check without its fetch: 120 s for its own queries, and 30 s for the rest
+// (lib/common.sh: the 15 s advisory query, two 5 s waits for the writers' lock and a 5 s
+// notification). The fetch adds Flatpak's KEMPT_REFRESH_TIMEOUT (120 s) once per
 // installation, system and per-user, and dnf's makecache. That one runs as root, where the CLI's
 // timeout cannot reach it, so libexec/kempt-refresh bounds it as root with the same 120 s, plus a
 // 10 s grace before SIGKILL. Plus 30 s, which covers that grace:
@@ -2130,18 +2129,15 @@ function backendKeys(backends) {
 }
 
 // securityOf(state) -> the CLI's `security` block as the widget uses it, or an empty one. The block
-// is optional (notify_security off, an older CLI, a check whose advisory query failed), and every
-// field is checked before it is believed. `attention` needs a digest, because acknowledging the set
-// is what clears it and `kempt security-ack` takes nothing else.
+// is optional (an older CLI, a check whose advisory query failed), and every field is checked
+// before it is believed.
 function securityOf(state) {
     var s = state && state.security && typeof state.security === "object" ? state.security : null;
-    var none = { count: 0, names: {}, attention: false, digest: "" };
+    var none = { count: 0, names: {} };
     if (s === null || typeof s.count !== "number" || !(s.count >= 1)) return none;
     var names = {}, packages = arrayOf(s.packages), i;
     for (i = 0; i < packages.length; i++) names[String(packages[i])] = true;
-    var digest = typeof s.digest === "string" && /^[0-9a-f]{16}$/.test(s.digest) ? s.digest : "";
-    return { count: Math.floor(s.count), names: names, attention: s.attention === true && digest !== "",
-             digest: digest };
+    return { count: Math.floor(s.count), names: names };
 }
 
 // Walk the backends once, producing the popup's pending sections and the flat Held list.
@@ -3090,12 +3086,7 @@ function viewModel(state, updating, cliError, opts) {
     // it too.
     var rebootNeeded = usable && state.reboot_needed === true;
 
-    // The security block, and whether the panel icon asks for attention: a set with an advisory
-    // nobody has seen in the popup yet (the CLI's `attention`), and only while there is something
-    // to press. Not while a stage is armed (the person already chose to install them), nor during
-    // an update, nor without an engine to acknowledge the set with.
     var security = securityOf(usable ? state : null);
-    var needsAttention = security.attention && !staged && !updating && !noEngine;
 
     var tooltipMain, headerText;
     if (updating) {
@@ -3467,10 +3458,6 @@ function viewModel(state, updating, cliError, opts) {
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.
         stagedArmed: staged,
-        // The panel icon asks for attention (Plasma's NeedsAttentionStatus), and the digest the
-        // popup passes to `kempt security-ack` when it is opened. "" whenever it does not ask.
-        needsAttention: needsAttention,
-        securityDigest: needsAttention ? security.digest : "",
         securityCount: security.count,
         // "positive" for the ordinary armed stage, "warning" once a hold has landed behind it. A
         // string rather than a boolean because the QML binds it to a Kirigami.MessageType, and a

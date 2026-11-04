@@ -301,7 +301,7 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   is "an install that used the terminal keeps it across the upgrade" \
      "$(su - alice -c 'kempt config get surface')" "terminal"
   # The other install that predates the default: a config with a setting and no state at all.
-  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.config/kempt && echo "notify_security=false" > ~/.config/kempt/config'
+  su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.config/kempt && echo "notify_startup=false" > ~/.config/kempt/config'
   is "an install with only a settings file keeps the terminal too" \
      "$(su - alice -c 'kempt config get surface')" "terminal"
   # Back to the release it came from, if the repository still carries it. A downgrade is the

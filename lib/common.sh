@@ -107,20 +107,14 @@ EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # shellcheck disable=SC2034  # read by backends/flatpak.sh, kept here with the other state files
 RECLAIM_SIZES_FILE="$KEMPT_STATE_DIR/reclaim-sizes.json"
 RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
-# The security advisories already announced and already seen, for notify_security:
-# {"notified": [ids], "acknowledged": [ids]}. Written under the writers' lock (see security_update).
-SECURITY_SEEN_FILE="$KEMPT_STATE_DIR/security-seen.json"
-# Stamp for the once-a-day `security check failed` line, removed when the query works again.
-SECURITY_FAIL_FILE="$KEMPT_STATE_DIR/last_security_fail"
-# What notify_security may add to a check, in seconds: the advisory query, each of the two waits for
-# the writers' lock, and the notification. Kept small, because the widget's CHECK_BODY_MS counts
-# them (a test there reads these three lines).
+# What a check may add to its own queries, in seconds: the advisory query and each of the two
+# waits for the writers' lock. Kept small, because the widget's CHECK_BODY_MS counts them and the
+# notification bound below (a test there reads these three lines).
 # shellcheck disable=SC2034  # read by backends/dnf.sh
 SECURITY_QUERY_TIMEOUT=15
 # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
-SECURITY_LOCK_WAIT=5
-SECURITY_NOTIFY_TIMEOUT=5
-# The same bound for every other notification (notify).
+WRITER_LOCK_WAIT=5
+# The bound on one notification (notify, notify_delivered).
 NOTIFY_TIMEOUT=5
 # Whether everything that started before an update still starts after it (notify_startup).
 # startup.json is what the last check compared and announced; startup-mutes holds one
@@ -300,11 +294,6 @@ event_plain() {  # event text → EVENT_PLAIN
         [[ "${BASH_REMATCH[2]}" == 0 ]] || EVENT_PLAIN+=", ${BASH_REMATCH[2]} held"
       fi ;;
     "check stale "*) EVENT_PLAIN="Check failed: ${t#check stale }" ;;
-    "security notified count="*)
-      if [[ "$t" =~ ^security\ notified\ count=([0-9]+|\?)$ ]]; then
-        EVENT_PLAIN="Security update notice shown (${BASH_REMATCH[1]} pending)"
-      fi ;;
-    "security check failed") EVENT_PLAIN="Security advisories could not be listed" ;;
     "notification shown: "*) EVENT_PLAIN="Notified: ${t#notification shown: }" ;;
     "notification not shown ("*"): "*)
       rest="${t#notification not shown (}"
@@ -548,7 +537,7 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_security notify_startup"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min widget_icon_size restart_reminder risky_regex reclaim notify_startup"
 
 # The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
@@ -626,9 +615,6 @@ kempt_default() {  # key → default ("" if unknown)
     # What happens to the Flatpak runtimes no installed app uses: ask|automatic|off. See
     # reclaim_mode for how a value is read.
     reclaim) echo ask ;;
-    # A desktop notification when pending system updates fix a security advisory. Off unless asked
-    # for: the query costs a second per check, and a notification nobody asked for is noise.
-    notify_security) echo false ;;
     # A notification when a service that started before an update no longer starts after it. On:
     # a check asks systemd only for the failed units (and, while something is announced or muted,
     # whether those run), and Kempt only looks.
@@ -1251,8 +1237,7 @@ state_lock_close() { if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || 
 
 # --- the user-file writers' lock ---------------------------------------------------------------
 # INVARIANT: config_set, hold_add and hold_remove hold this across the WHOLE read-modify-write, and
-# so do the security writers: cmd_check while it works out the `security` block and writes
-# state.json, and cmd_security_ack while it patches both files.
+# so does cmd_check while it works out the `startup` block and writes state.json.
 # Readers (config_get, holds_all, holds_for) take no lock at all and must not start.
 #
 # Why it exists: all three writers read the file into a variable and write the whole file back
@@ -1267,7 +1252,7 @@ state_lock_close() { if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || 
 # cmd_check's check.lock, both of which can be held for a whole run and are inherited by children.
 #
 # Nesting is ruled out by construction rather than handled: the callers are cmd_config, cmd_hold,
-# cmd_unhold, cmd_discover_notifier, cmd_security_ack and cmd_check's security step, each taking it
+# cmd_unhold, cmd_discover_notifier and cmd_check's startup step, each taking it
 # once and releasing it before anything else could take it. cmd_hold and cmd_unhold release it
 # before their closing check, which takes it again. Re-entering would be quiet rather than loud - `exec 7>>` on a held fd CLOSES it
 # first, dropping the outer lock unnoticed. If a writer ever has to call another one, pass the open
@@ -1663,61 +1648,12 @@ notify() {  # title body
 }
 now_iso()      { date -Is; }
 
-# --- the security notification (notify_security) ----------------------------------------------
-# notify, saying whether it worked. A security advisory counts as announced only when a
-# notification was delivered: one tried from a timer with no session bus is tried again by the
-# next check that has one. Bounded, because a check is waiting on it.
 session_bus_present() { [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}" || -S "${XDG_RUNTIME_DIR:-/nonexistent}/bus" ]]; }
+# notify, saying whether it worked. Bounded, because a check is waiting on it.
 notify_delivered() {
   session_bus_present || return 1
   notify_escape "$@"
-  timeout "$SECURITY_NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1
-}
-
-# The seen file, always as {notified:[ids], acknowledged:[ids]}: missing, damaged or the wrong
-# shape reads as empty, which at worst announces a set once more.
-security_seen_read() {
-  local s
-  s="$(jq -c -n '[inputs][0] | if type == "object" then
-          {notified: [(.notified // [])[]? | strings], acknowledged: [(.acknowledged // [])[]? | strings]}
-        else error("not an object") end' "$SECURITY_SEEN_FILE" 2>/dev/null)" || s=""
-  [[ "$s" == \{* ]] || s='{"notified":[],"acknowledged":[]}'
-  printf '%s\n' "$s"
-}
-
-
-# The block a check publishes as state.json's `security`, and the seen file kept in step with it.
-# The caller holds the writers' lock. $1 is dnf_security_parse's answer; $2 and $3 are true when a
-# stage is armed and when an update is running, either of which means the panel does not ask.
-# An id leaves the seen file only when its package is no longer pending at all (installed, or gone
-# from the repositories): a set that shrinks because of a hold and grows back is not news.
-# Nothing else bounds the two lists, and nothing must: an id still open that fell out of them would
-# be announced again by every check. The ids to announce are read from every open advisory, not
-# from the 200 the state publishes, so an id outside that window is announced once like any other.
-# Prints the block on the first line and the ids to announce on the second (space separated, and
-# empty when there is nothing new). rc≠0 leaves the seen file as it was. $4 false: the caller could
-# not take the writers' lock, so the pruned seen file is not written.
-security_update() {  # parsed armed busy [write]
-  local seen out block fresh digest
-  seen="$(security_seen_read)"
-  out="$(jq -c --argjson s "$seen" --argjson armed "$2" --argjson busy "$3" '
-    def keep($k): [.[] | select(IN($k[]))];
-    . as $p
-    | ($s.notified | keep($p.known)) as $n
-    | ($s.acknowledged | keep($p.known)) as $a
-    | {seen: {notified: $n, acknowledged: $a},
-       fresh: [($p.open // $p.advisories)[] | select((IN($n[]) or IN($a[])) | not)],
-       block: {count: ($p.packages | length), packages: $p.packages, advisories: $p.advisories,
-               attention: (([$p.advisories[] | select(IN($a[]) | not)] | length) > 0
-                           and ($armed | not) and ($busy | not))}}' <<<"$1" 2>/dev/null)" || return 1
-  [[ "$out" == \{* ]] || return 1
-  digest="$(jq -r '.block.advisories[]' <<<"$out" | set_digest)"
-  block="$(jq -c --arg d "$digest" '.block + {digest: $d}' <<<"$out")" || return 1
-  fresh="$(jq -r '.fresh | join(" ")' <<<"$out")" || return 1
-  if [[ "${4:-true}" == true && "$(jq -c '.seen' <<<"$out")" != "$seen" ]] && security_seen_writable; then
-    jq -c '.seen' <<<"$out" | atomic_write "$SECURITY_SEEN_FILE" 2>/dev/null || true
-  fi
-  printf '%s\n%s\n' "$block" "$fresh"
+  timeout "$NOTIFY_TIMEOUT" "$KEMPT_NOTIFY" "${NOTIFY_ARGS[@]}" >/dev/null 2>&1
 }
 
 # Whether ANOTHER process holds the update lock: the probe cmd_run makes, and -E for the reason it
@@ -1729,52 +1665,6 @@ update_running_elsewhere() {
   local rc=0
   flock -n -E 75 "$LOCK_FILE" true 2>/dev/null || rc=$?
   [[ $rc -eq 75 ]]
-}
-
-# The seen file is a regular file or nothing yet. Anything else there (a directory, say) would take
-# atomic_write's rename INTO it and read back as empty, so every check would announce again.
-security_seen_writable() { [[ ! -e "$SECURITY_SEEN_FILE" || ( -f "$SECURITY_SEEN_FILE" && ! -L "$SECURITY_SEEN_FILE" ) ]]; }
-
-# Adds ids to one list of the seen file, or with "drop" as $1 takes them back out of it. The caller
-# holds the writers' lock. rc 0 only when the file reads back with the change in it, so a caller
-# that announces only after a recorded add cannot announce the same ids at every check.
-security_seen_add() {  # [drop] list(notified|acknowledged) id...
-  local op=add
-  [[ "$1" == drop ]] && { op=drop; shift; }
-  local list="$1"; shift
-  [[ $# -gt 0 ]] || return 0
-  security_seen_writable || return 1
-  security_seen_read \
-    | jq -c --arg l "$list" --arg op "$op" '
-        .[$l] = ((.[$l] - $ARGS.positional) + (if $op == "add" then $ARGS.positional else [] end))' \
-         --args "$@" \
-    | atomic_write "$SECURITY_SEEN_FILE" || return 1
-  security_seen_read | jq -e --arg l "$list" --arg op "$op" '
-      (.[$l] | map({key: ., value: true}) | from_entries) as $have
-      | all($ARGS.positional[]; ($have[.] == true) == ($op == "add"))' --args "$@" >/dev/null 2>&1
-}
-
-# The `security check failed` line, at most once a day, as log_refresh_skip does for its own.
-log_security_failure() {
-  local last=0 now; now="$(date +%s)"
-  [[ -f "$SECURITY_FAIL_FILE" ]] && last="$(stat -c %Y "$SECURITY_FAIL_FILE" 2>/dev/null || echo 0)"
-  if (( now - last >= 0 && now - last < 86400 )); then return 0; fi
-  touch "$SECURITY_FAIL_FILE" 2>/dev/null || true
-  log_event "security check failed"
-  return 0
-}
-
-# The notification's one sentence. The names are the pending items' own, already KEMPT_NAME_RE-clean.
-security_notice() {  # stdin: one package name per line → the body
-  local names n
-  names="$(cat)"
-  n="$(grep -c . <<<"$names" || true)"
-  [[ "${n:-0}" -gt 0 ]] || return 0
-  if [[ "$n" -eq 1 ]]; then
-    printf 'A security update is waiting for %s.\n' "$names"
-  else
-    printf 'Security updates are waiting for %s.\n' "$(names_phrase <<<"$names")"
-  fi
 }
 
 # --- did everything come back after the update? (notify_startup) ---
@@ -2004,7 +1894,7 @@ startup_observe() {
   fi
   local bus=false
   session_bus_present && bus=true
-  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
+  writer_lock "$WRITER_LOCK_WAIT" 2>/dev/null || return 0
   local out
   st="$(startup_read)"
   mutes="$(startup_mutes_json)"
@@ -2108,7 +1998,7 @@ startup_observe() {
     grep -vxF -f <(printf '%s\n' "$clear") "$STARTUP_MUTES_FILE" | atomic_write "$STARTUP_MUTES_FILE" 2>/dev/null || true
   fi
   writer_unlock
-  # Told only once recorded, and recorded as told before it is sent, as the security notice is:
+  # Told only once recorded, and recorded as told before it is sent:
   # one not delivered is marked unsent again, for the next check with a session to send.
   [[ -n "$wrote" && "$bus" == true ]] || return 0
   local body event keys unsent=()
@@ -2117,7 +2007,7 @@ startup_observe() {
     else read -ra keys <<<"$keys"; unsent+=("${keys[@]}"); fi
   done < <(jq -r "$STARTUP_CLEAN_JQ"'.notes[] | [(.body | clean), (.event | clean), (.keys | join(" "))] | join("\t")' <<<"$out")
   [[ ${#unsent[@]} -gt 0 ]] || return 0
-  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 0
+  writer_lock "$WRITER_LOCK_WAIT" 2>/dev/null || return 0
   jq -c --arg k "${unsent[*]}" '($k | split(" ")) as $ks
     | def mark: if (.scope + ":" + .unit) as $x | any($ks[]; . == $x) then . + {unsent: true} else . end;
       .announced |= map(mark) | .recovered |= map(mark)' <<<"$(startup_read)" | atomic_write "$STARTUP_FILE" 2>/dev/null || true
@@ -2146,7 +2036,7 @@ startup_block() {
 }
 
 # Rewrites state.json's startup block after a mute, an unmute or an acknowledgement, under
-# state.lock, as cmd_security_ack patches its own. The caller holds the writers' lock. A state with
+# state.lock. The caller holds the writers' lock. A state with
 # no block (setting off, systemd not answering) is left alone.
 startup_patch_state() {
   local state block patched lfd rc=0
@@ -2510,7 +2400,7 @@ startup_boot_record() {  # [slowest]
   fi
   # Merged into what is there for this boot, read again under the lock: the page and a check can
   # record the same boot at once, and the one that writes last must not drop the other's slowest.
-  writer_lock "$SECURITY_LOCK_WAIT" 2>/dev/null || return 1
+  writer_lock "$WRITER_LOCK_WAIT" 2>/dev/null || return 1
   all="$(jq -c 'if type == "array" then . else [] end' "$BOOT_TIMES_FILE" 2>/dev/null)" || all='[]'
   jq -c --argjson e "$entry" '((map(select(.boot_id == $e.boot_id)) | last // {}) + $e) as $m
     | map(select(.boot_id != $e.boot_id)) + [$m] | .[-11:]' <<<"${all:-[]}" \

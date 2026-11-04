@@ -1291,7 +1291,6 @@ PlasmoidItem {
         popupOnScreen = true;
         refreshClock();
         // Before the refresh-on-open check below, so the acknowledgement is first on the queue.
-        acknowledgeSecurity();
         acknowledgeStartup();
         // Settings can answer the Discover offer too (Turn Off or Turn On), from a dialog that
         // cannot call back into this file, so the CLI's marker is looked for again at each open.
@@ -1321,7 +1320,6 @@ PlasmoidItem {
         startupPageWanted = false;
         // A Startup page request belongs to the open it asked for, never to the next one.
         // An acknowledgement that did not land is tried again at the next open.
-        securityAckSent = "";
         startupAckSent = "";
         // ...and a "running again" line that was acknowledged has now been seen.
         startupRecoveredKept = [];
@@ -1504,12 +1502,7 @@ PlasmoidItem {
     // and an applet that never sets a status is lower than PassiveStatus - so without this the
     // widget installs into the tray, is enabled there, and appears to do nothing at all.
     // ActiveStatus, never Passive: hiding the icon when there is nothing to report would be the
-    // widget disappearing exactly when it is telling you the good news. NeedsAttentionStatus while
-    // vm.needsAttention holds: a new set of security updates nobody has seen in the popup yet
-    // (notify_security), cleared by opening it. The tray animates the icon for it. It does not
-    // override the person's own choice: Plasma's tray (systemtraymodel.cpp,
-    // calculateEffectiveStatus) keeps an entry set to "Always hidden" in the hidden list whatever
-    // status the applet asks for, and only "Always shown" or Auto put it in the panel.
+    // widget disappearing exactly when it is telling you the good news.
     //
     // Assigned once here rather than declared as `Plasmoid.status:`, for the test kit rather than
     // taste: `Plasmoid` is an ATTACHED object backed by a real Plasma applet, so a declarative
@@ -1519,17 +1512,11 @@ PlasmoidItem {
     // called look identical from outside, and either would silently put the widget back to being
     // installed in the tray, enabled, and invisible.
     property bool trayPresenceClaimed: false
-    // ...and which of the two statuses was last set, "active" or "attention", for the same reason.
-    property string trayStatusShown: ""
 
     function claimTrayPresence() {
-        var want = vm.needsAttention ? "attention" : "active";
-        if (want === trayStatusShown) return;
         try {
-            Plasmoid.status = vm.needsAttention ? PlasmaCore.Types.NeedsAttentionStatus
-                                                : PlasmaCore.Types.ActiveStatus;
+            Plasmoid.status = PlasmaCore.Types.ActiveStatus;
             root.trayPresenceClaimed = true;
-            root.trayStatusShown = want;
         } catch (e) {
             // No applet behind us: a test harness, not a panel. Say so anyway, because the same
             // catch would swallow a real Plasma API change whose only symptom in a panel is a tray
@@ -1538,32 +1525,10 @@ PlasmoidItem {
         }
     }
 
-    // The status follows the view model, and a set that lands while the popup is open has been seen.
-    onVmChanged: {
-        claimTrayPresence();
-        acknowledgeSecurity();
-        acknowledgeStartup();
-    }
+    // A line that lands while the popup is open has been seen.
+    onVmChanged: acknowledgeStartup()
 
-    // The digest the last `kempt security-ack` was sent for, so a view model that changes while
-    // the popup is open (the clock, a watcher read) does not send it again.
-    property string securityAckSent: ""
-
-    // Tells the CLI the security updates on screen have been seen: it records the set and clears
-    // state.json's security.attention, which every widget then reads. --expect is the set this
-    // popup showed; a set that changed in between is refused (exit 6) and the next check's set is
-    // acknowledged in its turn while the popup stays open.
-    function acknowledgeSecurity() {
-        var digest = vm.securityDigest;
-        if (!popupOnScreen || digest === "" || digest === securityAckSent) return;
-        securityAckSent = digest;
-        executor.run(kemptCmd + " security-ack --expect=" + Logic.shellQuote(digest),
-                     Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
-            if (rc === 0) root.adoptState();
-        });
-    }
-
-    // The "running again" line, the security pattern again: shown once, acknowledged with
+    // The "running again" line: shown once, acknowledged with
     // `kempt startup ack --expect=<digest>` while the popup is on screen and the line is drawn
     // (vm.startupAckDigest is "" otherwise). A set that changed in between is refused (exit 6).
     // The CLI then clears the line from state.json, so the set acknowledged is kept here and

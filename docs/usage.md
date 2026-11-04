@@ -653,12 +653,10 @@ Its wording is fixed, so you can search it:
 | `config set <key>=<value> (was <old>)` | A setting changed. `(was unset)` when it had none. |
 | `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
 | `check ok actionable=<n> held=<n>` | A check succeeded, with the counts the badge shows next. |
-| `security notified count=<n>` | A notification announced a new set of security updates. `<n>` counts all the pending ones. Needs `notify_security`. |
 | `startup failed after the update: <units>` | Services that started before a Kempt update stopped starting after it. `after the last restart` when another tool changed packages since. Needs `notify_startup`. |
 | `startup recovered: <units>` | Services Kempt announced are running again. |
 | `startup muted <scope>:<unit>` / `startup unmuted <scope>:<unit>` | `kempt startup mute` or `unmute` ran. |
 | `notification shown: <text>` / `notification not shown (<reason>): <text>` | Kempt sent a desktop notification, and whether it reached the desktop. The reason is `no desktop session`, `timed out`, `notify-send is missing` or `notify-send failed, exit <n>`. "Shown" means it reached the desktop, not that you read it. |
-| `security check failed` | dnf could not list the security advisories. The check itself still worked. At most once a day. |
 | `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |
 | `check skipped (a Kempt update is running)` | The root helper would not query dnf while a Kempt update or check ran, so the check printed the previous state. A refresh refused the same way is not recorded as failed. |
 | `check shared last_check=<time>` | A `--coalesce` check took the answer of the check stamped `<time>`. It changes no counts. |

@@ -137,7 +137,7 @@ dnf_sizes() {  # → TSV name<TAB>bytes, one row per name, arches summed. EMPTY 
 }
 
 # Which pending system updates fix a security advisory, from the updateinfo already in the cache.
-# Asked only for a person who turned notify_security on, and only after the dnf check answered.
+# Asked only after the dnf check answered.
 # Cache-only (-C) and against the system cache, for the reasons dnf_sizes gives: no network, and
 # the same metadata the check was answered from. dnf5 prints `[]` under exit 0 when nothing is due.
 # The rows (dnf5 5.2.18 on Fedora 43 and 5.4 on Fedora 44 alike) are
@@ -158,9 +158,7 @@ dnf_security_query() {  # → dnf5's advisory list JSON; rc≠0 when dnf5 did no
 # or the whole answer is refused (rc≠0), because a partly read answer would under-report. Ids that
 # do not look like an advisory id are dropped. The package name is the NEVRA without its `.arch`
 # and its `-[epoch:]version-release`. Output:
-#   known       ids whose package is pending at all, held or not (what the seen file may keep)
-#   open        ids whose package is pending and not held, all of them (what is announced)
-#   advisories  the first 200 of those, sorted (what the state publishes and the widget acknowledges)
+#   advisories  the first 200 ids whose package is pending and not held, sorted
 #   packages    those packages, as the pending items name them and in their order
 # The names come from the items, never from the NEVRA, so they are the names the widget lists and
 # have already passed KEMPT_NAME_RE.
@@ -173,12 +171,9 @@ dnf_security_parse() {  # $1=file holding the dnf items JSON; stdin=advisory JSO
           then {id: .name, pkg: (.nevra | pkgname)} else error("a row without a name and nevra") end)
     | map(select(.id | test("^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$")))
     | unique
-    | [.[] | select($pend[.pkg] != null)] as $known
-    | [$known[] | select($pend[.pkg] == false)] as $open
+    | [.[] | select($pend[.pkg] == false)] as $open
     | ($open | map(.pkg) | unique) as $pkgs
-    | { known: ($known | map(.id) | unique),
-        open: ($open | map(.id) | unique),
-        advisories: ($open | map(.id) | unique | .[:200]),
+    | { advisories: ($open | map(.id) | unique | .[:200]),
         packages: [($items[0] // [])[] | select(.held != true) | .name | tostring
                    | select(. as $n | $pkgs | index([$n]) != null)] }'
 }

@@ -95,7 +95,7 @@
       "FEDORA-2026-g1",
       "FEDORA-2026-t1"
     ],
-    "attention": true,
+    "attention": false,
     "digest": "0123456789abcdef"
   }
 }

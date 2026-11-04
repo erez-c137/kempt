@@ -438,7 +438,7 @@ plain_in=(
   "passwordless enable rc=0" "passwordless enable rc=1" "passwordless disable rc=0" "passwordless disable rc=126"
   "discover-notifier off" "discover-notifier on" "discover-notifier keep" "config set surface=popup (was unset)"
   "hold dnf:kernel-core" "unhold dnf:kernel-core"
-  "security notified count=3" "security check failed" "run start surface=bogus"
+  "run start surface=bogus"
   "startup failed after the update: bluetooth.service" "startup failed after the last restart: a.service, b.service"
   "startup recovered: bluetooth.service" "startup muted system:cups.service" "startup unmuted user:foo.service"
   "offline staged 4 (NOT recorded: the state directory could not be written)"
@@ -487,7 +487,6 @@ while IFS= read -r head; do
 done < <(grep -rhoE 'log_event "[^"]*' "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" \
            | sed -e 's/^log_event "//' -e 's/\$.*//' -e 's/ *$//' | sort -u)
 assert_eq "${missing%; }" "" "every kind of event the code writes is in the sample"
-assert_contains "$plain_out" "cli Security update notice shown (3 pending)" "a security notice reads as one"
 assert_contains "$plain_out" "cli Running again: bluetooth.service" "a recovery reads as the notification does"
 assert_contains "$plain_out" "cli Staged update recorded, but its result after the restart will not be reported" \
   "a stage without its baseline says what that costs"

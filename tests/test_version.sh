@@ -91,10 +91,6 @@ assert_contains "$("$KEMPT" summary --help)" "usage: kempt summary [N | --json]"
   "summary's help is one synopsis, so each description belongs to it"
 assert_contains "$("$KEMPT" help enable-passwordless)" "an administrator's password once" \
   "enable-passwordless says whose password it asks for"
-# security-ack is the widget's: its --help answers, and the full usage leaves it out.
-assert_contains "$("$KEMPT" security-ack --help)" "usage: kempt security-ack --expect=DIGEST" \
-  "the internal security-ack still answers --help, without running"
-assert_not_contains "$("$KEMPT" --help)" "security-ack" "...and stays out of the full usage"
 assert_contains "$("$KEMPT" check --help)" "Flatpak apps installed" "check's help names the Flatpak apps installed for you only"
 assert_contains "$("$KEMPT" config --help)" "terminal, widget or offline" "config's help lists the surface values"
 assert_contains "$("$KEMPT" enable-passwordless --help)" "without a password" "enable-passwordless says what it does"

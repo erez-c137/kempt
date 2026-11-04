@@ -256,12 +256,10 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   the key is held to moving the restart surfaces and nothing else.
 
 - **state-security.json** - **derived**, `jq '. + {security: {...}}'` over state-live.json: the
-  block a check publishes for notify_security, naming three of the pending dnf packages, with an
-  advisory nobody has seen (`attention: true`) and a digest. Derived for the reason
-  state-reboot-needed.json is: paired with state-live.json it differs by that one key, so the view
-  model tests can say exactly what the block moves (the row token, the tooltip count and the
-  panel's attention) and that nothing else changes. `probe_state.py` drives the panel status from
-  it. Re-derive it from state-live.json at every re-capture.
+  block a check publishes, naming three of the pending dnf packages, with a digest. Derived for the
+  reason state-reboot-needed.json is: paired with state-live.json it differs by that one key, so
+  the view model tests can say exactly what the block moves (the row token and the tooltip count)
+  and that nothing else changes. Re-derive it from state-live.json at every re-capture.
 
 - **state-empty.json** (zero bytes) and **state-garbage.json** (a truncated document,
   `{"schema": 1, "last_check": "2026-08-2`) - **hand-written**, because no CLI can produce them:
