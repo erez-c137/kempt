@@ -1705,7 +1705,7 @@ ev('root.actionDone = ""')
 # nothing unless the set on offer is still the one shown), and what the popup says is the CLI's own line.
 def reclaim_from(source, name, offer=True):
     doc = json.load(open(source))
-    block = {"mode": "ask", "status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
+    block = {"status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
     if offer:
         block.update(offerable_bytes=1530000000, digest="0123456789abcdef", refs=[
             {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,

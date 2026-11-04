@@ -1128,7 +1128,7 @@ assert_contains "$(js "V('security').tooltipSub")" "3 security updates" "the too
 assert_eq "$(js "var t = V('security').tooltipSub; t.indexOf('3 security updates') > t.indexOf('curl')")" "true" \
   "...after the pending names"
 assert_eq "$(js "L.COPY.securityToken + '|' + L.COPY.securityCountOne")" "Security|1 security update" "the copy, with its singular"
-ONE_SEC="$(jq -c '.security = {count:1, packages:["curl"], advisories:["FEDORA-2026-c1"], attention:false, digest:"0123456789abcdef"}' "$FIXTURES/state-security.json")"
+ONE_SEC="$(jq -c '.security = {count:1, packages:["curl"]}' "$FIXTURES/state-security.json")"
 assert_contains "$(js "L.viewModel($ONE_SEC,false).tooltipSub")" "1 security update" "one is singular"
 STAGED_SEC="$(jq -c '.offline_staged = {staged_at:"2026-08-25T11:00:00+03:00", count:7, armed:true}' "$FIXTURES/state-security.json")"
 assert_eq "$(js "L.viewModel($STAGED_SEC,false).stagedArmed")" "true" "(premise: the stage is armed)"
@@ -3122,7 +3122,7 @@ assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false}).riskyMessa
 # The CLI's `reclaim` block, rendered as an Information message LAST in the stack. An empty digest
 # is no offer (nothing unused, or part of the list is younger than an hour), and so is an offer
 # under the size threshold. A size the CLI could not work out still shows, without a number.
-RC_OFFER='{mode:"ask",refs:[{ref:"runtime/org.kde.Platform/x86_64/5.15-23.08",commit:"a",since:"2026-09-29T08:00:00Z",eol:"org.kde.Platform 5.15 is no longer supported"},{ref:"runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",commit:"b",since:"2026-09-29T08:00:00Z",eol:null}],offerable_bytes:1530000000,digest:"0123456789abcdef",status:"ok"}'
+RC_OFFER='{refs:[{ref:"runtime/org.kde.Platform/x86_64/5.15-23.08",commit:"a",since:"2026-09-29T08:00:00Z",eol:"org.kde.Platform 5.15 is no longer supported"},{ref:"runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",commit:"b",since:"2026-09-29T08:00:00Z",eol:null}],offerable_bytes:1530000000,digest:"0123456789abcdef",status:"ok"}'
 assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "1000000000" "the threshold is 1 GB, in the SI bytes the footer uses"
 assert_eq "$(js "L.reclaimOffered($RC_OFFER)")" "true" "an offer with a digest and 1.5 GB is shown"
 assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{offerable_bytes:999999999}))")" "false" \

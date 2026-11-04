@@ -89,13 +89,6 @@
       "curl",
       "git-core",
       "tar"
-    ],
-    "advisories": [
-      "FEDORA-2026-c1",
-      "FEDORA-2026-g1",
-      "FEDORA-2026-t1"
-    ],
-    "attention": false,
-    "digest": "0123456789abcdef"
+    ]
   }
 }

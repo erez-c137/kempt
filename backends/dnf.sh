@@ -157,12 +157,10 @@ dnf_security_query() {  # → dnf5's advisory list JSON; rc≠0 when dnf5 did no
 # position: the top level must be a list and every row an object with a string `name` and `nevra`,
 # or the whole answer is refused (rc≠0), because a partly read answer would under-report. Ids that
 # do not look like an advisory id are dropped. The package name is the NEVRA without its `.arch`
-# and its `-[epoch:]version-release`. Output:
-#   advisories  the first 200 ids whose package is pending and not held, sorted
-#   packages    those packages, as the pending items name them and in their order
-# The names come from the items, never from the NEVRA, so they are the names the widget lists and
-# have already passed KEMPT_NAME_RE.
-dnf_security_parse() {  # $1=file holding the dnf items JSON; stdin=advisory JSON → JSON object
+# and its `-[epoch:]version-release`. Output: the pending, non-held packages with an advisory, as the
+# pending items name them and in their order. The names come from the items, never from the NEVRA,
+# so they are the names the widget lists and have already passed KEMPT_NAME_RE.
+dnf_security_parse() {  # $1=file holding the dnf items JSON; stdin=advisory JSON → JSON list
   jq -c --slurpfile items "$1" '
     def pkgname: sub("\\.[^.]*$"; "") | sub("-[^-]*-[^-]*$"; "");
     (reduce ($items[0] // [])[] as $i ({}; .[$i.name | tostring] = ($i.held == true))) as $pend
@@ -173,9 +171,8 @@ dnf_security_parse() {  # $1=file holding the dnf items JSON; stdin=advisory JSO
     | unique
     | [.[] | select($pend[.pkg] == false)] as $open
     | ($open | map(.pkg) | unique) as $pkgs
-    | { advisories: ($open | map(.id) | unique | .[:200]),
-        packages: [($items[0] // [])[] | select(.held != true) | .name | tostring
-                   | select(. as $n | $pkgs | index([$n]) != null)] }'
+    | [($items[0] // [])[] | select(.held != true) | .name | tostring
+       | select(. as $n | $pkgs | index([$n]) != null)]'
 }
 
 

@@ -174,7 +174,8 @@ P2="runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.freedes
 
 # --- the reclaim block: first sighting --------------------------------------------------------------
 out="$(check)"
-assert_eq "$(jq -r '.reclaim.mode' <<<"$out")" "ask" "a check publishes the reclaim block, mode ask by default"
+assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "ok" "a check publishes the reclaim block by default"
+assert_eq "$(jq -r '.reclaim | has("mode")' <<<"$out")" "false" "...with no mode field"
 assert_eq "$(jq -c '[.reclaim.refs[].ref]' <<<"$out")" "$ALL5" "...listing every unused ref"
 assert_eq "$(jq -c '.reclaim.refs[0] | keys' <<<"$out")" '["commit","eol","ref","since"]' \
   "...each with its commit, since and end-of-life reason"
@@ -187,7 +188,7 @@ assert_eq "$([[ -s "$STUBS/du.calls" ]] && echo ran || echo none)" "none" "...an
 assert_eq "$(jq -r '.reclaim.refs[0].since | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")' <<<"$out")" "true" \
   "...and since is UTC in a form jq and JavaScript both read back"
 first_since="$(jq -r '.reclaim.refs[0].since' <<<"$out")"
-assert_eq "$(state_reclaim | jq -r '.mode')" "ask" "the block is in state.json, not only on stdout"
+assert_eq "$(state_reclaim | jq -r '.status')" "ok" "the block is in state.json, not only on stdout"
 
 # --- stability: an hour unused with the same commit -------------------------------------------------
 # Age the recorded sightings by rewriting state.json, the file the next check reads them back from.
@@ -305,11 +306,11 @@ assert_eq "$(SUDO_UID=1000 check | jq -c '.reclaim')" "null" "under sudo: no rec
 assert_eq "$(PKEXEC_UID=1000 check | jq -c '.reclaim')" "null" "under pkexec: no reclaim block"
 assert_eq "$([[ -e "$STUBS/unused.calls" ]] && echo listed || echo never)" "never" "...and in none of those was anything listed"
 
-# --- the mode published -----------------------------------------------------------------------------
+# --- a value that is not off still publishes --------------------------------------------------------
 config_set reclaim automatic
-assert_eq "$(check | jq -r '.reclaim.mode')" "ask" "a saved reclaim=automatic publishes ask"
+assert_eq "$(check | jq -r '.reclaim | has("refs")')" "true" "a saved reclaim=automatic publishes the block"
 config_set reclaim nonsense
-assert_eq "$(check | jq -r '.reclaim.mode')" "ask" "an unknown value publishes ask"
+assert_eq "$(check | jq -r '.reclaim | has("refs")')" "true" "an unknown value publishes the block"
 config_set reclaim ask
 age_state 7200
 check >/dev/null

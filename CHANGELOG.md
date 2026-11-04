@@ -27,6 +27,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Security notifications and `notify_security`.** Kempt no longer sends a notification or animates the panel icon for security updates, and the setting is gone. The **Security** word on a package and the count stay, for everyone. Open the widget or run `kempt status` to see them.
 - **`reclaim=automatic`.** Kempt no longer removes unused Flatpak runtimes after an update. A saved `automatic` reads as `ask`. Press **Free Up Space** in the widget, shown when at least 1 GB can be freed, or run `kempt reclaim`.
 - **Panel icon size and restart reminder settings.** The icon always sizes itself to the panel, and the restart message always shows when a restart is owed. A saved `widget_icon_size` or `restart_reminder` is ignored. Close the message with its **X**, which lasts until Plasma restarts.
+- **`security.attention`, `security.digest`, `security.advisories` and `reclaim.mode` in `kempt check` output.** Nothing read them. `security.count`, `security.packages` and the rest of `reclaim` stay.
 
 ### Security
 

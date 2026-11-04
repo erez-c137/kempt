@@ -619,7 +619,7 @@ p.check("...and the reason a person has to act on is on the button that acts",
 def reclaim_from(source, name):
     doc = json.load(open(source))
     doc["reclaim"] = {
-        "mode": "ask", "status": "ok", "offerable_bytes": 1530000000,
+        "status": "ok", "offerable_bytes": 1530000000,
         "digest": "0123456789abcdef",
         "refs": [{"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
                   "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"},

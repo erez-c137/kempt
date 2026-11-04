@@ -1970,10 +1970,9 @@ adv_set "$(adv_row FEDORA-2026-c1 curl-8.18.0-9.fc44.x86_64)" "$(adv_row FEDORA-
   "$(adv_row '<b>x</b>' bash-5.3.10-1.fc44.x86_64)"
 
 out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c '.security | {count, packages, advisories, attention}' <<<"$out")" \
-  '{"count":3,"packages":["curl","git-core","tar"],"advisories":["FEDORA-2026-c1","FEDORA-2026-g1","FEDORA-2026-t1"],"attention":false}' \
+assert_eq "$(jq -c '.security' <<<"$out")" \
+  '{"count":3,"packages":["curl","git-core","tar"]}' \
   "the block names each pending package once, whatever its arch, epoch or duplicate rows"
-assert_eq "$(jq -r '.security.digest | test("^[0-9a-f]{16}$")' <<<"$out")" "true" "...with a 16-character digest"
 assert_eq "$(jq -c '.security' "$STATE_FILE")" "$(jq -c '.security' <<<"$out")" "...and it is written"
 assert_eq "$(jq -r .schema <<<"$out")" "1" "...additively: the schema does not move"
 assert_contains "$(cat "$TESTTMP/advisory-calls")" "-C -q advisory list --security --updates --json" "the query is cache-only and asks for security updates as JSON"

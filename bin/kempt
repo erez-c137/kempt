@@ -58,14 +58,13 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
   [[ "$1" == true ]] || return 0
   reclaim_as_root && return 0
   flatpak_present || return 0
-  local mode last listing classified sizes_tsv sizes='{}' sized=true digest
-  mode="$(reclaim_mode)"
-  [[ "$mode" != off ]] || return 0
+  local last listing classified sizes_tsv sizes='{}' sized=true digest
+  [[ "$(reclaim_mode)" != off ]] || return 0
   last="$(reclaim_last_read)"
   if ! listing="$(flatpak_unused_list 2>/dev/null)"; then
-    jq -cn --arg mode "$mode" --slurpfile last <(printf '%s\n' "$last") \
+    jq -cn --slurpfile last <(printf '%s\n' "$last") \
       '$last[0] as $last
-       | {mode: $mode, refs: [], offerable_bytes: null, digest: "", status: "failed"}
+       | {refs: [], offerable_bytes: null, digest: "", status: "failed"}
        + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
     return 0
   fi
@@ -74,9 +73,9 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
   # an hour there is no offer at all: the refs are listed with their since, the digest is empty,
   # and there is no size to estimate.
   if ! jq -e 'all(.offerable)' <<<"$classified" >/dev/null 2>&1; then
-    jq -cn --arg mode "$mode" --slurpfile c <(printf '%s\n' "$classified") --slurpfile last <(printf '%s\n' "$last") \
+    jq -cn --slurpfile c <(printf '%s\n' "$classified") --slurpfile last <(printf '%s\n' "$last") \
       '$c[0] as $c | $last[0] as $last
-       | {mode: $mode, refs: [$c[] | {ref, commit, since, eol}], offerable_bytes: null, digest: "", status: "ok"}
+       | {refs: [$c[] | {ref, commit, since, eol}], offerable_bytes: null, digest: "", status: "ok"}
        + (if $last == {} then {} else {last: $last} end)' 2>/dev/null || true
     return 0
   fi
@@ -91,12 +90,11 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
     || return 0
   # needs_auth and failed are carried from the last removal only while the set it tried is still
   # the set on offer: a failure is shown once per set, and a new set gets a fresh chance.
-  jq -cn --arg mode "$mode" --slurpfile c <(printf '%s\n' "$classified") --slurpfile sz <(printf '%s\n' "$sizes") \
+  jq -cn --slurpfile c <(printf '%s\n' "$classified") --slurpfile sz <(printf '%s\n' "$sizes") \
          --argjson sized "$sized" --arg digest "$digest" --slurpfile last <(printf '%s\n' "$last") '
     $c[0] as $c | $sz[0] as $sz | $last[0] as $last
     | ($c | map(select(.offerable))) as $off
-    | {mode: $mode,
-       refs: [$c[] | {ref, commit, since, eol}],
+    | {refs: [$c[] | {ref, commit, since, eol}],
        offerable_bytes: (if ($off | length) == 0 then 0
                          elif $sized then ($off | map($sz[.ref] // 0) | add)
                          else null end),
@@ -671,11 +669,8 @@ cmd_check() {
   if [[ -n "${STARTUP_SEEN:-}" ]] && st_block="$(startup_block)"; then
     state_merge --argjson b "$st_block" '. + {startup: $b}'
   fi
-  # `attention` and `digest` stay in the block because its fields are frozen. Nothing reads them.
   if [[ -n "$sec_parsed" ]]; then
-    state_merge --argjson b "$sec_parsed" --arg d "$(jq -r '.advisories[]' <<<"$sec_parsed" | set_digest)" \
-      '. + {security: {count: ($b.packages | length), packages: $b.packages, advisories: $b.advisories,
-                       attention: false, digest: $d}}'
+    state_merge --argjson b "$sec_parsed" '. + {security: {count: ($b | length), packages: $b}}'
   fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
   # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit

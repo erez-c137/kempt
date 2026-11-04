@@ -255,7 +255,7 @@ Contract of the captured set (`dnf-check-update.txt` parses to 7 items, the flat
   the key is held to moving the restart surfaces and nothing else.
 
 - **state-security.json** - **derived**, `jq '. + {security: {...}}'` over state-live.json: the
-  block a check publishes, naming three of the pending dnf packages, with a digest. Derived for the
+  block a check publishes, naming three of the pending dnf packages. Derived for the
   reason state-reboot-needed.json is: paired with state-live.json it differs by that one key, so
   the view model tests can say exactly what the block moves (the row token and the tooltip count)
   and that nothing else changes. Re-derive it from state-live.json at every re-capture.

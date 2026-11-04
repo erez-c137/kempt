@@ -206,7 +206,7 @@ cope with that.
 | `reboot_needed` | boolean | Whether a restart is owed **now**, asked on every check. `false` means **nothing to say**, because a check that could not tell also answers `false`. Render no "no restart needed" line from it. Additive. |
 | `metadata_refreshed` | ISO 8601 with offset, optional | When dnf's metadata was last **fetched**. See [below](#metadata_refreshed). Additive. |
 | `refresh_skipped` | string, optional | `"battery"` or `"metered"` when this check's metadata fetch was due and did not run for that reason, `"off"` whenever `KEMPT_SKIP_REFRESH` turns fetching off. Absent otherwise. Additive. |
-| `security` | object, optional | Only when dnf listed the security advisories, which it is asked only while a non-held update is pending. `count` and `packages`: the non-held dnf items with one. `advisories`: their IDs, at most 200. `digest`: 16 hex characters naming the set, `""` when empty. `attention` is always `false`. `attention` and `digest` are kept for the frozen schema; nothing reads them. Additive. |
+| `security` | object, optional | Only when dnf listed the security advisories, which it is asked only while a non-held update is pending. `count` and `packages`: the non-held dnf items with one. Additive. |
 | `startup` | object, optional | Only while `notify_startup` is on and systemd answered. `announced`: units failing since a Kempt update, each `{unit, scope, description, since}`, `scope` being `system` or `user`. `already`: failing at the baseline. `recovered`: announced units systemd reports active again; one systemd no longer knows, or that stopped after a clean run, is dropped without a notice. `muted`: from `startup-mutes`, each cleared once its unit is seen active, gone or stopped cleanly; a mute of an alias is stored under the unit's own name. `compared`: whether any comparison has run. `attribution`: `update`, or `restart` when dnf's newest transaction is not Kempt's. `recovered_digest`: 16 hex characters, `""` when none. `kempt startup ack --expect=<digest>` clears `recovered` (exit 6 when it changed). The state lives in `startup.json`, and mutes in `startup-mutes` (`scope:unit` lines). Additive. |
 | `offline_staged` | object, optional | A staged update that will install on the next restart. See [below](#offline_staged). Additive. |
 | `offline_stage_blocked` | object, optional | `staged_at` and `count` of a stage Kempt made that will **not** install on the next restart, because another updater has prepared it. Absent otherwise. Additive. |
@@ -304,7 +304,6 @@ run as root.
 
 | Key | Meaning |
 | --- | --- |
-| `mode` | `ask`: the block appears only when the setting is not `off`. |
 | `refs[]` | Every unused ref: `ref`, `commit`, `since` (UTC, when first seen unused with this commit) and `eol` (flatpak's end-of-life reason, or `null`). |
 | `offerable_bytes` | The estimated size of the offered list. `null` when unknown or nothing is offered yet. |
 | `digest` | Names the offered set, and is what `kempt reclaim --expect` takes. `""` when nothing is offered. |
