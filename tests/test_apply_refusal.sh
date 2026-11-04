@@ -184,7 +184,7 @@ stage_real
 reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-live-clean-refused" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_exit 0 "a refused supersede clean keeps the marker for the doctor" -- test -f "$marker"
-grep -q 'left in place because the stored offline transaction could not be read. See: kempt doctor' "$TESTTMP/err" \
+grep -q 'superseded the staged transaction. The staged update was left in place. Run kempt doctor.' "$TESTTMP/err" \
   && echo "ok: ...and warns that it was left in place" || { echo "FAIL: no warning"; _fail=1; cat "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean"
 

@@ -130,10 +130,17 @@ reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-refused" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "5" "a refusal from the root helper is a refusal here too, not a failed run"
 assert_exit 0 "...and the marker stays, because nothing changed" -- test -f "$marker"
-grep -q 'the stored offline transaction could not be read' "$TESTTMP/err" \
-  && echo "ok: ...and the reason is the one the boundary gives" \
-  || { echo "FAIL: the refusal does not carry apply_refusal_reason's words"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
+grep -q 'The staged update was left in place. Run kempt doctor.' "$TESTTMP/err" \
+  && echo "ok: ...and with nothing odd stored, it points at the doctor, which explains the folders" \
+  || { echo "FAIL: the refusal does not point at the doctor"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean either"
+# With a stored record whose releases the CLI cannot read either, the reason is the one that says so.
+stage_real
+sed -i '/releasever/d' "$TOML"
+reset_run
+rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-refused" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_eq "$rc" "5" "a refusal over an unreadable stored file is a refusal too"
+assert_contains "$(cat "$TESTTMP/err")" "the stored offline transaction could not be read" "...and the reason says the file could not be read"
 
 # --- a marker with no transaction under it ---------------------------------------------------------
 # Nothing for root to do: the transaction is already gone, and all that is left is Kempt's record

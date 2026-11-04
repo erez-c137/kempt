@@ -184,6 +184,11 @@ KEMPT_DNF_OFFLINE_PKG_DIR="${KEMPT_DNF_OFFLINE_PKG_DIR:-/var/lib/dnf/offline}"
 # `kempt doctor` also checks every folder above those three, up to /. When set, the walk stops
 # below this folder instead. For tests, whose folders sit in one the test user owns.
 KEMPT_DNF_PARENTS_TOP="${KEMPT_DNF_PARENTS_TOP:-}"
+# What doctor reads to tell which mount each dnf folder sits on, whether this process shares PID 1's
+# mount namespace, and the find it checks folders with. The root helper reads the same three.
+KEMPT_MOUNTINFO="${KEMPT_MOUNTINFO:-/proc/self/mountinfo}"
+KEMPT_MNT_NS_INIT="${KEMPT_MNT_NS_INIT:-/proc/1/ns/mnt}"
+KEMPT_FIND="${KEMPT_FIND:-find}"
 # Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
 # whether a stored transaction's packages are already installed (offline_stage_satisfied).
 KEMPT_RPM_QA_CMD="${KEMPT_RPM_QA_CMD:-}"
@@ -1410,9 +1415,10 @@ priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-;
 
 # kempt-apply exits 3 when it refuses dnf-offline-stage, dnf-offline-arm or dnf-offline-clean because
 # of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. It
-# also refuses clean while /system-update is there and is not dnf5's link. It refuses the upgrade,
-# the stage and the arm while other users can change dnf5's state or staged-package folder, which
-# apply_unsafe_dir in bin/kempt names. The helper decides all of this as root, on its own, so the
+# also refuses clean while /system-update is there and is not dnf5's link. It refuses every verb
+# while other users can change dnf5's folders or the folders above them (guard_dnf_folders in
+# libexec/kempt-apply, with a table of which verb checks what), which apply_unsafe_dir in bin/kempt
+# names. The helper decides all of this as root, on its own, so the
 # CLI's pre-flight is not the only guard. Nothing ran and nothing changed when it does. A caller that sees this status must not unwind with another
 # offline verb (the helper refuses that too, for the same reason) and must not advise
 # `dnf5 offline clean`, which would delete exactly what the refusal protected.
@@ -1448,8 +1454,10 @@ apply_refusal_reason() {  # → why the helper refused, as the user's side of th
     printf 'a Fedora release upgrade (%s) is stored\n' "$relup"
   elif [[ -e "$KEMPT_OFFLINE_LINK" || -L "$KEMPT_OFFLINE_LINK" ]] && [[ "$(offline_link_state)" != dnf5 ]]; then
     printf 'another updater has prepared the next restart\n'
-  else
+  elif [[ -e "$KEMPT_OFFLINE_TOML" || -L "$KEMPT_OFFLINE_TOML" ]] && ! offline_stored_is_readable; then
     printf 'the stored offline transaction could not be read\n'
+  else
+    printf 'Kempt could not check the folders dnf uses\n'
   fi
 }
 
@@ -3256,6 +3264,11 @@ offline_system_status() {  # → ready | absent | dnf5's own status word
 #   dnf5 upgrade --offline               system_releasever = "44"  target_releasever = "44"
 #   dnf5 system-upgrade download --releasever=45
 #                                        system_releasever = "44"  target_releasever = "45"
+# dnf5's record can be read and has both release versions, as the root helper's guard needs.
+offline_stored_is_readable() {
+  [[ -f "$KEMPT_OFFLINE_TOML" && -r "$KEMPT_OFFLINE_TOML" ]] \
+    && [[ -n "$(offline_toml_value system_releasever)" && -n "$(offline_toml_value target_releasever)" ]]
+}
 offline_release_upgrade() {  # → 0 and prints "44 -> 45" when one is stored
   local from to
   from="$(offline_toml_value system_releasever)" || return 1
