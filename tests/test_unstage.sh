@@ -130,10 +130,38 @@ reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-refused" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "5" "a refusal from the root helper is a refusal here too, not a failed run"
 assert_exit 0 "...and the marker stays, because nothing changed" -- test -f "$marker"
-grep -q 'the stored offline transaction could not be read' "$TESTTMP/err" \
-  && echo "ok: ...and the reason is the one the boundary gives" \
-  || { echo "FAIL: the refusal does not carry apply_refusal_reason's words"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
+grep -q 'The staged update was left in place. Run kempt doctor.' "$TESTTMP/err" \
+  && echo "ok: ...and with nothing odd stored, it points at the doctor, which explains the folders" \
+  || { echo "FAIL: the refusal does not point at the doctor"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean either"
+# With a stored record whose releases the CLI cannot read either, the reason is the one that says so.
+stage_real
+sed -i '/releasever/d' "$TOML"
+reset_run
+rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-refused" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_eq "$rc" "5" "a refusal over an unreadable stored file is a refusal too"
+assert_contains "$(cat "$TESTTMP/err")" "the stored offline transaction could not be read" "...and the reason says the file could not be read"
+
+# Over the folders, in the helper's sentence, and a stored release upgrade by then is not blamed.
+S_CHECK="Kempt could not check /var/lib/secret (Permission denied). Run kempt doctor."
+stage_real
+apply_stub clean-check 'dnf-offline-clean) cp "'"$FIXTURES/offline-release-upgrade.toml"'" "'"$TOML"'"; echo "kempt-apply: '"$S_CHECK"'" >&2; exit 3 ;;'
+reset_run
+rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-check" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_eq "$rc" "5" "a clean refused over the folders is a refusal"
+assert_eq "$(cat "$TESTTMP/err")" "The staged update was left in place. $S_CHECK" "...in the helper's sentence, once, with nothing about what is stored"
+
+# Any other failure keeps what the helper said.
+stage_real
+apply_stub clean-fails 'dnf-offline-clean) echo "dnf5 said why" >&2; exit 1 ;;'
+reset_run
+rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-fails" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_contains "$(cat "$TESTTMP/err")" "dnf5 said why" "a clean that fails still shows what the helper said"
+stage_real
+apply_stub clean-stored 'dnf-offline-clean) echo "kempt-apply: refusing dnf-offline-clean: something stored" >&2; exit 3 ;;'
+reset_run
+rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-stored" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_contains "$(cat "$TESTTMP/err")" "refusing dnf-offline-clean: something stored" "...and so does a refusal over something other than the folders"
 
 # --- a marker with no transaction under it ---------------------------------------------------------
 # Nothing for root to do: the transaction is already gone, and all that is left is Kempt's record

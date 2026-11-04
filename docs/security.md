@@ -145,11 +145,15 @@ Up to 0.1.7 the helpers kept the caller's umask. `kempt doctor` checks dnf's cac
 staged packages for files another user could change. A changed staged package installs as root
 without a second signature check, so the state and staged rows are failures.
 
-So `dnf-upgrade`, `dnf-offline-stage` and `dnf-offline-arm` exit 3 while another user can change
-anything in `/usr/lib/sysimage/libdnf5` or `/var/lib/dnf/offline`, by doctor's rule. The message
-names the folder and points to `kempt doctor`. `dnf-offline-clean` still runs, because the fix
-discards the stage. The fix deletes a file there with a second hard link, since that file may
-belong to someone else.
+So the helper exits 3 while another user could change those folders, the cache for upgrade and
+stage (rpm checks only a digest after dnf5's signature check), or any folder above them. Every name
+on the way must be root's, with no group or other write, sticky or not, no ACL entry that grants
+write, and no FUSE mount another user made. A link's target is walked too. A name that vanished
+under a checked parent is safe, and any other error refuses in its own words. `dnf-offline-clean`
+is checked only for the folders above and the state's `offline` folder, because the fix discards the stage. It refuses too on atomic
+Fedora, and outside PID 1's mount namespace. `kempt doctor` gives each fix, which deletes a file
+with a second hard link, since that file may belong to someone else. There is no override. Once
+only root can change a name, that stays true, so the check needs no handle held across dnf5's start.
 
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.

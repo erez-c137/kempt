@@ -116,6 +116,18 @@ sandbox() {  # fresh dirs per test file; call first
   # Doctor walks up from those three to the folders above them. $TESTTMP and the folders above it
   # belong to whoever runs the suite, so the walk stops below it.
   export KEMPT_DNF_PARENTS_TOP="$TESTTMP"
+  # The mount table and PID 1's namespace, which the same checks read. One plain mount, and this
+  # process's own namespace: unset, the helper would refuse, because a user cannot read PID 1's, and
+  # a developer's own mounts would decide. test_apply_parents.sh points them elsewhere.
+  printf '1 0 0:1 / / rw - ext4 /dev/root rw\n' > "$TESTTMP/mountinfo"
+  export KEMPT_MOUNTINFO="$TESTTMP/mountinfo" KEMPT_MNT_NS_INIT=/proc/self/ns/mnt
+  # The helper refuses without getfacl. The README promises a run without the acl package, so a box
+  # without it gets a getfacl that finds no ACL entries.
+  if ! command -v getfacl >/dev/null 2>&1; then
+    printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/no-acl-getfacl"
+    chmod +x "$TESTTMP/no-acl-getfacl"
+    export KEMPT_GETFACL="$TESTTMP/no-acl-getfacl"
+  fi
   # The installed-package list offline_stage_satisfied reads. Unset, it is the REAL rpm database,
   # and whether a fixture's packages happen to be installed on the box would decide a harvest. A
   # command that fails reads as "cannot tell", which is never satisfied.

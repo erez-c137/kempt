@@ -7,6 +7,17 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Security
+
+- **Kempt now stops updating when another user could change dnf's folders or a folder above them.**
+  The root helper checks owners, write access, ACL entries and user FUSE mounts on the way to dnf's
+  state, staged packages and cache, and refuses to install, stage, set to install or discard while
+  any of them is unsafe. It also refuses when it cannot complete a check, on atomic Fedora, and in a
+  different mount namespace. Stock systems see no change, and `kempt doctor` gives the fix. A check
+  finds the folder too, so `kempt status` and the widget say updates are paused before anyone presses
+  Update Now. A refused update reports the helper's own reason, and `kempt doctor` warns when these
+  folders sit on a network file system, where a server can refuse root.
+
 ## [0.2.0] - 2026-11-02
 
 ### Added
