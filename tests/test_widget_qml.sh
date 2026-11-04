@@ -18,8 +18,8 @@
 source "$(dirname "$0")/lib.sh"; sandbox
 QMLDIR="$REPO_ROOT/tests/qml"
 
-# Seconds the in-probe watchdog allows before it self-terminates. The slowest probe runs in about
-# nine; this is a ceiling for a wedged one, not a budget.
+# Seconds the in-probe watchdog allows before it self-terminates. The slowest probe takes about 70;
+# this is a ceiling for a wedged one, not a budget.
 PROBE_WATCHDOG=120
 
 # PySide6 is not a dependency of Kempt itself, so its absence must not fail the suite - but it must

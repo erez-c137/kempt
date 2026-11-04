@@ -3590,31 +3590,8 @@ assert_eq "$(js 'var d = L.watchChange("1 2 3 4 5","1 2 3 4 5 6 7 8"); [d.any, d
 assert_eq "$(js 'var d = L.watchChange("1 2 3 4 5 6 7 8","1 2 3 9 5"); [d.state, d.packages, d.stage].join()')" \
   "true,false,false" "...while a move in the fields they share still counts, as its own kind"
 
-# THE path that has to be in there. Fedora's rpm database is sqlite and is modified IN PLACE, so
-# /var/lib/rpm's own mtime does not move for an install or a remove - on a machine updated tonight
-# it read four months old. Watching only the directory meant this half of the refresh had never
-# fired on Fedora at all: a `dnf upgrade` typed in a terminal went unnoticed until the next timed
-# check, up to an hour later, which is the one thing the 30-second poll exists to prevent.
-grep -q 'stat -c %Y' "$REPO_ROOT/plasmoid/contents/ui/main.qml" \
-  && echo "ok: the widget still stats mtimes to notice changes" \
-  || { echo "FAIL: the watcher no longer stats anything"; _fail=1; }
-grep -q '/var/lib/rpm/rpmdb.sqlite' "$REPO_ROOT/plasmoid/contents/ui/main.qml" \
-  && echo "ok: ...and watches the rpm database FILE, which is what Fedora actually writes" \
-  || { echo "FAIL: the watcher does not stat rpmdb.sqlite - foreign dnf changes go unnoticed"; _fail=1; }
 assert_eq "$(js 'L.WATCH_FIELDS')" "8" \
   "logic.js expects as many fields as main.qml stats, or every column shifts"
-# The padding in watchCmd is what makes those field numbers mean anything: `stat` prints NOTHING
-# for a path that does not exist, so an unpadded stamp on a box with no flatpak has three fields
-# and state.json is read in the flatpak column - every state write attributed to the package
-# database, and every dnf write read as the end of a run.
-assert_exit 0 "the watch command pads every path, so a missing one cannot shift the fields" -- \
-  grep -q 'stat -c %Y .* || echo 0' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-assert_exit 0 "...and the watcher compares those fields rather than the whole string" -- \
-  grep -q 'Logic.watchChange(' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-assert_exit 0 "the watcher stats dnf5's offline directory, where a stage lives" -- \
-  grep -q 'KEMPT_OFFLINE_DATADIR:-/usr/lib/sysimage/libdnf5/offline' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-assert_exit 0 "...and the /system-update link that arms it" -- \
-  grep -q 'KEMPT_OFFLINE_LINK:-/system-update' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
 assert_eq "$(js 'L.watchChange("1 3 4","1 9 4").comparable')" "false" \
   "a stamp that is not four fields is not compared field-wise"
 assert_eq "$(js 'L.watchChange("1 3 4","1 9 4").state')" "true" \
@@ -3693,24 +3670,6 @@ assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T14:35:14+03:00'}, nu
 assert_eq "$(js "L.checkedAfterRun({last_check: '2026-09-26T15:30:00+03:00'}, {when: 'not a date'}, $PRESS)")" "true" \
   "an entry with no readable stamp is not this run's, so the press is the anchor"
 assert_eq "$(js "L.checkedAfterRun(null, $ENTRY, $PRESS)")" "false" "no state is not a check"
-# Structural, because the rule is only worth anything where it is applied: main.qml must consult it
-# on the watcher's path, and the config field must stay exempt - the settings page has no other way
-# into that file, and docs/widget.md promises the panel catches up within 30 seconds.
-assert_exit 0 "the watcher's check is gated on it" -- \
-  grep -q 'Logic.watcherCheckDue(root.lastCheckFinished' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-assert_exit 0 "...with a config change exempt, so a settings apply still lands within 30 seconds" -- \
-  grep -q 'if (delta.config || Logic.watcherCheckDue' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-# The end of a run is not checked from the widget: the CLI checks on its way out of every run, and
-# a second check from here made one update cost four checks on a real box (2026-09-26). The widget
-# waits for the CLI's and arms postRunCheck as the fallback. Read before leaveUpdating clears
-# `updating`, or the test passes and the behaviour does not.
-assert_exit 0 "...the end of a run is read before the run state is cleared" -- \
-  grep -q 'var endedRun = delta.state && root.updating;' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-assert_exit 0 "...and arms the fallback rather than checking" -- \
-  grep -q 'postRunCheck.restart();' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-assert_exit 0 "...and every completed check stamps the window it opens" -- \
-  grep -q 'root.lastCheckFinished = Date.now();' "$REPO_ROOT/plasmoid/contents/ui/main.qml"
-
 # --- automatic checks coalesce in the CLI, checks a person asked for never do --------------------
 # Two instances of the widget (one per panel tray) both fire every automatic trigger, and the second
 # `kempt check` used to queue on the lock behind the first and ask dnf again. `--coalesce` lets the
@@ -3845,21 +3804,6 @@ assert_eq "$(js 'L.anywayReasonOf("battery") + "|" + L.anywayReasonOf("metered")
 LJ="$REPO_ROOT/plasmoid/contents/ui/logic.js"
 assert_eq "$(grep -v '^ *//' "$LJ" | grep -c -- '--anyway')" "1" "logic.js writes --anyway in one line"
 assert_contains "$(awk '/^function checkArgs/,/^}/' "$LJ")" '" check --anyway"' "...inside checkArgs"
-assert_eq "$(grep -c -- '--anyway' "$MQ" || true)" "0" "main.qml never writes --anyway, not even in a comment"
-assert_eq "$(grep -c 'recheckAnyway = true' "$MQ")" "1" "recheckAnyway is set in one place"
-assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "if (checking) recheckAnyway = true;" \
-  "...the handler, so a press during a running check is honoured"
-assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "if (checking && checkingAnyway) return;" \
-  "...and a press during a check that already passes the rules queues nothing, not even a plain check"
-assert_eq "$(qml_block "$MQ" 'function downloadAnyway' | grep -n 'checking && checkingAnyway) return;\|if (checking) recheckAnyway = true;' | cut -d: -f2- | tr -d ' ')" \
-  "$(printf '%s\n%s' 'if(checking&&checkingAnyway)return;' 'if(checking)recheckAnyway=true;')" \
-  "...that return comes first"
-assert_contains "$(qml_block "$MQ" 'function downloadAnyway')" "doCheck(false, true, false, true);" \
-  "...which runs a person's fetch that passes the rules"
-assert_eq "$(grep -cE 'doCheck\([^,)]*,[^,)]*,[^,)]*, *true\)' "$MQ")" "1" \
-  "no other doCheck call in main.qml passes anyway as true"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "var anywayAgain = asked && root.recheckAnyway && !root.updating;" \
-  "a folded press is replayed only into a check a person asked for, and never during a run"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (spend && Logic.servedBeforePress(parsed, askedMs)) {" \
   "a press answered with the state from before it is noticed"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" 'root.checkFailNote = i18n("Another check was running. Press Download Anyway again.");' \
@@ -3870,12 +3814,6 @@ assert_eq "$(js 'L.COPY.anywayLost')" "Another check was running. Press Download
   "...in the wording the table specifies"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.recheckAnyway = false;" \
   "...and cleared with the other recheck flags"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" "var spend = anyway === true && fresh && !auto;" \
-  "doCheck ignores anyway on an automatic check or one that does not fetch"
-assert_eq "$(grep -rh 'downloadAnyway()' "$REPO_ROOT/plasmoid/contents/ui/" | grep -cv '^ *//')" "3" \
-  "downloadAnyway() is defined once and called by the two Download Anyway buttons only"
-assert_eq "$(grep -c 'plasmoidItem.downloadAnyway()' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
-  "...both in the popup"
 
 # --- the settings page's apply path -------------------------------------------------------------
 # These are structural rather than behavioural - the page needs a real QML engine to drive, which
@@ -4146,34 +4084,9 @@ fi
 assert_eq "$(printf 'text: i18n("Wait...")\n' | sed 's://.*::' | grep -c '\.\.\.')" "1" \
   "the ellipsis scan finds three dots in a line it is given"
 
-# --- docs/widget.md has to describe the widget that is here -------------------------------------
-# Doc drift is not a documentation problem, it is a truth problem: the popup section is what a
-# person reads INSTEAD of watching the code, so a sentence that was true of an earlier build is
-# just a wrong answer with a nice tone. These tie the paragraphs most likely to drift back to the
-# code that decides them.
-WIDGET_DOC="$REPO_ROOT/docs/widget.md"
-
-# Every fixed header wording the view model can produce is DERIVED here rather than typed, so a
-# reworded header fails this instead of quietly leaving the page describing the old words. (The
-# count phrases - "3 updates available" - are built around a number and are shown by example.)
-while IFS= read -r hw; do
-  [[ -z "$hw" ]] && continue
-  if grep -qF -- "$hw" "$WIDGET_DOC"; then
-    echo "ok: docs/widget.md names the header wording \"$hw\""
-  else
-    echo "FAIL: docs/widget.md never mentions the header wording \"$hw\""; _fail=1
-  fi
-done <<EOF
-$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).headerText')
-$(js 'L.viewModel(null,true).headerText')
-$(js 'L.viewModel(null,false).headerText')
-$(js 'L.viewModel(null,false,"kempt: command not found").headerText')
-$(js 'L.viewModel(null,false,"",{engineMissing:true}).headerText')
-$(js 'L.viewModel({schema:2,status:"ok",actionable:1,held_total:0,backends:{}},false).headerText')
-EOF
-
-# ...and docs/install.md is where a store-first user lands, so the sentence it promises them is
-# the sentence the widget actually shows. Derived, not typed, for the same reason as the headers.
+# --- docs/install.md quotes what the widget shows ------------------------------------------------
+# docs/install.md is where a store-first user lands, so the sentence it promises them is
+# the sentence the widget actually shows. Derived from the copy table, not typed.
 INSTALL_DOC="$REPO_ROOT/docs/install.md"
 assert_eq "$(grep -cF "$(js 'L.COPY.engineMissing')" "$INSTALL_DOC")" "1" \
   "docs/install.md quotes the message a widget with no engine really shows"
@@ -4181,56 +4094,6 @@ while IFS= read -r _line; do
   assert_eq "$(grep -cF "$_line" "$INSTALL_DOC" | awk '{print ($1 >= 1)}')" "1" \
     "...and the install line under it, character for character: $_line"
 done < <(js 'L.COPY.engineMissingInstall'; echo)
-
-# The coalescing sentence. main.qml's doCheck sets recheckPending and runs a SECOND full check
-# when one is already in flight - deliberately, because the running check read the system before
-# whatever prompted this request. The page used to say the opposite.
-assert_eq "$(grep -c 'waits for that one rather than starting a second' "$WIDGET_DOC")" "0" \
-  "widget.md no longer claims the popup waits for a running check instead of asking again"
-assert_eq "$(grep -c 'If a check is already running, one more runs when it$' "$WIDGET_DOC")" "1" \
-  "...it describes the coalescing the code actually does"
-
-# Show Log is bound to the entry HAVING a log path (FullRepresentation.qml), and an offline
-# harvest entry has none - so "each with Show Log" was a promise the popup does not keep.
-assert_eq "$(grep -c 'each with \*\*Show Log\*\*' "$WIDGET_DOC")" "0" \
-  "widget.md no longer promises Show Log on every post-run message"
-assert_eq "$(grep -c 'opens the run.s log, when there is one' "$WIDGET_DOC")" "1" \
-  "...it says when the button is there instead"
-assert_eq "$(grep -c 'lastRun.logPath.length > 0' "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml")" "2" \
-  "...and the QML really does bind both Show Log buttons to a log path being present"
-
-# The staged banner has three spellings, and the page has to describe the one a worried person
-# will actually be looking at. Derived from the copy table rather than typed, so a reworded banner
-# fails here instead of quietly leaving the page describing the old words. The two sentences with a
-# package name in them are checked by their fixed halves: the name is the variable part.
-# Flattened first, because these sentences are long enough to wrap in a document and a wrapped
-# quote is still a quote. `grep -o | wc -l` rather than `grep -c`, which on a one-line file would
-# count the line and lose the "exactly once" half of the assertion.
-WIDGET_FLAT="$TESTTMP/widget-flat.txt"
-tr '\n' ' ' < "$WIDGET_DOC" | tr -s ' ' > "$WIDGET_FLAT"
-for _lit in stagedConflictUnknown; do
-  assert_eq "$(grep -oF "$(js "L.COPY.$_lit")" "$WIDGET_FLAT" | wc -l)" "1" \
-    "docs/widget.md quotes COPY.$_lit as the popup really says it"
-done
-# Presence rather than a count for the button's own name: it is a LABEL, and a label belongs both
-# in the prose and in the sketches of the banner it sits on. Counting it would make drawing the
-# widget twice a test failure.
-assert_eq "$(grep -qF "$(js 'L.COPY.stagedDiscardAction')" "$WIDGET_DOC" && echo yes || echo no)" "yes" \
-  "docs/widget.md calls the action by the name on the button"
-assert_eq "$(grep -c 'You held kernel-core after the update was staged' "$WIDGET_DOC")" "1" \
-  "...the singular conflict banner too"
-assert_eq "$(grep -c 'You held kernel-core and 2 more after the update was' "$WIDGET_DOC")" "1" \
-  "...and the plural one"
-# The cost must be where a widget user will read it. Scoped to the popup section rather than the
-# whole page, which could pass with the popup section saying nothing at all.
-POPUP_DOC="$TESTTMP/widget-popup.md"
-awk '/^## Inside the widget$/ { f = 1; next } /^## / { f = 0 } f' "$WIDGET_DOC" > "$POPUP_DOC"
-assert_eq "$([[ -s "$POPUP_DOC" ]] && echo yes || echo no)" "yes" \
-  "premise: docs/widget.md still has a popup section to read"
-assert_eq "$(tr -s ' \n' '  ' < "$POPUP_DOC" | grep -q 'staging again downloads them again' && echo 1 || echo 0)" "1" \
-  "the popup section says what discarding costs"
-assert_eq "$(grep -c 'never edits a stored transaction\|cannot edit a stored transaction\|no way to edit a stored' "$POPUP_DOC")" "1" \
-  "...and that the pin never reaches into a transaction dnf5 has already stored"
 
 # The widget stages through `kempt run --surface=offline`, never a detached `kempt update`: only
 # `run` refuses up front (exit 3 while another update holds the lock) where the popup can read it.

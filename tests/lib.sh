@@ -18,6 +18,11 @@ skip() {  # reason... → print it, record it, and carry on
 }
 
 sandbox() {  # fresh dirs per test file; call first
+  # A KEMPT_ value in the developer's shell must not reach a test: an unset seam falls back to the real
+  # command or path, so one inherited value changes what a test touches. Only the suite's own
+  # controls (KEMPT_TEST_*, set by run_tests.sh or on purpose by a caller) are kept.
+  local _v
+  for _v in $(compgen -e | grep '^KEMPT_' | grep -v '^KEMPT_TEST_' || true); do unset "$_v"; done
   TESTTMP="$(mktemp -d "${TMPDIR:-/tmp}/kempt-test.XXXXXX")"
   export HOME="$TESTTMP/home"; mkdir -p "$HOME"
   export XDG_CONFIG_HOME="$HOME/.config" XDG_STATE_HOME="$HOME/.local/state"

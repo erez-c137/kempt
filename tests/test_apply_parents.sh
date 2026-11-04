@@ -421,8 +421,10 @@ refuses "a line with more fields than the kernel writes is not guessed at" dnf-o
 if other_ids "doctor as an ordinary user"; then
   as_user() {  # setup → OUT: the helper's line, HELPER=<status>, then doctor's rows for the dnf folders
     OUT="$(timeout 120 unshare --map-auto --map-root-user --mount env REPO="$REPO_ROOT" SETUP="$1" bash -c '
+      # The checkout may itself sit under /mnt, which the tmpfs below hides: copy it out first.
+      stage="$(mktemp -d)" && cp -r "$REPO"/bin "$REPO"/lib "$REPO"/libexec "$REPO"/backends "$REPO"/VERSION "$stage"/ 2>/dev/null
       mount -t tmpfs -o mode=755 none /mnt || exit 9
-      mkdir -p /mnt/repo /mnt/h && cp -r "$REPO"/bin "$REPO"/lib "$REPO"/libexec "$REPO"/backends "$REPO"/VERSION /mnt/repo/ 2>/dev/null
+      mkdir -p /mnt/repo /mnt/h && cp -r "$stage"/. /mnt/repo/
       chown -R 1000:1000 /mnt/h; chmod -R a+rX /mnt/repo
       R=/mnt/root; mkdir -p $R/usr/lib/sysimage/libdnf5 $R/var/lib/dnf/offline $R/var/cache/libdnf5/repo/packages; chmod -R 755 $R
       mi=/mnt/mi; printf "1 0 0:1 / / rw - ext4 /dev/root rw\n" > $mi; chmod 644 $mi

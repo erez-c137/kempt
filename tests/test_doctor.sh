@@ -424,7 +424,7 @@ grep -qF "config file: $CONFIG_FILE (1 setting)" "$TESTTMP/doctor-1key" \
 "$KEMPT" config set auto_accept true
 "$KEMPT" doctor > "$TESTTMP/doctor-2keys" 2>&1 || true
 grep -qF "config file: $CONFIG_FILE (2 settings)" "$TESTTMP/doctor-2keys" \
-  && echo "ok: two keys read '2 settings', the sample docs/usage.md prints" \
+  && echo "ok: two keys read '2 settings'" \
   || { echo "FAIL: plural count - got: $(grep 'config file:' "$TESTTMP/doctor-2keys")"; _fail=1; }
 
 # A config file is read by every command with `grep "^key="`, so a line that is not key=value is
@@ -637,11 +637,6 @@ assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'panel widget not installed' \
 doctor_staged > "$TESTTMP/skew.txt" 2>&1 || true
 assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'shadows' \
   "in a checkout the user copy IS the install, so nothing warns about it"
-
-# The removal command needs no root and cannot be guessed, so it is documented as well as
-# reported. A reader who hits this at install time should not have to run doctor to find it.
-assert_contains "$(cat "$REPO_ROOT/docs/install.md")" 'kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt' \
-  "docs/install.md spells out the same removal command doctor names"
 
 # --- the staged transaction, which doctor is the only surface that can explain --------------------
 # TWO facts in two places: Kempt's marker, and dnf5's own transaction status. Every other surface

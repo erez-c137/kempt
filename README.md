@@ -101,7 +101,8 @@ kempt doctor
 
 `install.sh` links `bin/kempt` into `~/.local/bin`, so keep the checkout where it is. If `kempt` is
 not found afterwards, log out and back in. The
-[install guide](docs/install.md#from-a-checkout-developers) covers the details and how to undo it.
+[contributing guide](CONTRIBUTING.md#installing-from-a-checkout) covers the details, and the
+[install guide](docs/install.md#from-a-checkout-developers) how to update and undo it.
 
 ## Documentation
 
