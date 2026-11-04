@@ -673,11 +673,8 @@ cmd_check() {
     state_merge --argjson b "$sec_parsed" '. + {security: {count: ($b | length), packages: $b}}'
   fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
-  # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit
-  # status cannot: the lock-timeout branch above returns 0 without writing. `return 1` keeps a
-  # failed write a failed check for a caller with errexit off.
-  if printf '%s\n' "$state" | write_state; then CHECK_WROTE_STATE=1
-  else [[ -z "$wlocked" ]] || writer_unlock; return 1; fi
+  # `return 1` keeps a failed write a failed check for a caller with errexit off.
+  printf '%s\n' "$state" | write_state || { [[ -z "$wlocked" ]] || writer_unlock; return 1; }
   [[ -z "$wlocked" ]] || writer_unlock
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
   # nothing on purpose: it served a previous answer and looked at nothing.
@@ -698,18 +695,15 @@ cmd_check() {
 KEMPT_RETRY_DELAY="${KEMPT_RETRY_DELAY:-10}"
 
 # Surfaces are a closed set. An unknown one (a config typo, an older widget's value) must not
-# silently mean "detached": fall back to the surface that can show a human what happened.
+# silently mean "wait for the next restart": fall back to the surface that runs and reports now.
 resolve_surface() {  # surface → a known surface (single definition: cmd_update and cmd_run must never drift)
-  # Trimmed and lower-cased first, which the widget's resolveSurface has always done. Without it
-  # the two disagreed about a value `kempt config set surface " OFFLINE "` will happily store -
-  # config_set validates the KEY and stores the value as given - and the popup would then hide
-  # Update Now for a box whose runs go to the terminal. The warning still names what was written,
-  # not what it was read as.
+  # Trimmed and lower-cased first, which the widget's resolveSurface also does. The warning still
+  # names what was written, not what it was read as.
   local s
   s="$(surface_canon "$1")"
   case "$s" in
-    terminal|popup|offline) printf '%s\n' "$s" ;;
-    *) echo "warning: surface='$1' is not a known value, so updates run in a terminal window" >&2; printf 'terminal\n' ;;
+    popup|offline) printf '%s\n' "$s" ;;
+    *) echo "warning: surface='$1' is not a known value, so updates run in the widget" >&2; printf 'popup\n' ;;
   esac
 }
 
@@ -766,7 +760,7 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
     # previous attempt's lock error and retries a run that failed for another reason entirely.
     before_sz=0; [[ -f "$log" ]] && before_sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
     if [[ "${KEMPT_LIVE_OUTPUT:-}" == "1" ]]; then
-      # terminal surface: the user must SEE live output, and any prompt when auto_accept=false.
+      # At a terminal: the person SEES live output, and any prompt when auto_accept=false.
       # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt for a caller that invokes
       # apply_with_retry bare, where `; rc=` would abort the run instead of retrying.
       "$runner" "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
@@ -805,10 +799,10 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
 }
 
 # Pre-flight failure: nothing has been changed and nothing will be. Loud on stderr, exit 5 (never
-# a bare backend rc through errexit), and a notification where nobody reads stderr. Reads $surface.
+# a bare backend rc through errexit), and a notification where nobody reads stderr. Reads $at_terminal.
 preflight_abort() {  # message
   echo "$1" >&2
-  [[ "$surface" != "terminal" ]] && notify "Kempt" "Update did not start: $1"
+  [[ "$at_terminal" == true ]] || notify "Kempt" "Update did not start: $1"
   # Recorded, because `kempt log` is where somebody looks when a press did nothing and they want to
   # know why. Two of the three things that reach here are deliberate refusals rather than faults,
   # and a refusal that leaves no trace is indistinguishable from a button that does not work.
@@ -855,7 +849,7 @@ refuse_run_behind_other_updater() {
   restart_held_by_other || return 0
   if [[ "$wanted_stage" != true ]]; then
     [[ -z "$risky_ok" ]] || return 0
-    [[ -t 0 && -t 1 ]] && return 0
+    [[ "$at_terminal" == true ]] && return 0
   fi
   local rc=0
   run_pending_count || rc=$?
@@ -866,9 +860,9 @@ refuse_run_behind_other_updater() {
     preflight_abort "the next restart belongs to another updater, and $(apply_unsafe_words "$unsafe_dir"), so nothing was changed. See: kempt doctor"
   fi
   if [[ "$wanted_stage" != true ]]; then
-    preflight_abort "the next restart belongs to another updater, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now with: kempt update --surface=terminal"
+    preflight_abort "the next restart belongs to another updater, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now by typing this in a terminal: kempt update --surface=widget"
   fi
-  preflight_abort "the next restart belongs to another updater, so nothing was staged or changed. Restart when you are ready, or update now with: kempt update --surface=terminal"
+  preflight_abort "the next restart belongs to another updater, so nothing was staged or changed. Restart when you are ready, or update now by typing this in a terminal: kempt update --surface=widget"
 }
 
 # The sentence for a step the root helper refused: what the helper said about a folder, else the
@@ -956,7 +950,7 @@ recommend_offline_if_risky() {
     rm -f "$rerr"
     if [[ -n "$risky_list" ]]; then
       rcount="$(wc -l <<<"$risky_list")"
-      if [[ "$surface" == "terminal" && ( -t 0 || -n "${KEMPT_ASSUME_TTY:-}" ) ]]; then
+      if [[ "$at_terminal" == true ]]; then
         # ONE ROW PER FAMILY, CARRYING ITS OWN COUNT. Same family rule as the notification below -
         # a Qt bump's first eight names alphabetically would otherwise push a pending KERNEL out of
         # sight, and kernel-core and kernel-modules are one decision, not two.
@@ -1415,19 +1409,19 @@ cmd_update() {
     if flatpak_included; then include_fp=true; else include_fp=false; fi
   fi
   local auto; auto="$(config_get auto_accept)"
-  # validate BEFORE the auto-accept guard so the two compose (unknown → terminal → still terminal)
   surface="$(resolve_surface "$surface")"
   # Asked for a stage, whatever the next lines turn this run into. The gate for another updater's
   # restart below answers this, not what the run became.
   local wanted_stage=false
   [[ "$surface" == offline ]] && wanted_stage=true
-  # only a terminal can prompt - enforced HERE too (cmd_run also guards, but update can be invoked directly)
-  # The one exception is a stage asked for at a terminal (what `kempt run --surface=offline` opens
-  # with auto_accept off): dnf5 asks before staging there, and turning a request to install on the
-  # next restart into a live update is the surprise this guard exists to prevent.
-  is_true "$auto" || { [[ "$surface" == "offline" && -t 0 && -t 1 ]] || surface="terminal"; KEMPT_LIVE_OUTPUT=1; }
-  [[ "$surface" == "terminal" ]] && KEMPT_LIVE_OUTPUT=1
-  export KEMPT_LIVE_OUTPUT
+  # Somebody at a terminal sees the output and can answer the questions. KEMPT_ASSUME_TTY stands in
+  # for the terminal in tests.
+  local at_terminal=false
+  if [[ -n "${KEMPT_ASSUME_TTY:-}" || ( -t 0 && -t 1 ) ]]; then
+    at_terminal=true
+    KEMPT_LIVE_OUTPUT=1
+    export KEMPT_LIVE_OUTPUT
+  fi
 
   # An image-based Fedora - Silverblue, Kinoite, Bazzite, a bootc image - updates through
   # rpm-ostree, and /usr is not dnf's to write. Refused HERE, before the lock, before the
@@ -1532,7 +1526,8 @@ cmd_update() {
   # Empty when it cannot, and everything downstream then reports the run from its two snapshots, the
   # way it did before the lookup existed. Declared here because the live branch below is one of two.
   local live_txid="" live_keep=""
-  is_true "$auto" && yflag=(-y)
+  # auto_accept=false asks a person, so it applies only where one can answer.
+  if is_true "$auto" || [[ "$at_terminal" != true ]]; then yflag=(-y); fi
   local held_dnf; held_dnf="$(holds_for dnf)"
   while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
   # reason_override - a reason worked out here, because after a failed arm the log's first
@@ -2085,7 +2080,7 @@ cmd_update() {
   # rather than handed a path that does not exist, which would end the run here on jq's rc. The
   # notification below still goes out; it just cannot carry the counts.
   [[ -n "$hist" ]] && render_summary "$hist"
-  if [[ "$surface" != "terminal" ]]; then
+  if [[ "$at_terminal" != true ]]; then
     # Same truth as the summary: a run that installed and removed packages is never "0 updated".
     local phrase=""
     [[ -n "$hist" ]] && phrase="$(run_counts_phrase "$hist")"
@@ -2126,82 +2121,39 @@ cmd_update() {
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
   # already emptied. Never allowed to change the run's verdict. It takes seconds and prints
   # nothing, so a person watching is told what the pause is.
-  CHECK_WROTE_STATE=""
   # The skip this run set for itself covers its apply and its after-snapshot only. The check asks the
   # per-user installation again, so a listing that still fails is recorded there as failed.
   [[ "$fp_user_unreadable" == true ]] && unset FLATPAK_USER_SKIP
   [[ -t 1 ]] && printf '\nChecking for anything left to update…\n'
   cmd_check >/dev/null 2>&1 || true
-  # Tells the terminal wrapper (cmd_run) that this run has had its closing check, so it does not
-  # run a second one. Set only by that wrapper. Only after a check that wrote state: one that lost
-  # the check lock served the old state, so the window's own check is the one that counts.
-  if [[ -n "${KEMPT_CLOSING_CHECK_MARK:-}" && -n "$CHECK_WROTE_STATE" ]]; then
-    : > "$KEMPT_CLOSING_CHECK_MARK" 2>/dev/null || true
-  fi
   return "$run_rc"
 }
 
-# Waits for a launched update window to START, the one thing `kempt run` cannot otherwise see: the
-# emulator is detached and its streams go to /dev/null. The window's first act is to delete the
-# token, so the token going away IS the window starting. rm is atomic, so exactly one side gets the
-# token, and that is what stops a window arriving after this gave up from starting an update behind
-# a report that said none started.
-# 0: the window started, or its launcher is still running at the deadline (a slow start is not a
-#    failure, and the token is left for the window to claim).
-# 1: it will not start. RUN_LAUNCH_RC holds the launcher's status, 0 for one that handed the window
-#    to another process that never opened it.
-wait_for_window() {  # pid token seconds
-  local pid="$1" token="$2" ticks=$(( $3 * 10 )) i
-  RUN_LAUNCH_RC=""
-  for ((i = 0; i < ticks; i++)); do
-    [[ -e "$token" ]] || return 0
-    if [[ -z "$RUN_LAUNCH_RC" ]] && ! kill -0 "$pid" 2>/dev/null; then
-      RUN_LAUNCH_RC=0; wait "$pid" 2>/dev/null || RUN_LAUNCH_RC=$?
-      # An error means nothing is coming. Exit 0 may be an emulator that handed the window to an
-      # instance it already had running, so the token still gets the rest of the wait.
-      [[ "$RUN_LAUNCH_RC" -ne 0 ]] && break
-    fi
-    sleep 0.1
-  done
-  if [[ -z "$RUN_LAUNCH_RC" ]]; then
-    kill -0 "$pid" 2>/dev/null && return 0
-    RUN_LAUNCH_RC=0; wait "$pid" 2>/dev/null || RUN_LAUNCH_RC=$?
-  fi
-  rm -- "$token" 2>/dev/null || return 0    # claimed in the last instant: it started
-  return 1
-}
-
 # What the widget's "Update now" button calls: pick the surface, then get out of the way.
-# cmd_update re-checks auto_accept itself; this guard is the LAUNCH decision, since a detached run
-# can never answer a prompt.
 cmd_run() {
-  local dry="" surface auto a named="" named_set="" risky_arg=""
+  local dry="" surface a named="" named_set="" risky_arg=""
   # An unrecognised argument must never fall through to a real launch.
   for a in "$@"; do case "$a" in
     --print-command) dry=1 ;;
-    # The popup asked about session-critical updates and the person chose Install Now. Passed on
-    # to a detached update only: a terminal run asks its own question whatever the popup heard.
+    # The popup asked about session-critical updates and the person chose Install Now.
     --risky-ok) risky_arg=" --risky-ok" ;;
     # One run on a named surface instead of the configured one. The widget stages through this
     # (`run --surface=offline`) so a stage gets the refusals below - the held lock above all -
     # where the widget can read them, rather than inside a detached `kempt update` whose exit
     # status nobody reads. Strict where the setting is lenient: a stored typo falls back to the
-    # terminal (resolve_surface), but a surface asked for by name is a request, and guessing at it
+    # widget (resolve_surface), but a surface asked for by name is a request, and guessing at it
     # could turn a stage into a live update. Once only, so there is no "which one wins".
     --surface=*)
       [[ -z "$named_set" ]] || { echo "unknown option: $a (--surface given twice)" >&2; exit 2; }
       named_set=1; named="$(surface_canon "${a#--surface=}")"
       case "$named" in
-        terminal|popup|offline) ;;
-        *) echo "unknown --surface value: ${a#--surface=} (use terminal, widget or offline)" >&2; exit 2 ;;
+        popup|offline) ;;
+        *) echo "unknown --surface value: ${a#--surface=} (use widget or offline)" >&2; exit 2 ;;
       esac ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
   if [[ -n "$named_set" ]]; then surface="$named"
   else surface="$(resolve_surface "$(config_get surface)")"; fi
-  auto="$(config_get auto_accept)"
-  # A named surface obeys this too, the same rule cmd_update applies to its own --surface.
-  is_true "$auto" || surface="terminal"   # only a terminal can prompt
 
   # Refused HERE, before anything is launched, while another update holds the lock. cmd_update
   # refuses too, but inside a window or a detached shell whose status nobody reads: `run` returned
@@ -2216,90 +2168,10 @@ cmd_run() {
     [[ $lock_rc -eq 75 ]] && { echo "An update is already running." >&2; exit 3; }
   fi
 
-  if [[ "$surface" == "terminal" ]]; then
-    # Checked before --print-command too: "what would happen" must include "nothing, you have no
-    # terminal emulator".
-    command -v "$KEMPT_TERMINAL" >/dev/null \
-      || { echo "Kempt could not find $KEMPT_TERMINAL. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2; exit 4; }
-    # A named surface is passed on to the update in the window, because `kempt update` reads the
-    # configured surface itself: without it, a terminal asked for by name on a box configured to
-    # stage would stage in that window. Nothing is added without one, so the default launch is
-    # the command it always was.
-    # A stage asked for by name stays a stage: with auto_accept off it runs in this window, where
-    # dnf5 can show the transaction and ask, and never turns into a live update.
-    local upd_arg=""
-    if [[ "$named" == "offline" ]]; then upd_arg=" --surface=offline"
-    elif [[ -n "$named_set" ]]; then upd_arg=" --surface=terminal"; fi
-    if [[ -n "$dry" ]]; then echo "terminal: $KEMPT_TERMINAL -e kempt update$upd_arg"; return 0; fi
-    # INVARIANT: the widget leaves its updating state on ONE event - state.json changing under its
-    # watcher (plasmoid/contents/ui/main.qml, pollWatch), or a three-hour guard. So EVERY exit
-    # from this window must rewrite state.json, or the popup sits on an empty "Updating…" pane for
-    # up to three hours. The two easy to miss: the risky prompt's abort (cmd_update exits 0 there,
-    # BEFORE its own post-run check) and the user closing the window mid-run.
-    # Hence two traps, NOT redundant: EXIT covers every ordinary exit whatever the status, and
-    # HUP/INT/TERM make the signal path certain: closing a terminal window SIGHUPs the foreground
-    # process group, and whether bash runs the EXIT trap when it dies of an untrapped fatal signal
-    # has differed between versions. They do nothing but `exit`, which is what makes EXIT fire.
-    # The check is quiet and its status discarded, so it cannot turn a good run into a failed one;
-    # $ec, the UPDATE's status, is what leaves this shell on both paths. run_check is guarded so
-    # the ordinary path checks once BEFORE the "press any key" prompt - the window must not be
-    # closable until the state has been rewritten.
-    # printf %q, not hand-written quotes: this builds a script for ANOTHER shell, and a checkout
-    # path containing an apostrophe would close the quote early and yield a wrapper that fails
-    # `bash -n`. Same in the detached branch below.
-    local wrapper self_q
-    printf -v self_q '%q' "$SELF"
-    # TWO ways to run the same check, and the difference is the whole point.
-    #   run_check   - the ordinary path, synchronous, before the "press any key" prompt, so the
-    #                 window cannot be closed until the state has been rewritten.
-    #   detach_check - the signal path. This shell and everything in its process group are about
-    #                 to be killed, and the check is the ONE event that takes the popup out of its
-    #                 updating state. Run in the group, it dies mid-flight: closing a terminal
-    #                 SIGHUPs the group and the emulator SIGKILLs whatever is still there moments
-    #                 later, while a real check takes SECONDS because it talks to dnf. setsid puts
-    #                 it in a session of its own, where neither signal reaches it.
-    #   `checked` makes them exclusive: whichever runs first, the other returns.
-    # The start token (see wait_for_window), claimed before anything else and BEFORE the traps: a
-    # window that finds it already taken back was reported as never having started, so it starts
-    # nothing, and it runs no check either, because there is no run for the check to end.
-    local token token_q launcher wait_s="${KEMPT_RUN_START_WAIT:-5}"
-    [[ "$wait_s" =~ ^[0-9]+$ ]] || wait_s=5
-    kempt_init_dirs
-    token="$(mktemp "$KEMPT_STATE_DIR/run-start.XXXXXX")"
-    printf -v token_q '%q' "$token"
-    wrapper="rm -- $token_q 2>/dev/null || { echo 'Kempt stopped waiting for this window, so the update was not started. Start it again from Kempt.'; read -rn1 -s -p 'Press any key to close…'; exit 1; }; "
-    # A finished update has already checked on its way out (the end of cmd_update), and a second
-    # check here only doubled the wait before the prompt and put one more check in the log. So the
-    # wrapper checks only when the update did not leave its closing-check mark, which is the abort
-    # and the early exits. A mark, not a comparison of state.json: the update writes that file
-    # twice, and the second write can get the first one's inode back, so an inode test read a
-    # checked run as unchecked; mtime has one-second granularity on some filesystems.
-    local mark_q
-    printf -v mark_q '%q' "$STATE_FILE.closing-check"
-    wrapper+="mark=$mark_q.\$\$; rm -f \"\$mark\"; "
-    wrapper+="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; echo; echo 'Checking for anything left to update…'; $self_q check >/dev/null 2>&1 || true; }; "
-    wrapper+="detach_check() { [ \$checked = 1 ] && return 0; checked=1; setsid $self_q check >/dev/null 2>&1 & }; "
-    wrapper+="trap 'ec=\$?; rm -f \"\$mark\"; detach_check; exit \$ec' EXIT; trap 'exit' HUP INT TERM; "
-    wrapper+="KEMPT_CLOSING_CHECK_MARK=\"\$mark\" $self_q update$upd_arg; ec=\$?; [ -e \"\$mark\" ] && checked=1; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
-    setsid "$KEMPT_TERMINAL" -e bash -c "$wrapper" >/dev/null 2>&1 &
-    launcher=$!
-    # A window that never opens used to be a complete no-op that said 0: no event, no history, and
-    # a widget sitting on its updating pane for three hours. Found installed is not the same as able
-    # to draw (an SSH session has no display), so the only honest answer is to wait for the start.
-    if ! wait_for_window "$launcher" "$token" "$wait_s"; then
-      local why
-      if [[ "$RUN_LAUNCH_RC" -ne 0 ]]; then why="$KEMPT_TERMINAL exited $RUN_LAUNCH_RC"
-      else why="$KEMPT_TERMINAL opened no window within ${wait_s}s"; fi
-      echo "The terminal window did not open, so the update did not start ($why). Run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2
-      log_event "run did not start: $why"
-      exit 5
-    fi
-  else
-    if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$(surface_word "$surface"))"; return 0; fi
-    local self_q surface_q
-    printf -v self_q '%q' "$SELF"; printf -v surface_q '%q' "$surface"
-    setsid bash -c "$self_q update --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
-  fi
+  if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$(surface_word "$surface"))"; return 0; fi
+  local self_q surface_q
+  printf -v self_q '%q' "$SELF"; printf -v surface_q '%q' "$surface"
+  setsid bash -c "$self_q update --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
 }
 
 cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry, verbatim
@@ -4056,21 +3928,6 @@ doctor_tool_rows() {
   command -v "$KEMPT_GETFACL" >/dev/null 2>&1 \
     || doctor_fail "getfacl: not found, so Kempt cannot see ACL entries on the dnf folders. $KEMPT_FOLDERS_HOLD Install it with: sudo dnf install acl"
 
-  # The terminal emulator matters only where it is launched: surface=terminal, plus any surface
-  # when auto_accept=false (which forces terminal). A FAIL on a detached surface would be a
-  # warning nobody can act on.
-  local surface auto term_needed=false
-  surface="$(surface_canon "$(config_get surface)")"; auto="$(config_get auto_accept)"
-  case "$surface" in popup|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
-  is_true "$auto" || term_needed=true
-  if command -v "$KEMPT_TERMINAL" >/dev/null; then
-    doctor_ok "terminal emulator: $(command -v "$KEMPT_TERMINAL")"
-  elif [[ "$term_needed" == true ]]; then
-    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found, so 'kempt run' exits 4 with surface=terminal. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)"
-  else
-    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$(surface_word "$surface")"
-  fi
-
   # flatpak: ask about the command the BACKEND runs (first word of its seam), never a hardcoded
   # name a test or a power user may have redirected.
   local fp_cmd; fp_cmd="${KEMPT_FLATPAK_LIST_CMD%% *}"
@@ -5090,7 +4947,6 @@ cmd_disable_passwordless() {
 #     Also reclaim when flatpak failed: partly removed, or with what went unknown
 #   2 usage error (unknown command, option or argument)
 #   3 cannot start: jq missing, or another kempt update already holds the lock
-#   4 launcher missing (no terminal emulator for the terminal surface)
 #   5 aborted during pre-flight - nothing was changed. For reclaim: may not remove, flatpak's refusal
 #     by polkit included
 #   6 reclaim only: what Flatpak would remove is not the set that was shown, or part of it became
@@ -5119,8 +4975,9 @@ EOF
   update [--no-flatpak] [--surface=X] [--risky-ok]
                         run the update now, in this process. The options override the config
                         for this run. --no-flatpak updates system packages only. --surface=X
-                        picks where it runs: terminal, widget or offline, which
-                        stages it for the next restart. --risky-ok leaves out the
+                        picks where it runs: widget, or offline, which stages it for
+                        the next restart. At a terminal it shows the output and asks
+                        before session-critical updates. --risky-ok leaves out the
                         session-critical notification
 EOF
     ;;
@@ -5128,8 +4985,8 @@ EOF
   run [--print-command] [--surface=X] [--risky-ok]
                         start an update where the config says, as Update Now does, and return.
                         --print-command prints the launch command and starts nothing.
-                        --surface=X runs this one elsewhere: terminal, widget or offline.
-                        --risky-ok as for update, but a terminal run still asks
+                        --surface=X runs this one elsewhere: widget or offline.
+                        --risky-ok as for update
 EOF
     ;;
     status) cat <<'EOF'
@@ -5195,7 +5052,7 @@ EOF
     config) cat <<'EOF'
   config get <key> [default]
   config set <key> <value>
-                        read or write a setting. surface takes terminal, widget or offline
+                        read or write a setting. surface takes widget or offline
 EOF
     ;;
     discover-notifier) cat <<'EOF'

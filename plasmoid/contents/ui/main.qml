@@ -113,15 +113,9 @@ PlasmoidItem {
         if (actionMessage === checkFailNote) actionMessage = "";
         checkFailNote = "";
     }
-    // Configured run surface and confirmation setting, read from the CLI. Only their COMBINATION
-    // says what a run will really do, which is why the popup binds to effectiveSurface below.
-    // The default is logic.js's twin of the CLI's, so the popup agrees with a new install before
+    // Configured run surface, read from the CLI. The default is logic.js's twin of the CLI's, so the popup agrees with a new install before
     // the first config read answers.
     property string surface: Logic.DEFAULT_SURFACE
-    property bool autoAccept: true
-    // What `kempt run` would actually launch: with confirmation on, only a terminal can ask the
-    // question, so everything else collapses to terminal (bin/kempt, cmd_run).
-    readonly property string effectiveSurface: Logic.effectiveSurfaceOf(surface, autoAccept)
     property string logTail: ""
     property string logPath: ""
     // Whether the user closed the restart message in THIS plasmashell session. Deliberately not
@@ -154,7 +148,7 @@ PlasmoidItem {
     // The report on screen tells the person to run doctor, so it carries the button.
     readonly property bool reportOffersDoctor: Logic.mentionsDoctor(reportText)
 
-    // Update Now pressed with a session-critical set waiting and no terminal to ask in: the risky
+    // Update Now pressed with a session-critical set waiting: the risky
     // message turns into a choice between staging and installing now. Closed by either answer, by
     // a run starting and by the popup closing.
     property bool riskyChoiceOpen: false
@@ -243,8 +237,7 @@ PlasmoidItem {
     // started watching rather than the run before it.
     property double updateStartedMs: 0
 
-    // Which surface the run IN FLIGHT is using - one of the CLI's four, or "" when nothing is
-    // running. Not `effectiveSurface`, which is what a run started NOW would use: the configured
+    // Which surface the run IN FLIGHT is using, or "" when nothing is running. The configured
     // value is wrong for a staging run started from Install on Next Restart, and it moves under
     // the pane when the settings change mid-run.
     property string runningSurface: ""
@@ -252,7 +245,7 @@ PlasmoidItem {
     // A `kempt run` has been asked for and has not come back. Not the same as `updating`, which
     // only begins once that call succeeds: `run` launches the surface and returns, and is allowed
     // fifteen seconds to do it. In that window `updating` is still false, so this is the only
-    // thing between a double press and two terminals both asking the risky question.
+    // thing between a double press and two runs.
     property bool runRequested: false
 
     // The same guard for Install on Next Restart and Discard Staged Update:
@@ -289,12 +282,7 @@ PlasmoidItem {
                                                 // refused where a box configured to update live
                                                 // is not, and the message and the button have to
                                                 // follow that rather than guess.
-                                                surface: effectiveSurface,
-                                                // The setting as written, for the one-time offer
-                                                // to update in the popup: it is made only to a
-                                                // box that asked for the terminal itself.
-                                                configuredSurface: surface,
-                                                autoAccept: autoAccept,
+                                                surface: surface,
                                                 riskyChoiceOpen: riskyChoiceOpen,
                                                 heldChoiceOpen: heldChoiceOpen,
                                                 discoverWarningKept: discoverWarningKept,
@@ -752,8 +740,7 @@ PlasmoidItem {
         });
     }
 
-    // Which surface a run will use. Only the popup surface makes the log pane worth showing, and
-    // auto_accept is half of that answer, so both are read together.
+    // Which surface a run will use. Only the popup surface makes the log pane worth showing.
     //
     // THE RULE FOR EVERY `config get` READER BELOW: an empty answer means keep what we have.
     // `kempt config get` prints an empty line and exits 0 for a key it does not know, so an older
@@ -763,10 +750,6 @@ PlasmoidItem {
         executor.run(kemptCmd + " config get surface", 10000, function(stdout, stderr, rc) {
             var s = Logic.firstLineOf(stdout);
             if (rc === 0 && s !== "") root.surface = s;
-        });
-        executor.run(kemptCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
-            var v = Logic.firstLineOf(stdout);
-            if (rc === 0 && v !== "") root.autoAccept = Logic.isTrue(v);
         });
     }
 
@@ -794,8 +777,8 @@ PlasmoidItem {
     // transaction on this queue would block every check and every pin behind it, and the kill
     // timer would only disconnect the reader anyway: the child would keep running, unwatched.
     //
-    // installNow is the risky choice's Install Now. Without it, a session-critical set on a surface
-    // that cannot ask opens that choice instead of running: only the terminal asks for itself.
+    // installNow is the risky choice's Install Now. Without it, a session-critical set opens that
+    // choice instead of running.
     // --risky-ok tells the CLI the person has already chosen, so it does not notify them again.
     function startUpdate(installNow) {
         // actionPending too: a stage still waiting its turn on the executor is a run on its way.
@@ -825,12 +808,11 @@ PlasmoidItem {
                 // than in the pane, because the setting can change while the run is in flight.
                 // ...or the one this press named, while another updater holds the next restart.
                 var named = /--surface=([a-z]+)/.exec(options);
-                root.enterUpdating(named ? named[1] : root.effectiveSurface);
+                root.enterUpdating(named ? named[1] : root.surface);
                 return;
             }
             // No run began, so there is nothing for the updating pane to wait for. The message is
-            // the CLI's own words: rc 4 is a missing terminal emulator, rc 5 a terminal window that
-            // never opened, rc 3 another update already holding the lock.
+            // the CLI's own words: rc 3 is another update already holding the lock.
             root.actionMessage = Logic.runStartMessage(rc, stdout, stderr);
         });
     }
@@ -844,13 +826,11 @@ PlasmoidItem {
         riskyChoiceOpen = false;
         actionPending = true;
         actionMessage = "";
-        // Clears actionPending on every outcome, including the executor's own timeout (rc 124). The
-        // pane gets the surface the CLI will really use: with auto_accept off, `run` sends a named
-        // surface to the terminal as well, because only a terminal can ask.
+        // Clears actionPending on every outcome, including the executor's own timeout (rc 124).
         executor.run(kemptCmd + " run --surface=offline", 15000, function(stdout, stderr, rc) {
             root.actionPending = false;
             if (rc === 0) {
-                root.enterUpdating(Logic.effectiveSurfaceOf("offline", root.autoAccept));
+                root.enterUpdating("offline");
                 return;
             }
             // The CLI's own words, as for Update Now: exit 3 is another update holding the lock.
@@ -1105,7 +1085,7 @@ PlasmoidItem {
     function enterUpdating(surface) {
         // Resolved, so this is always one of the four the CLI knows and the pane can switch on it
         // without a fifth branch for "we do not know".
-        runningSurface = Logic.resolveSurface(surface === undefined ? effectiveSurface : surface);
+        runningSurface = Logic.resolveSurface(surface === undefined ? root.surface : surface);
         updating = true;
         riskyChoiceOpen = false;
         // The run ends with its own check, which answers a postponed watcher check too.
@@ -1151,9 +1131,7 @@ PlasmoidItem {
     }
 
     // The way out of an updating state nothing is going to end. A run ends when the CLI writes
-    // state.json, and a terminal run that is aborted - the DEFAULT answer to the one question
-    // Kempt asks, on the default configuration - exits before the CLI's own post-run check, as
-    // does closing the window. Without this the popup sits on an empty pane with no list, no
+    // state.json, and a run that dies exits before the CLI's own post-run check. Without this the popup sits on an empty pane with no list, no
     // Update Now and a disabled Refresh until the three-hour guard fires.
     //
     // The updating state is left when the check LANDS rather than at the press, so the popup comes
@@ -1391,8 +1369,8 @@ PlasmoidItem {
         onTriggered: root.pollLog()
     }
 
-    // The safety net on `updating`. A run ends when the CLI writes state.json - but a user who
-    // closes the terminal window, or an update that dies, never writes it. Three hours is far
+    // The safety net on `updating`. A run ends when the CLI writes state.json - but an update that
+    // dies never writes it. Three hours is far
     // longer than any real transaction and far shorter than forever. Stopping the wait stops
     // nothing else: the root helper never interrupts a package's setup step, however long it runs,
     // so the message says the update may still be going.

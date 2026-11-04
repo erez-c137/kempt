@@ -548,7 +548,7 @@ p.check("...and still no check from the widget, so the run cost exactly one",
 # The fallback: a closing check that never wrote (it timed out on the lock). Then the widget checks,
 # once, so the counts on screen do not stay the pre-run ones until the next scheduled check.
 ev("root.lastCheckFinished = Date.now() - 61000")
-ev("root.enterUpdating('terminal')")
+ev("root.enterUpdating('popup')")
 open(STATE_JSON, "w").write(json.dumps(STAGED))        # the publish write, and nothing after it
 harness.touch(STATE_JSON, "2030-04-03")
 before = p.call_count("check")
@@ -601,14 +601,14 @@ os.remove(SUMMARY)
 # closing check, it is stamped at or after the press, and no check of ours can write one.
 ev("postRunCheck.stop()")
 ev("root.lastCheckFinished = Date.now() - 61000")
-ev("root.enterUpdating('terminal')")
+ev("root.enterUpdating('popup')")
 open(MODE, "w").write("slow")                          # a check that takes a second, like a real one
 ev("root.doCheck()")                                   # Check for Updates, from the menu, mid-run
 p.pump(100)
 p.check("premise: a check of the widget's own is in flight during the run",
         ev("root.checking && root.updating"), True)
 RUN_ENTRY = {"timestamp": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
-             "status": "ok", "surface": "terminal", "backends": {}}
+             "status": "ok", "surface": "popup", "backends": {}}
 open(SUMMARY, "w").write(json.dumps(RUN_ENTRY))        # the run finishes: its history entry...
 harness.touch(STATE_JSON, "2030-05-01")                # ...then its closing check's write
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
@@ -625,7 +625,7 @@ p.wait_idle(ev, "executor")
 # run before this one.
 open(MODE, "w").write("live")
 open(SUMMARY, "w").write(json.dumps(dict(RUN_ENTRY, timestamp="2025-01-01T00:00:00+00:00")))
-ev("root.enterUpdating('terminal')")
+ev("root.enterUpdating('popup')")
 ev("root.doCheck()")
 p.wait_for(ev, "root.checking", False, timeout_ms=15000)
 p.wait_idle(ev, "executor")

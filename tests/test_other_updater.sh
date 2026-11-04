@@ -163,7 +163,6 @@ done
 
 # Live with nobody asked: the widget's last read may have said Flatpak alone, and this check found more.
 gate_refuses "a live run nobody was asked about" "$KEMPT" update --surface=popup
-gate_refuses "...and one with no terminal" "$KEMPT" update --surface=terminal </dev/null
 _live_err="$("$KEMPT" update --surface=popup 2>&1 >/dev/null || true)"
 assert_contains "$_live_err" "updating now may stop what it prepared" "...saying what a live update risks"
 assert_not_contains "$_live_err" "nothing was staged" "...not that a stage was refused"
@@ -175,7 +174,7 @@ for _args in "--surface=popup" "--surface=offline"; do
   _err="$(KEMPT_DNF_CACHE_DIR="$_unsafe" "$KEMPT" update $_args 2>&1 >/dev/null || true)"
   assert_contains "$_err" "other users can change files in $_unsafe" "$_args: names the folder"
   assert_contains "$_err" "See: kempt doctor" "$_args: sends the reader to the fix"
-  assert_not_contains "$_err" "--surface=terminal" "$_args: offers no run the helper would refuse"
+  assert_not_contains "$_err" "in a terminal" "$_args: offers no run the helper would refuse"
 done
 # Flatpak alone is not held up by the restart, so this refusal is not the one that speaks for it.
 : > "$WORLD/calls"; rc=0
@@ -190,12 +189,12 @@ assert_eq "$rc" "0" "a live run the widget asked about is not refused"
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-upgrade" "...and upgrades"
 # A terminal: dnf5 asks there, and it is the way the refusal names.
 : > "$WORLD/calls"; rc=0
-python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$KEMPT" update --surface=terminal >/dev/null 2>&1 </dev/null || rc=$?
+python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$KEMPT" update --surface=widget >/dev/null 2>&1 </dev/null || rc=$?
 assert_eq "$rc" "0" "a terminal is not refused"
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-upgrade" "...and upgrades"
 # A terminal on one side only cannot show and ask.
 : > "$WORLD/calls"; rc=0
-python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' bash -c '"$0" update --surface=terminal </dev/null' "$KEMPT" >/dev/null 2>&1 </dev/null || rc=$?
+python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' bash -c '"$0" update --surface=widget </dev/null' "$KEMPT" >/dev/null 2>&1 </dev/null || rc=$?
 assert_eq "$rc" "5" "output to a terminal with no input from one is refused"
 assert_eq "$(grep -c APPLY "$WORLD/calls" || true)" "0" "...and installs nothing"
 # Flatpak alone: nothing that updater prepared is touched.
@@ -217,18 +216,18 @@ rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR"/snapshots/offlin
 export KEMPT_RISKY_RE='^bash$'
 foreign_link
 : > "$WORLD/calls"; : > "$WORLD/notifications"
-sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" 2>&1)" || true
+sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" 2>&1)" || true
 assert_contains "$sout" "Staging is not available: the next restart belongs to another updater" "the risky prompt drops staging"
 assert_not_contains "$sout" "[s]" "...and does not offer the key"
 assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/calls" || true)" "0" "...and answering s anyway never stages"
 assert_contains "$sout" "Staging is not available, because the next restart belongs to another updater. Answer u or a." "...and is turned down in words"
 assert_contains "$sout" "aborted" "...and the end of input ends the run"
 : > "$WORLD/notifications"
-KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=popup </dev/null >/dev/null 2>&1 || true
+"$KEMPT" update --surface=popup </dev/null >/dev/null 2>&1 || true
 assert_not_contains "$(cat "$WORLD/notifications")" "--surface=offline" "...and the notification gives no advice to stage"
 no_link
 : > "$WORLD/calls"
-sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" 2>&1)" || true
+sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" 2>&1)" || true
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-offline-stage" "with nobody holding the restart the same answer stages"
 rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 unset KEMPT_RISKY_RE

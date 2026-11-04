@@ -13,11 +13,9 @@ mk_stub() { printf '#!/usr/bin/env bash\nexit 0\n' > "$1"; chmod +x "$1"; }
 # running the suite happens to have installed.
 mk_stub "$TESTTMP/refresh-helper"
 mk_stub "$TESTTMP/apply-helper"
-mk_stub "$TESTTMP/fake-terminal"
 cp "$REPO_ROOT/polkit/io.github.erez_c137.kempt.policy" "$TESTTMP/policy.xml"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-helper"
 export KEMPT_APPLY_HELPER="$TESTTMP/apply-helper"
-export KEMPT_TERMINAL="$TESTTMP/fake-terminal"
 export KEMPT_POLICY_FILE="$TESTTMP/policy.xml"
 # the flatpak check asks whether the command the BACKEND runs exists, so the backend's own seam
 # answers it: first word `cat`, which exists everywhere the suite runs.
@@ -70,7 +68,7 @@ assert_eq "$(grep -c '^FAIL' "$TESTTMP/last_output" || true)" "0" \
 # REPORT LINES only - the usage text mentions half these words, so a plain grep over the whole
 # output passes vacuously.
 for want in 'polkit action' \
-            'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
+            'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
             'package lists' \
             'widget engine' 'startup'; do
   grep -E '^(ok|info|WARN|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
@@ -377,21 +375,6 @@ assert_exit 1 "a missing polkit action fails the checkup" \
 assert_contains "$(cat "$TESTTMP/last_output")" 'polkit action not installed' \
   "the FAIL line names the polkit action"
 
-# The terminal emulator matters only where it is actually used. surface=terminal means `kempt run`
-# exits 4 every time without it, so that is a failure; a detached surface does not launch one at
-# all, so saying "FAIL" there would be a lie the user cannot act on.
-"$KEMPT" config set surface terminal
-assert_exit 1 "a missing terminal emulator fails while surface=terminal" \
-  env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" "terminal emulator 'kempt-no-such-terminal' not found" \
-  "the FAIL line names the missing emulator"
-"$KEMPT" config set surface widget
-assert_exit 0 "...but not on a detached surface" \
-  env KEMPT_TERMINAL=kempt-no-such-terminal "$KEMPT" doctor
-assert_eq "$(grep -qE "^info .*terminal emulator" "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
-  "it is an info line for a surface that never launches one"
-"$KEMPT" config set surface terminal
-
 # Same rule for flatpak: a backend that is switched off must not be reported as broken. Left at
 # its default, include_flatpak means "if Flatpak is here", so a box without it is information too:
 # check and update skip Flatpak there, and nothing is broken.
@@ -415,7 +398,7 @@ assert_eq "$(grep -qE '^info .*flatpak' "$TESTTMP/last_output" && echo yes || ec
 
 # The settings count pluralizes itself, and docs/usage.md's sample output is pinned to this
 # wording: "(2 settings)", never "(2 setting(s))".
-: > "$CONFIG_FILE"; "$KEMPT" config set surface terminal
+: > "$CONFIG_FILE"; "$KEMPT" config set surface widget
 "$KEMPT" doctor > "$TESTTMP/doctor-1key" 2>&1 || true
 grep -qF "config file: $CONFIG_FILE (1 setting)" "$TESTTMP/doctor-1key" \
   && echo "ok: one key reads '1 setting'" \
@@ -428,17 +411,17 @@ grep -qF "config file: $CONFIG_FILE (2 settings)" "$TESTTMP/doctor-2keys" \
 
 # A config file is read by every command with `grep "^key="`, so a line that is not key=value is
 # silently ignored forever - the setting the user thinks they wrote never applies.
-printf 'surface terminal\n' >> "$CONFIG_FILE"
+printf 'surface offline\n' >> "$CONFIG_FILE"
 assert_exit 1 "an unparseable config line fails the checkup" "$KEMPT" doctor
 assert_eq "$(grep -qE 'config file line .* is not key=value' "$TESTTMP/last_output" && echo yes || echo no)" "yes" \
   "the FAIL line quotes the bad line"
 # a key the config_set validation would refuse is just as dead
-printf 'Surface=terminal\n' > "$CONFIG_FILE"
+printf 'Surface=offline\n' > "$CONFIG_FILE"
 assert_exit 1 "a config key that config set would refuse fails the checkup" "$KEMPT" doctor
 assert_contains "$(cat "$TESTTMP/last_output")" 'config file line' \
   "an invalid key is reported too"
 : > "$CONFIG_FILE"
-"$KEMPT" config set surface terminal
+"$KEMPT" config set surface widget
 
 # State that cannot be written means no badge, no history, no logs.
 mkdir -p "$KEMPT_STATE_DIR"; chmod 500 "$KEMPT_STATE_DIR"

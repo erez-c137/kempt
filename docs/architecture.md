@@ -117,8 +117,7 @@ Every file Kempt writes, with its mode and retention, is listed in
 
 - **Readers take no lock.** `atomic_write` renames a temp file into place, so a reader sees the
   whole old file or the whole new one. The temp sits next to its destination.
-- **`kempt_init_dirs` sweeps leftovers** after 60 minutes: temps, `reclaim-out.*` copies and
-  `run-start.*` tokens.
+- **`kempt_init_dirs` sweeps leftovers** after 60 minutes: temps and `reclaim-out.*` copies.
 - **`log_event` never fails a command.** It always returns 0 and waits at most 5 seconds for its lock. Its `via` column is
   `widget` when `KEMPT_VIA=widget`, which the widget sets on every command, and `cli` otherwise.
 - **An update applied on a restart gets a log Kempt writes itself**, from the snapshot diff.

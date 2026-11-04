@@ -68,11 +68,6 @@ jobs:
           bash --version | head -1
           jq --version
 
-      # A konsole shim used to live here for tests/test_run.sh. The tests stub their own
-      # terminal now (test_run.sh and test_log.sh both export KEMPT_TERMINAL at a fake), so
-      # this job runs the suite with no terminal emulator at all - same as the RPM check
-      # stage does in a mock buildroot, where the shimless suite was first proven.
-
       # Same command CONTRIBUTING.md asks for before a commit.
       - name: Syntax check
         run: |

@@ -303,9 +303,8 @@ assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" "..
 # A typo'd flag must never be treated as "run with the configured defaults".
 assert_exit 2 "unknown update option rejected" "$KEMPT" update --bogus
 
-# auto_accept=false is enforced in cmd_update ITSELF, not only in cmd_run: `kempt update` is a
-# real entry point (widget/cron/user), and only a terminal can answer dnf5's prompt. So the run
-# is forced to the terminal surface and -y must NOT reach the privileged helper.
+# auto_accept=false lets dnf5 ask, and only a person at a terminal can answer. Everywhere else the
+# press or the command is the answer, and -y goes to the helper as usual.
 : > "$WORLD/apply-calls"
 "$KEMPT" config set auto_accept false
 # dnf-reboot-no → rc 0 → no reboot needed: the everyday case, and the one the reboot-needed
@@ -313,16 +312,19 @@ assert_exit 2 "unknown update option rejected" "$KEMPT" update --bogus
 KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no" "$KEMPT" update >/dev/null
 h2="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .reboot_needed "$h2")" "false" "no-reboot-needed run completes and records false"
-assert_eq "$(jq -r .surface "$h2")" "terminal" "auto_accept=false forces the terminal surface"
-assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "auto_accept=false never sends -y to the helper"
+assert_eq "$(jq -r .surface "$h2")" "popup" "auto_accept=false leaves the surface alone"
+assert_eq "$(grep -c '^APPLY dnf-upgrade.* -y' "$WORLD/apply-calls")" "1" "...and with nobody at a terminal -y goes to the helper"
+: > "$WORLD/apply-calls"
+KEMPT_ASSUME_TTY=1 KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no" "$KEMPT" update </dev/null >/dev/null 2>&1
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "1" "auto_accept=false at a terminal still upgrades"
+assert_eq "$(grep -c '^APPLY dnf-upgrade.* -y' "$WORLD/apply-calls")" "0" "...and lets dnf5 ask (no -y)"
 "$KEMPT" config set auto_accept true
 
-# An unknown surface must not silently mean "detached, and definitely not offline". auto_accept is
-# true again here, so terminal can ONLY have come from the surface guard.
+# An unknown surface must not silently mean offline.
 surferr="$("$KEMPT" update --surface=bogus 2>&1 >/dev/null)"
 grep -q "surface='bogus' is not a known value" <<<"$surferr" && echo "ok: unknown surface warns" || { echo "FAIL: surface warning"; _fail=1; }
 hs="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-assert_eq "$(jq -r .surface "$hs")" "terminal" "unknown surface falls back to terminal in update"
+assert_eq "$(jq -r .surface "$hs")" "popup" "unknown surface falls back to the widget in update"
 
 # offline surface: stage instead of upgrading live, and leave a marker owning its OWN copy of the
 # pre-snapshot (a later update overwrites dnf-before.tsv, and the harvest still has to diff
@@ -332,7 +334,7 @@ assert_eq "$(jq -r .surface "$hs")" "terminal" "unknown surface falls back to te
 grep -q 'dnf-offline-stage' "$WORLD/apply-calls" && echo "ok: offline stages the transaction" || { echo "FAIL: offline stage"; _fail=1; }
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && { echo "FAIL: offline also upgraded live"; _fail=1; } || echo "ok: offline did not upgrade live"
 # auto_accept off: a stage asked for at a terminal stays a stage, without -y so dnf5 asks first.
-# Without a terminal nothing can answer, so it is still turned into a (prompting) live terminal run.
+# Without a terminal the stage still runs, with -y, because nobody can answer.
 pty_run() { python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$@"; }
 "$KEMPT" config set auto_accept false
 : > "$WORLD/apply-calls"
@@ -343,8 +345,9 @@ assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "0" "...and nev
 assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "...and lets dnf5 ask (no -y)"
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 </dev/null || true
-assert_eq "$(grep -c '^APPLY dnf-offline-stage' "$WORLD/apply-calls")" "0" \
-  "auto_accept=false with no terminal: nothing can answer, so no stage is attempted"
+assert_eq "$(grep -c '^APPLY dnf-offline-stage.* -y' "$WORLD/apply-calls")" "1" \
+  "auto_accept=false with no terminal: the stage runs, and -y answers for nobody"
+assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "0" "...and it never upgrades live"
 "$KEMPT" config set auto_accept true
 "$KEMPT" unstage >/dev/null 2>&1 || true
 : > "$WORLD/apply-calls"
@@ -1111,7 +1114,7 @@ export KEMPT_REFRESH_HELPER="$TESTTMP/risky-stub"
 : > "$WORLD/apply-calls"
 hist_n="$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)"
 arc=0
-aout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"a" 2>/dev/null)" || arc=$?
+aout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"a" 2>/dev/null)" || arc=$?
 assert_eq "$arc" "0" "declining a risky update is not an error"
 grep -q 'session-critical' <<<"$aout" && echo "ok: recommendation explains the risk" || { echo "FAIL: recommendation text"; _fail=1; }
 grep -q 'kernel-core' <<<"$aout" && echo "ok: recommendation names the package" || { echo "FAIL: risky list"; _fail=1; }
@@ -1123,7 +1126,7 @@ assert_exit 0 "abort leaves the lock free" -- flock -n "$KEMPT_STATE_DIR/lock" t
 
 # [s]tage offline instead: the recommendation is actionable, not just advice
 : > "$WORLD/apply-calls"
-KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" >/dev/null 2>&1
+KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" >/dev/null 2>&1
 grep -q 'dnf-offline-stage' "$WORLD/apply-calls" && echo "ok: [s] switches the run to offline staging" || { echo "FAIL: stage offline"; _fail=1; }
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && { echo "FAIL: [s] upgraded live anyway"; _fail=1; } || echo "ok: [s] never upgrades live"
 # only the newest staging can ever be harvested, so older copies are swept, not accumulated
@@ -1142,7 +1145,7 @@ assert_exit 0 "the surviving copy is the one the marker points at" \
 : > "$WORLD/notifications"
 relup_ev_before="$(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true)"
 release_upgrade_staged
-sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" 2>&1)" || true
+sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" 2>&1)" || true
 assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" \
   "answering [s] with a release upgrade stored never reaches dnf5"
 assert_eq "$(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true)" \
@@ -1168,7 +1171,7 @@ transaction_armed
 
 # [u]pdate live: the user always decides
 : > "$WORLD/apply-calls"
-KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"u" >/dev/null 2>&1
+KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"u" >/dev/null 2>&1
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: [u] proceeds with the live upgrade" || { echo "FAIL: update live"; _fail=1; }
 
 # Saying NO to a risk warning must never proceed - the answer people actually type is "n".
@@ -1176,24 +1179,24 @@ grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: [u] proceeds with 
 # re-prompt would swallow it and the run would proceed on an answer meant to stop it.
 : > "$WORLD/apply-calls"
 nrc=0
-printf 'n\nu\n' | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal >/dev/null 2>&1 || nrc=$?
+printf 'n\nu\n' | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget >/dev/null 2>&1 || nrc=$?
 assert_eq "$nrc" "0" "declining with n exits 0"
 assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "n means no: nothing is applied"
 
 # no answer at all (Enter, or EOF from a closed stdin) is NOT consent
 : > "$WORLD/apply-calls"
-KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal </dev/null >/dev/null 2>&1
+KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget </dev/null >/dev/null 2>&1
 assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "an unanswered risk warning defaults to abort"
 : > "$WORLD/apply-calls"
-printf '\nu\n' | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal >/dev/null 2>&1
+printf '\nu\n' | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget >/dev/null 2>&1
 assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "pressing Enter defaults to abort"
 
 # gibberish gets one more chance, then aborts rather than guessing
 : > "$WORLD/apply-calls"
-printf 'x\nx\n' | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal >/dev/null 2>&1
+printf 'x\nx\n' | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget >/dev/null 2>&1
 assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "two unparseable answers abort"
 : > "$WORLD/apply-calls"
-printf 'x\nu\n' | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal >/dev/null 2>&1
+printf 'x\nu\n' | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget >/dev/null 2>&1
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: the re-prompt accepts a valid second answer" || { echo "FAIL: re-prompt"; _fail=1; }
 
 # --- bounded output: a real Qt or KDE bump matches by the hundred (168 on this box), and a wall
@@ -1204,7 +1207,7 @@ grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: the re-prompt acce
   printf 'mesa-libGL.x86_64   25.2.1-1.fc44   updates\n'
   printf 'kwin-x11.x86_64   6.5.1-1.fc44   updates\n'
   printf 'kernel-devel.x86_64   6.15.4-200.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
-big="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"a" 2>/dev/null)"
+big="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"a" 2>/dev/null)"
 grep -q '20 session-critical packages are pending' <<<"$big" \
   && echo "ok: the count is the headline (kernel-devel excluded)" || { echo "FAIL: risky count - got: $(head -3 <<<"$big")"; _fail=1; }
 # One representative per FAMILY, like the notification: eight alphabetical names off the top of
@@ -1230,7 +1233,7 @@ grep -q '\.\.\. and' <<<"$big" && { echo "FAIL: overflow line claims hidden fami
   printf 'mesa-libgbm.x86_64   25.2.1-1.fc44   updates\n'
   printf 'mesa-libGL.x86_64   25.2.1-1.fc44   updates\n'
   printf 'mesa-vulkan-drivers.x86_64   25.2.1-1.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
-one="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"a" 2>/dev/null)"
+one="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"a" 2>/dev/null)"
 grep -q '6 session-critical packages are pending' <<<"$one" \
   && echo "ok: one family, six packages, counted honestly" || { echo "FAIL: single-family count - got: $(head -3 <<<"$one")"; _fail=1; }
 grep -qE '^      graphics drivers \(mesa\) +6 packages' <<<"$one" \
@@ -1246,7 +1249,7 @@ grep -q '\.\.\. and 5 more' <<<"$one" && { echo "FAIL: six packages in one famil
 { printf 'curl.x86_64   8.9.1-1.fc44   updates\n'
   printf 'mesa-libGL.x86_64   25.2.1-1.fc44   updates\n'
   printf 'mesa-libEGL.x86_64   25.2.1-1.fc44   updates\n'; } > "$TESTTMP/risky-check.txt"
-unl="$(KEMPT_RISKY_RE='^(curl|mesa)' KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"a" 2>/dev/null)"
+unl="$(KEMPT_RISKY_RE='^(curl|mesa)' KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"a" 2>/dev/null)"
 grep -qE '^      curl$' <<<"$unl" \
   && echo "ok: an unlabelled family prints bare, with nothing invented for it" \
   || { echo "FAIL: unlabelled family - got: $(grep -E '^      ' <<<"$unl")"; _fail=1; }
@@ -1273,13 +1276,13 @@ assert_eq "$(grep -c 'running session depends on' "$WORLD/notifications")" "0" \
   "after Install Now in the popup, no session-critical notification"
 assert_eq "$(grep -c 'APPLY dnf-upgrade' "$WORLD/apply-calls")" "1" "...and the update still runs, live"
 # A terminal still asks, whatever the popup heard.
-ask="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal --risky-ok <<<"a" 2>/dev/null)"
+ask="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget --risky-ok <<<"a" 2>/dev/null)"
 assert_contains "$ask" "Heads up:" "--risky-ok does not skip the terminal's own question"
 printf 'kernel-core.x86_64   6.15.4-200.fc44   updates\nbash.x86_64   5.3.10-1.fc44   updates\n' > "$TESTTMP/risky-check.txt"
 
 # The lock is NOT held while a human deliberates: the recommendation runs before acquire_lock, so
 # a prompt left open over lunch never blocks the timer's next run, and an abort leaves no residue.
-{ sleep 1; echo a; } | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal >/dev/null 2>&1 &
+{ sleep 1; echo a; } | KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget >/dev/null 2>&1 &
 bgpid=$!
 sleep 0.4
 if kill -0 "$bgpid" 2>/dev/null && flock -n "$KEMPT_STATE_DIR/lock" true; then
@@ -1287,10 +1290,10 @@ if kill -0 "$bgpid" 2>/dev/null && flock -n "$KEMPT_STATE_DIR/lock" true; then
 else echo "FAIL: lock held (or run already over) during the prompt"; _fail=1; fi
 wait "$bgpid" || true
 
-# A detached surface must not prompt even when it happens to have a terminal on stdin: the surface
-# itself says nobody is watching, and a background run must never block waiting on a human.
+# Input from somewhere but no terminal on the output side is not a person who can read the question,
+# and a background run must never block waiting on a human.
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
-KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"a" >/dev/null 2>&1
+"$KEMPT" update --surface=widget <<<"a" >/dev/null 2>&1
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && echo "ok: detached surface proceeds instead of prompting" \
   || { echo "FAIL: detached surface prompted and was aborted"; _fail=1; }
 
@@ -1483,13 +1486,8 @@ case "$(jq -r .error "$lk2")" in
 esac
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 
-# --- the closing check's two promises: the mark means a check wrote state, and state.json only
-# ever holds a state. The closing check runs as `cmd_check || true`, with errexit off inside it, so
+# --- state.json only ever holds a state. The closing check runs as `cmd_check || true`, with errexit off inside it, so
 # a failed assemble_state carries on to write_state with an empty string.
-rm -f "$TESTTMP/closing-mark"
-KEMPT_CLOSING_CHECK_MARK="$TESTTMP/closing-mark" "$KEMPT" update --no-flatpak >/dev/null 2>&1 || true
-assert_exit 0 "a closing check that wrote state leaves the mark for the update window" -- \
-  test -e "$TESTTMP/closing-mark"
 # assemble_state's jq is the one call that fails here (a full tmpfs does exactly this), picked out
 # by how its arguments START - the history entry's jq also reads a --slurpfile dnfa. Every other
 # jq runs as usual, so the run itself still succeeds and reaches the closing check.
@@ -1502,12 +1500,9 @@ exec "$real_jq" "\$@"
 STUB
 chmod +x "$TESTTMP/jq-fails/jq"
 jq -n '{schema: 1, last_check: "2026-01-01T00:00:00+00:00", actionable: 7}' > "$KEMPT_STATE_DIR/state.json"
-rm -f "$TESTTMP/closing-mark"
-PATH="$TESTTMP/jq-fails:$PATH" KEMPT_CLOSING_CHECK_MARK="$TESTTMP/closing-mark" \
-  "$KEMPT" update --no-flatpak >/dev/null 2>&1 || true
+PATH="$TESTTMP/jq-fails:$PATH" "$KEMPT" update --no-flatpak >/dev/null 2>&1 || true
 assert_eq "$(jq -r '.actionable' "$KEMPT_STATE_DIR/state.json" 2>/dev/null)" "7" \
   "a closing check whose state could not be built leaves the previous state.json in place"
-assert_exit 1 "...and does not leave the mark, because it wrote nothing" -- test -e "$TESTTMP/closing-mark"
 
 # --- offline harvest: the staged transaction applies during a reboot, and the next check has to
 # notice and turn it into a normal history entry + notification.
@@ -2590,7 +2585,7 @@ STUB
 chmod +x "$TESTTMP/fp-update-stub"
 push_history_back
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: the heading count must be this run's alone
-eout="$("$KEMPT" update --surface=terminal </dev/null 2>/dev/null)" || true
+eout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget </dev/null 2>/dev/null)" || true
 he="$(ls -1t "$KEMPT_STATE_DIR"/history/*.json | awk 'NR==1')"
 assert_contains "$eout" "== System (dnf) ==" "a terminal run heads the dnf output"
 assert_contains "$eout" "== Apps (flatpak) ==" "...and the flatpak output"

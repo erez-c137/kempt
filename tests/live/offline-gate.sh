@@ -56,7 +56,7 @@ trap gate_restore EXIT
 ROOT=/opt/kempt
 export HOME=/root
 export KEMPT_PKEXEC= KEMPT_APPLY_HELPER=$ROOT/libexec/kempt-apply KEMPT_REFRESH_HELPER=$ROOT/libexec/kempt-refresh
-export KEMPT_NOTIFY=/tmp/gate-notify KEMPT_TERMINAL=/bin/true
+export KEMPT_NOTIFY=/tmp/gate-notify
 # notify() stays quiet with no desktop session, and this container has none.
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent
 # The gate drives Kempt as root inside its container, which Kempt otherwise refuses.

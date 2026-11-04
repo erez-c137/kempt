@@ -647,7 +647,7 @@ assert_eq "$(js "($RUSURF)(\"offline\").releaseUpgradeMessage.indexOf(\"Updating
   "...and never on the second, where it would be false"
 assert_eq "$(js "($RUSURF)(\"offline\").releaseUpgradeMessage.indexOf(\"nothing to press\") >= 0")" "true" \
   "...which says instead that there is nothing to press until the upgrade is dealt with"
-# An unstated or unrecognised surface reads as terminal, the CLI's own fallback - never as offline,
+# An unstated or unrecognised surface reads as the widget, the CLI's own fallback - never as offline,
 # which would take the button away from a box that can still use it.
 for _s in "''" 'undefined' '42' "'nonsense'"; do
   assert_eq "$(js "($RUSURF)($_s).updateOffered")" "true" \
@@ -656,7 +656,7 @@ done
 # resolveSurface trims and lower-cases, which is this file's convention for every surface value it
 # reads. The CLI's resolve_surface now does the same - it did not, and the two disagreed about a
 # value `kempt config set surface " OFFLINE "` stores without complaint, which would have hidden
-# Update Now on a box whose runs go to the terminal.
+# Update Now on a box whose runs go to the widget.
 assert_eq "$(js "($RUSURF)(' OFFLINE ').updateOffered")" "false" \
   "a padded, upper-case offline is still offline to the widget, as every surface value here is"
 assert_eq "$(js "$ruD.offlineStageOffered")" "false" \
@@ -788,7 +788,7 @@ done
 assert_eq "$(js 'L.DEFAULT_SURFACE')" "popup" "a config with no surface runs updates in the popup"
 assert_eq "$(js 'L.DEFAULT_SURFACE')" "$(bash -c 'source "$1/lib/common.sh"; kempt_default surface' _ "$REPO_ROOT")" \
   "...the same default the CLI's kempt_default gives"
-assert_eq "$(js 'L.resolveSurface("nonsense")')" "terminal" "...while a value nobody recognises still means terminal"
+assert_eq "$(js 'L.resolveSurface("nonsense")')" "popup" "...and a value nobody recognises means the widget too"
 
 # --- the risky choice: Update Now asks before installing kernel or desktop parts live -------------
 risky_vm() {  # surface [extra opts] → JS for the risky fixture's view model on that run surface
@@ -797,7 +797,6 @@ risky_vm() {  # surface [extra opts] → JS for the risky fixture's view model o
 }
 assert_eq "$(js "$(risky_vm popup).updateAsksFirst")" "true" "a risky set on the popup surface asks before Update Now runs"
 assert_eq "$(js "$(risky_vm background).updateAsksFirst")" "true" "...and on the background surface"
-assert_eq "$(js "$(risky_vm terminal).updateAsksFirst")" "false" "a terminal asks for itself, so the popup does not"
 assert_eq "$(js "$(risky_vm offline).updateAsksFirst")" "false" "the offline surface already installs on the next restart"
 assert_eq "$(js 'L.viewModel(S("live"), false, "", {surface: "popup"}).updateAsksFirst')" "false" \
   "nothing risky pending: Update Now runs at once"
@@ -812,8 +811,6 @@ assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true}').messageSlots")" '["
 assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true, reportShown: true}').messageSlots[0]")" "riskyChoice" \
   "...ahead of the report of the last thing that happened"
 assert_eq "$(js "$(risky_vm popup).messageSlots")" '["kernel"]' "closed, it is the plain recommendation"
-assert_eq "$(js "$(risky_vm terminal '{riskyChoiceOpen: true}').messageSlots")" '["kernel"]' \
-  "a stale open flag on a terminal box opens nothing"
 assert_eq "$(js 'L.viewModel(S("risky-heavy"), true, "", {surface: "popup", riskyChoiceOpen: true}).messageSlots.indexOf("riskyChoice")')" \
   "-1" "...and nothing is asked over a run already under way"
 # The recommendation is the question: the same sentence, not a second wording of it.
@@ -861,30 +858,6 @@ assert_eq "$(js 'L.COPY.discoverStatusOwn')" "Discover's notifier is turned off 
 assert_eq "$(dn '{"installed":false,"enabled":false,"running":false,"by_kempt":false}')" 'null' "Settings: not installed, nothing shown"
 assert_eq "$(dn 'not json')" 'null' "...and nothing for an answer that is not JSON"
 
-# --- effectiveSurfaceOf: what a run will ACTUALLY do, not what is merely stored ----------------
-# cmd_run resolves the stored surface and then overrides it: with confirmation on, only a terminal
-# can ask the question. A popup that trusted the stored value alone would open an in-widget log
-# pane while a terminal window is what actually appeared.
-assert_eq "$(js 'L.effectiveSurfaceOf("popup", true)')" "popup" "with confirmation off, the stored surface stands"
-assert_eq "$(js 'L.effectiveSurfaceOf("popup", false)')" "terminal" "with confirmation on, popup collapses to terminal"
-assert_eq "$(js 'L.effectiveSurfaceOf("background", false)')" "terminal" "...so does background"
-assert_eq "$(js 'L.effectiveSurfaceOf("offline", false)')" "terminal" "...and offline"
-assert_eq "$(js 'L.effectiveSurfaceOf("terminal", false)')" "terminal" "terminal is already terminal"
-assert_eq "$(js 'L.effectiveSurfaceOf("nonsense", true)')" "terminal" "an unknown surface still falls back"
-assert_eq "$(js 'L.effectiveSurfaceOf("popup", "false")')" "terminal" "the flag is read as the CLI writes it, as text"
-assert_eq "$(js 'L.effectiveSurfaceOf("popup", "yes")')" "popup" "...including yes"
-# The CLI is the reference: cmd_run does resolve_surface, then `is_true "$auto" || surface=terminal`.
-for surf in terminal popup background offline nonsense; do
-  for auto in true false; do
-    want="$(bash -c "
-      source '$REPO_ROOT/lib/common.sh'
-      source /dev/stdin <<<\"\$(sed -n '/^resolve_surface/,/^}/p' '$REPO_ROOT/bin/kempt')\"
-      s=\"\$(resolve_surface '$surf')\"; is_true '$auto' || s=terminal; printf '%s' \"\$s\"")"
-    assert_eq "$(js "L.effectiveSurfaceOf(\"$surf\", \"$auto\")")" "$want" \
-      "effectiveSurfaceOf agrees with cmd_run for surface=$surf auto_accept=$auto"
-  done
-done
-
 # --- updateButtonOf: the footer button says what the press will do -----------------------------
 # On the offline surface the press stages: it downloads now and installs during the next restart.
 # "Update Now" reads as installing right away, so the button takes the restart choice's own words.
@@ -908,12 +881,8 @@ for _s in terminal popup background nonsense ''; do
   assert_eq "$(js "L.updateButtonOf('$_s', 4, true).text")" "Update Now" "surface '$_s' keeps Update Now"
   assert_eq "$(js "L.updateButtonOf('$_s', 4, true).tooltip")" "" "...and no extra tooltip"
 done
-# The view model keys on the CONFIGURED surface: with confirmation on, the run opens a terminal,
-# and `kempt update` on a terminal still stages when offline is configured (bin/kempt cmd_update).
 UB='function (surf, conf, edit) { var s = S("risky-heavy"); if (edit) edit(s); var o = {surface: surf}; if (conf !== undefined) o.configuredSurface = conf; return L.viewModel(s, false, "", o); }'
 assert_eq "$(js "($UB)('offline', 'offline').updateStages")" "true" "the view model stages on the offline surface"
-assert_eq "$(js "($UB)(L.effectiveSurfaceOf('offline', false), 'offline').updateStages")" \
-  "true" "...and when confirmation sends the run to a terminal, which still stages"
 assert_eq "$(js "($UB)('popup', 'popup').updateStages")" "false" "...and does not on any other surface"
 assert_eq "$(js "($UB)(undefined).updateStages")" "false" "...or before the surface is known"
 assert_eq "$(js "($UB)('offline', 'offline').stageTooltipNamesFlatpak")" \
@@ -936,14 +905,15 @@ assert_eq "$(js "L.backendActionable({backends: {dnf: {items: [{held: false}, {h
 assert_eq "$(js "[L.backendActionable(null, 'dnf'), L.backendActionable({backends: {}}, 'dnf')]")" "[0,0]" \
   "...and 0 for no state or no backend"
 
-# --- resolveSurface: unknown means terminal, exactly as bin/kempt decides ---------------------
-for s in terminal popup offline; do
+# --- resolveSurface: unknown means the widget, exactly as bin/kempt decides --------------------
+for s in popup offline; do
   assert_eq "$(js "L.resolveSurface(\"$s\")")" "$s" "$s is a surface the CLI knows"
 done
-assert_eq "$(js 'L.resolveSurface("nonsense")')" "terminal" "an unknown surface falls back to terminal"
+assert_eq "$(js 'L.resolveSurface("terminal")')" "popup" "a saved terminal now means the widget, as background does"
+assert_eq "$(js 'L.resolveSurface("nonsense")')" "popup" "an unknown surface falls back to the widget"
 assert_eq "$(js 'L.resolveSurface(" Widget ")')" "popup" "widget is the CLI's other name for popup, as surface_canon reads it"
-assert_eq "$(js 'L.resolveSurface("")')" "terminal" "so does an empty one"
-assert_eq "$(js 'L.resolveSurface(null)')" "terminal" "and a missing one"
+assert_eq "$(js 'L.resolveSurface("")')" "popup" "so does an empty one"
+assert_eq "$(js 'L.resolveSurface(null)')" "popup" "and a missing one"
 assert_eq "$(js 'L.resolveSurface(" POPUP ")')" "popup" "case and whitespace do not hide a real surface"
 # Same reference check: the CLI's own resolve_surface is the authority.
 for s in terminal popup background offline nonsense ""; do
@@ -1863,8 +1833,8 @@ assert_eq "$(js "L.runStartMessage(3, '', 'An update is already running.\n')")" 
   "a refused run reports the CLI's sentence"
 assert_eq "$(js "L.runStartMessage(3, '', '')")" "An update is already running." \
   "...and a lock refusal with nothing on stderr still says what happened"
-assert_eq "$(js "L.runStartMessage(5, '', 'The terminal did not open.\nmore detail')")" "The terminal did not open." \
-  "a window that never opened reports the first line"
+assert_eq "$(js "L.runStartMessage(5, '', 'It did not start.\nmore detail')")" "It did not start." \
+  "a refusal reports the first line"
 assert_eq "$(js "L.runStartMessage(1, 'only on stdout', '')")" "only on stdout" "...falling back to stdout"
 assert_eq "$(js "L.runStartMessage(9, '', '')")" "Could not start the update (exit 9)." \
   "a silent failure still says it failed, with the status"
@@ -2694,7 +2664,6 @@ assert_eq "$(held "$PEND,release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\
 assert_eq "$(held "$PEND" "$OFFL" updateStages)" "false" "the footer button does not stage"
 assert_eq "$(held "$PEND" "$OFFL" updateOffered)" "true" "...and is offered"
 assert_eq "$(held "$PEND" "$OFFL" heldLiveSurface)" "popup" "a box set to stage runs it live, naming the surface"
-assert_eq "$(held "$PEND" '{surface:"terminal",configuredSurface:"offline",autoAccept:false}' heldLiveSurface)" "terminal" "...the terminal, with confirmation on"
 assert_eq "$(held "$PEND" '{surface:"popup",configuredSurface:"popup"}' heldLiveSurface)" "popup" "...and the surface already chosen, when that is live"
 assert_eq "$(free "$PEND" "$OFFL" heldLiveSurface)" "" "...and no surface is named when nobody holds it"
 
@@ -2720,7 +2689,6 @@ assert_contains "$(held "$PEND$RISK" '{surface:"popup"}' heldChoiceMessage)" "1 
 
 # Install on Next Restart in the menus: where staging is possible and the footer does not offer it.
 assert_eq "$(free "$PEND" '{surface:"popup",configuredSurface:"popup"}' stageMenuOffered)" "true" "the menus offer staging when the footer says Update Now"
-assert_eq "$(free "$PEND" '{surface:"terminal",configuredSurface:"terminal"}' stageMenuOffered)" "true" "...on the terminal surface too"
 assert_eq "$(free "$PEND" '{surface:"offline",configuredSurface:"offline"}' stageMenuOffered)" "false" "...not when the footer already is Install on Next Restart"
 assert_eq "$(free 'backends:{flatpak:{actionable:2,status:"ok"}},actionable:2' '{surface:"popup"}' stageMenuOffered)" "false" "...not for Flatpak alone, which never stages"
 assert_eq "$(free 'backends:{dnf:{actionable:0,status:"ok"}},actionable:0' '{surface:"popup"}' stageMenuOffered)" "false" "...not with nothing pending"
@@ -3273,31 +3241,23 @@ assert_eq "$(js 'L.COPY.restartFailed')" "Could not open the restart prompt." \
 assert_eq "$(js 'L.COPY.checkForUpdates')" "Check for Updates" "copy: the refresh action"
 assert_eq "$(js 'L.COPY.updateNow')" "Update Now" "copy: the primary action"
 # --- the updating pane -----------------------------------------------------------------------
-# It said "Updating in the terminal surface…" - the CONFIGURED surface, not the running one, in a
-# word nobody outside this repo knows. And it was the whole popup for up to three hours after a
-# terminal run that aborted or was closed, with no list, no Update Now and a disabled Refresh.
-assert_eq "$(js 'L.COPY.updatingTerminal')" "Updating in a terminal window…" \
-  "copy: the pane names the window the update is actually running in"
+# It was the whole widget for up to three hours after a run that aborted or was closed, with no
+# list, no Update Now and a disabled Refresh.
 assert_eq "$(js 'L.COPY.updatingHere')" "Updating…" \
   "copy: ...or nothing at all, when the output is arriving right here"
 assert_eq "$(js 'L.COPY.updatingOffline')" "Staging updates for the next restart…" \
   "copy: ...and staging is not updating, so it does not say updating"
 assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not Updating? Check for Updates" \
   "copy: the way out of a pane that is waiting for a run nobody is running any more"
-# One surface, one sentence, and no surface without one: the pane switches on the running surface
-# and a fourth value would draw an empty label.
-assert_eq "$(js 'L.SURFACES.length')" "3" "premise: the CLI knows three surfaces"
-assert_eq "$(js 'L.SURFACES.map(function (s) { return L.updatingLabelOf(s); }).filter(function (t) { return t === ""; })')" \
-  "[]" "every surface the CLI knows has a sentence for the pane"
-assert_eq "$(js 'L.updatingLabelOf("terminal")')" "$(js 'L.COPY.updatingTerminal')" "terminal names its window"
 assert_eq "$(js 'L.updatingLabelOf("popup")')" "$(js 'L.COPY.updatingHere')" "the in-widget run says nothing extra"
 assert_eq "$(js '[L.resolveSurface("background"), L.updatingLabelOf("background") === L.COPY.updatingHere].join("|")')" "popup|true" \
   "a config from when background was a surface reads as the widget"
 assert_eq "$(js 'L.updatingLabelOf("offline")')" "$(js 'L.COPY.updatingOffline')" "offline is a preparation, not an update"
-# Anything else is terminal, which is what the CLI itself falls back to (resolve_surface).
-assert_eq "$(js 'L.updatingLabelOf("wat")')" "$(js 'L.COPY.updatingTerminal')" \
+# Anything else is the widget, which is what the CLI itself falls back to (resolve_surface).
+assert_eq "$(js 'L.updatingLabelOf("wat")')" "$(js 'L.COPY.updatingHere')" \
   "an unknown surface reads as the one the CLI would actually run"
-assert_eq "$(js 'L.updatingLabelOf("")')" "$(js 'L.COPY.updatingTerminal')" "...and so does no answer at all"
+assert_eq "$(js 'L.updatingLabelOf("terminal")')" "$(js 'L.COPY.updatingHere')" "...and so does a saved terminal"
+assert_eq "$(js 'L.updatingLabelOf("")')" "$(js 'L.COPY.updatingHere')" "...and so does no answer at all"
 # ...and the word nobody outside this repo knows is gone from the copy table entirely.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /surface/i.test(L.COPY[k]); })')" \
   "[]" "no string the popup shows a person uses the word surface"
@@ -3847,7 +3807,6 @@ assert_exit 0 "the page declares the unsavedChanges property the config dialog r
 assert_exit 0 "...and every control arms it through markChanged()" -- \
   grep -q 'function markChanged(' "$CFG"
 for h in 'onToggled: page.markChanged("include_flatpak")' \
-         'onToggled: page.markChanged("auto_accept")' \
          'page.markChanged("surface")' \
          'onValueModified: page.markChanged("refresh_interval_min")'; do
   grep -qF "$h" "$CFG" && echo "ok: a user change arms Apply: $h" \
@@ -3877,12 +3836,9 @@ else
   echo "    (config set line=${_set_ln:-none} rc-check=${_fail_ln:-none} record=${_rec_ln:-none})"
   _fail=1
 fi
-# The stored surface is a preference, not a run-time decision. Collapsing it to terminal here
-# rewrote a setting the user never touched (bin/kempt's cmd_run applies the lock at run time).
-assert_exit 1 "Apply stores the surface the user chose, lock or no lock" -- \
-  grep -q 'surfacesLocked ? "terminal"' "$CFGCODE"
-assert_exit 1 "...and switching confirmation on does not discard that choice" -- \
-  grep -q 'onSurfacesLockedChanged' "$CFGCODE"
+# The terminal choice is gone from the page, and the setting behind it with it.
+assert_exit 1 "the settings page offers no terminal surface" -- grep -q 'Terminal' "$CFGCODE"
+assert_exit 1 "...and no confirmation checkbox, whose only effect was a terminal window" -- grep -q 'autoAccept' "$CFGCODE"
 
 # --- no shadow settings ------------------------------------------------------------------------
 # The settings page is a front-end to `kempt config` and nothing else. A KConfig entry here would

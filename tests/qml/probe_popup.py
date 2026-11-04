@@ -49,7 +49,6 @@ open(os.path.join(p.state, "logs", "20260825T000000.log"), "w").write(
     "line one\nline two\nline three\n")
 STATE_JSON = os.path.join(p.state, "state.json")
 RUNRC = os.path.join(p.sandbox, "runrc")
-AUTO = os.path.join(p.sandbox, "auto_accept")
 # Which state fixture `kempt check` serves, and what `kempt summary --json` prints. Files rather than constants because every one of them is a
 # world the widget has to react to a CHANGE in, and rewriting a file is how this probe changes the
 # world under a running widget.
@@ -63,7 +62,6 @@ CHECKSLEEP = os.path.join(p.sandbox, "checksleep")
 open(CHECKSLEEP, "w").write("")
 RUNJSON = os.path.join(p.sandbox, "runjson")
 open(RUNRC, "w").write("0")
-open(AUTO, "w").write("true\n")
 # What `kempt config get surface` answers, and the status `config set` fails with (empty: it works).
 SURF = os.path.join(p.sandbox, "surface")
 CFGSETRC = os.path.join(p.sandbox, "cfgsetrc")
@@ -189,7 +187,7 @@ case "$1" in
           rc="$(cat %(RUNRC)s)"
           # 3 is cmd_run's up-front refusal while another update holds the lock, in its words.
           [[ "$rc" == 3 ]] && { echo "An update is already running." >&2; exit 3; }
-          [[ "$rc" == 0 ]] || { echo "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2; exit "$rc"; }
+          [[ "$rc" == 0 ]] || { echo "Kempt could not start the update." >&2; exit "$rc"; }
           exit 0 ;;
   update) exit 0 ;;
   discover-notifier)
@@ -211,7 +209,7 @@ case "$1" in
           cat %(DOUT)s; cat %(DERR)s >&2; exit "$(cat %(DRC)s)" ;;
 esac
 """ % {"DWAIT": DOCTORWAIT, "DOUT": DOCTOROUT, "DERR": DOCTORERR, "DRC": DOCTORRC,
-       "CFG": harness.config_arm(surface="cat %s" % SURF, auto_accept="cat %s" % AUTO),
+       "CFG": harness.config_arm(surface="cat %s" % SURF),
        "CHKRC": CHECKRC, "CHKSLEEP": CHECKSLEEP, "DNRC": DNRC, "CSRC": CFGSETRC, "SRC": CHECKSRC, "ST": STATE_JSON, "RUNRC": RUNRC,
        "RUNJSON": RUNJSON, "UOUT": UNSTAGEOUT, "UERR": UNSTAGEERR, "URC": UNSTAGERC,
        "ROUT": RECLAIMOUT, "RERR": RECLAIMERR, "RRC": RECLAIMRC, "RST": RECLAIMST})
@@ -233,8 +231,6 @@ def settle():
 
 settle()
 p.check("the popup's surface is read from the CLI", ev("root.surface"), "popup")
-p.check("...and so is the confirmation setting", ev("root.autoAccept"), True)
-p.check("...which together are what a run will actually do", ev("root.effectiveSurface"), "popup")
 
 # --- the pin toggle, with a name chosen to break a naive command builder ----------------------
 hostile = "evil; touch " + p.sandbox + "/PWNED"
@@ -403,10 +399,10 @@ p.wait_for(ev, "root.updating", False, timeout_ms=8000)
 p.check("a finished run takes the widget out of the updating state", ev("root.updating"), False)
 settle()
 
-# --- one press, one terminal ------------------------------------------------------------------
+# --- one press, one run -----------------------------------------------------------------------
 # `kempt run` launches the surface and RETURNS, and it is allowed fifteen seconds to do it. The
 # guard at the top of startUpdate tested `updating`, which is false for all of them - so a double
-# press opened two terminals, both asking the risky question.
+# press started two runs.
 open(RUNRC, "w").write("0")
 p.clear_calls()
 ev("root.startUpdate(); root.startUpdate(); root.startUpdate()")
@@ -419,8 +415,8 @@ p.check("...with the pane naming the surface that run is really using",
         ev("Logic.updatingLabelOf(root.runningSurface)"), ev("Logic.COPY.updatingHere"))
 
 # --- the way out of a pane nothing is going to end ---------------------------------------------
-# A terminal run that is aborted - the default answer to the one question Kempt asks, on the
-# default configuration - never writes state.json, and only a state.json change ends this state.
+# A run that stops before it starts never writes state.json, and only a state.json change ends
+# this state.
 p.clear_calls()
 before_check = p.call_count("check")
 ev("root.checkAgain()")
@@ -433,14 +429,14 @@ p.check("...and it refuses when nothing is running, rather than checking twice f
         (lambda before: (ev("root.checkAgain()"), p.call_count("check") - before)[1])(
             p.call_count("check")), 0)
 
-# --- Stage offline is not a terminal run, whatever the setting says ----------------------------
+# --- Stage offline is not a live run, whatever the setting says --------------------------------
 before_update = p.call_count("update")
 ev("root.stageOffline()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
 p.check("staging says it is preparing an install rather than calling itself an update",
         ev("Logic.updatingLabelOf(root.runningSurface)"), ev("Logic.COPY.updatingOffline"))
 p.check("...on the offline surface, whatever `surface` is configured to",
-        [ev("root.runningSurface"), ev("root.effectiveSurface")], ["offline", "popup"])
+        [ev("root.runningSurface"), ev("root.surface")], ["offline", "popup"])
 ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
@@ -448,9 +444,9 @@ ev('root.postRunLine = ""')
 # --- a run that could not start says why, in the CLI's words ----------------------------------
 open(RUNRC, "w").write("4")
 ev("root.startUpdate()")
-p.wait_for(ev, 'String(root.actionMessage).indexOf("konsole") >= 0', True, timeout_ms=8000)
+p.wait_for(ev, 'String(root.actionMessage).indexOf("could not start") >= 0', True, timeout_ms=8000)
 p.check("a failed launch reports the CLI's own remedy", ev("root.actionMessage"),
-        "Kempt could not find konsole. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)")
+        "Kempt could not start the update.")
 p.check("...and does NOT pretend an update is running", ev("root.updating"), False)
 open(RUNRC, "w").write("0")
 
@@ -528,44 +524,6 @@ p.check("...and once it comes back the queue is free again",
 ev("root.pollLog()")
 p.check("...dispatching normally", ev("tailExecutor.serial") - guard_serial, 2)
 p.wait_idle(ev, "tailExecutor")
-
-# --- auto_accept false is what cmd_run overrides the surface WITH -----------------------------
-# Only a terminal can ask the confirmation question, so the stored `popup` cannot survive it. A
-# widget that trusted the stored value alone would sit here tailing a log no run will ever write.
-open(AUTO, "w").write("false\n")
-ev("root.readSurface()")
-p.wait_for(ev, 'root.effectiveSurface', "terminal", timeout_ms=8000)
-p.check("confirmation on collapses the effective surface to terminal",
-        ev("root.effectiveSurface"), "terminal")
-p.check("...while the STORED surface is untouched", ev("root.surface"), "popup")
-# ...and the tail follows the surface the RUNNING transaction is using, not the configured one: a
-# settings change mid-run does not move where the transaction already in flight is writing. What
-# must never happen is tailing for a run that writes nothing here, so that is what is driven.
-ev("root.leaveUpdating()")
-p.wait_idle(ev, "executor", "tailExecutor")
-ev('root.enterUpdating("terminal")')
-tail_serial = ev("tailExecutor.serial")
-ev("root.pollLog()")
-p.pump(300)
-p.check("...and the popup does not tail a log a terminal run is not writing here",
-        ev("tailExecutor.serial"), tail_serial)
-p.check("...and says where that run really is, rather than naming the configured surface",
-        ev("Logic.updatingLabelOf(root.runningSurface)"), "Updating in a terminal window…")
-ev("root.leaveUpdating()")
-p.wait_idle(ev, "executor", "tailExecutor")
-
-open(AUTO, "w").write("true\n")
-ev("root.readSurface()")
-p.wait_for(ev, "root.effectiveSurface", "popup", timeout_ms=8000)
-p.check("confirmation off hands the stored surface back", ev("root.effectiveSurface"), "popup")
-
-# An older CLI that has never heard of the key prints an empty line, exit 0. Read as a value that
-# is "false", it would silently retire the in-popup log on a box whose auto_accept is true.
-open(AUTO, "w").write("")
-ev("root.readSurface()")
-p.wait_idle(ev, "executor")
-p.check("an empty answer changes nothing rather than being read as false", ev("root.autoAccept"), True)
-open(AUTO, "w").write("true\n")
 ev("root.leaveUpdating()")
 settle()
 
@@ -2840,8 +2798,7 @@ p.check("an ordinary Fedora gets Update Now back", lev("updateButton.visible"), 
 ev('root.postRunLine = ""')
 
 # --- Update Now on a session-critical set, where nothing can ask -----------------------------------
-# This probe's surface is popup. Only a terminal asks the risky question for itself, so here
-# Update Now must not start a run: the risky message becomes a choice, with staging first.
+# Nothing in the widget can answer a terminal's question, so Update Now must not start a run: the risky message becomes a choice, with staging first.
 ev('root.actionMessage = ""')
 runs_before = p.call_count("run")
 hush()
@@ -2903,7 +2860,7 @@ settle()
 p.check("...a run that fails is not asked again",
         p.calls_matching("run"), ["run --risky-ok"])
 p.check("...and its own failure is what the popup reports",
-        "konsole" in str(ev("root.actionMessage")), True)
+        "could not start" in str(ev("root.actionMessage")), True)
 open(RUNRC, "w").write("0")
 ev('root.actionMessage = ""')
 ev("root.riskyChoiceOpen = false")
@@ -2939,7 +2896,7 @@ p.check("premise: Update Now is on the footer here", lev("updateButton.visible")
 lev("updateButton.clicked()")
 p.pump(100)
 p.check("an open choice...", ev("root.riskyChoiceOpen"), True)
-ev('root.enterUpdating("terminal")')
+ev('root.enterUpdating("popup")')
 p.pump(50)
 p.check("...is closed by a run started elsewhere, so it cannot come back if that run fails",
         ev("root.riskyChoiceOpen"), False)
@@ -2955,24 +2912,17 @@ state(fixture("state-live.json"))
 p.check("a check that finds nothing session-critical closes the choice", ev("root.riskyChoiceOpen"), False)
 footer_back("...and Update Now comes back")
 
-# On the terminal, the terminal asks for itself: Update Now runs at once, with no question here.
+# A saved terminal is the widget now, so the risky set still asks here.
 open(SURF, "w").write("terminal\n")
 ev("root.readSurface()")
 settle()
 state(fixture("state-risky-heavy.json"))
-p.check("with the terminal as the setting...", ev("root.effectiveSurface"), "terminal")
 runs_before = p.call_count("run")
 lev("updateButton.clicked()")
-p.wait_for(ev, "root.updating", True, timeout_ms=8000)
-settle()
-p.check("...Update Now on a session-critical set runs at once",
-        p.calls_matching("run")[-1:], ["run"])
-p.check("...with no question in the popup", ev("root.riskyChoiceOpen"), False)
-p.check("...exactly once", p.call_count("run") - runs_before, 1)
-ev("root.leaveUpdating()")
-settle()
-ev('root.postRunLine = ""')
-
+p.pump(100)
+p.check("a saved terminal choice asks in the widget, like any other", ev("root.riskyChoiceOpen"), True)
+p.check("...and starts no run until answered", p.call_count("run") - runs_before, 0)
+ev("root.riskyChoiceOpen = false")
 open(SURF, "w").write("popup\n")
 ev("root.readSurface()")
 settle()

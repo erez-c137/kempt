@@ -233,7 +233,7 @@ rm -rf "$UNSAFE"
 # --- folders this user can already see are unsafe: no helper, so no password prompt -------------------
 mkdir -m 0777 "$UNSAFE"
 apply_stub ok ""
-for _sf in background offline terminal; do
+for _sf in widget offline; do
   stored offline-ready.toml; rm -f "$marker"; reset_run
   rc=0
   KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" "$KEMPT" update --surface=$_sf --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?

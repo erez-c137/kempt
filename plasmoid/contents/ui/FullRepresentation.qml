@@ -2088,22 +2088,16 @@ PlasmaExtras.Representation {
             // and "surface" is a word nobody outside this project knows. The literals are written
             // here, not read out of logic.js, because i18n() extracts literals - see the copy
             // table's own header - and Logic.updatingLabelOf is what a node test pins.
-            text: {
-                switch (popup.plasmoidItem.runningSurface) {
-                case "popup":      return i18n("Updating…");
-                case "offline":    return i18n("Staging updates for the next restart…");
-                default:           return i18n("Updating in a terminal window…");
-                }
-            }
+            text: popup.plasmoidItem.runningSurface === "offline"
+                ? i18n("Staging updates for the next restart…") : i18n("Updating…")
             // Not for a run in this widget: the header already says "Updating…", and the log
             // under it shows where.
             visible: popup.plasmoidItem.runningSurface !== "popup"
             wrapMode: Text.WordWrap
         }
 
-        // The way out. A terminal run that is aborted - the DEFAULT answer to the one question
-        // Kempt asks, on the default configuration - never writes state.json, and only a state.json
-        // change ends this pane, so without this the popup sits here for three hours with no list,
+        // The way out. A run that dies never writes state.json, and only a state.json change ends
+        // this pane, so without this the popup sits here for three hours with no list,
         // no Update Now and a disabled Refresh.
         // FLAT, not raised: a raised button here would read as "press this to finish the update".
         // Deliberately NOT Kirigami.LinkButton: measured on this box, that component is a

@@ -9,6 +9,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Updating in a terminal window.** The `terminal` setting, the **Terminal window** choice in the widget's settings, the `KEMPT_TERMINAL` variable and `kempt run`'s exits 4 and 5 are gone. A saved `terminal` now reads as **In this widget**. To watch an update, type `kempt update` in a terminal: it always shows live output and asks before kernel, systemd or desktop updates.
+- **Apply updates without asking for confirmation** in the widget's settings. Its only effect was to open a terminal window. `auto_accept=false` still makes `kempt update` at a terminal let dnf5 ask you. A script that runs without a terminal now gets `-y` either way, where it used to fail on dnf5's question.
 - **Put It Back and `kempt restore-stage`.** When another program cancels a staged update, Kempt now
   tells you and the updates stay in the list. Stage them again with **Install on Next Restart** or
   `kempt update --surface=offline`. The packages are still downloaded, so this costs no new download.

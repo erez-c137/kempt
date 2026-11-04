@@ -135,7 +135,6 @@ KCM.SimpleKCM {
         // the count can only reach zero after every setIfChanged has had its say.
         page.outstandingWrites = 1;
         setIfChanged("include_flatpak", includeFlatpak.checked ? "true" : "false");
-        setIfChanged("auto_accept", autoAccept.checked ? "true" : "false");
         setIfChanged("surface", page.selectedSurface());
         setIfChanged("refresh_interval_min", String(interval.value));
         setIfChanged("notify_startup", notifyStartup.checked ? "true" : "false");
@@ -199,23 +198,10 @@ KCM.SimpleKCM {
 
     // The chosen surface lives HERE, not in the radio buttons. Reading it back out of the delegates
     // looks equivalent and is not: a Repeater whose items are not currently realised answers
-    // "nothing is checked", which this function would report as `terminal` - and Apply would then
-    // write terminal over whatever the user actually had. The view renders this property; it is
-    // never the source of it.
-    property string surfaceKey: "terminal"
+    // "nothing is checked", and Apply would then write the wrong value over whatever the user
+    // actually had. The view renders this property; it is never the source of it.
+    property string surfaceKey: Logic.DEFAULT_SURFACE
 
-    // Only the terminal surface can ask a question, so with confirmation on the others cannot run
-    // at all. The radios grey out and say so. What it does NOT do is change the selection: see
-    // below.
-    readonly property bool surfacesLocked: !autoAccept.checked
-
-    // The stored preference, whatever the confirmation setting happens to be right now. Collapsing
-    // it to terminal here would be this page rewriting a preference nobody touched: with
-    // auto_accept already false, opening the settings and pressing Apply would replace a stored
-    // `popup` with `terminal`, and turning confirmation back off later would leave the user on a
-    // surface they never chose. The lock is a RUN-time fact and the run already applies it -
-    // bin/kempt's cmd_run overrides the surface itself, and main.qml mirrors that in
-    // Logic.effectiveSurfaceOf so the popup shows the truth.
     function selectedSurface() {
         return page.surfaceKey;
     }
@@ -373,7 +359,6 @@ KCM.SimpleKCM {
 
     Component.onCompleted: {
         readKey("include_flatpak", function (v) { includeFlatpak.checked = Logic.isTrue(v); });
-        readKey("auto_accept", function (v) { autoAccept.checked = Logic.isTrue(v); });
         readKey("surface", function (v) { page.applySurface(Logic.resolveSurface(v)); });
         readKey("refresh_interval_min", function (v) {
             var n = parseInt(v, 10);
@@ -412,12 +397,6 @@ KCM.SimpleKCM {
         loadMuted();
         loadDiscover();
     }
-
-    // There is deliberately no onSurfacesLockedChanged here. Snapping the selection to terminal the
-    // moment confirmation is switched on throws away a preference the user expressed and cannot get
-    // back by switching confirmation off again - a checkbox silently editing a different setting.
-    // Locking greys the radios out and the label above them explains why; the choice underneath is
-    // kept, and only the RUN collapses it to terminal.
 
     Kirigami.FormLayout {
         anchors.left: parent.left
@@ -460,21 +439,6 @@ KCM.SimpleKCM {
             wrapMode: Text.WordWrap
             font: Kirigami.Theme.smallFont
             opacity: 0.8
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
-        }
-
-        QQC2.CheckBox {
-            id: autoAccept
-            text: i18n("Apply updates without asking for confirmation")
-            enabled: !page.loading
-            onToggled: page.markChanged("auto_accept")
-        }
-
-        QQC2.Label {
-            visible: !autoAccept.checked
-            text: i18n("When this is off, updates run in a terminal window so dnf can ask you. Your choice below comes back when you turn it on.")
-            wrapMode: Text.WordWrap
-            font: Kirigami.Theme.smallFont
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
 
@@ -540,7 +504,6 @@ KCM.SimpleKCM {
             // The form label, said once beside the first radio and in each radio's accessible name.
             readonly property string groupLabel: i18n("Run updates in:")
             model: [
-                { key: "terminal",   label: i18n("Terminal window") },
                 { key: "popup",      label: i18n("In this widget") },
                 { key: "offline",    label: i18n("On the next restart") }
             ]
@@ -576,10 +539,7 @@ KCM.SimpleKCM {
                     page.surfaceKey = surfaceKey;
                     page.markChanged("surface");
                 }
-                // Only the terminal can prompt, so the rest are unreachable with confirmation on.
-                // The reason is stated above rather than left as a mystery grey-out - and a locked
-                // selection stays visibly selected, just not changeable.
-                enabled: !page.loading && (!page.surfacesLocked || surfaceKey === "terminal")
+                enabled: !page.loading
             }
         }
 

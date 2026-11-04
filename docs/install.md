@@ -15,7 +15,6 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | `flatpak` | Only for Flatpak apps. Without it, Kempt checks and updates system packages only. |
 | `getfacl` (acl) | `kempt doctor` reads ACL entries with it. Checkout installs: `sudo dnf install acl`. |
 | `notify-send` (libnotify) | Desktop notifications from runs outside a terminal. If it is missing, notifications are skipped. |
-| `konsole` | Only for updates in a terminal window (`surface=terminal`). For another emulator, set `KEMPT_TERMINAL` in your environment. |
 | KDE Plasma 6 with `kpackagetool6` | Only for the panel widget. If it is missing, the installer says so and installs everything else. |
 
 Installing on the next restart also needs a dnf5 that supports staged transactions. Check with:
@@ -102,7 +101,6 @@ ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 ok    polkit exec.path (refresh): /usr/libexec/kempt-refresh
 ok    polkit exec.path (apply): /usr/libexec/kempt-apply
-ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
 info  package lists: no dnf refresh recorded yet. Fetch them now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its package lists, and sudo dnf5 makecache --refresh shows why
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)

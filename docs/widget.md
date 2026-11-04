@@ -139,10 +139,10 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    Without a kernel, it names the session packages in the update: `This update touches 20 packages
    your running session depends on (dbus, glibc, kf6, mesa, …). The safest way is to install them
    on the next restart.` Its button is **Install on Next Restart**. It is hidden while an update is
-   staged. When you press **Update Now** and updates run outside a terminal, it asks first. The
+   staged. When you press **Update Now**, it asks first. The
    message moves to the top (below a Check Installation result), starts *"Nothing is installed
    yet."*, ends *"Install on the next restart, or now?"* and adds **Install Now**. **Install on Next
-   Restart** gets the keyboard focus. In a terminal, the terminal asks instead. While a Fedora
+   Restart** gets the keyboard focus. While a Fedora
    release upgrade is stored, it does not ask, and **Update Now** updates live.
 9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
    from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
@@ -300,9 +300,8 @@ stored.
 
 ### While an update runs
 
-The widget says where the update is running:
+The widget says what is happening:
 
-- `Updating in a terminal window…`
 - `Updating…`, with the live log below, for **In this widget**
 - `Staging updates for the next restart…`, when staging.
 
@@ -366,13 +365,7 @@ file (see [When the widget checks](#when-the-widget-checks)).
 **Include Flatpak apps** (`include_flatpak`, on by default) checks and updates Flatpak apps and
 runtimes. Without Flatpak, it is greyed out.
 
-**Apply updates without asking for confirmation** (`auto_accept`, on by default) answers dnf and
-Flatpak for you. With it off, **Run updates in** is greyed out, because only a terminal window can
-ask. Runs then use a terminal, and **Install on Next Restart** still stages. Your choice comes back
-when you turn the option on again.
-
-**Run updates in** (`surface`) is **Terminal window**, **In this widget** (the default),
-or **On the next restart**.
+**Run updates in** (`surface`) is **In this widget** (the default) or **On the next restart**.
 
 **Check every** (`refresh_interval_min`, 60 minutes by default) sets how often the widget checks.
 The lowest value it offers is 15 minutes.
@@ -415,7 +408,6 @@ Each button runs a command described in [usage.md](usage.md).
 | **Check Installation** | `kempt doctor` |
 | **Free Up Space** | `kempt reclaim -y --expect=<digest>` |
 | **Turn Off Discover's Notifier**, **Turn On Discover's Notifier**, **Keep Discover's Notifier** | `kempt discover-notifier off`, `on`, `keep` |
-| **Use This Widget**, **Keep the Terminal Window** | `kempt config set surface popup`, `terminal` |
 | **Allow without password…**, **Require a password…** | `kempt enable-passwordless`, `kempt disable-passwordless` |
 | **Copy Command** for a service | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |

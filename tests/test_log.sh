@@ -16,13 +16,6 @@ source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"
 EV="$KEMPT_STATE_DIR/events.log"
 
-# The real doctor runs below, and doctor checks that the terminal emulator exists - a host
-# fact, not a subject of this file. Stub it like test_doctor.sh does, so the assertions hold
-# on boxes with no konsole (the RPM check stage, CI runners) instead of leaning on the CI
-# workflow's konsole shim.
-printf '#!/bin/sh\nexit 0\n' > "$TESTTMP/fake-terminal"; chmod +x "$TESTTMP/fake-terminal"
-export KEMPT_TERMINAL="$TESTTMP/fake-terminal"
-
 export WORLD="$TESTTMP/world"; mkdir -p "$WORLD"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 cp "$FIXTURES/flatpak-list.tsv" "$WORLD/fp.tsv"
@@ -562,11 +555,11 @@ assert_eq "$(grep -c '' "$EV")" "2401" "below the threshold the file is left exa
 rm -f "$EV"
 chmod 500 "$KEMPT_STATE_DIR"
 assert_exit 0 "a config write still succeeds when the event log cannot be written" \
-  "$KEMPT" config set surface terminal
+  "$KEMPT" config set surface offline
 assert_eq "$(cat "$TESTTMP/last_output")" "" "...silently: no warning, no stderr noise"
 assert_exit 0 "...and nothing was created in a directory that refused it" -- test ! -e "$EV"
 chmod 700 "$KEMPT_STATE_DIR"
-assert_eq "$("$KEMPT" config get surface)" "terminal" "...while the write it was logging landed"
+assert_eq "$("$KEMPT" config get surface)" "offline" "...while the write it was logging landed"
 
 # ==================================================================================================
 # doctor ends with the last five events, because "is this install sound?" is followed by "then

@@ -64,8 +64,8 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
   shows how much space the unused ones take and removes them when you agree, or after each update.
 - **Holds.** A held package stays out of updates but stays in the list, so you do not forget it.
   Click its padlock, or run `kempt hold dnf:kernel-core`.
-- **Three ways to update.** In a terminal with live output, in the widget, or staged to install on
-  the next restart. When the kernel, systemd, Qt or graphics
+- **Two ways to update.** Now, in the widget, or staged to install on the next restart. `kempt update`
+  in a terminal shows live output. When the kernel, systemd, Qt or graphics
   drivers have updates, Kempt suggests the restart option. `kempt unstage` or the widget takes a
   staged update back.
 - **The download size up front.** The widget's footer shows it before you start, from data already on

@@ -295,7 +295,7 @@ lev("popup.focusPrimary()")
 p.pump(50)
 p.check("premise: the keyboard is on Update Now, with a run to start", focused(), "updateButton")
 
-ev('root.enterUpdating("terminal")')
+ev('root.enterUpdating("offline")')
 p.pump(120)
 p.check("a run swaps the pane in and takes the primary button off the screen",
         lev("updateButton.visible"), False)
@@ -307,7 +307,7 @@ p.check("...and it is a real control, not the pane or nothing at all",
         [lev("popup.Window.activeFocusItem.visible"),
          lev("popup.Window.activeFocusItem.enabled")], [True, True])
 p.check("...naming the surface the run is really using rather than the configured one",
-        lev("updatingLabel.text"), "Updating in a terminal window…")
+        lev("updatingLabel.text"), "Staging updates for the next restart…")
 
 # ...and Space on it really is the way out, from the keyboard, without a pointer.
 before_check = p.call_count("check")
@@ -322,7 +322,7 @@ p.check("...handing the keyboard back to a control that is on screen",
          lev("popup.Window.activeFocusItem.visible && popup.Window.activeFocusItem.enabled")],
         [True, True])
 
-# The other three surfaces say where to look, which "Updating in the terminal surface…" never did.
+# Each surface says what is happening.
 for _surface, _said in (("popup", "Updating…"),
                         ("offline", "Staging updates for the next restart…")):
     ev('root.enterUpdating("%s")' % _surface)

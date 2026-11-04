@@ -76,14 +76,9 @@ Recommends:     flatpak
 # The bindings come only with flatpak: without it there is nothing to list.
 Requires:       (python3-gobject-base if flatpak)
 Requires:       (flatpak-libs if flatpak)
-# Both of these are weak on purpose. libnotify was declared nowhere, and konsole was only
-# Suggested, which dnf does not install.
-# notify-send is how every detached surface reports what it did; without it those runs finish
-# silently. konsole is what the DEFAULT surface launches, so with it merely Suggested
-# `kempt doctor` reported a FAIL on a fresh, correct install - the first command the docs tell a
-# new user to run.
+# Weak on purpose. notify-send is how every detached run reports what it did; without it those
+# runs finish silently.
 Recommends:     libnotify
-Recommends:     konsole
 # Blocks a shutdown while rpm is changing packages, so a restart pressed during an update waits.
 Recommends:     rpm-plugin-systemd-inhibit
 
@@ -92,7 +87,7 @@ Recommends:     rpm-plugin-systemd-inhibit
 %description
 Kempt shows which dnf5 and Flatpak updates are pending with the version each
 package moves from and to, counts only the updates you have not held, and
-applies them in the panel widget, in a terminal, or staged for the next
+applies them in the panel widget, from a terminal, or staged for the next
 restart.
 The Plasma panel widget is a separate package, which dnf5 adds by default on a
 system that has Plasma, so installing this package on a server or in a

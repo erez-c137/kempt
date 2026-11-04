@@ -123,13 +123,11 @@ var COPY = {
     // --- the pane a run replaces the popup with ---------------------------------------------------
     // One sentence per surface, each naming where to look, and staging says what it is rather than
     // calling itself an update. Never the CONFIGURED surface, and never the word "surface".
-    updatingTerminal: "Updating in a terminal window…",
     updatingHere: "Updating…",
     updatingOffline: "Staging updates for the next restart…",
-    // ...and the way out. Only a state.json change ends the updating state, and a terminal run
-    // that is aborted or closed never writes one - so without this the popup sits on an empty pane
-    // until a three-hour guard fires. On the default configuration that is what a first-timer gets
-    // for taking the default answer to Kempt's one question.
+    // ...and the way out. Only a state.json change ends the updating state, and a run that dies
+    // never writes one - so without this the popup sits on an empty pane until a three-hour guard
+    // fires.
     notUpdatingCheckAgain: "Not Updating? Check for Updates",
 
     // The offline path, named for what it does to the user rather than for the dnf5 flag behind
@@ -622,10 +620,7 @@ function fill(template, token, value) {
 function isArray(v) { return Object.prototype.toString.call(v) === "[object Array]"; }
 function arrayOf(v) { return isArray(v) ? v : []; }
 
-// The run surfaces the CLI knows, in the order the settings page offers them.
-var SURFACES = ["terminal", "popup", "offline"];
 // What a config with no `surface` key runs on: lib/common.sh's kempt_default, which this twins.
-// A value the CLI does not recognise is a different case and still means terminal (resolveSurface).
 var DEFAULT_SURFACE = "popup";
 
 // isTrue(s) -> the same answer lib/common.sh's is_true() gives. The settings page reads booleans
@@ -639,49 +634,25 @@ function isTrue(value) {
 }
 
 // resolveSurface(s) -> a surface the CLI recognises, mirroring bin/kempt's resolve_surface():
-// anything unknown is `terminal`, because that is what the CLI itself would run.
-// `widget` is the CLI's other name for the stored `popup`, and an older config's `background`
-// reads as it too (lib/common.sh, surface_canon).
+// anything unknown is `popup`, because that is what the CLI itself would run.
+// `widget` is the CLI's other name for the stored `popup`, and an older config's `background` or
+// `terminal` reads as it too (lib/common.sh, surface_canon).
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
-    if (s === "widget" || s === "background") s = "popup";
-    return SURFACES.indexOf(s) >= 0 ? s : "terminal";
+    return s === "offline" ? s : "popup";
 }
 
 // updatingLabelOf(surface) -> what the pane says while a run on that surface is in flight. Takes
-// the surface the RUNNING transaction is using, which is not always the configured one: with
-// confirmation on `kempt run` collapses every surface to terminal, and Install on Next Restart
-// stages offline whatever the setting says.
+// the surface the RUNNING transaction is using, which is not always the configured one: Install on
+// Next Restart stages offline whatever the setting says.
 function updatingLabelOf(surface) {
-    switch (resolveSurface(surface)) {
-    case "popup":      return COPY.updatingHere;
-    case "offline":    return COPY.updatingOffline;
-    default:           return COPY.updatingTerminal;
-    }
-}
-
-// effectiveSurfaceOf(surface, autoAccept) -> the surface a run will ACTUALLY use. bin/kempt's
-// cmd_run resolves the configured surface and then overrides it: with auto_accept false only a
-// terminal can ask the confirmation question. The popup has to apply the same rule or it offers an
-// in-widget log pane while a terminal window is what opens.
-function effectiveSurfaceOf(surface, autoAccept) {
-    return isTrue(autoAccept) ? resolveSurface(surface) : "terminal";
+    return resolveSurface(surface) === "offline" ? COPY.updatingOffline : COPY.updatingHere;
 }
 
 // updateButtonOf(surface, dnfActionable, flatpakPending) -> the footer button: whether the press
-// stages, its label, and its tooltip. Takes the CONFIGURED surface: with confirmation on, the run
-// opens a terminal, and `kempt update` on a terminal still stages when offline is configured.
-// Only system updates stage, so with none actionable (only Flatpak pending, or every dnf update
+// stages, its label, and its tooltip. Only system updates stage, so with none actionable (only Flatpak pending, or every dnf update
 // held) the press stages nothing and the button says Update Now. The tooltip names Flatpak only
 // when Flatpak apps are waiting.
-// heldLiveSurfaceOf(effectiveSurface) -> the surface Update Now names while another updater holds the
-// next restart. Named on every such run, because `run` with none reads the setting, and offline there
-// is the stage the CLI refuses. With confirmation on the effective surface is the terminal already.
-function heldLiveSurfaceOf(effectiveSurface) {
-    var s = resolveSurface(effectiveSurface);
-    return s === "offline" ? "popup" : s;
-}
-
 function updateButtonOf(surface, dnfActionable, flatpakPending) {
     if (resolveSurface(surface) !== "offline" || typeof dnfActionable !== "number" || !(dnfActionable > 0))
         return { stages: false, text: COPY.updateNow, tooltip: "" };
@@ -2320,8 +2291,7 @@ function runFinishedSince(run, sinceMs) {
 // runStartMessage(rc, stdout, stderr) -> "" when `kempt run` started a run, otherwise what to tell
 // the person. Only exit 0 means a run began, so only exit 0 may enter the updating pane: any other
 // status is a run that will never write state.json, and the pane would wait three hours for it.
-// The CLI's own first line wherever there is one: exit 4 names the missing emulator, exit 5 a
-// window that never opened, exit 3 the update already holding the lock.
+// The CLI's own first line wherever there is one: exit 3 names the update already holding the lock.
 function runStartMessage(rc, stdout, stderr) {
     if (rc === 0) return "";
     var msg = firstLineOf(stderr) || firstLineOf(stdout);
@@ -2773,17 +2743,16 @@ function viewModel(state, updating, cliError, opts) {
     var relState = (releaseUpgrade && REL_STATES.indexOf(relUp.state) >= 0)
         ? relUp.state : "downloaded";
     // What a run started now would ACTUALLY do, which decides whether "updating now" is a thing
-    // this box can do at all. Unstated reads as terminal, the CLI's own fallback.
+    // this box can do at all.
     var runSurface = resolveSurface(typeof opts.surface === "string" ? opts.surface : "");
     var stagesByDefault = (runSurface === "offline");
     var flatpakPending = usable && backendActionable(state, "flatpak") > 0;
     // Another updater holds the next restart. Taken from the CLI's word, like every other fact here;
     // anything that acts on it asks again there. No stage can install behind it, so the press is a
-    // live run whatever the setting says (heldLiveSurfaceOf), and the staging routes go.
+    // live run whatever the setting says, and the staging routes go.
     var restartHeld = usable && state.restart_holder === "other";
     var updateButton = updateButtonOf(
-        restartHeld ? "terminal"
-            : (typeof opts.configuredSurface === "string" ? opts.configuredSurface : runSurface),
+        restartHeld ? "popup" : runSurface,
         usable ? backendActionable(state, "dnf") : 0, flatpakPending);
     var releaseUpgradeMessage = !releaseUpgrade ? ""
         : (relState === "armed"      ? COPY.releaseUpgradeStaged.replace("%1", relTo)
@@ -2844,8 +2813,7 @@ function viewModel(state, updating, cliError, opts) {
     var riskyMessage = (staged || riskyIsMoot) ? ""
         : (noOfflineRoute ? riskySummaryOf(riskyPending) : riskyMessageOf(riskyPending));
     // Whether Update Now asks before it runs: a risky set, a route to the next restart, and a run
-    // that would install it live with nobody asked. A terminal asks for itself, and the offline
-    // surface already is the next restart.
+    // that would install it live with nobody asked. The offline surface already is the next restart.
     var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute && runSurface === "popup";
     var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
     // Nothing of Kempt's staged behind that restart: the banner stands by itself. Not beside what
@@ -3219,8 +3187,7 @@ function viewModel(state, updating, cliError, opts) {
         // Who holds the next restart, and what Update Now does about it (main.qml, startUpdate).
         restartHeld: restartHeld,
         updateAsksHeld: updateAsksHeld,
-        heldLiveSurface: restartHeld
-            ? heldLiveSurfaceOf(typeof opts.surface === "string" ? opts.surface : "") : "",
+        heldLiveSurface: restartHeld ? "popup" : "",
         heldChoiceMessage: updateAsksHeld
             ? COPY.restartHeldAsk + (riskyPending.length > 0 ? " " + riskySummaryOf(riskyPending) : "") : "",
         stagedMessage: stageBlocked ? COPY.stageBlocked
@@ -3354,7 +3321,6 @@ if (typeof module !== "undefined" && module.exports) {
         riskyMessageOf: riskyMessageOf,
         pendingNamesOf: pendingNamesOf,
         stagedMessageOf: stagedMessageOf,
-        heldLiveSurfaceOf: heldLiveSurfaceOf,
         stagedVariantOf: stagedVariantOf,
         messageStack: messageStack,
         MESSAGE_CAP: MESSAGE_CAP,
@@ -3399,12 +3365,10 @@ if (typeof module !== "undefined" && module.exports) {
         isTrue: isTrue,
         DEFAULT_SURFACE: DEFAULT_SURFACE,
         resolveSurface: resolveSurface,
-        effectiveSurfaceOf: effectiveSurfaceOf,
         updateButtonOf: updateButtonOf,
         stageTooltipOf: stageTooltipOf,
         backendActionable: backendActionable,
         updatingLabelOf: updatingLabelOf,
-        SURFACES: SURFACES,
         holdsOf: holdsOf,
         discoverSettingOf: discoverSettingOf,
         lastLinesOf: lastLinesOf,

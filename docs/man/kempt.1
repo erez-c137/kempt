@@ -134,10 +134,10 @@ Run the update now, in this process. Options override the configuration file for
 .B \-\-no\-flatpak
 updates system packages only.
 .B \-\-surface=
-picks where the run happens:
-.BR terminal ", " widget " or " offline .
+picks how the run installs:
+.BR widget " or " offline .
 An unknown value logs a warning and uses
-.BR terminal .
+.BR widget .
 Held items are skipped, and the summary lists them.
 .IP
 When session\-critical packages are pending, a terminal run asks first: stage for the next
@@ -177,7 +177,7 @@ prints the launch command and starts nothing.
 is passed on to an update outside the terminal. A terminal run still asks.
 Exit 0 means the update started. The state file and
 .B kempt history
-have the result. Exit 5: the terminal window did not open within five seconds.
+have the result.
 .TP
 .B unstage
 Discard the update staged for the next restart. It asks for your password once, unless nothing is
@@ -469,9 +469,6 @@ Cannot start:
 is missing, or another
 .B kempt update
 is running.
-.TP
-.B 4
-No terminal emulator.
 .TP
 .B 5
 Stopped before changing anything.

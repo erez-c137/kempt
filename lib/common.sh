@@ -59,9 +59,6 @@ KEMPT_SYSTEM_PLASMOID_DIR="${KEMPT_SYSTEM_PLASMOID_DIR:-/usr/share/plasma/plasmo
 # whose own ~/.local/bin/kempt points at a different checkout than the one under test.
 KEMPT_WIDGET_PATH="${KEMPT_WIDGET_PATH:-$HOME/.local/bin:$PATH}"
 KEMPT_NOTIFY="${KEMPT_NOTIFY:-notify-send}"
-# The terminal emulator the `terminal` surface launches. A seam, so a box without it fails
-# loudly (exit 4) instead of `kempt run` silently doing nothing at all.
-KEMPT_TERMINAL="${KEMPT_TERMINAL:-konsole}"
 # Test seam: doctor's ACL scan, and its row saying when that scan cannot run.
 KEMPT_GETFACL="${KEMPT_GETFACL:-getfacl}"
 
@@ -217,14 +214,6 @@ kempt_init_dirs() {
   # The config dir collects them too: `hold`, `unhold` and `config set` write through atomic_write
   # there. maxdepth 1, because Kempt writes nothing below it. Created by the mkdir above.
   find "$KEMPT_CONFIG_DIR" -maxdepth 1 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
-  # ...and the run-start tokens, on the same rule and the same bound. `kempt run` drops one here and
-  # the window it launches claims it by deleting it (wait_for_window), so a terminal that never
-  # opens - or one that hangs for ever without running its script - leaves it behind, and nothing
-  # else would ever remove it: one file per wedged launch, accumulating for good.
-  # maxdepth 1, because that is where cmd_run's mktemp puts them. +60min for the temps' reason read
-  # the other way round: `kempt run` waits SECONDS for a token to be claimed, so an hour is far past
-  # any launch that is still legitimately waiting for its window.
-  find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'run-start.*' -mmin +60 -delete 2>/dev/null || true
   # ...and a removal's copy of flatpak's output (reclaim_remove), left by a kempt killed outright.
   # The removal is given ten minutes, so an hour is past any that is still running.
   find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'reclaim-out.*' -mmin +60 -delete 2>/dev/null || true
@@ -265,7 +254,7 @@ event_count_phrase() {  # n singular plural → "1 update" | "3 updates" | "? up
 }
 event_where_phrase() {  # surface → where a run went, in the widget's settings words
   case "$1" in
-    terminal) EVENT_WHERE="in a terminal window" ;;
+    terminal) EVENT_WHERE="in a terminal window" ;;  # a line an older version logged
     popup) EVENT_WHERE="in the widget" ;;
     background) EVENT_WHERE="in the widget" ;;  # a line an older version logged
     offline) EVENT_WHERE="to stage for the next restart" ;;
@@ -533,19 +522,19 @@ KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min risk
 # worked example). A table, so a second enum is one line rather than a new branch.
 config_enum_values() {  # key → accepted values, space separated, or nothing
   case "$1" in
-    surface) printf '%s\n' "terminal popup offline" ;;
+    surface) printf '%s\n' "popup offline" ;;
     reclaim) printf '%s\n' "ask off" ;;
   esac
 }
 
 # A surface as Kempt reads it: trimmed, lower-cased, and with `widget` read as `popup`. `widget` is
 # the word the person sees, and `popup` is the value stored, which older widgets and scripts read.
-# `background` is a surface that merged into it, and a config may still name it.
+# `background` and `terminal` are surfaces that merged into it, and a config may still name them.
 surface_canon() {  # surface → canonical spelling (unknown values pass through, trimmed and lowered)
   local s="$1"
   s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
   s="${s,,}"
-  case "$s" in widget|background) s=popup ;; esac
+  case "$s" in widget|background|terminal) s=popup ;; esac
   printf '%s\n' "$s"
 }
 

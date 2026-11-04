@@ -52,7 +52,6 @@ Most commands use these codes. Each command's section lists its own cases.
 | 1 | Something failed. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
-| 4 | No terminal emulator. |
 | 5 | Stopped before changing anything. |
 | 6 | `reclaim` and `startup`: what you were shown changed. |
 | 7 | `update` only: another program held the package lock. |
@@ -133,7 +132,7 @@ zero updates.
 ## update
 
 ```
-kempt update [--no-flatpak] [--surface=terminal|widget|offline] [--risky-ok]
+kempt update [--no-flatpak] [--surface=widget|offline] [--risky-ok]
 ```
 
 Runs the update now, in this process. Flags override the config file for this run.
@@ -147,12 +146,11 @@ kempt update --surface=offline    # stage it; installs on the next restart
 | Option | Effect |
 | --- | --- |
 | `--no-flatpak` | Updates system packages only. |
-| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `widget` (**In this widget**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
+| `--surface=` | How this run installs, as **Run updates in** in the widget's settings: `widget` (**In this widget**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `widget`. |
 | `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
 
-With `auto_accept=false`, every run uses a terminal with live output, because only a terminal can
-answer dnf's prompt. `kempt run` then stages in a terminal too, and turns every other `--surface=`
-value into a live update there.
+Typed at a terminal, a run shows live output. With `auto_accept=false`, dnf5 also asks you there.
+Anywhere else, starting the update is the answer.
 
 What happens, in order:
 
@@ -260,10 +258,10 @@ Flatpak included, before any password prompt. The message names the folder, and 
 the fix. With no system updates waiting, a live run still updates Flatpak.
 
 **When another updater holds the next restart, `--surface=offline` stops too,** with exit 5 and
-nothing changed, Flatpak included, even with `auto_accept` off, because a quiet fall to a live run
+nothing changed, Flatpak included, because a quiet fall to a live run
 could cancel what that updater prepared. A live run with no terminal and no `--risky-ok` stops the
 same way. The widget asks first and passes the flag. With no system updates waiting, both carry on.
-To update anyway, use `kempt update --surface=terminal`, unless other users can also change dnf's
+To update anyway, use `kempt update --surface=widget` in a terminal, unless other users can also change dnf's
 folders: then the message names the folder, and `kempt doctor` has the fix. While the restart is held, the
 risky-transaction prompt offers only `[u]` and `[a]`.
 
@@ -325,21 +323,15 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 ## run
 
 ```
-kempt run [--print-command] [--surface=terminal|widget|offline] [--risky-ok]
+kempt run [--print-command] [--surface=widget|offline] [--risky-ok]
 ```
 
-Starts `kempt update` where your settings say, then returns at once. In a terminal, `kempt update`
-is simpler.
+Starts `kempt update` the way your settings say, in the background, then returns at once. In a
+terminal, `kempt update` is simpler.
 
 ```bash
 kempt run --print-command
 ```
-
-```
-terminal: konsole -e kempt update
-```
-
-With `surface=widget`:
 
 ```
 detached: kempt update (surface=widget)
@@ -348,20 +340,16 @@ detached: kempt update (surface=widget)
 | Option | Effect |
 | --- | --- |
 | `--print-command` | Prints the launch command and starts nothing. |
-| `--surface=` | Runs this one update somewhere else, whatever the setting says. |
+| `--surface=` | Runs this one update the other way, whatever the setting says. |
 | `--risky-ok` | Passed on to an update that runs outside a terminal. A terminal run still asks. |
 
-**Exit 0 means the update started.** `state.json` and `kempt history` have the result. However the
-terminal window closes, even early, it runs a check, which ends the widget's updating state. The
-window's shell exits with the update's status.
+**Exit 0 means the update started.** `state.json` and `kempt history` have the result.
 
 | Exit | When |
 | --- | --- |
 | 0 | The update started. |
 | 2 | Unknown option or `--surface=` value. |
 | 3 | Another update is running. Nothing is launched. |
-| 4 | The terminal emulator is missing. `--print-command` checks this too. |
-| 5 | The terminal window did not open within five seconds, for example over SSH with no display. The event log says `run did not start: <reason>`, and a window that opens later starts nothing. |
 
 ## unstage
 
@@ -546,7 +534,7 @@ kempt summary
 ```
 
 ```
-Kempt - 2026-08-24T21:05:11+03:00 (terminal, 74s) ✓
+Kempt - 2026-08-24T21:05:11+03:00 (widget, 74s) ✓
 System (dnf): 2 updated, +1 installed
   curl 8.18.0-8.fc44 → 8.18.0-9.fc44
   kernel-core 6.15.3-200.fc44 → 6.15.4-200.fc44
@@ -598,7 +586,7 @@ kempt history
 ```
 
 ```
-2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
+2026-08-24T21:05:11+03:00  widget  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  restart (staged update installed)  ok  41 updated
 2026-08-22T23:10:37+03:00  offline  ok  staged 41 updates for a restart
 2026-08-22T18:12:55+03:00  widget  failed  no package changes  (authentication cancelled)
@@ -631,7 +619,7 @@ kempt log -n 4
 
 ```
 2026-08-26T20:58:11+03:00 cli Checked: 7 updates to install, 1 held
-2026-08-26T21:10:55+03:00 widget Setting auto_accept changed to true (was false)
+2026-08-26T21:10:55+03:00 widget Setting include_flatpak changed to true (was false)
 2026-08-26T21:11:02+03:00 widget Update started in the widget
 2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
 ```
@@ -741,7 +729,6 @@ ok    root helper (apply): /usr/local/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 ok    polkit exec.path (refresh): /usr/local/libexec/kempt-refresh
 ok    polkit exec.path (apply): /usr/local/libexec/kempt-apply
-ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
 ok    Discover's update notifier: turned off for this user (/home/you/.config/autostart/org.kde.discover.notifier.desktop)
 ok    package lists: refreshed 2026-08-26T20:58:03+03:00
@@ -776,7 +763,6 @@ What a `FAIL` means:
 | The polkit action file is installed | Background checks cannot authorize. |
 | Each polkit `exec.path` names the helper this CLI uses | Every privileged step asks for a password, and background checks time out after 120 s. Usually a package over a checkout install, or the reverse; the line names both fixes. `info` when the policy cannot be read. |
 | `getfacl` is present (a `FAIL` row only when it is missing) | The dnf folder checks cannot see ACL entries. Install the `acl` package. |
-| The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4. `info` when updates do not run in a terminal. |
 | `flatpak` is present (a `WARN` row only when `include_flatpak=true` is set by hand) | Kempt skips Flatpak. Otherwise `info`. |
 | Every config line is `key=value` with a valid key | That line is ignored, so the setting never applies. |
 | The state directory is writable | No state, history or logs. |
@@ -931,7 +917,7 @@ kempt config get refresh_interval_min   # 60
 newer widget can use keys this version does not know:
 
 ```
-warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, offline
+warning: 'bogus' is not a value surface accepts. Accepted: widget, offline
 ```
 
 Setting `surface` also answers the widget's one-time offer to run updates in the widget.
