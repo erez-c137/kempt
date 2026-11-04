@@ -1447,6 +1447,138 @@ settle()
 p.check("...and without the offer pending it does not",
         lev("stageDiscoverWarningMessage.visible"), False)
 
+# --- another updater holds the next restart ------------------------------------------------------
+def held_state(name, **extra):
+    doc = json.load(open(fixture("state-live.json")))
+    doc.pop("surface_offer", None)
+    doc.pop("discover_offer", None)
+    doc["restart_holder"] = "other"
+    doc.update(extra)
+    path = os.path.join(p.sandbox, name)
+    json.dump(doc, open(path, "w"))
+    return path
+
+state(held_state("state-held.json"))
+settle()
+p.check("held: the banner is up, with Restart",
+        [lev("stagedMessage.visible"), ev("root.vm.stagedShowRestart")], [True, True])
+p.check("...in the copy's words", lev("stagedMessage.text"), ev("Logic.COPY.restartHeldBanner"))
+p.check("...and the footer button says Update Now", ev("root.vm.updateButtonText"), "Update Now")
+_held_runs = p.call_count("run")
+ev("root.startUpdate()")
+settle()
+p.check("Update Now asks first, and starts nothing", p.call_count("run") - _held_runs, 0)
+p.check("...in a message of its own, in its words",
+        [lev("heldChoiceMessage.visible"), lev("heldChoiceMessage.text")],
+        [True, ev("root.vm.heldChoiceMessage")])
+p.check("...with its two answers, and the footer button gone meanwhile",
+        [lev("heldChoiceMessage.actions.length"), lev("updateButton.visible")], [2, False])
+lev("heldChoiceMessage.actions[1].trigger()")
+settle()
+p.check("Cancel closes it and starts nothing",
+        [ev("root.heldChoiceOpen"), lev("updateButton.visible"), p.call_count("run") - _held_runs], [False, True, 0])
+ev("root.startUpdate()")
+settle()
+ev("root.popupClosed()")
+settle()
+p.check("...and closing the popup closes it too", ev("root.heldChoiceOpen"), False)
+ev("root.popupOpened()")
+settle()
+ev("root.startUpdate()")
+settle()
+lev("heldChoiceMessage.actions[0].trigger()")
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("Update Now in it runs live, naming the surface",
+        p.calls_matching("run")[-1], "run --risky-ok --surface=popup")
+p.check("...and the pane follows the surface it named", ev("root.runningSurface"), "popup")
+ev("root.leaveUpdating()")
+settle()
+
+ev('root.surface = "offline"')
+settle()
+state(held_state("state-held.json"))
+settle()
+p.check("set to stage, the button is still Update Now", ev("root.vm.updateStages"), False)
+p.check("...and it names a live surface", ev("root.vm.heldLiveSurface"), "popup")
+ev('root.surface = "popup"')
+settle()
+
+_fb = held_state("state-held-flatpak.json")
+_flat = json.load(open(_fb))
+_flat["backends"]["dnf"]["actionable"] = 0
+_flat["backends"]["flatpak"] = dict(_flat["backends"].get("flatpak") or {}, actionable=2, status="ok")
+_flat["actionable"] = 2
+json.dump(_flat, open(_fb, "w"))
+state(_fb)
+settle()
+_held_runs = p.call_count("run")
+ev("root.startUpdate()")
+p.wait_for(ev, "root.updating", True, timeout_ms=8000)
+settle()
+p.check("Flatpak alone asks nothing, and still names the surface",
+        [ev("root.heldChoiceOpen"), p.call_count("run") - _held_runs, p.calls_matching("run")[-1]],
+        [False, 1, "run --surface=popup"])
+ev("root.leaveUpdating()")
+settle()
+
+# Discover's setting: drawn means marked, closed means not.
+_seen_before = len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")])
+ev("root.popupClosed()")
+settle()
+# Opened from the menu's Startup Report the warning sits behind that page, so it waits for Back.
+state(held_state("state-unattended.json", discover_unattended=True, discover_unattended_warn=True))
+settle()
+ev("root.popupOpened(); if (root.popupOnScreen) root.startupPageWanted = true;")
+p.pump(150)
+settle()
+p.check("Behind the Startup page the warning is not marked",
+        [lev("popup.startupOpen"), len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before],
+        [True, 0])
+lev("popup.closeStartup()")
+p.pump(150)
+settle()
+p.check("...and Back marks it",
+        len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before, 1)
+_seen_before += 1
+ev("root.popupClosed()")
+settle()
+state(held_state("state-unattended.json", discover_unattended=True, discover_unattended_warn=True, discover_offer=True))
+settle()
+p.check("Discover's setting with the popup closed marks nothing",
+        len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before, 0)
+ev("root.popupOpened()")
+settle()
+p.check("...and once drawn, it is marked, once",
+        len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before, 1)
+p.check("...its button says what the sentence means", lev("discoverUnattendedMessage.actions[0].text"), "Turn Off")
+p.check("...the warning up, one button, the plain offer not",
+        [lev("discoverUnattendedMessage.visible"), lev("discoverUnattendedMessage.actions.length"), lev("discoverOfferMessage.visible")],
+        [True, 1, False])
+p.check("...in the copy's words", lev("discoverUnattendedMessage.text"), ev("Logic.COPY.discoverUnattended"))
+_quiet = held_state("state-unattended-seen.json", discover_unattended=True)
+state(_quiet)
+settle()
+p.check("...and stays up for this open after the flag clears", lev("discoverUnattendedMessage.visible"), True)
+ev("root.popupClosed()")
+settle()
+ev("root.popupOpened()")
+settle()
+p.check("...and not on the next", lev("discoverUnattendedMessage.visible"), False)
+state(held_state("state-unattended.json", discover_unattended=True, discover_unattended_warn=True))
+settle()
+lev("discoverUnattendedMessage.actions[0].trigger()")
+p.check("Turn Off hides it at once", lev("discoverUnattendedMessage.visible"), False)
+settle()
+p.check("...and runs the notifier's off", p.calls_matching("discover-notifier")[-1], "discover-notifier off")
+ev("root.popupClosed()")
+settle()
+ev("root.popupOpened()")
+settle()
+state(fixture("state-live.json"))
+settle()
+ev('root.discoverOfferAnswered = false; root.actionDone = ""; root.actionMessage = ""')
+
 # --- Put It Back: a stage another program took the restart step from --------------------------
 def restorable_state(staged_at):
     doc = json.load(open(fixture("state-risky-heavy.json")))
@@ -3849,6 +3981,10 @@ _ASSEMBLED_IN_LOGIC = {
     "answerTimedOut",       # -> answerOutcomeOf, for the Executor's own kill
     "settingTimedOut",      # -> answerOutcomeOf, for a Settings switch or config write the Executor killed
     "holdTimedOut",         # -> answerOutcomeOf, for a hold or unhold the Executor killed
+    "restartHeld",          # -> what `kempt status` prints, the same words
+    "restartHeldBanner",    # -> vm.stagedBanner and vm.stagedMessage
+    "restartHeldFooter",    # -> lastRunText
+    "restartHeldAsk",       # -> vm.heldChoiceMessage
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

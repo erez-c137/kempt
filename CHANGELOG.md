@@ -18,6 +18,35 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Update Now. A refused update reports the helper's own reason, and `kempt doctor` warns when these
   folders sit on a network file system, where a server can refuse root.
 
+### Fixed
+
+- **Kempt no longer offers to stage behind another updater's restart.** When another updater, such as
+  Discover, has prepared the next restart, the widget says the restart belongs to it and offers
+  **Restart…**. `kempt status` says so too, and `kempt doctor` warns. Install on Next Restart and the
+  advice to stage go away until that restart is done.
+- **`kempt update --surface=offline` refuses instead of updating live.** With system updates waiting and
+  another updater holding the restart, it stops with exit 5 and changes nothing, Flatpak included, even
+  with no terminal and `auto_accept` off. With nothing to stage it carries on.
+- **A live run nobody was asked about stops too.** With no terminal and no `--risky-ok`, if its own
+  check finds system updates while another updater holds the restart, it exits 5 and changes nothing.
+  Flatpak apps alone still update.
+- **Update Now asks first when it could cost the other updater its update.** It runs live, even when
+  Kempt is set to install on the next restart, and with system updates waiting it first says that the
+  update the other updater prepared may no longer install. Flatpak apps alone do not ask.
+- **A staged update that partly installed outside Kempt is reported as that.** It used to say the
+  staged update could no longer install, with no history. It now says how many were installed, and the
+  history has the versions on the box. If Kempt cannot tell what happened, it says nothing false and
+  shows the normal list. `kempt doctor` names `kempt unstage` for what dnf5 keeps afterwards. Only a
+  version newer than before the stage counts, and a stage already reported lost is not reported again.
+
+### Added
+
+- **A warning when Discover is set to install updates by itself,** since it can take over your next
+  restart. It shows once, whatever Kempt's mode, with a button to turn off Discover's notifier. Turning
+  the setting off and on again warns again. `kempt discover-notifier on` says automatic updates resume
+  if the setting is still on, and `kempt discover-notifier status` shows the setting. An image-based
+  Fedora gets neither this warning nor the offer to turn off the notifier.
+
 ## [0.2.0] - 2026-11-02
 
 ### Added

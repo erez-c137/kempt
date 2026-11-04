@@ -178,6 +178,20 @@ PlasmoidItem {
     // a run starting and by the popup closing.
     property bool riskyChoiceOpen: false
 
+    // The same for Update Now while another updater holds the next restart: a question of its own,
+    // since a live run may cancel what that updater prepared. Closed the same ways.
+    property bool heldChoiceOpen: false
+    readonly property bool updateAsksHeld: vm.updateAsksHeld
+    onUpdateAsksHeldChanged: if (!updateAsksHeld) heldChoiceOpen = false
+
+    // The warning about Discover's setting. Drawing it clears the CLI's flag, so it stays up for this
+    // open of the popup from here. Turn Off hides it at once, ahead of the check it runs.
+    property bool discoverWarningKept: false
+    property bool discoverWarningAckSent: false
+    property bool discoverTurnedOff: false
+    readonly property bool discoverWarningDrawn: vm.messageSlots.indexOf("discoverUnattended") >= 0
+    onDiscoverWarningDrawnChanged: acknowledgeDiscoverWarning()
+
     // The one-time offer to update in the popup was answered in this session. The CLI forgets the
     // offer when the surface is set; this hides it at once rather than at the next check.
     property bool surfaceOfferAnswered: false
@@ -317,6 +331,9 @@ PlasmoidItem {
                                                 configuredSurface: surface,
                                                 autoAccept: autoAccept,
                                                 riskyChoiceOpen: riskyChoiceOpen,
+                                                heldChoiceOpen: heldChoiceOpen,
+                                                discoverWarningKept: discoverWarningKept,
+                                                discoverTurnedOff: discoverTurnedOff,
                                 checkUnfinished: checkFailNote,
                                                 surfaceOfferAnswered: surfaceOfferAnswered,
                                                 discoverOfferAnswered: discoverOfferAnswered,
@@ -843,14 +860,20 @@ PlasmoidItem {
     function startUpdate(installNow) {
         // actionPending too: a stage still waiting its turn on the executor is a run on its way.
         if (updating || runRequested || actionPending) return;
+        if (installNow !== true && vm.updateAsksHeld) {
+            heldChoiceOpen = true;
+            return;
+        }
         if (installNow !== true && vm.updateAsksFirst) {
             riskyChoiceOpen = true;
             return;
         }
         riskyChoiceOpen = false;
+        heldChoiceOpen = false;
         runRequested = true;
         actionMessage = "";
-        launchRun(installNow === true ? " --risky-ok" : "");
+        launchRun((installNow === true ? " --risky-ok" : "")
+                  + (vm.heldLiveSurface !== "" ? " --surface=" + vm.heldLiveSurface : ""));
     }
 
     // `kempt run`, with the options Update Now or Install Now chose. An engine older than this
@@ -861,14 +884,16 @@ PlasmoidItem {
         executor.run(kemptCmd + " run" + options, 15000, function(stdout, stderr, rc) {
             if (options !== "" && rc === 2
                     && String(stderr).indexOf("unknown option: --risky-ok") >= 0) {
-                root.launchRun("");
+                root.launchRun(options.replace(" --risky-ok", ""));
                 return;
             }
             root.runRequested = false;
             if (rc === 0) {
                 // The surface the CLI just launched, remembered for the pane. Read here rather
                 // than in the pane, because the setting can change while the run is in flight.
-                root.enterUpdating(root.effectiveSurface);
+                // ...or the one this press named, while another updater holds the next restart.
+                var named = /--surface=([a-z]+)/.exec(options);
+                root.enterUpdating(named ? named[1] : root.effectiveSurface);
                 return;
             }
             // No run began, so there is nothing for the updating pane to wait for. The message is
@@ -1213,6 +1238,7 @@ PlasmoidItem {
     function setDiscoverNotifier(verb) {
         if (verb !== "off" && verb !== "keep") return;
         discoverOfferAnswered = true;
+        if (verb === "off") discoverTurnedOff = true;
         actionMessage = "";
         actionDone = "";
         executor.run(kemptCmd + " discover-notifier " + verb, Logic.ANSWER_TIMEOUT_MS,
@@ -1221,6 +1247,7 @@ PlasmoidItem {
             if (!said.ok) {
                 // Not done, so not answered: the offer comes back with the reason above it.
                 root.discoverOfferAnswered = false;
+                root.discoverTurnedOff = false;
                 root.actionMessage = said.text;
                 return;
             }
@@ -1395,6 +1422,7 @@ PlasmoidItem {
         // Settings can answer the Discover offer too (Turn Off or Turn On), from a dialog that
         // cannot call back into this file, so the CLI's marker is looked for again at each open.
         if (!discoverOfferAnswered) readDiscoverAnswered();
+        acknowledgeDiscoverWarning();
         var lastSuccess = (kemptState && typeof kemptState.last_success === "string")
             ? kemptState.last_success : "";
         // ...and not during a run of ours, for checkTimer's reason: the updating pane shows no
@@ -1432,6 +1460,11 @@ PlasmoidItem {
         postRunLine = "";
         // A choice left open is a question nobody answered: next time, Update Now asks again.
         riskyChoiceOpen = false;
+        heldChoiceOpen = false;
+        // A warning read once is not read again, and a Turn Off that came back is the check's to report.
+        discoverWarningKept = false;
+        discoverWarningAckSent = false;
+        discoverTurnedOff = false;
         // Same rule as doCheck: the apology is about a press the user has walked away from, and it
         // must not be waiting for them next time they open this.
         restartError = "";
@@ -1666,6 +1699,18 @@ PlasmoidItem {
     property string startupAckSent: ""
     property var startupRecoveredKept: []
 
+    // Marked only once the warning is really on screen: closed popup, no mark, and none behind the
+    // Startup page. Whether the write landed is not waited for: at worst the warning comes back on
+    // the next open. Later, because an open from the menu asks for that page just after it opens.
+    function acknowledgeDiscoverWarning() { Qt.callLater(markDiscoverWarning); }
+    function markDiscoverWarning() {
+        if (!popupOnScreen || !discoverWarningDrawn || discoverWarningAckSent) return;
+        if (startupPageOpen || startupPageWanted) return;
+        discoverWarningAckSent = true;
+        discoverWarningKept = true;
+        executor.run(kemptCmd + " discover-notifier seen", Logic.ANSWER_TIMEOUT_MS, function() {});
+    }
+
     function acknowledgeStartup() {
         var digest = vm.startupAckDigest;
         if (!popupOnScreen || digest === "" || digest === startupAckSent) return;
@@ -1743,6 +1788,7 @@ PlasmoidItem {
     // popupOpened by the next line, so an open that did not happen leaves no request behind for
     // the next ordinary open to find; popupClosed drops one that was not taken.
     property bool startupPageWanted: false
+    property bool startupPageOpen: false
 
     function showStartupPage() {
         if (!root.popupOnScreen) root.expanded = true;

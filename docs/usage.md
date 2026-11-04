@@ -219,7 +219,7 @@ doctor` checks it.
 | 1 | A backend failed. |
 | 2 | Unknown option. |
 | 3 | Another update is running, including another user's. Kempt says so before it checks anything. |
-| 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, or `--surface=offline` while a Fedora release upgrade is stored. |
+| 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, `--surface=offline` while a Fedora release upgrade is stored or another updater holds the next restart, or a run with no terminal and no `--risky-ok` that finds system updates behind that updater. |
 | 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. A busy lock while rebuilding a staged update exits 1. |
 
 ### Installing on the next restart
@@ -256,6 +256,14 @@ keeps one stored transaction and staging would cancel the upgrade. The message n
 restart, `sudo dnf5 system-upgrade reboot`, `sudo dnf5 offline log`, or `sudo dnf5 offline clean`.
 Live updates still work, and the risky-transaction prompt offers only `[u]` and `[a]`.
 
+**When another updater holds the next restart, `--surface=offline` stops too,** with exit 5 and
+nothing changed, Flatpak included, even with `auto_accept` off, because a quiet fall to a live run
+could cancel what that updater prepared. A live run with no terminal and no `--risky-ok` stops the
+same way. The widget asks first and passes the flag. With no system updates waiting, both carry on.
+To update anyway, use `kempt update --surface=terminal`, unless other users can also change dnf's
+folders: then the message names the folder, and `kempt doctor` has the fix. While the restart is held, the
+risky-transaction prompt offers only `[u]` and `[a]`.
+
 **When the staged update will not install.** A restart may have skipped it, or a dnf command of
 your own removed the restart trigger. The next check tells you once:
 
@@ -274,7 +282,11 @@ while an update is staged, Kempt leaves the stage alone and records it once. If 
 the staged update, the next check tells you once. After the restart, Kempt reports only its own
 transaction from dnf5's history. If that did not run, the history entry and the notification say
 `restart (staged update did not run)`. If another updater installed the staged packages or newer
-ones, the history shows `staged update (installed by another updater)`.
+ones, the history shows `staged update (installed by another updater)`. If only some of them
+moved to a newer version, the history shows `staged update (partly installed outside Kempt)` with
+those packages at the versions on the box. A downgrade, or a package the stage would only remove, does
+not count. If Kempt cannot tell, it adds no history entry and the normal list shows
+what is pending.
 
 ### A snapshot before every update
 
@@ -502,6 +514,7 @@ kempt status [--list] [--json]
 
 Says what the last check found: updates waiting with their first few names, held, security, staged,
 and a restart owed. The footer says when the check ran, the age of the lists and the last update.
+When another updater has prepared the next restart, a line says that restart belongs to it.
 
 ```
 10 updates available
@@ -674,6 +687,9 @@ Its wording is fixed, so you can search it:
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
 | `offline stage cannot install (...) - announced\|not announced` | The staged update can no longer install on a restart. `not announced` when the notification did not show. It is not sent again. |
 | `offline stage replaced outside Kempt (<what differs>) - announced\|not announced` | The staged update is no longer the one Kempt made. `not announced` as above. |
+| `offline stage partly installed outside Kempt (<counts>)` | Some of the staged packages changed outside Kempt and the rest did not. The history entry says `offline (partly installed outside Kempt)`. |
+| `offline stage partly installed outside Kempt, after it was announced as lost` | The same, after you were told the stage could no longer install. No history or second notification. |
+| `offline stage result unknown` | The restart moved packages and Kempt could not tell how much of the stage arrived. It claims nothing, and the normal list shows what is pending. |
 | `offline stage installed by another updater (<counts>)` | Another updater installed the staged packages, or newer ones, on the restart or before it. The history entry says `offline (installed by another updater)`. |
 | `offline stage left in place (another updater has prepared the next restart)` | Nothing was left to stage, and the old stage was kept, because removing it would cancel the other updater's restart update. |
 | `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or kept because a newer stage arrived during a check. |
@@ -823,8 +839,9 @@ when neither exists.
 | `info  staged update: the transaction is gone, ...` | The next check clears Kempt's leftover record. |
 | `info  an offline transaction is staged outside Kempt ...` | Something else staged it. `dnf5 offline status` describes it. |
 | `info  dnf5 still keeps an offline transaction whose updates are already installed ...` | Another updater installed the same updates. It will not run. `kempt unstage` removes it. |
-| `info  staged update: another updater has prepared the next restart ...` | The next restart installs that update, not Kempt's. |
-| `info  another updater has prepared the next restart: /system-update points to ...` | Normal while Discover's notifier has an update ready. |
+| `info  dnf5 still keeps what is left of a staged update that was partly installed outside Kempt ...` | It will not run again, and a later stage replaces it. `kempt unstage` removes it. If another updater holds the next restart, restart first. |
+| `WARN  staged update: another updater has prepared the next restart ...` | The update Kempt staged will not install on that restart. |
+| `WARN  another updater has prepared the next restart: /system-update points to ...` | Normal while Discover's notifier has an update ready. Kempt will not stage until you have restarted. `is not dnf5's` in place of `points to` means a plain file. |
 | `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is ready. `kempt update --surface=offline` stops while it is there. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | No restart installs it yet. `sudo dnf5 system-upgrade reboot` starts it, `sudo dnf5 offline clean` drops it. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was set to install, but the restart marker /system-update is not in place ...` | A restart already skipped it. See the FAIL row above. |
@@ -999,6 +1016,7 @@ kempt discover-notifier off
 kempt discover-notifier on
 kempt discover-notifier keep
 kempt discover-notifier status [--json]
+kempt discover-notifier seen
 ```
 
 Discover's update notifier counts updates on its own schedule, so its number can differ from
@@ -1012,13 +1030,17 @@ such copy and never overwrites it.
 
 **`on`** removes Kempt's file and puts yours back. If you edited Kempt's file, your version moves to
 a name ending in `.kempt-edited`, and Kempt prints where. Then it starts the notifier and says so
-once it runs.
+once it runs. If Discover's own setting for automatic updates is still on, `on` says those resume
+too, and the widget warns about them again.
 
 **`keep`** changes nothing, and records that you answered the widget's offer.
 
-**`status`** says whether the notifier is installed, on, turned off by Kempt, and running. `--json`
-prints `installed`, `enabled`, `running` and `by_kempt`, plus `entry` when the file keeping it off
-is not Kempt's.
+**`status`** says whether the notifier is installed, on, turned off by Kempt, and running, and
+whether automatic updates are on in Discover's settings. `--json` prints `installed`, `enabled`,
+`running`, `by_kempt` and `unattended`, plus `entry` when the file keeping it off is not Kempt's.
+
+**`seen`** records that the widget has shown its warning about Discover's automatic updates, and
+changes nothing else. The widget runs it.
 
 A file that `./install.sh` wrote before 0.1.8 counts as Kempt's while Discover's own startup file
 is unchanged, so `on` removes it. Once Discover's file changes, it counts as your own. Delete it to

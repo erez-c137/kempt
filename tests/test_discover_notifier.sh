@@ -44,12 +44,12 @@ out="$("$KEMPT" discover-notifier on)"
 assert_contains "$out" "not installed" "on says the same"
 assert_eq "$(is "$KEMPT_STATE_DIR/discover-offer-answered")" "no" "...and records no answer"
 assert_eq "$("$KEMPT" discover-notifier status --json)" \
-  '{"installed":false,"enabled":false,"running":false,"by_kempt":false}' "status --json says not installed"
+  '{"installed":false,"enabled":false,"running":false,"by_kempt":false,"unattended":false}' "status --json says not installed"
 
 # --- off: a marked override, and the running notifier stopped ---------------------------------------
 reset; system_entry; : > "$TESTTMP/running"
 assert_eq "$("$KEMPT" discover-notifier status --json)" \
-  '{"installed":true,"enabled":true,"running":true,"by_kempt":false}' "status: installed, on and running"
+  '{"installed":true,"enabled":true,"running":true,"by_kempt":false,"unattended":false}' "status: installed, on and running"
 assert_contains "$("$KEMPT" discover-notifier status)" "notifier: on" "...and the text form says on"
 out="$("$KEMPT" discover-notifier off)"
 assert_contains "$out" "is off" "off says it is off"
@@ -63,7 +63,7 @@ assert_contains "$(cat "$CALLS")" "pkill -u $(id -u) -f" "pkill is limited to th
 assert_eq "$(is "$TESTTMP/running")" "no" "...and the notifier is no longer running"
 assert_eq "$(is "$BACKUP")" "no" "with no entry of the person's own, nothing is backed up"
 assert_eq "$("$KEMPT" discover-notifier status --json)" \
-  '{"installed":true,"enabled":false,"running":false,"by_kempt":true}' "status: off, by Kempt"
+  '{"installed":true,"enabled":false,"running":false,"by_kempt":true,"unattended":false}' "status: off, by Kempt"
 assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "discover-notifier off" "the change is in kempt log"
 "$KEMPT" discover-notifier off >/dev/null
 "$KEMPT" discover-notifier off >/dev/null
@@ -188,7 +188,7 @@ mkdir -p "$(dirname "$USER_ENTRY")"
 printf '[Desktop Entry]\nType=Application\nX-Own=1\nHidden=true\n' > "$USER_ENTRY"
 own="$(cat "$USER_ENTRY")"
 assert_eq "$("$KEMPT" discover-notifier status --json)" \
-  '{"installed":true,"enabled":false,"running":false,"by_kempt":false,"entry":"'"$USER_ENTRY"'"}' "status: off by the person's own entry"
+  '{"installed":true,"enabled":false,"running":false,"by_kempt":false,"unattended":false,"entry":"'"$USER_ENTRY"'"}' "status: off by the person's own entry"
 rc=0; out="$("$KEMPT" discover-notifier on 2>&1)" || rc=$?
 assert_eq "$rc" "1" "on over the person's own hiding entry fails"
 assert_contains "$out" "A startup file keeps Discover's notifier off: $USER_ENTRY. Delete it, then run kempt discover-notifier on." \

@@ -81,8 +81,10 @@ assert_not_contains "$(cat "$WORLD/notified")" "dnf5 offline clean" \
 
 # --- putting it back -----------------------------------------------------------------------------
 count="$(jq -r '.staged' "$marker")"
+assert_eq "$(jq -r '.lost_announced' "$marker")" "true" "(the check said it can no longer install)"
 restore arms
 assert_eq "$rc" "0" "restore-stage over a stage that lost its restart step succeeds"
+assert_eq "$(jq -r '.lost_announced // "absent"' "$marker")" "absent" "...and it is a stage worth reporting on again"
 assert_eq "$(calls dnf-offline-arm)" "1" "...through the verb that armed it the first time"
 assert_eq "$(grep -c APPLY "$WORLD/apply-calls")" "1" "...and no other root helper call"
 assert_eq "$out" "Put back. The next restart installs your $count staged updates." "...and says so"
@@ -173,6 +175,7 @@ restore arms
 assert_eq "$rc" "0" "the restart step back on its own under a demoted marker is recorded"
 assert_eq "$(calls dnf-offline-arm)" "0" "...asking root for nothing"
 assert_eq "$(jq -r '.armed' "$marker")" "true" "...and the record is right again"
+assert_eq "$(jq -r '.lost_announced // "absent"' "$marker")" "absent" "...with nothing left saying it was lost"
 demoted_armed
 cp "$FIXTURES/offline-release-upgrade.toml" "$TOML"
 restore arms

@@ -150,7 +150,8 @@ list wait. If that hides the restart message, the footer says `restart pending` 
     from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
     starts with your session. If message 9 is showing, it waits until you answer that one.
     **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
-    nothing. Either answer hides the message for good. The **Discover** row in settings turns the
+    nothing. Either answer hides the message for good. An image-based Fedora, which is told to use
+    Discover, does not get this message or the warning below. The **Discover** row in settings turns the
     notifier back on.
 11. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
     is at least 100 MB to free, or an amount Kempt could not measure. **Show Runtimes** lists the
@@ -231,13 +232,27 @@ banner above.`
 If the staged update changed after the banner was drawn, nothing is discarded and the widget says
 so. While a Fedora release upgrade is stored, the button is not there.
 
-If another updater has prepared the next restart, the banner warns, with no buttons:
+If another updater has prepared the next restart, the banner warns and offers **Restart…**:
 
 ```
- (!) Another updater has prepared the next restart, so the updates Kempt
-     staged will not install then. Restart to let that update install. Kempt
-     then shows what is still pending.
+ (!) The next restart belongs to another updater, so the updates Kempt
+     staged will not install then. Restart when you're ready. Kempt then
+     shows what is still pending.
 ```
+
+With nothing of Kempt's staged, the banner says only that the restart belongs to another updater,
+and **Install on Next Restart** is gone until you have restarted. **Update Now** runs live, even
+when Kempt is set to install on the next restart. With system updates waiting it asks first:
+
+> The next restart belongs to another updater. If you update now, the update it prepared may no
+> longer install.
+
+Flatpak apps alone do not ask. Nor does Update Now while updates are paused, because the run would
+be refused.
+
+If Discover is set to install updates by itself, a warning says it can take over your next restart,
+with **Turn Off**. It shows once, whatever Kempt's mode, and comes back only
+after the setting was turned off and on again, or after `kempt discover-notifier on`.
 
 ### The list
 
@@ -415,6 +430,8 @@ Each button runs a command described in [usage.md](usage.md).
 | **Discard Staged Update** | `kempt unstage` |
 | **Put It Back** | `kempt restore-stage` |
 | **Turn Off Discover's Notifier**, on the warning beside a staged update | `kempt discover-notifier off` |
+| **Turn Off**, on the warning about Discover's automatic updates | `kempt discover-notifier off`. Drawing that warning runs `kempt discover-notifier seen` |
+| **Update Now**, while another updater holds the next restart | `kempt run --surface=<a live surface>`, after its own question when system updates are waiting |
 | The padlock | `kempt hold` or `kempt unhold` |
 | **Check Installation** | `kempt doctor` |
 | **Free Up Space** | `kempt reclaim -y --expect=<digest>` |

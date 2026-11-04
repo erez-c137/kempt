@@ -420,6 +420,7 @@ plain_in=(
   "offline stage cannot install (status x) - announced" "offline stage found nothing to stage"
   "offline stage cannot install (status ready, but the restart marker is gone) - announced"
   "offline stage installed by another updater (3 updated)" "offline marker cleared (stage gone)"
+  "offline stage partly installed outside Kempt (3 updated)" "offline stage partly installed outside Kempt, after it was announced as lost" "offline stage result unknown"
   "harvest applied (3 updated)" "harvest found the staged transaction did not run (1 updated)"
   "harvest skipped snapshot failed" "harvest cleared stale marker"
   "harvest deferred: packages moved outside Kempt while the stage is still armed"

@@ -701,6 +701,14 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
+  # Who holds the next restart, and whether Discover is set to take it by itself.
+  local unattended_now=false
+  discover_unattended_active >/dev/null 2>&1 && unattended_now=true
+  if merged="$(jq --arg h "$(restart_holder)" --argjson u "$unattended_now" \
+                 '. + {restart_holder: $h, discover_unattended: $u}' <<<"$state" 2>/dev/null)" \
+     && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
   # A stage that lost only its restart step, so the widget can offer Put It Back.
   local restorable_json
   restorable_json="$(offline_stage_restorable_state 2>/dev/null)" || restorable_json=""
@@ -751,6 +759,11 @@ cmd_check() {
   # the session and nobody has answered.
   if discover_offer_pending \
      && merged="$(jq '. + {discover_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
+    state="$merged"
+  fi
+  # true or absent: the warning about Discover's setting has not been drawn yet.
+  if discover_unattended_warn_pending 2>/dev/null \
+     && merged="$(jq '. + {discover_unattended_warn: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
     state="$merged"
   fi
   # The writers' lock from here to the write, for a check that has a security answer to merge:
@@ -971,6 +984,40 @@ preflight_abort() {  # message
 # reads and writes the run's locals through bash's DYNAMIC scope rather than arguments. Each
 # header says what it reads and what it changes - that is the contract; do not reuse them.
 
+# Two runs stop here while another updater holds the next restart, with system updates waiting.
+# A stage asked for, which would download and never install, while the silent fall to a live run
+# would cancel what that updater prepared. And a live run with nobody to ask: no terminal, and no
+# --risky-ok saying the widget asked. What the widget last read may have said Flatpak alone, and this
+# check may find a kernel. Nothing is changed, Flatpak included. With no system updates waiting the
+# run carries on. A check that cannot answer refuses too, since either run could meet the same answer.
+# Reads: wanted_stage, risky_ok. Exits 3 or 5, or returns.
+refuse_run_behind_other_updater() {
+  restart_held_by_other || return 0
+  if [[ "$wanted_stage" != true ]]; then
+    [[ -z "$risky_ok" ]] || return 0
+    [[ -t 0 && -t 1 ]] && return 0
+  fi
+  local cerr pending="" rc=0
+  cerr="$(mktemp)"
+  pending="$(dnf_check 2>"$cerr" | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || rc=$?
+  if grep -qxF -- "$KEMPT_HELPER_UPDATE_BUSY_TEXT" "$cerr"; then
+    rm -f "$cerr"
+    echo "another kempt update is running" >&2
+    exit 3
+  fi
+  rm -f "$cerr"
+  [[ $rc -eq 0 && "$pending" == 0 ]] && return 0
+  # The root helper would refuse the terminal run named below, so that is not the way out here.
+  local unsafe_dir
+  if unsafe_dir="$(apply_unsafe_dir)"; then
+    preflight_abort "the next restart belongs to another updater, and other users can change files in $unsafe_dir, so nothing was changed. See: kempt doctor"
+  fi
+  if [[ "$wanted_stage" != true ]]; then
+    preflight_abort "the next restart belongs to another updater, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now with: kempt update --surface=terminal"
+  fi
+  preflight_abort "the next restart belongs to another updater, so nothing was staged or changed. Restart when you are ready, or update now with: kempt update --surface=terminal"
+}
+
 # The risky-transaction recommendation, run BEFORE the lock is taken so an abort leaves no lock
 # residue and no history entry, having changed nothing at all.
 # Reads: surface, risky_ok. Writes: surface, risky_advice. Answering "s" at the prompt switches this
@@ -984,8 +1031,17 @@ recommend_offline_if_risky() {
   # offline stage entered through this prompt used to reach dnf5 and cancel the upgrade, logged by
   # Kempt as its own restage. The gate below closes that; this stops the prompt offering it at all,
   # because an option that always ends in a refusal is worse than one that is not there.
-  local relup_blocks=false
-  offline_release_upgrade >/dev/null && relup_blocks=true
+  # ...nor while another updater holds the next restart, which the stage could not install behind.
+  local relup_blocks=false no_stage_why="" no_stage_answer=""
+  if offline_release_upgrade >/dev/null; then
+    relup_blocks=true
+    no_stage_why="a Fedora release upgrade is stored, and staging would cancel it"
+    no_stage_answer="Staging would cancel the stored Fedora release upgrade"
+  elif restart_held_by_other; then
+    relup_blocks=true
+    no_stage_why="the next restart belongs to another updater"
+    no_stage_answer="Staging is not available, because the next restart belongs to another updater"
+  fi
   if [[ "$surface" != "offline" ]]; then
     local risky_list="" rerr rcount fams
     rerr="$(mktemp)"
@@ -1063,7 +1119,7 @@ recommend_offline_if_risky() {
         echo
         local ans tries prompt="  Your choice [s/u/a]: "
         if [[ "$relup_blocks" == true ]]; then
-          echo "  Staging is not available: a Fedora release upgrade is stored, and staging would cancel it."
+          echo "  Staging is not available: $no_stage_why."
           echo
           echo "      [u]  update now, live"
           echo "      [a]  abort  (default)"
@@ -1084,7 +1140,7 @@ recommend_offline_if_risky() {
           case "${ans,,}" in
             ""|n|no|a|abort)  echo "aborted"; exit 0 ;;
             s|stage)          if [[ "$relup_blocks" == true ]]; then
-                                echo "Staging would cancel the stored Fedora release upgrade. Answer u or a."
+                                echo "$no_stage_answer. Answer u or a."
                                 [[ $tries -eq 2 ]] && { echo "aborted"; exit 0; }
                                 continue
                               fi
@@ -1482,6 +1538,10 @@ cmd_update() {
   local auto; auto="$(config_get auto_accept)"
   # validate BEFORE the auto-accept guard so the two compose (unknown → terminal → still terminal)
   surface="$(resolve_surface "$surface")"
+  # Asked for a stage, whatever the next lines turn this run into. The gate for another updater's
+  # restart below answers this, not what the run became.
+  local wanted_stage=false
+  [[ "$surface" == offline ]] && wanted_stage=true
   # only a terminal can prompt - enforced HERE too (cmd_run also guards, but update can be invoked directly)
   # The one exception is a stage asked for at a terminal (what `kempt run --surface=offline` opens
   # with auto_accept off): dnf5 asks before staging there, and turning a request to install on the
@@ -1547,6 +1607,8 @@ cmd_update() {
       esac
     fi
   fi
+  [[ "$surface" == offline ]] && wanted_stage=true
+  refuse_run_behind_other_updater
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
   trap release_lock EXIT
 
@@ -2619,7 +2681,7 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
   records="$(jq -r -n --argjson now "$now" "$KEMPT_JQ_TIME$KEMPT_JQ_STATUS"'
                [inputs][0] | status_records($now)' <<<"${doc:-null}")" \
     || { echo "kempt: could not read the update state" >&2; exit 1; }
-  local tag a b header="" detail="" footer="" restart="" staged=false security="" held="" rc=1
+  local tag a b header="" detail="" footer="" restart="" holder="" staged=false security="" held="" rc=1
   local -a sections=() held_names=() names=()
   local title="" count=""
   status_flush_section() {
@@ -2641,6 +2703,7 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
       C) security="$a" ;;
       G) staged=true ;;
       R) restart="$a" ;;
+      O) holder="$a" ;;
       F) footer="$a" ;;
       X) rc="$a" ;;
     esac
@@ -2682,6 +2745,7 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
     staged_line="$(staged_summary_line /dev/stdin <<<"$doc")"
     [[ -n "$staged_line" ]] && body+=("$staged_line")
   fi
+  [[ -n "$holder" ]] && body+=("$holder")
   [[ -n "$restart" ]] && body+=("$restart")
   if (( ${#body[@]} )); then echo; printf '%s\n' "${body[@]}"; fi
 
@@ -2730,8 +2794,11 @@ KEMPT_STAGE_REMEDY="To stage your updates again, run kempt update --surface=offl
 # ...except over a stored Fedora release upgrade, where both commands would be wrong: a stage is
 # refused, and a clean would delete the upgrade.
 KEMPT_STAGE_RELUP_REMEDY="A Fedora release upgrade is stored, so Kempt will not stage updates now. See: kempt doctor"
+# ...or behind another updater's restart, where a stage is refused and a clean would cancel that.
+KEMPT_STAGE_HELD_REMEDY="The next restart belongs to another updater, so staging again has to wait until you have restarted."
 stage_remedy() {
   if offline_release_upgrade >/dev/null; then printf '%s' "$KEMPT_STAGE_RELUP_REMEDY"
+  elif restart_held_by_other; then printf '%s' "$KEMPT_STAGE_HELD_REMEDY"
   else printf '%s' "$KEMPT_STAGE_REMEDY"; fi
 }
 
@@ -2756,7 +2823,8 @@ reconcile_detour_stage() {  # marker-json toml-status
   # pointer, the names and the boot id survive for the doctor rows that read them.
   # `kempt restore-stage` shares this lock, and may have put it back during that notification.
   offline_armed && return 0
-  jq -c '. + {armed: false}' <<<"$1" | write_offline_marker \
+  # lost_announced: people were told it can no longer install, so a later harvest does not report on it.
+  jq -c '. + {armed: false, lost_announced: true}' <<<"$1" | write_offline_marker \
     || echo "warning: could not record that the staged update was announced. The next check may repeat it" >&2
 }
 
@@ -2786,6 +2854,51 @@ reconcile_replaced_stage() {
   return 0
 }
 
+# What arrived of a stage that did not fully arrive: the snapshot diff, narrowed to the names the
+# marker recorded, without removals, without names the stage would only remove, and without packages
+# that are not newer than before the stage. A downgrade installed nothing of it. Unlike
+# report_keep_names it never falls back to the whole diff, since the answer becomes a count someone
+# reads. Fails when there is no answer: the question could not be asked (rc 2 of
+# offline_stage_satisfied, in $4) or the marker names nothing.
+stage_changed_report() {  # marker-json pre-snapshot now-snapshot satisfied-rc → report-json
+  [[ "$4" == 1 ]] || return 1
+  local diff removed_only narrowed name from to newer="" c
+  diff="$(tsv_diff_updates "$2" "$3")" || return 1
+  # Only: dnf5 installs a new kernel-core and removes an old one under the same name.
+  removed_only="$(jq -c '[ .rpms[] | { n: (.nevra | capture("^(?<n>.+)-[^-]+-[^-]+$").n), rm: (.action == "Remove") } ]
+    | group_by(.n) | map(select(all(.rm)) | .[0].n)' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 1
+  narrowed="$(printf '%s\n%s\n' "$1" "$diff" | jq -ces --argjson gone "$removed_only" '
+    (.[0].staged_names) as $k
+    | if ($k | type) != "array" or ($k | length) == 0 then error("no names") else . end
+    | ($k - $gone) as $k
+    | .[1]
+    | { updated: (.updated | map(select(.name as $x | $k | index($x) != null))),
+        added:   (.added   | map(select(.name as $x | $k | index($x) != null))),
+        removed: [] }' 2>/dev/null)" || return 1
+  # A version field lists its builds oldest first, and a row with no epoch has epoch 0.
+  while IFS=$'\t' read -r name from to; do
+    [[ -n "$name" ]] || continue
+    from="${from##*,}"; to="${to##*,}"
+    [[ "$from" == *:* ]] || from="0:$from"
+    [[ "$to" == *:* ]] || to="0:$to"
+    c="$(rpm_evrcmp "$to" "$from")" || return 1
+    [[ "$c" != 1 ]] || newer+="$name"$'\n'
+  done < <(jq -r '.updated[] | [.name, .from, .to] | @tsv' <<<"$narrowed")
+  jq -c --arg newer "$newer" '($newer | split("\n")) as $n | .updated |= map(select(.name as $x | $n | index($x) != null))' <<<"$narrowed"
+}
+
+# After a restart that moved the package set, with no way to say how much of the stage arrived.
+# Nothing is claimed: the entry is the promise withdrawn, so the widget stops calling it staged and
+# the normal list says what is still pending. No history, no notification. A later check asks again.
+stage_result_unknown() {  # marker-json
+  if jq -e '.armed == false' <<<"$1" >/dev/null 2>&1; then return 0; fi
+  offline_marker_still "$1" || return 0
+  log_event "offline stage result unknown"
+  offline_armed && return 0
+  jq -c '. + {armed: false}' <<<"$1" | write_offline_marker \
+    || echo "warning: could not record that the staged update's result is unknown" >&2
+}
+
 # A run report narrowed to the named packages. Kept whole when there is nothing to narrow by or the
 # filter fails: the identification still stands, only the precision is lost. An empty list is a
 # source not saying what it touched, never a restart that touched nothing. `. as $x` before index(),
@@ -2808,6 +2921,7 @@ report_keep_names() {  # report-json names → report-json
 
 harvest_offline() {
   local pre now_snap ts report hist boot toml_status marker
+  offline_partial_tidy
   # ONE defensive read, and nothing below runs without it. Every branch here either clears the
   # marker or turns it into a history entry, both far too destructive to do on a file we could not
   # parse (see offline_marker_read): falling through disowns an armed stage that will still
@@ -2905,16 +3019,43 @@ harvest_offline() {
   # (offline_stage_satisfied). Then another updater installed the same updates, on this restart or
   # before it (PackageKit, preparing them behind dnf5's back, replaces the symlink and leaves dnf5's
   # state at `ready`), and the stage is done.
-  local installed_elsewhere=false
+  # Short of that it depends what the question can answer. A transaction dnf5 left incomplete is the
+  # detour, whatever moved. Otherwise what counts is how many staged packages changed since the stage:
+  # some of them is a partial install outside Kempt, none of them is the detour, and a question that
+  # cannot be asked (dnf5's copy unreadable, or no longer Kempt's) claims nothing either way.
+  local installed_elsewhere=false partly_elsewhere=false partly_report="" partly_count=0
   if [[ "$toml_status" != absent ]]; then
     if [[ "$toml_status" != ready ]] \
        || [[ -n "$boot" && "$boot" != unknown && "$(offline_link_state)" != dnf5 ]]; then
-      if offline_marker_stage_satisfied "$marker"; then
+      local sat_rc=0
+      offline_marker_stage_satisfied "$marker" || sat_rc=$?
+      if [[ "$sat_rc" == 0 ]]; then
         installed_elsewhere=true
-      else
+      elif [[ "$toml_status" == transaction-incomplete ]]; then
         rm -f "$now_snap"
         reconcile_detour_stage "$marker" "$toml_status"
         return 0
+      elif ! partly_report="$(stage_changed_report "$marker" "$pre" "$now_snap" "$sat_rc")"; then
+        rm -f "$now_snap"
+        stage_result_unknown "$marker"
+        return 0
+      else
+        partly_count="$(jq '(.updated | length) + (.added | length)' <<<"$partly_report")"
+        if [[ "$partly_count" == 0 ]]; then
+          rm -f "$now_snap"
+          reconcile_detour_stage "$marker" "$toml_status"
+          return 0
+        fi
+        # Already told it can no longer install, so a second report would only contradict that.
+        if jq -e '.lost_announced == true' <<<"$marker" >/dev/null 2>&1; then
+          rm -f "$now_snap"
+          offline_marker_still "$marker" || return 0   # a newer stage owns the file now
+          rm -f "$OFFLINE_MARKER" "$pre"
+          offline_partial_record
+          log_event "offline stage partly installed outside Kempt, after it was announced as lost"
+          return 0
+        fi
+        partly_elsewhere=true
       fi
     elif ! jq -e '.set_moved == true' <<<"$marker" >/dev/null 2>&1; then
       # Once, not once per check: this lasts until the restart that installs it. The baseline is
@@ -2949,6 +3090,10 @@ harvest_offline() {
     local staged_names=""
     staged_names="$(offline_txjson_names)" || staged_names=""
     report="$(report_keep_names "$report" "$staged_names")"
+  elif [[ "$partly_elsewhere" == true ]]; then
+    # dnf5 ran nothing of this, so its history has nothing to attribute.
+    hsurface="offline (partly installed outside Kempt)"
+    report="$partly_report"
   elif attribution="$(offline_history_attribution "$marker")"; then
     verdict="${attribution%%$'\n'*}"
   fi
@@ -3020,6 +3165,8 @@ harvest_offline() {
   local hlog_head="Kempt staged this update and dnf5 installed it during the restart."
   if [[ "$installed_elsewhere" == true ]]; then
     hlog_head="Kempt staged this update, and another updater installed the same packages."
+  elif [[ "$partly_elsewhere" == true ]]; then
+    hlog_head="Kempt staged this update, and some of its packages were installed outside Kempt."
   fi
   if [[ -n "$hist" ]]; then
     if { printf '%s\n' \
@@ -3046,6 +3193,7 @@ harvest_offline() {
   # deleting it makes the panel forget an armed transaction.
   if offline_marker_still "$marker"; then
     rm -f "$OFFLINE_MARKER"
+    [[ "$partly_elsewhere" != true ]] || offline_partial_record
   else
     log_event "offline marker kept (a new stage arrived while the check ran)"
   fi
@@ -3063,6 +3211,15 @@ harvest_offline() {
     # asked for is what matters, and the history entry has the packages.
     log_event "offline stage installed by another updater${harvested:+ ($harvested)}"
     notify "Kempt" "Your staged updates are installed."
+  elif [[ "$partly_elsewhere" == true ]]; then
+    # Who did it stays unsaid, since `dnf upgrade foo` looks the same, and so does what became of the
+    # rest: the normal list shows whatever is still pending.
+    log_event "offline stage partly installed outside Kempt${harvested:+ ($harvested)}"
+    if [[ "$partly_count" == 1 ]]; then
+      notify "Kempt" "1 of your staged updates was installed outside Kempt."
+    else
+      notify "Kempt" "$partly_count of your staged updates were installed outside Kempt."
+    fi
   elif [[ "$verdict" == did-not-run ]]; then
     # Nothing here says what DID happen to the stage, because the history does not say it either:
     # removed, or replaced by a transaction that then ran. What it does say is that this was not it.
@@ -3372,7 +3529,7 @@ cmd_restore_stage() {
   local fresh
   fresh="$(offline_marker_read)"
   if ! offline_marker_still "$marker" \
-     || ! jq -c --arg boot "$(current_boot_id)" '. + {armed: true, boot_id: $boot} | del(.restore_failed)' <<<"$fresh" | write_offline_marker; then
+     || ! jq -c --arg boot "$(current_boot_id)" '. + {armed: true, boot_id: $boot} | del(.restore_failed, .lost_announced)' <<<"$fresh" | write_offline_marker; then
     echo "warning: could not record that the staged update was put back. The next check may report it again" >&2
   fi
   # Before the check: its harvest takes this lock and skips the stage without it.
@@ -4337,7 +4494,7 @@ doctor_other_updater_row() {
   # update takes /system-update, and dnf5 then leaves that symlink alone, so the next restart
   # installs Discover's update and not a stage of Kempt's. WARN only when Kempt is set to stage.
   local decided
-  if { discover_entry_starts "$entry" || discover_running; } && decided="$(discover_unattended)"; then
+  if decided="$(discover_unattended_active)"; then
     local unattended="Discover is set to install updates by itself on restart ($decided). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
     if [[ "$(config_get surface)" == offline ]]; then
       doctor_warn "$unattended"
@@ -5014,8 +5171,9 @@ doctor_offline_rows() {
   # makes this doctor's line and nobody else's. Every other surface reads them together and
   # publishes one answer, so a marker over a transaction that can never install looks from outside
   # exactly like a pending update. Silent when there is neither, which is most boxes.
-  local dr_toml dr_count dr_marker dr_link dr_done=false
+  local dr_toml dr_count dr_marker dr_link dr_holder dr_done=false dr_partial=false
   dr_toml="$(offline_system_status)"
+  dr_holder="$(restart_holder)"
   # Whose the boot symlink is, and whether what dnf5 holds is already installed. Together they
   # settle the case where another updater prepared the next restart and installed the same
   # packages: dnf5 still says `ready`, and no restart will run it.
@@ -5028,6 +5186,8 @@ doctor_offline_rows() {
   # and would fall through to the armed row below. offline_marker_read refuses an empty,
   # unparsable or over-1 MB marker, and that means "skip", not "the stage is gone".
   dr_marker="$(offline_marker_read)"
+  # What is left of a stage partly installed outside Kempt: no marker, and the copy the harvest saw.
+  if [[ -z "$dr_marker" && ! -e "$OFFLINE_MARKER" ]] && offline_partial_current; then dr_partial=true; fi
   # A stored release upgrade answers for the whole section: dnf5 has one slot, ours is not in it,
   # and every sentence below would be about a transaction that no longer exists. Reported as
   # somebody else's, which is what it is, by the branch further down.
@@ -5114,6 +5274,13 @@ doctor_offline_rows() {
       esac
     elif [[ "$dr_done" == true ]]; then
       doctor_stale_done_row "$dr_link"
+    elif [[ "$dr_partial" == true ]]; then
+      # Neither "staged outside Kempt" nor dnf5's own clean: Kempt staged it, and unstage knows it.
+      if [[ "$dr_holder" == other ]]; then
+        doctor_info "dnf5 still keeps what is left of a staged update that was partly installed outside Kempt. It will not run again. A later stage replaces it. To remove it, restart first, then run: kempt unstage"
+      else
+        doctor_info "dnf5 still keeps what is left of a staged update that was partly installed outside Kempt. It will not run again. A later stage replaces it. To remove it, run: kempt unstage"
+      fi
     else
       doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\"). See: dnf5 offline status"
     fi
@@ -5128,15 +5295,18 @@ doctor_offline_rows() {
   # either, so a dangling one detours the boot exactly as a live one does.
   # Another updater's symlink is that updater's business: PackageKit points it at its own prepared
   # update, and the restart installs that. What it changes for Kempt is said here, once.
-  if [[ "$dr_link" == other ]]; then
-    local dr_target
+  # A plain file or a dangling link holds it just the same, and a plain file points nowhere.
+  if [[ "$dr_holder" == other ]]; then
+    local dr_target dr_where
     dr_target="$(readlink "$KEMPT_OFFLINE_LINK" 2>/dev/null || true)"
+    dr_where="$KEMPT_OFFLINE_LINK points to $dr_target"
+    [[ -n "$dr_target" ]] || dr_where="$KEMPT_OFFLINE_LINK is not dnf5's"
     if [[ -n "$dr_marker" && "$dr_toml" == ready && "$dr_done" == false ]]; then
-      doctor_info "staged update: another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to $dr_target), so the update Kempt staged will not install then"
-    elif [[ "$dr_toml" == ready && "$dr_done" == false ]] && ! offline_release_upgrade >/dev/null; then
-      doctor_info "another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to $dr_target), so the transaction dnf5 holds will not install then"
+      doctor_warn "staged update: another updater has prepared the next restart ($dr_where), so the update Kempt staged will not install then"
+    elif [[ "$dr_toml" == ready && "$dr_done" == false && "$dr_partial" == false ]] && ! offline_release_upgrade >/dev/null; then
+      doctor_warn "another updater has prepared the next restart ($dr_where), so the transaction dnf5 holds will not install then"
     else
-      doctor_info "another updater has prepared the next restart: $KEMPT_OFFLINE_LINK points to $dr_target"
+      doctor_warn "another updater has prepared the next restart: $dr_where"
     fi
   elif [[ "$dr_link" == dnf5 && "$dr_toml" != ready ]]; then
     if [[ "$dr_toml" == absent ]]; then
@@ -5144,7 +5314,7 @@ doctor_offline_rows() {
     else
       doctor_fail "boot symlink is live over a transaction that is not set to install (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Clear it with: sudo dnf5 offline clean"
     fi
-  elif [[ "$dr_toml" == ready && "$dr_link" == none && "$dr_done" == false ]]; then
+  elif [[ "$dr_toml" == ready && "$dr_link" == none && "$dr_done" == false && "$dr_partial" == false ]]; then
     # The INVERSE: `ready` with no symlink in front of it. A restart has already walked past this
     # transaction and no future one can install it either - see reconcile_detour_stage. Without
     # this row every surface calls it a pending install, forever.
@@ -5309,9 +5479,11 @@ cmd_discover_notifier() {
             # cannot both find no kept copy and overwrite each other's.
             writer_lock || exit 1
             "discover_notifier_$1" ;;
+    seen)   [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
+            discover_notifier_seen ;;
     status) [[ $# -eq 1 || ( $# -eq 2 && "$2" == --json ) ]] || { echo "unknown option: $2" >&2; exit 2; }
             discover_notifier_status "${2:-}" ;;
-    *) echo "usage: kempt discover-notifier off | on | keep | status [--json]" >&2; exit 2 ;;
+    *) echo "usage: kempt discover-notifier off | on | keep | status [--json] | seen" >&2; exit 2 ;;
   esac
 }
 
@@ -5511,10 +5683,10 @@ EOF
 EOF
     ;;
     discover-notifier) cat <<'EOF'
-  discover-notifier off | on | keep | status [--json]
+  discover-notifier off | on | keep | status [--json] | seen
                         turn Discover's own update notifier off or back on for this user, keep
-                        it as it is (the widget's answer), or say whether it is installed, on
-                        and running
+                        it as it is (the widget's answer), record that the widget showed its
+                        warning, or say whether it is installed, on and running
 EOF
     ;;
     enable-passwordless) cat <<'EOF'

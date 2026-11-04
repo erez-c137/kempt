@@ -367,6 +367,10 @@ event_plain() {  # event text → EVENT_PLAIN
     "offline restage failed"*) EVENT_PLAIN="Rebuilding the staged update failed${t#offline restage failed}" ;;
     "offline restage"*) EVENT_PLAIN="Staged update rebuilt${t#offline restage}" ;;
     "offline stage found nothing to stage"*) EVENT_PLAIN="Nothing to stage${t#offline stage found nothing to stage}" ;;
+    "offline stage partly installed outside Kempt"*)
+      EVENT_PLAIN="Some of the staged update was installed outside Kempt${t#offline stage partly installed outside Kempt}" ;;
+    "offline stage result unknown"*)
+      EVENT_PLAIN="Kempt could not tell what became of the staged update" ;;
     "offline stage installed by another updater"*)
       EVENT_PLAIN="Another updater installed the staged update${t#offline stage installed by another updater}" ;;
     "offline stage recorded without its package baseline"*)
@@ -736,6 +740,9 @@ discover_sysconf_default() {
 KEMPT_DISCOVER_UPDATES_SYSCONF="${KEMPT_DISCOVER_UPDATES_SYSCONF:-$(discover_sysconf_default)}"
 # Exists once the person has answered the widget's offer either way, or used the command.
 DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
+# Exists once the warning about Discover's automatic updates has been drawn. Apart from the offer's
+# answer: that one is about a count, this one about who takes the next restart.
+DISCOVER_UNATTENDED_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-unattended-answered"
 # The bytes Kempt last wrote to the user entry. `on` removes the entry only while it still matches.
 DISCOVER_WRITTEN_FILE="$KEMPT_STATE_DIR/discover-entry-written"
 
@@ -825,6 +832,24 @@ discover_unattended() {
     }'
 }
 
+# Discover's setting, while its notifier is there to act on it. → 0 and the deciding file when so.
+discover_unattended_active() {
+  discover_installed || return 1
+  { discover_entry_starts "$(discover_effective_entry)" || discover_running; } || return 1
+  discover_unattended
+}
+
+# Whether the widget owes the warning. A setting that reads false forgets it was ever drawn, so
+# turning the setting on again warns again.
+discover_unattended_warn_pending() {
+  if ! discover_unattended >/dev/null; then
+    rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true
+    return 1
+  fi
+  # Not on an image-based Fedora, where Kempt tells people to use Discover.
+  ! on_ostree && [[ ! -e "$DISCOVER_UNATTENDED_ANSWERED_FILE" ]] && discover_unattended_active >/dev/null
+}
+
 discover_running() {
   "$KEMPT_DISCOVER_PGREP" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1
 }
@@ -891,9 +916,9 @@ discover_entry_usable() {  # kind
 }
 
 # The offer, as state.json carries it: while the notifier starts with the session and nobody has
-# answered yet.
+# answered yet. Not on an image-based Fedora, where Kempt tells people to use Discover.
 discover_offer_pending() {
-  [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] && discover_enabled
+  ! on_ostree && [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] && discover_enabled
 }
 
 discover_mark_answered() {
@@ -1029,11 +1054,16 @@ discover_notifier_on() {
     fi
   fi
   discover_mark_answered
+  rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true
   if ! discover_enabled; then
     echo "A startup file keeps Discover's notifier off: $(discover_effective_entry). Delete it, then run kempt discover-notifier on." >&2
     return 1
   fi
   echo "Discover's update notifier is on."
+  # Off leaves KDE's setting alone, so on says what that setting does now.
+  if discover_unattended >/dev/null; then
+    echo "Discover's automatic updates resume too, because its setting is still on."
+  fi
   # The writers' lock stays held until the notifier is up, so a concurrent off cannot slip in
   # between. discover_start closes it for the child, so the notifier never inherits it.
   discover_running && return 0
@@ -1056,8 +1086,26 @@ discover_notifier_keep() {
   echo "Discover's update notifier stays as it is."
 }
 
+# The widget drew the warning about Discover's automatic updates.
+discover_notifier_seen() {
+  { mkdir -p "$KEMPT_STATE_DIR" && : > "$DISCOVER_UNATTENDED_ANSWERED_FILE"; } 2>/dev/null || true
+  # The next open of the popup comes before the next check, so the state says so now.
+  [[ -f "$STATE_FILE" ]] || return 0
+  local out lfd
+  if { exec {lfd}>>"$STATE_LOCK_FILE"; } 2>/dev/null; then flock -w 10 "$lfd" || true; else lfd=""; fi
+  out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.discover_unattended_warn)' "$STATE_FILE" 2>/dev/null)" || out=""
+  if [[ -n "$out" ]]; then
+    _KEMPT_STATE_LOCK_HELD=1
+    printf '%s\n' "$out" | write_state 2>/dev/null || true
+    _KEMPT_STATE_LOCK_HELD=""
+  fi
+  if [[ -n "$lfd" ]]; then { exec {lfd}>&-; } 2>/dev/null || true; fi
+  return 0
+}
+
 discover_notifier_status() {  # [--json]
-  local installed=false enabled=false running=false by_kempt=false
+  local installed=false enabled=false running=false by_kempt=false unattended=false
+  discover_unattended >/dev/null && unattended=true
   discover_installed && installed=true
   discover_enabled && enabled=true
   discover_running && running=true
@@ -1068,8 +1116,8 @@ discover_notifier_status() {  # [--json]
     if [[ $installed == true && $enabled == false && $by_kempt == false ]]; then
       entry=",\"entry\":$(jq -Rn --arg p "$(discover_effective_entry)" '$p')"
     fi
-    printf '{"installed":%s,"enabled":%s,"running":%s,"by_kempt":%s%s}\n' \
-      "$installed" "$enabled" "$running" "$by_kempt" "$entry"
+    printf '{"installed":%s,"enabled":%s,"running":%s,"by_kempt":%s,"unattended":%s%s}\n' \
+      "$installed" "$enabled" "$running" "$by_kempt" "$unattended" "$entry"
     return 0
   fi
   if [[ $installed == false ]]; then
@@ -1081,6 +1129,7 @@ discover_notifier_status() {  # [--json]
   else echo "Discover's update notifier: off (by $(discover_effective_entry))"
   fi
   if [[ $running == true ]]; then echo "running: yes"; else echo "running: no"; fi
+  if [[ $unattended == true ]]; then echo "automatic updates: on in Discover's settings"; fi
 }
 
 # The reclaim setting as the code acts on it. Anything that is not exactly `automatic` or `off`
@@ -3225,6 +3274,23 @@ offline_toml_value() {  # key → its value, or nothing; rc 1 if the file cannot
 # exits 0 and leaves the old transaction exactly as it was, files untouched, so the next restart
 # installs all of it - the package just held included. A real stage rewrites both files, and the
 # mtime catches a rewrite whose content happens to match.
+# A stage partly installed outside Kempt leaves dnf5's copy behind, and removing that needs root, so
+# it stays until someone asks or a later stage replaces it. This file says which copy it is: doctor
+# explains that one and no other, and any change to dnf5's files retires the note.
+OFFLINE_PARTIAL_FILE="$KEMPT_STATE_DIR/offline-partial"
+offline_partial_record() {
+  { offline_stored_fingerprint > "$OFFLINE_PARTIAL_FILE"; } 2>/dev/null || true
+}
+offline_partial_current() {
+  [[ -s "$OFFLINE_PARTIAL_FILE" ]] && [[ "$(offline_stored_fingerprint)" == "$(cat "$OFFLINE_PARTIAL_FILE" 2>/dev/null)" ]]
+}
+offline_partial_tidy() {
+  if [[ -e "$OFFLINE_PARTIAL_FILE" ]] && ! offline_partial_current; then
+    rm -f "$OFFLINE_PARTIAL_FILE" 2>/dev/null || true
+  fi
+  return 0
+}
+
 offline_stored_fingerprint() {  # → one opaque line, or nothing
   [[ -r "$KEMPT_OFFLINE_TOML" ]] || return 0
   local f
@@ -3350,6 +3416,24 @@ offline_link_state() {  # → none | dnf5 | other
     printf 'other\n'
   fi
 }
+
+# Who holds the next restart, read without privilege: none, kempt (dnf5's link) or other. Anything
+# else at that path counts as other, a plain file or a dangling link included: the generator diverts
+# the boot for either, as the helper's guard_foreign_system_update and the shutdown step know. That
+# is why this tests -e and -L itself: offline_link_state answers none for a plain file. A state.json
+# value can be hours old, so anything that acts on the answer asks here again.
+restart_holder() {  # → none | kempt | other
+  if [[ ! -e "$KEMPT_OFFLINE_LINK" && ! -L "$KEMPT_OFFLINE_LINK" ]]; then
+    printf 'none\n'
+  elif [[ "$(offline_link_state)" == dnf5 ]]; then
+    printf 'kempt\n'
+  else
+    printf 'other\n'
+  fi
+}
+
+# The test every reader asks, including one that reports a stage as still waiting.
+restart_held_by_other() { [[ "$(restart_holder)" == other ]]; }
 
 # rpm's version comparison (rpmvercmp in rpm's lib/rpmvercmp.c), for one version or release field.
 # Written out here rather than asked of rpm: the tests run on boxes with no rpm at all, and this is
@@ -3481,11 +3565,12 @@ offline_installonly_name() {  # name → 0 when installonly
   return 1
 }
 
-offline_stage_satisfied() {  # → 0 when the stored transaction's changes are all on the box
-  [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 1
+# rc 0 when all of it is on the box, 1 when it is not, 2 when the question could not be asked.
+offline_stage_satisfied() {
+  [[ -r "$KEMPT_OFFLINE_TXJSON" ]] || return 2
   local sz want have line
   sz="$(stat -c %s "$KEMPT_OFFLINE_TXJSON" 2>/dev/null || echo 0)"
-  (( sz > 0 && sz <= KEMPT_TXJSON_MAX_BYTES )) || return 1
+  (( sz > 0 && sz <= KEMPT_TXJSON_MAX_BYTES )) || return 2
   # The shape guards of offline_txjson_names: any surprise is an error, and then no answer.
   # One line per entry that matters: action, name.arch, epoch:version-release.
   want="$(jq -r -n '
@@ -3504,16 +3589,16 @@ offline_stage_satisfied() {  # → 0 when the stored transaction's changes are a
           | if (.nevra | type) != "string" then error("nevra") else . end ] as $entries
       | $entries[]
       | select(.action as $a | ["Upgrade","Install","Downgrade","Reinstall","Remove"] | index($a) != null)
-      | "\(.action)\t\(norm(.nevra))"' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 1
-  [[ -n "$want" ]] || return 1
+      | "\(.action)\t\(norm(.nevra))"' "$KEMPT_OFFLINE_TXJSON" 2>/dev/null)" || return 2
+  [[ -n "$want" ]] || return 2
   if [[ -n "$KEMPT_RPM_QA_CMD" ]]; then
     # Unquoted for dnf_sizes' reason (backends/dnf.sh): a seam may carry its own arguments.
     # shellcheck disable=SC2086
-    have="$($KEMPT_RPM_QA_CMD 2>/dev/null)" || return 1
+    have="$($KEMPT_RPM_QA_CMD 2>/dev/null)" || return 2
   else
-    have="$(rpm -qa --queryformat '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null)" || return 1
+    have="$(rpm -qa --queryformat '%{NAME}-%{EPOCHNUM}:%{VERSION}-%{RELEASE}.%{ARCH}\n' 2>/dev/null)" || return 2
   fi
-  [[ -n "$have" ]] || return 1
+  [[ -n "$have" ]] || return 2
   # Installed builds by name.arch, each `epoch:version-release`, newline-separated.
   local -A inst=()
   local n e vr a key
@@ -3549,8 +3634,8 @@ offline_stage_satisfied() {  # → 0 when the stored transaction's changes are a
 # offline_stage_satisfied, asked about the stage a marker records. It reads dnf5's stored
 # transaction, and once a check has found that replaced, the stored one is somebody else's: its
 # packages being installed says nothing about Kempt's stage.
-offline_marker_stage_satisfied() {  # marker-json → 0 when the stage it records is installed
-  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 1
+offline_marker_stage_satisfied() {  # marker-json → rc as offline_stage_satisfied; replaced is 2
+  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 2
   offline_stage_satisfied
 }
 
@@ -4138,7 +4223,7 @@ offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, h
 # and dnf5 refuses: comparing the package set with the stage's snapshot is what tells the two apart
 # without asking for a password to find out.
 offline_stage_restorable() {  # marker-json → 0 when only the restart step is missing
-  [[ "$(offline_system_status)" == ready && "$(offline_link_state)" == none ]] || return 1
+  [[ "$(offline_system_status)" == ready && "$(restart_holder)" == none ]] || return 1
   jq -e '.restore_failed == true' <<<"$1" >/dev/null 2>&1 && return 1
   offline_stage_rearmable "$1"
 }
@@ -4259,6 +4344,8 @@ publish_staged_state_write() {  # staged blocked
              "$STATE_FILE" 2>/dev/null)" || return 0
   fi
   [[ -n "$out" ]] || return 0
+  # Who holds the restart may have changed during the run, and this is the moment it is news.
+  out="$(jq -c --arg h "$(restart_holder)" '. + {restart_holder: $h}' <<<"$out" 2>/dev/null)" || return 0
   # ...and the write is best-effort like everything above it. This runs on the far side of a
   # transaction that is downloaded and armed, under a caller that reports the run's verdict: a
   # state directory that cannot be written is the same degrade the history entry beside it takes,
@@ -4397,6 +4484,8 @@ KEMPT_JQ_COUNTS='
     if .surface == "offline (applied on reboot)" then "restart (staged update installed)"
     elif .surface == "offline (installed by another updater)"
     then "staged update (installed by another updater)"
+    elif .surface == "offline (partly installed outside Kempt)"
+    then "staged update (partly installed outside Kempt)"
     elif .surface == "popup" then "widget"
     else .surface end;
 '
@@ -4648,6 +4737,7 @@ KEMPT_JQ_STATUS='
     stagedHeaderTail: "updates staged for the next restart",
     stagedHeaderUnknown: "Updates staged for the next restart",
     restartMessage: "Restart to apply installed updates",
+    restartHeld: "The next restart belongs to another updater",
     noSuccessfulCheckYet: "No successful check yet",
     lastCheckFailed: "last check failed"
   };
@@ -4779,6 +4869,7 @@ KEMPT_JQ_STATUS='
                          then "C\u001f" + (.count | floor | tostring) else empty end) ),
         (if $staged then "G\u001f1" else empty end),
         (if $s.reboot_needed == true then "R\u001f" + status_copy.restartMessage else empty end),
+        (if $s.restart_holder == "other" then "O\u001f" + status_copy.restartHeld else empty end),
         ( [ (if ($ever | not) then status_copy.noSuccessfulCheckYet
              elif ($s.last_success | renderable_stamp) then "Checked " + ($s.last_success | rel_time($now))
              else empty end),

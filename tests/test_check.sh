@@ -1203,7 +1203,7 @@ assert_eq "$(cat "$notify_log")" \
 assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
   "...and the event log carries the status it was announced for"
 assert_eq "$(jq -r '.armed' "$marker")" "false" "...and the marker is demoted rather than deleted"
-assert_json_eq "$(jq -c 'del(.armed)' "$marker")" "$(jq -c 'del(.armed)' <<<"$before_marker")" \
+assert_json_eq "$(jq -c 'del(.armed, .lost_announced)' "$marker")" "$(jq -c 'del(.armed)' <<<"$before_marker")" \
   "...with every other field of it kept"
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
   "...while nothing is published as a pending install, because nothing is"
@@ -1421,9 +1421,9 @@ assert_exit 0 "...though a reinstall beside a real change does not stop it" -- s
 act_tx '{"nevra":"zsh-5.9-1.fc44.x86_64","action":"Reinstall"},{"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade"}'
 assert_exit 1 "...while a reinstalled package that is not installed at all does" -- satisfied "$TESTTMP/pk-tx-act.json" "$pk_qa"
 : > "$TESTTMP/pk-qa-empty"
-assert_exit 1 "...and an rpm that lists nothing proves nothing" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-empty"
+assert_exit 2 "...and an rpm that lists nothing proves nothing" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-empty"
 printf '{"version":"1.0","rpms":[]}\n' > "$TESTTMP/pk-tx-empty.json"
-assert_exit 1 "...nor does a transaction that names nothing" -- satisfied "$TESTTMP/pk-tx-empty.json" "$pk_qa"
+assert_exit 2 "...nor does a transaction that names nothing" -- satisfied "$TESTTMP/pk-tx-empty.json" "$pk_qa"
 
 # The restart, seen from the check after it: dnf5's state still `ready`, no symlink (systemd removed
 # PackageKit's once the update ran), and the package set moved to include every staged package.
@@ -1449,16 +1449,6 @@ KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
 assert_eq "$(cat "$notify_log")" "" "...and the next check says nothing more"
 rm -rf "$KEMPT_STATE_DIR/history"   # the race case further down counts entries from empty
 
-# Not every staged package arrived: the restart installed something else, and the stage is the
-# detour it always was.
-stage_marker boot-before-reboot 3
-: > "$notify_log"
-PK_QA="$TESTTMP/pk-qa-kernel" KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-grep -q 'can no longer install' "$notify_log" \
-  && echo "ok: a stage only partly installed elsewhere is still the detour" \
-  || { echo "FAIL: a partly installed stage was not announced as unable to install"; _fail=1; }
-assert_eq "$(jq -r '.armed' "$marker")" "false" "...and its marker is demoted, not consumed"
-rm -f "$marker" "$pre"
 stage_marker boot-before-reboot 3
 : > "$notify_log"
 PK_QA="$TESTTMP/pk-qa-newer" KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
