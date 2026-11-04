@@ -281,6 +281,11 @@ PlasmaExtras.Representation {
     // It opens during a run of ours too, in place of the run's log: it only reads, on its own
     // executor. A run that starts or ends while it is open leaves it, and the keyboard, alone.
     property bool startupOpen: false
+    // The updates are behind this page, so what is in them has not been seen until Back.
+    onStartupOpenChanged: {
+        popup.plasmoidItem.startupPageOpen = popup.startupOpen;
+        popup.plasmoidItem.acknowledgeDiscoverWarning();
+    }
 
     // The menu's request, taken once: from a popup already built, or by this one as it is built
     // for the open the request asked for. Only while the widget is on screen: a request it finds
@@ -1007,7 +1012,7 @@ PlasmaExtras.Representation {
             visible: popup.shows("discoverUnattended")
             actions: [
                 Kirigami.Action {
-                    text: i18n("Turn Off Discover's Notifier")
+                    text: i18n("Turn Off")
                     icon.name: "notifications-disabled"
                     enabled: !popup.plasmoidItem.actionPending
                     onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }

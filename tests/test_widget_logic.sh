@@ -857,7 +857,7 @@ assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.disc
   "Turn Off Discover's Notifier|Keep Discover's Notifier|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
 for _lit in discoverUnattended discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" \
-    "$(case $_lit in discoverOfferOff) echo 4 ;; discoverOfferKeep) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
+    "$(case $_lit in discoverOfferOff) echo 3 ;; discoverOfferKeep) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
 # What Settings shows, from `kempt discover-notifier status --json`.
 dn() { js "JSON.stringify(L.discoverSettingOf('$1'))"; }
@@ -2792,6 +2792,9 @@ assert_contains "$(js "L.lastRunText($LAST,$NOW,false)")" "staged for restart" "
 DU='discover_unattended:true,discover_unattended_warn:true,discover_offer:true'
 assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "Discover set to update itself: warned"
 assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...over the plain offer"
+assert_eq "$(free "$PEND,$DU,image_based:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and not on an image-based Fedora, which is told to use Discover"
+assert_eq "$(free "$PEND,discover_offer:true,image_based:true" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...nor the plain offer"
+assert_eq "$(free "$PEND,discover_offer:true" '{}' 'messageSlots.indexOf("discoverOffer") >= 0')" "true" "...which other systems still get"
 assert_eq "$(free "$PEND,$DU" '{surface:"terminal",discoverOfferAnswered:true}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "...in any mode, the offer answered or not"
 assert_eq "$(free "$PEND,discover_unattended:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...not once it was drawn"
 assert_eq "$(free "$PEND,discover_unattended:true" '{discoverWarningKept:true}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "...but it stays up for the open that drew it"

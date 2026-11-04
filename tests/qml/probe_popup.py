@@ -1525,6 +1525,23 @@ settle()
 _seen_before = len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")])
 ev("root.popupClosed()")
 settle()
+# Opened from the menu's Startup Report the warning sits behind that page, so it waits for Back.
+state(held_state("state-unattended.json", discover_unattended=True, discover_unattended_warn=True))
+settle()
+ev("root.popupOpened(); if (root.popupOnScreen) root.startupPageWanted = true;")
+p.pump(150)
+settle()
+p.check("Behind the Startup page the warning is not marked",
+        [lev("popup.startupOpen"), len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before],
+        [True, 0])
+lev("popup.closeStartup()")
+p.pump(150)
+settle()
+p.check("...and Back marks it",
+        len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before, 1)
+_seen_before += 1
+ev("root.popupClosed()")
+settle()
 state(held_state("state-unattended.json", discover_unattended=True, discover_unattended_warn=True, discover_offer=True))
 settle()
 p.check("Discover's setting with the popup closed marks nothing",
@@ -1533,6 +1550,7 @@ ev("root.popupOpened()")
 settle()
 p.check("...and once drawn, it is marked, once",
         len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before, 1)
+p.check("...its button says what the sentence means", lev("discoverUnattendedMessage.actions[0].text"), "Turn Off")
 p.check("...the warning up, one button, the plain offer not",
         [lev("discoverUnattendedMessage.visible"), lev("discoverUnattendedMessage.actions.length"), lev("discoverOfferMessage.visible")],
         [True, 1, False])

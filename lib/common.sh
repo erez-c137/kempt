@@ -841,7 +841,8 @@ discover_unattended_warn_pending() {
     rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true
     return 1
   fi
-  [[ ! -e "$DISCOVER_UNATTENDED_ANSWERED_FILE" ]] && discover_unattended_active >/dev/null
+  # Not on an image-based Fedora, where Kempt tells people to use Discover.
+  ! on_ostree && [[ ! -e "$DISCOVER_UNATTENDED_ANSWERED_FILE" ]] && discover_unattended_active >/dev/null
 }
 
 discover_running() {
@@ -910,9 +911,9 @@ discover_entry_usable() {  # kind
 }
 
 # The offer, as state.json carries it: while the notifier starts with the session and nobody has
-# answered yet.
+# answered yet. Not on an image-based Fedora, where Kempt tells people to use Discover.
 discover_offer_pending() {
-  [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] && discover_enabled
+  ! on_ostree && [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] && discover_enabled
 }
 
 discover_mark_answered() {

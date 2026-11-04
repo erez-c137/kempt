@@ -3126,12 +3126,12 @@ function viewModel(state, updating, cliError, opts) {
     // the setting is unread, or it would show and then give way under the pointer. It also waits
     // for the widget to read the CLI's answered marker, which a state.json from before the answer
     // does not reflect.
-    var discoverOffer = usable && state.discover_offer === true && !updating
+    var discoverOffer = usable && !imageBased && state.discover_offer === true && !updating
         && opts.discoverOfferAnswered !== true && opts.discoverAnswerKnown !== false
         && !surfaceOffer && !(state.surface_offer === true && opts.surfaceKnown === false);
     // Discover's setting, over the offer: it says the larger thing. Kept up once drawn, for as long
     // as this popup stays open (main.qml), since drawing it is what clears the CLI's flag.
-    var discoverUnattended = usable && state.discover_unattended === true && !updating
+    var discoverUnattended = usable && !imageBased && state.discover_unattended === true && !updating
         && opts.discoverTurnedOff !== true
         && (state.discover_unattended_warn === true || opts.discoverWarningKept === true);
     if (discoverUnattended) discoverOffer = false;

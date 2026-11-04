@@ -1699,10 +1699,13 @@ PlasmoidItem {
     property string startupAckSent: ""
     property var startupRecoveredKept: []
 
-    // Marked only once the warning is really on screen: closed popup, no mark. Whether the write
-    // landed is not waited for: at worst the warning comes back on the next open.
-    function acknowledgeDiscoverWarning() {
+    // Marked only once the warning is really on screen: closed popup, no mark, and none behind the
+    // Startup page. Whether the write landed is not waited for: at worst the warning comes back on
+    // the next open. Later, because an open from the menu asks for that page just after it opens.
+    function acknowledgeDiscoverWarning() { Qt.callLater(markDiscoverWarning); }
+    function markDiscoverWarning() {
         if (!popupOnScreen || !discoverWarningDrawn || discoverWarningAckSent) return;
+        if (startupPageOpen || startupPageWanted) return;
         discoverWarningAckSent = true;
         discoverWarningKept = true;
         executor.run(kemptCmd + " discover-notifier seen", Logic.ANSWER_TIMEOUT_MS, function() {});
@@ -1785,6 +1788,7 @@ PlasmoidItem {
     // popupOpened by the next line, so an open that did not happen leaves no request behind for
     // the next ordinary open to find; popupClosed drops one that was not taken.
     property bool startupPageWanted: false
+    property bool startupPageOpen: false
 
     function showStartupPage() {
         if (!root.popupOnScreen) root.expanded = true;
