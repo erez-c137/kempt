@@ -69,10 +69,10 @@ assert_eq "$(grep -c '^FAIL' "$TESTTMP/last_output" || true)" "0" \
 # every check reports, pass or fail: a silent doctor is a useless doctor. Matched against the
 # REPORT LINES only - the usage text mentions half these words, so a plain grep over the whole
 # output passes vacuously.
-for want in 'root helper (refresh)' 'root helper (apply)' 'polkit action' \
+for want in 'polkit action' \
             'terminal emulator' 'flatpak' 'dnf' 'config file' 'state dir' 'checkout' \
             'package lists' \
-            'polkit exec.path (refresh)' 'polkit exec.path (apply)' 'widget engine' 'startup'; do
+            'widget engine' 'startup'; do
   grep -E '^(ok|info|WARN|FAIL) ' "$TESTTMP/last_output" | grep -qF "$want" && echo "ok: reports on $want" \
     || { echo "FAIL: no line for $want"; _fail=1; }
 done
@@ -124,7 +124,7 @@ rm -f "$LAST_REFRESH_FILE"
 # doctor checks root:root 0755 only when the helper it was handed IS the path polkit's exec.path
 # pins, because that ownership is the whole point: a root-ownership check on a test stub proves
 # nothing about the install. That also made BOTH branches unreachable from the suite - every stub
-# is a seam override, so every run took the "ownership not checked" exit. The annotated path is
+# is a seam override, so every run took the silent exit. The annotated path is
 # therefore a seam of its own, and a test reaches the real check by setting it equal to the
 # helper seam. Nothing is executed here; doctor only stats the path.
 ME_U="$(id -un)"; ME_G="$(id -gn)"
@@ -261,9 +261,8 @@ grep -qE '^info  polkit exec.path \(refresh\):' "$TESTTMP/last_output" \
 # ...and with a stub helper in play - every other case in this file - there is nothing to compare:
 # what this CLI runs is a test stub, which polkit was never asked about.
 "$KEMPT" doctor > "$TESTTMP/exec.txt" 2>&1 || true
-grep -qE '^info  polkit exec.path \(refresh\): not compared' "$TESTTMP/exec.txt" \
-  && echo "ok: a helper seam override is not compared against the policy" \
-  || { echo "FAIL: no seam-override info line - got: $(grep 'exec.path' "$TESTTMP/exec.txt")"; _fail=1; }
+assert_eq "$(grep -cE '^[a-zA-Z]+ +(polkit exec\.path|root helper) \(' "$TESTTMP/exec.txt" || true)" "0" \
+  "a helper seam override adds no row: neither compared against the policy nor checked for ownership"
 
 # --- which kempt the widget would run -----------------------------------------------------------
 # The widget runs the CLI as `PATH="$HOME/.local/bin:$PATH" KEMPT_VIA=widget kempt`

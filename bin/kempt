@@ -3924,10 +3924,7 @@ policy_exec_path() {  # action_id file -> the annotated path, or "" if there is 
 # with a stub in play, what this CLI runs is not what polkit was asked about.
 doctor_exec_path() {  # label action_id helper_seam annotated_path
   local label="$1" action="$2" seam="$3" annotated="$4" pinned
-  if [[ "$seam" != "$annotated" ]]; then
-    doctor_info "polkit exec.path ($label): not compared, because an environment variable points the helper elsewhere ($seam)"
-    return 0
-  fi
+  [[ "$seam" == "$annotated" ]] || return 0
   # Missing or unreadable is already a FAIL above; one problem must not be counted twice.
   if [[ ! -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_info "polkit exec.path ($label): not compared, because $KEMPT_POLICY_FILE is not readable"
@@ -3973,11 +3970,8 @@ doctor_helper() {  # label seam_path annotated_path
     doctor_fail "root helper ($label) not installed: $path. $(reinstall_hint "")"
     return 0
   fi
-  if [[ "$path" != "$annotated" ]]; then
-    # Not the path polkit execs, so its ownership says nothing about what root would run.
-    doctor_info "root helper ($label): $path (set by an environment variable, ownership not checked)"
-    return 0
-  fi
+  # Not the path polkit execs, so its ownership says nothing about what root would run.
+  [[ "$path" == "$annotated" ]] || return 0
   # stat can fail on an unreachable path, and a helper we cannot inspect is not a broken one.
   own="$(stat -c '%U:%G %a' "$path" 2>/dev/null)" || return 0
   if [[ "$own" == "root:root 755" ]]; then
