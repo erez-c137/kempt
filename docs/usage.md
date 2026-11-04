@@ -90,7 +90,7 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 | `--strict` | Exits 1 when the answer is not current (see the exit table). Use it in scripts. |
 
 The widget passes `--coalesce` for its timer, its file watcher, its startup check and when you
-open it, so two widgets cost one check. **Check for Updates**, **Not Updating? Check for Updates** and a
+open it, so two widgets cost one check. **Check for Updates**, **Not Updating? Check Again** and a
 hold always run a check of their own.
 
 **Where the answer comes from.** A check answers from the local dnf and Flatpak caches. It
@@ -892,7 +892,7 @@ The staged update was built without kernel-core, so the next restart will not in
 ```
 
 After that restart, the hold works as usual. The widget shows the same warning on its
-[staged banner](widget.md#the-staged-banner).
+[ready message](widget.md#when-updates-are-ready).
 
 ## config
 

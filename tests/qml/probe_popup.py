@@ -351,7 +351,7 @@ p.check("...with the fallback armed instead", ev("postRunCheck.running"), True)
 # and has something to say.
 p.wait_for(ev, 'root.postRunLine !== ""', True, timeout_ms=6000)
 p.check("...and one line saying what the run actually did", ev("root.postRunLine"),
-        "Updated 4 packages in 2s")
+        "Updated 4 packages in 2 s.")
 p.check("...read from the run's own entry rather than from the human summary",
         p.argv("summary"), ["summary", "--json"])
 p.check("...and nothing about a SUCCESSFUL run lands in the failure line any more",
@@ -611,10 +611,10 @@ settle()
 # --- one event, one line at a time ---------------------------------------------------------------
 # The transient post-run line and the persistent Last update row are the same fact told two ways,
 # so the popup shows one or the other. main.qml owns the clearing half of that rule.
-ev('root.postRunLine = "Updated 4 packages in 2s"')
+ev('root.postRunLine = "Updated 4 packages in 2 s."')
 ev("root.popupClosed()")
 p.check("closing the popup retires the transient line", ev("root.postRunLine"), "")
-ev('root.postRunLine = "Updated 4 packages in 2s"')
+ev('root.postRunLine = "Updated 4 packages in 2 s."')
 ev("root.doCheck()")
 p.check("...and so does starting a new check, before its answer arrives",
         ev("root.postRunLine"), "")
@@ -653,7 +653,7 @@ ev("root.leaveUpdating()")
 settle()
 p.pump(120)
 p.check("...and a run whose own entry is there is announced as normal",
-        ev("root.postRunLine"), "Updated 4 packages in %ds" % LAST_RUN["duration_sec"])
+        ev("root.postRunLine"), "Updated 4 packages in %d s." % LAST_RUN["duration_sec"])
 open(RUNJSON, "w").write(json.dumps(LAST_RUN))
 ev("root.loadLastRun()")
 ev('root.postRunLine = ""')
@@ -1020,25 +1020,25 @@ stack("with that transaction already staged", "stagedMessage")
 # nothing at all: the header went on counting the same updates as available and Update Now
 # stayed lit under a green banner saying they were staged.
 p.check("...with the header saying staged rather than counting the same updates as available",
-        lev("popup.vm.headerText"), "61 updates staged for the next restart")
+        lev("popup.vm.headerText"), "61 updates ready for the next restart")
 p.check("...the panel tooltip saying it too, so hover and popup cannot disagree",
-        ev("root.vm.tooltipMain"), "61 updates staged for the next restart")
+        ev("root.vm.tooltipMain"), "61 updates ready for the next restart")
 p.check("...the badge still the true actionable count, which no restart has run yet",
         ev("root.vm.badgeText"), str(ev("root.vm.actionable")))
 p.check("...and Update Now GONE, because the work it would start is already done and waiting",
         lev("updateButton.visible"), False)
 p.check("...announced as it arrives, since a name change on an unfocused alert is readable "
         "and not spoken", said(),
-        ["61 updates are staged and install on the next restart. "
-         "3 other updates are not in the staged update."])
+        ["61 updates are ready and install on the next restart. "
+         "3 other updates are left out."])
 # The fixture's three pending Flatpak apps are not in the stage, so the banner says they wait.
-p.check("...showing only what the header does not already say",
+p.check("...saying how many and what else waits",
         lev("stagedMessage.text"),
-        "They install when you restart. 3 other updates are not in the staged update.")
+        "61 updates are ready and install on the next restart. 3 other updates are left out.")
 p.check("...while its accessible name is the whole sentence, with the count",
         lev("stagedMessage.Accessible.name"),
-        "61 updates are staged and install on the next restart. "
-        "3 other updates are not in the staged update.")
+        "61 updates are ready and install on the next restart. "
+        "3 other updates are left out.")
 p.check("...as a Positive message: nothing is wrong and nothing needs pressing",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...and offering the restart, since no restart message is carrying it",
@@ -1117,12 +1117,10 @@ GENERIC = conflict_from("state-held-only.json", "state-staged-generic.json", [],
 _sev("clear()")
 state(CONFLICT1)
 stack("with a hold on a package the staged update contains", "stagedMessage")
-p.check("...the banner tells it in the person's own order of events, with both ways out and "
-        "the cost of the one on the button",
+p.check("...the banner tells it in the person's own order of events, with both ways out",
         lev("stagedMessage.text"),
-        "You held kernel-core after the update was staged, so it still"
-        " installs. To skip kernel-core, discard the staged update and use Install on Next Restart again, or stop holding kernel-core to keep the"
-        " current plan. Discarding deletes the downloaded packages, so staging again downloads them again.")
+        "You held kernel-core after these updates were prepared, so it still installs. To skip kernel-core,"
+        " discard these updates and use Install on Next Restart again, or stop holding kernel-core to keep them.")
 p.check("...as a Warning, because the reassurance is no longer true",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
@@ -1211,18 +1209,17 @@ p.pump(80)
 state(CONFLICT3)
 p.check("three held packages read as the first one and a count, every word moved with it",
         lev("stagedMessage.text"),
-        "You held kernel-core and 2 more after the update was staged, so they"
-        " still install. To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current"
-        " plan. Discarding deletes the downloaded packages, so staging again downloads them again.")
+        "You held kernel-core and 2 more after these updates were prepared, so they still install. To skip"
+        " them, discard these updates and use Install on Next Restart again, or stop holding them to keep"
+        " these updates.")
 p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
 state(GENERIC)
 stack("with a staged list that could not be read and dnf packages held", "stagedMessage")
 p.check("...the banner says may, because that is what is known",
         lev("stagedMessage.text"),
-        "You added holds after the update was staged, so it may still install"
-        " held packages. To apply your holds, discard the staged update and use Install on Next Restart again. Discarding deletes"
-        " the downloaded packages, so staging again downloads them again.")
+        "You added holds after these updates were prepared, so held packages may still install. To apply"
+        " your holds, discard these updates and use Install on Next Restart again.")
 p.check("...as a warning all the same", lev("stagedMessage.type"),
         lev("Kirigami.MessageType.Warning"))
 p.check("...offering the same discard", lev("stagedMessage.actions[1].visible"), True)
@@ -1438,7 +1435,7 @@ state(fixture("state-live.json"))
 settle()
 ev('root.discoverOfferAnswered = false; root.actionDone = ""; root.actionMessage = ""')
 
-# --- Discard Staged Update, the same banner's other way out ---------------------------------
+# --- Discard Update, the same banner's other way out ---------------------------------
 # `kempt unstage` from the popup, so somebody who staged an update here can undo it here. Consent
 # is given to a banner, and a banner describes ONE staged update: a press must not spend consent on
 # a different one.
@@ -2671,11 +2668,11 @@ p.pump(50)
 p.check("a restart prompt that would not open says so inside the message itself",
         "Could not open the restart prompt." in str(lev("restartMessage.text")), True)
 p.check("...without losing the message's own sentence",
-        "Restart to apply installed updates" in str(lev("restartMessage.text")), True)
+        "Restart to finish updating." in str(lev("restartMessage.text")), True)
 ev('root.restartError = ""')
 p.pump(50)
 p.check("...and the message is itself again once the error clears",
-        lev("restartMessage.text"), "Restart to apply installed updates")
+        lev("restartMessage.text"), "Restart to finish updating.")
 
 dbus_before = len(records("dbus-send"))
 lev("restartMessage.actions[0].trigger()")
@@ -3016,7 +3013,7 @@ p.pump(50)
 p.check("a run that worked reports as a positive message",
         lev("reportMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...saying what the run actually did", lev("reportMessage.text"),
-        "Updated 4 packages in 2s")
+        "Updated 4 packages in 2 s.")
 xdg_before = len(records("xdg-open"))
 lev("reportMessage.actions[0].trigger()")
 settle()
@@ -3034,7 +3031,7 @@ p.pump(50)
 p.check("a run that failed reports as an error instead",
         lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
 p.check("...in the CLI's own worked-out reason", lev("reportMessage.text"),
-        "Update failed: dnf5 exited 1 - could not resolve the transaction")
+        "The update failed: dnf5 exited 1 - could not resolve the transaction.")
 
 nolog = dict(LAST_RUN)
 nolog["log"] = ""
@@ -3102,7 +3099,7 @@ settle()
 ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
 p.pump(50)
 p.check("premise: the run just failed, and the transient line says so",
-        ev("root.postRunLine"), "Update failed: the mirror went away")
+        ev("root.postRunLine"), "The update failed: the mirror went away.")
 ev("root.popupClosed()")
 ev("root.popupOpened()")
 p.pump(50)
@@ -3155,15 +3152,15 @@ SECTION = ('(function find(o) {'
            ' for (var i = 0; i < o.children.length; i++) {'
            '  var hit = find(o.children[i]); if (hit !== null) return hit; }'
            ' return null; })(it)')
-HEADER_ROW = {"kind": "header", "title": "System (dnf)", "held": False}
+HEADER_ROW = {"kind": "header", "title": "System", "held": False}
 HELD_HEADER_ROW = {"kind": "header", "title": "Held", "held": True}
 p.check("a group header is Plasma's own ListSectionHeader, not a bare Heading",
         row(HEADER_ROW, 'String(%s).indexOf("ListSectionHeader") >= 0' % SECTION), True)
 p.check("...carrying the group's name in the property that component documents",
-        row(HEADER_ROW, "(%s).label" % SECTION), "System (dnf)")
+        row(HEADER_ROW, "(%s).label" % SECTION), "System")
 p.check("...and handing that name to a screen reader, which the component itself refuses to "
         "do: Kirigami marks its own label Accessible.ignored",
-        row(HEADER_ROW, "(%s).Accessible.name" % SECTION), "System (dnf)")
+        row(HEADER_ROW, "(%s).Accessible.name" % SECTION), "System")
 p.check("...as a heading, which is what a screen reader navigates a list by",
         row(HEADER_ROW, "(%s).Accessible.role === Accessible.Heading" % SECTION), True)
 # The extra line, and where it must NOT be. A backend section that grew it would be telling a
@@ -3451,7 +3448,6 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedConflictOne",    # -> stagedVariantOf -> vm.stagedMessage (a name goes into the %1)
     "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
     "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
-    "stagedDiscardCost",    # -> stagedVariantOf, joined onto every warning as its second sentence
     "discoverMild",         # -> vm.discoverMessage
     "discoverUnattended",   # -> vm.discoverMessage
     "stagedDiscardDone",    # -> discardStagedMessage, for a discard the CLI did not describe
@@ -3493,11 +3489,9 @@ _ASSEMBLED_IN_LOGIC = {
     "fetchMissed",          # -> fetchMissedOf, for an engine that does not say why
     "fetchMissedNoAge",     # -> fetchMissedOf, the same with no stamp on the lists
     "riskyAskLead",         # -> FullRepresentation's question, spoken in front of its words
-    "stagedBannerOne",      # -> stagedVariantOf -> vm.stagedBanner, under the header's count
-    "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner
-    "stagedOthersOne",      # -> stagedOthersOf -> vm.stagedBanner, after the banner's sentence
-    "stagedOthersMore",     # -> stagedOthersOf -> vm.stagedBanner, with the count in the %1
-    "stageBlocked",         # -> vm.stagedBanner and vm.stagedMessage, behind another updater's restart
+    "stagedOthersOne",      # -> stagedOthersOf -> vm.stagedMessage, after the banner's sentence
+    "stagedOthersMore",     # -> stagedOthersOf -> vm.stagedMessage, with the count in the %1
+    "stageBlocked",         # -> vm.stagedMessage and vm.stagedMessage, behind another updater's restart
     "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
     "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
     "checkNoCacheHeadline",  # -> checkProblemOf -> vm.emptyStateText, for dnf with no cache
@@ -3519,7 +3513,7 @@ _ASSEMBLED_IN_LOGIC = {
     "settingTimedOut",      # -> answerOutcomeOf, for a Settings switch or config write the Executor killed
     "holdTimedOut",         # -> answerOutcomeOf, for a hold or unhold the Executor killed
     "restartHeld",          # -> what `kempt status` prints, the same words
-    "restartHeldBanner",    # -> vm.stagedBanner and vm.stagedMessage
+    "restartHeldBanner",    # -> vm.stagedMessage and vm.stagedMessage
     "restartHeldFooter",    # -> lastRunText
     "restartHeldAsk",       # -> vm.questionMessage
     "lastCheckFailedHeader",  # -> vm.headerText and vm.tooltipMain, over a failed check with nothing waiting

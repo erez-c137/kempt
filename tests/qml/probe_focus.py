@@ -307,7 +307,7 @@ p.check("...and it is a real control, not the pane or nothing at all",
         [lev("popup.Window.activeFocusItem.visible"),
          lev("popup.Window.activeFocusItem.enabled")], [True, True])
 p.check("...naming the surface the run is really using rather than the configured one",
-        lev("updatingLabel.text"), "Staging updates for the next restart…")
+        lev("updatingLabel.text"), "Preparing updates for the next restart…")
 
 # ...and Space on it really is the way out, from the keyboard, without a pointer.
 before_check = p.call_count("check")
@@ -324,7 +324,7 @@ p.check("...handing the keyboard back to a control that is on screen",
 
 # Each surface says what is happening.
 for _surface, _said in (("popup", "Updating…"),
-                        ("offline", "Staging updates for the next restart…")):
+                        ("offline", "Preparing updates for the next restart…")):
     ev('root.enterUpdating("%s")' % _surface)
     p.pump(80)
     p.check("a run on the %s surface says where to look for it" % _surface,

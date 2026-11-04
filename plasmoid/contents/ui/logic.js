@@ -18,7 +18,7 @@
 
 // Titles match the CLI's own renderer (lib/common.sh render_summary) so the popup and the terminal
 // never name the same group differently.
-var SECTION_TITLES = { dnf: "System (dnf)", flatpak: "Apps (flatpak)" };
+var SECTION_TITLES = { dnf: "System", flatpak: "Apps" };
 var BACKEND_ORDER = ["dnf", "flatpak"];
 
 // A backend may group its pending items further, by the `kind` its items carry. Flatpak is the one
@@ -60,7 +60,7 @@ var COPY = {
     // `restartMessage` states a fact about the machine; `restartAction` opens KDE's own
     // logout/restart prompt and nothing else. Kempt never restarts anything itself, in any state,
     // with any setting.
-    restartMessage: "Restart to apply installed updates",
+    restartMessage: "Restart to finish updating.",
     restartAction: "Restart…",
     restartFailed: "Could not open the restart prompt.",
 
@@ -124,11 +124,11 @@ var COPY = {
     // One sentence per surface, each naming where to look, and staging says what it is rather than
     // calling itself an update. Never the CONFIGURED surface, and never the word "surface".
     updatingHere: "Updating…",
-    updatingOffline: "Staging updates for the next restart…",
+    updatingOffline: "Preparing updates for the next restart…",
     // ...and the way out. Only a state.json change ends the updating state, and a run that dies
     // never writes one - so without this the popup sits on an empty pane until a three-hour guard
     // fires.
-    notUpdatingCheckAgain: "Not Updating? Check for Updates",
+    notUpdatingCheckAgain: "Not Updating? Check Again",
 
     // The offline path, named for what it does to the user rather than for the dnf5 flag behind
     // it. The tooltip names what waits for the restart and what does not: Flatpak has no offline
@@ -136,9 +136,9 @@ var COPY = {
     // take the shorter one when no Flatpak app is waiting (stageTooltipOf).
     installOnNextRestart: "Install on Next Restart",
     installOnNextRestartTooltip:
-        "Installs system updates during the next restart. Flatpak apps update now.",
+        "System updates install during the next restart. Apps update now.",
     // ...and the same without the Flatpak half, for when no Flatpak app is waiting.
-    installOnNextRestartSystemTooltip: "Installs system updates during the next restart.",
+    installOnNextRestartSystemTooltip: "System updates install during the next restart.",
     // ...and the other answer, offered beside it only after Update Now was pressed on a set the
     // message above calls risky, on a box that would otherwise install it live without asking.
     installNow: "Install Now",
@@ -255,8 +255,8 @@ var COPY = {
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
     showLog: "Show Log",
-    noPackageChanges: "No package changes",
-    updateFailed: "Update failed",
+    noPackageChanges: "No packages changed.",
+    updateFailed: "The update failed",
     // The root helper refused because a folder of dnf's, or one above it, is not root's alone. A
     // short form of the CLI's reason; the row offers Check Installation, where doctor has the fix.
     updatesPausedFolder: "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed.",
@@ -266,51 +266,42 @@ var COPY = {
     // and verb move together ("1 update IS staged and INSTALLS"). `stagedTail` stays a
     // FRAGMENT for the plural spellings only, so the two say the identical thing about the
     // identical transaction; the tests pin the finished sentences, not the pieces.
-    stagedTail: "are staged and install on the next restart",
-    stagedOne: "1 update is staged and installs on the next restart",
-    stagedUnknownCount: "Updates are staged and install on the next restart",
-    // ...and what the banner shows under the header, which already says how many are staged.
-    // The full sentence above stays its accessible name and what is announced.
-    stagedBannerOne: "It installs when you restart.",
-    stagedBannerMore: "They install when you restart.",
+    stagedTail: "are ready and install on the next restart",
+    stagedOne: "1 update is ready and installs on the next restart",
+    stagedUnknownCount: "Updates are ready and install on the next restart",
     // ...and the updates the stage leaves out: dnf updates published after it was built
     // (offline_staged.not_staged) and pending Flatpak apps, which never stage. Worded as a fact
     // about the stage, never a promise of when they install: dnf may skip some of them, and the
     // Flatpak list can be stale after a failed check.
-    stagedOthersOne: "1 other update is not in the staged update.",
-    stagedOthersMore: "%1 other updates are not in the staged update.",
+    stagedOthersOne: "1 other update is left out.",
+    stagedOthersMore: "%1 other updates are left out.",
 
     // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
     // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
-    // about the restart that follows. Word for word what the CLI's own notification says, so the
-    // panel and the notification that arrives beside it cannot describe the same second
-    // differently. Saying WHICH of the two reasons it was is the point: "Kempt did nothing" reads
-    // as a fault, and "your holds did what you asked" is the same fact told properly.
-    stagedNothingHeld: "Nothing to stage, because every pending update is held",
-    stagedNothingNonePending: "Nothing to stage, because no updates are pending",
+    // about the restart that follows. Saying WHICH of the two reasons it was is the point: "Kempt
+    // did nothing" reads as a fault, and "your holds did what you asked" is the same fact told properly.
+    stagedNothingHeld: "Every waiting update is held, so the next restart has nothing to install.",
+    stagedNothingNonePending: "No updates are waiting, so the next restart has nothing to install.",
     // ...and the past-tense form, for the row that describes a run that has already finished.
-    lastRunNothingStaged: "nothing needed staging",
+    lastRunNothingStaged: "the next restart has nothing to install",
 
     // ...and the HEADER over that banner, same three spellings, same reasons. While a stage is
     // armed the pending count is a true number saying a false thing: "23 updates available" over a
     // green banner about the same 23 reads as "so it did not work?". The BADGE is deliberately
     // untouched - those updates really are pending until the restart runs.
-    stagedHeaderOne: "1 update staged for the next restart",
-    stagedHeaderTail: "updates staged for the next restart",
-    stagedHeaderUnknown: "Updates staged for the next restart",
+    stagedHeaderOne: "1 update ready for the next restart",
+    stagedHeaderTail: "updates ready for the next restart",
+    stagedHeaderUnknown: "Updates ready for the next restart",
 
     // A stage Kempt made that the next restart will NOT install: another updater (Discover, through
     // PackageKit) has prepared that restart, and dnf5 does not run behind its symlink. The CLI
     // publishes offline_stage_blocked for it and never offline_staged, so nothing above applies.
-    stageBlocked: "The next restart belongs to another updater, so the updates Kempt staged "
-        + "will not install then. Restart when you're ready. Kempt then shows what is still "
-        + "pending.",
+    stageBlocked: "Another updater has taken your next restart, so these updates will not install then.",
 
     // The same restart with nothing of Kempt's behind it. The short form is what `kempt status`
     // prints, and what the Update Now question opens with.
     restartHeld: "The next restart belongs to another updater",
-    restartHeldBanner: "The next restart belongs to another updater. Restart when you're ready. "
-        + "Kempt then shows what is still pending.",
+    restartHeldBanner: "Another updater has prepared your next restart.",
     restartHeldFooter: "the next restart belongs to another updater",
     // Update Now with system updates waiting: a live run may cancel what that updater prepared.
     restartHeldAsk: "Another updater has prepared your next restart, and updating now may stop its update from installing.",
@@ -326,20 +317,17 @@ var COPY = {
     // packages their holds did not stop. In the USER'S order of events, with BOTH remedies: named
     // after the mechanism it has no antecedent once the green banner is gone.
     stagedConflictOne:
-        "You held %1 after the update was staged, so it still installs. "
-        + "To skip %1, discard the staged update and use Install on Next Restart again, or stop holding %1 to keep the current plan.",
+        "You held %1 after these updates were prepared, so it still installs. "
+        + "To skip %1, discard these updates and use Install on Next Restart again, or stop holding %1 to keep them.",
     stagedConflictMore:
-        "You held %1 and %2 more after the update was staged, so they still install. "
-        + "To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan.",
+        "You held %1 and %2 more after these updates were prepared, so they still install. "
+        + "To skip them, discard these updates and use Install on Next Restart again, or stop holding them to keep these updates.",
     // "may", because that is exactly what is known: names_source "none" means an empty conflict
     // list is "cannot tell", never "no conflict". The spec's rule is that names may CONFIRM a
     // conflict and may never DENY one, so silence here would be denying one on no evidence.
     stagedConflictUnknown:
-        "You added holds after the update was staged, so it may still install held packages. "
-        + "To apply your holds, discard the staged update and use Install on Next Restart again.",
-    // The cost, as the banner's SECOND SENTENCE rather than only in the action's tooltip, which
-    // discloses it only to somebody who has already hovered the button they are deciding about.
-    stagedDiscardCost: "Discarding deletes the downloaded packages, so staging again downloads them again.",
+        "You added holds after these updates were prepared, so held packages may still install. "
+        + "To apply your holds, discard these updates and use Install on Next Restart again.",
 
     // --- discarding the staged update from the popup instead of from a terminal ------------------
     // The other way out of a staged update, and the one a person who simply changed their mind
@@ -348,32 +336,30 @@ var COPY = {
     // discard - so the button says Discard. "Cancel Staged Update" was the other candidate and it
     // is worse in exactly one place: a button labelled Cancel inside a message reads as "close
     // this message", which is the one thing it does not do.
-    stagedDiscardAction: "Discard Staged Update",
+    stagedDiscardAction: "Discard Update",
     // The whole cost, before the press: `dnf5 offline clean` removes the downloaded packages with
     // the transaction. Said as what happens NEXT time rather than as a
     // warning, because that cost is only paid by somebody who stages again.
     stagedDiscardTooltip:
         "Removes the update waiting for the next restart, so the restart installs nothing. "
-        + "May ask for your password. It deletes the packages it downloaded, so staging again "
+        + "May ask for your password. It deletes the packages it downloaded, so installing again "
         + "downloads them again.",
     // One sentence per outcome, for the run that said nothing for itself - discardStagedMessage
     // prefers the CLI's own first line wherever there is one. None of them is silence: this press
     // makes a banner disappear and nothing else, and a message that only vanished is
     // indistinguishable from a button that did nothing at all.
-    stagedDiscardDone: "The staged update is gone. The next restart installs nothing.",
+    stagedDiscardDone: "These updates are gone. The next restart installs nothing.",
     stagedDiscardRefused: "Nothing was discarded. Press Check Installation to find out why.",
     stagedDiscardBusy:
         "An update is running, so nothing was discarded. Try again when it has finished.",
     // The status is in this one because it is the only evidence left: a failure the CLI could not
     // describe leaves the reader with nothing else to quote.
     stagedDiscardFailed:
-        "The staged update could not be discarded (exit %1). "
+        "These updates could not be discarded (exit %1). "
         + "Press Check Installation to find out why.",
     // ...and the click-time re-verify's refusal: a press with no effect must never be indistinguishable from a broken button.
     // main.qml assigns it.
-    stagedDiscardChanged:
-        "The staged update changed since this was offered. Nothing was discarded; "
-        + "check the banner above.",
+    stagedDiscardChanged: "These updates changed since this was offered. Nothing was discarded.",
 
     // The hold round trip. The first two are never DRAWN: the popup speaks them through one
     // Accessible.announce when the row has actually moved, because otherwise a hold lands in
@@ -1637,8 +1623,7 @@ function stagedOthersOf(staged, fpPending) {
 }
 
 // stagedVariantOf(staged, heldDnf[, fpPending]) -> which of the three banners this stage gets, and its words:
-//   { type: "positive" | "warning", message, banner, stagedAt: "" }
-// banner is set on the plain variant only; viewModel shows a warning's whole message.
+//   { type: "positive" | "warning", message, stagedAt: "" }
 //
 // THE PROBLEM IT EXISTS FOR: stage 83 updates with a kernel among them, press the pin on
 // kernel-core, and restart into the kernel you just tried to keep out. dnf5 built and stored that
@@ -1662,15 +1647,10 @@ function stagedOthersOf(staged, fpPending) {
 // deliberate: a well-formed list of names warns whether or not names_source is readable, because
 // names may CONFIRM a conflict and may never DENY one.
 function stagedVariantOf(staged, heldDnf, fpPending) {
-    var plain = { type: "positive", message: stagedMessageOf(staged), banner: "",
-                  stagedAt: "" };
+    var plain = { type: "positive", message: stagedMessageOf(staged), stagedAt: "" };
     if (plain.message === "") return plain;
-    // The plain banner sits under a header that already gives the count, so it shows only the
-    // rest. A warning shows its whole message.
-    plain.banner = staged.count === 1 ? COPY.stagedBannerOne : COPY.stagedBannerMore;
-    // On the whole sentence too, which is the banner's accessible name and what is announced.
     var others = stagedOthersOf(staged, fpPending);
-    if (others !== "") { plain.banner += " " + others; plain.message += ". " + others; }
+    plain.message += "." + (others !== "" ? " " + others : "");
     // A stamp that is not a string is not a stamp. main.qml compares this for EQUALITY against the
     // state file at click time, and a number here would compare equal to a number there and spend
     // the user's consent on a transaction they never saw.
@@ -1687,22 +1667,16 @@ function stagedVariantOf(staged, heldDnf, fpPending) {
         }
     }
 
-    // The cost is joined on HERE rather than written into each of the three templates: one fact
-    // about one button, identical in all three, and three copies would drift. It only ever rides a
-    // warning, because the warning is the only variant that offers the button it is about.
     if (names.length > 0) {
         return { type: "warning",
-                 message: (names.length === 1
+                 message: names.length === 1
                      ? fill(COPY.stagedConflictOne, "%1", names[0])
                      : fill(fill(COPY.stagedConflictMore, "%1", names[0]),
-                            "%2", String(names.length - 1)))
-                     + " " + COPY.stagedDiscardCost,
+                            "%2", String(names.length - 1)),
                  stagedAt: plain.stagedAt };
     }
     if (staged.names_source === "none" && heldDnf) {
-        return { type: "warning",
-                 message: COPY.stagedConflictUnknown + " " + COPY.stagedDiscardCost,
-                 stagedAt: plain.stagedAt };
+        return { type: "warning", message: COPY.stagedConflictUnknown, stagedAt: plain.stagedAt };
     }
     return plain;
 }
@@ -2169,7 +2143,8 @@ function postRunLine(run) {
         // only, because a panel is one line wide and the log is one click away.
         var why = firstLineOf(run.error);
         if (/(other users|users other than root) can change/.test(why)) return COPY.updatesPausedFolder;
-        return why === "" ? COPY.updateFailed : COPY.updateFailed + ": " + why;
+        if (why === "") return COPY.updateFailed + ".";
+        return COPY.updateFailed + ": " + why + (/[.!?:]$/.test(why) ? "" : ".");
     }
     // The staging run's entry has empty package lists BY CONSTRUCTION - nothing changes until the
     // restart - so the count sentences below would call it "No package changes": true about the
@@ -2180,7 +2155,7 @@ function postRunLine(run) {
     if (run.surface === "offline" && run.stagedNothing !== null) {
         return run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending;
     }
-    if (run.surface === "offline") return COPY.stagedUnknownCount;
+    if (run.surface === "offline") return COPY.stagedUnknownCount + ".";
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     if (n === 0) return COPY.noPackageChanges;
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
@@ -2188,8 +2163,8 @@ function postRunLine(run) {
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
-    var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + "s" : "";
-    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong;
+    var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + " s" : "";
+    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + ".";
 }
 
 // reportRepeatsStaged(run) -> does the post-run line only say what the staged message says?
@@ -2380,7 +2355,7 @@ function lastRunText(run, nowMs, restartHeld) {
     // harvest's surface is "offline (applied on reboot)" and its counts render.
     if (!run.failed && run.surface === "offline") {
         // The same exception postRunLine makes, for the same reason: a run that staged nothing is
-        // `offline` and `ok`, and "staged for restart" over it promises an install that no restart
+        // `offline` and `ok`, and "ready for the next restart" over it promises an install that no restart
         // performs. WHICH reason is left to the post-run line - this row is one line among several
         // and the distinction needs a clause it has no room for.
         if (run.stagedNothing !== null) {
@@ -2390,7 +2365,7 @@ function lastRunText(run, nowMs, restartHeld) {
         if (restartHeld === true) {
             return "Last update " + relativeTime(run.when, nowMs) + DOT + COPY.restartHeldFooter;
         }
-        return "Last update " + relativeTime(run.when, nowMs) + DOT + "staged for restart";
+        return "Last update " + relativeTime(run.when, nowMs) + DOT + "ready for the next restart";
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
@@ -3120,9 +3095,6 @@ function viewModel(state, updating, cliError, opts) {
             && (problemHint === COPY.checkNoCachePowerHint || problemHint === COPY.checkNoCacheMeteredHint)
             ? anywayReasonOf(state.refresh_skipped) : "",
         // What the banner shows: the plain one gives way to the header's count.
-        stagedBanner: stageBlocked ? COPY.stageBlocked
-            : restartHeldBanner ? COPY.restartHeldBanner
-            : stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
         // "there is an armed transaction", for the surfaces that have to stand down rather than
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.

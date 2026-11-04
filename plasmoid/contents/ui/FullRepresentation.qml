@@ -69,8 +69,8 @@ PlasmaExtras.Representation {
     // COPY.installOnNextRestartSystemTooltip, written once here as literals for i18n() to extract.
     // It promises Flatpak apps update now only when some are waiting.
     readonly property string stageTooltip: vm.stageTooltipNamesFlatpak
-        ? i18n("Installs system updates during the next restart. Flatpak apps update now.")
-        : i18n("Installs system updates during the next restart.")
+        ? i18n("System updates install during the next restart. Apps update now.")
+        : i18n("System updates install during the next restart.")
 
     // The representation-switch heuristic, not decoration: Plasma compares the space it has
     // against these to decide between the panel icon and this popup. Removing them is how a widget
@@ -848,8 +848,8 @@ PlasmaExtras.Representation {
             // the worst outcome available: a button that appears to do nothing is indistinguishable
             // from one that did something invisible.
             text: popup.plasmoidItem.restartError.length > 0
-                  ? i18n("Restart to apply installed updates") + "\n" + popup.plasmoidItem.restartError
-                  : i18n("Restart to apply installed updates")
+                  ? i18n("Restart to finish updating.") + "\n" + popup.plasmoidItem.restartError
+                  : i18n("Restart to finish updating.")
             actions: [
                 Kirigami.Action {
                     // A real ellipsis: this opens KDE's own confirmation screen, and Kempt never
@@ -906,9 +906,7 @@ PlasmaExtras.Representation {
             // the same way the text does, and tests/test_widget_logic.sh guards the binding.
             type: popup.vm.stagedType === "warning"
                   ? Kirigami.MessageType.Warning : Kirigami.MessageType.Positive
-            // The plain banner shows only what the header does not say. Its accessible name, and
-            // what is announced, is the whole sentence (`sentence` below).
-            text: popup.vm.stagedBanner
+            text: popup.vm.stagedMessage
             // The flip has to arrive as WORDS. Without a name a screen reader announces the icon,
             // "Positive" and later "Warning", and the difference between the two banners would
             // be a colour, which for that person is no difference at all.
@@ -918,7 +916,6 @@ PlasmaExtras.Representation {
             // because this is not the outcome of a press: it is the machine telling the person
             // that what they were promised has changed under them.
             property string spoken: ""
-            // On the whole sentence, which changes with the count while the banner may not.
             readonly property string sentence: popup.vm.stagedMessage
             onSentenceChanged: popup.speakMessage(stagedMessage, true, sentence)
             onVisibleChanged: popup.speakMessage(stagedMessage, true, sentence)
@@ -942,12 +939,12 @@ PlasmaExtras.Representation {
                     // for. On a warning it is the first half of the remedy. It is on the green
                     // banner too: staging an update and then thinking better of it is not a problem
                     // anybody should have to open a terminal to fix.
-                    text: i18n("Discard Staged Update")
+                    text: i18n("Discard Update")
                     icon.name: "edit-delete"
                     // The tooltip is the disclosure, not a hint. Accessible.description carries the
                     // identical words because a polkit dialog takes the focus the moment this is
                     // pressed: a screen-reader user who has not heard the cost by then hears it never.
-                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again.")
+                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again.")
                     Accessible.description: tooltip
                     visible: popup.vm.stagedShowDiscard
                     enabled: visible && !popup.plasmoidItem.actionPending
@@ -1954,7 +1951,7 @@ PlasmaExtras.Representation {
             // here, not read out of logic.js, because i18n() extracts literals - see the copy
             // table's own header - and Logic.updatingLabelOf is what a node test pins.
             text: popup.plasmoidItem.runningSurface === "offline"
-                ? i18n("Staging updates for the next restart…") : i18n("Updating…")
+                ? i18n("Preparing updates for the next restart…") : i18n("Updating…")
             // Not for a run in this widget: the header already says "Updating…", and the log
             // under it shows where.
             visible: popup.plasmoidItem.runningSurface !== "popup"
@@ -1979,7 +1976,7 @@ PlasmaExtras.Representation {
             flat: true
             icon.name: "view-refresh"
             display: PlasmaComponents.AbstractButton.TextBesideIcon
-            text: i18n("Not Updating? Check for Updates")
+            text: i18n("Not Updating? Check Again")
             // Refuses while the check it started is running, so it cannot be pressed twice into the
             // same answer. Disabled rather than hidden: this is the pane's only control, and a
             // control that leaves the screen takes the keyboard with it.

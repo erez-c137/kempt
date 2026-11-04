@@ -591,7 +591,7 @@ state(fixture("state-reboot-needed.json"))
 ev("root.restartDismissed = false")
 p.pump(120)
 p.check("the restart message announces its own sentence",
-        lev("restartMessage.Accessible.name"), "Restart to apply installed updates")
+        lev("restartMessage.Accessible.name"), "Restart to finish updating.")
 p.check("...as the alert it already was, rather than in place of it",
         lev("restartMessage.Accessible.role === Accessible.AlertMessage"), True)
 
@@ -854,7 +854,7 @@ def _code(name):
 # text-only and says what pressing it does - it is the ONLY control in that pane, so a person who
 # cannot see the label has nothing else to go on.
 #
-# The second is Discard Staged Update, a labelled button that carries a description anyway: its
+# The second is Discard Update, a labelled button that carries a description anyway: its
 # tooltip discloses the authorization and that the downloaded packages go with the transaction, and
 # polkit takes the focus the instant it is pressed.
 #

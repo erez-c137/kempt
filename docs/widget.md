@@ -40,12 +40,12 @@ update leaves the kernel out:
 ```
  2 updates available                                 [refresh] [gear]   <- header
  --------------------------------------------------------------------
- (!) Restart to apply installed updates          [Restart…]      [x]   <- messages
+ (!) Restart to finish updating.          [Restart…]      [x]   <- messages
 
- System (dnf)                                                          <- the list
+ System                                                                <- the list
    nodejs                                                     [🔓]
    2:24.19.0-1nodesource → 2:24.20.0-1nodesource
- Apps (flatpak)
+ Apps
    org.mozilla.firefox                                        [🔓]
    140 → 141
  Held
@@ -67,7 +67,7 @@ The header reads one of:
 - `Up to date`, `Up to date · 2 held` when every pending update is held, or
   `Up to date · apps for you only not checked` when the apps installed for you alone could not be
   listed.
-- `23 updates staged for the next restart`, while an update is staged.
+- `23 updates ready for the next restart`, while updates are ready.
 - `Updating…`
 - `No update data yet`, before the first check answers.
 - `Kempt's engine is not installed`, when the widget is installed without the command-line program
@@ -90,7 +90,7 @@ The **gear** opens **Configure Kempt…**, the same as the right-click menu. Ins
 the tray's own heading has a gear and a **More actions** menu, so the widget hides its gear.
 
 **Install on Next Restart** is in the right-click and **More actions** menus too, when system
-updates are waiting, nothing is staged and the main button says **Update Now**. Another updater's
+updates are waiting, none are ready and the main button says **Update Now**. Another updater's
 restart, a stored Fedora upgrade or an image-based system removes it.
 
 ### Messages
@@ -103,8 +103,8 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    is installed but cannot start, so nothing can check for updates."*, with **Check Installation**
    and **Copy Command**. Either one shows alone. See
    [install.md](install.md#installing-from-the-kde-store-first).
-2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
-   `Update failed: <the reason>`, or why a button press failed. After an answer to message 9,
+2. **What just happened:** `Updated 4 packages in 2 s.`, `No packages changed.`,
+   `The update failed: <the reason>.`, or why a button press failed. After an answer to message 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
    check that worked. If the press got no fresh lists, it says why, until the next check. On battery
    or a metered connection it offers **Download Anyway**, which fetches them once, now. If another
@@ -120,22 +120,22 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    says to use Discover, and **Update Now** is hidden. With a system folder other users can change,
    updates are paused. With a Fedora release upgrade stored, **Install on Next Restart** is off.
    The last two have **Check Installation**, which names the folder or gives the upgrade's commands.
-5. **What the next restart will install**, when an update is staged. See
-   [The staged banner](#the-staged-banner).
+5. **What the next restart will install**, when updates are ready. See
+   [When updates are ready](#when-updates-are-ready).
 6. **A service did not start after the update.** *"Bluetooth failed to start after the
    update. It stopped with an error. A system service (bluetooth.service)."* Several get a heading
    and a message each. **Copy Command** copies its `systemctl status` command. **Mute Until It
    Starts** stops Kempt mentioning it until it starts cleanly again. Services that were already
    failing before the update are listed quietly below. When one runs again, a line says so once,
    ranked under the restart message. The panel count and icon never include this.
-7. **Restart to apply installed updates**, with **Restart…** and a close button. See
+7. **Restart to finish updating.**, with **Restart…** and a close button. See
    [About the restart](#about-the-restart).
 8. **"This update includes a kernel. The safest way is to install it on the next restart, so
    nothing changes under the running desktop."** Another version also names the NVIDIA driver.
    Without a kernel, it names the session packages in the update: `This update touches 20 packages
    your running session depends on (dbus, glibc, kf6, mesa, …). The safest way is to install them
-   on the next restart.` Its button is **Install on Next Restart**. It is hidden while an update is
-   staged. When you press **Update Now**, it asks first. The
+   on the next restart.` Its button is **Install on Next Restart**. It is hidden while updates are
+   ready. When you press **Update Now**, it asks first. The
    message moves to the top (below a Check Installation result), starts *"Nothing is installed
    yet."*, ends *"Install on the next restart, or now?"* and adds **Install Now**. **Install on Next
    Restart** gets the keyboard focus. While a Fedora
@@ -159,76 +159,71 @@ or says it found none. **Show Full Report** shows the whole report, which you ca
 **Copy Command** copies `kempt doctor`, the command that makes it. This message shows even when two
 others are up. It goes when you close it, close the widget, ask for a check, or start an update.
 
-### The staged banner
+### When updates are ready
 
 **Install on Next Restart** downloads system updates now and installs them during the next
-restart. Flatpak apps update now. The banner is usually green, with its own **Restart…** when the
+restart. Apps update now. The message is usually green, with its own **Restart…** when the
 restart message has none:
 
 ```
- (=) They install when you restart.   [Restart…]
+ (=) 5 updates are ready and install on the next restart.   [Restart…]
 ```
 
-Updates that come out after staging, and pending Flatpak apps, are not in it. The banner then
-adds `2 other updates are not in the staged update.`
+Updates that come out after that, and apps waiting to update, are not in it. The message then
+adds `2 other updates are left out.`
 
-A dnf command of your own, such as `sudo dnf install`, cancels a staged update. Within about a
-minute the banner goes and Kempt says so once. **Install on Next Restart** stages it again.
+A dnf command of your own, such as `sudo dnf install`, cancels updates that are ready. Within about a
+minute the message goes and Kempt says so once. **Install on Next Restart** prepares them again.
 
-If you hold a package that is already in the staged update, the banner turns into a warning,
-because there is no way to edit a stored update and the restart would still install it:
+If you hold a package that is already in those updates, the message turns into a warning,
+because there is no way to edit them and the restart would still install it:
 
 ```
- (!) You held kernel-core after the update was staged, so it still installs.
-     To skip kernel-core, discard the staged update and use Install on Next
-     Restart again, or stop holding kernel-core to keep the current plan.
-     Discarding deletes the downloaded packages, so staging again downloads
-     them again.
-                                                    [Discard Staged Update]
+ (!) You held kernel-core after these updates were prepared, so it still
+     installs. To skip kernel-core, discard these updates and use Install on
+     Next Restart again, or stop holding kernel-core to keep them.
+                                                    [Discard Update]
 ```
 
 With several held packages it names the first and counts the rest:
 
 ```
- (!) You held kernel-core and 2 more after the update was staged, so they
-     still install. To skip them, discard the staged update and use Install
-     on Next Restart again, or stop holding them to keep the current plan.
+ (!) You held kernel-core and 2 more after these updates were prepared, so
+     they still install. To skip them, discard these updates and use Install
+     on Next Restart again, or stop holding them to keep these updates.
 ```
 
-When Kempt cannot read what the staged update contains and you hold dnf packages, the banner says
+When Kempt cannot read what those updates contain and you hold system packages, the message says
 `may`:
 
 ```
- (!) You added holds after the update was staged, so it may still install
-     held packages. To apply your holds, discard the staged update and use
-     Install on Next Restart again. Discarding deletes the downloaded
-     packages, so staging again downloads them again.                          [Discard Staged Update]
+ (!) You added holds after these updates were prepared, so held packages may
+     still install. To apply your holds, discard these updates and use Install
+     on Next Restart again.                                     [Discard Update]
 ```
 
 While the warning shows, neither it nor the restart message has **Restart…**, because a restart
-would install the package you held. Flatpak holds never cause a warning: only system packages are
-staged.
+would install the package you held. App holds never cause a warning: only system packages wait for the
+restart.
 
-In a terminal, `kempt update --surface=offline` replaces the staged update with your current holds
-and reuses the download.
+In a terminal, `kempt update --surface=offline` replaces those updates with your current holds and
+reuses the download.
 
-**Discard Staged Update** has this tooltip:
+**Discard Update** has this tooltip:
 
 > Removes the update waiting for the next restart, so the restart installs nothing. May ask for
-> your password. It deletes the packages it downloaded, so staging again downloads them again.
+> your password. It deletes the packages it downloaded, so installing again downloads them again.
 
-If the staged update changed after the banner was drawn, nothing is discarded and the widget says
-so. While a Fedora release upgrade is stored, the button is not there.
+If the updates changed after the message was drawn, nothing is discarded and the widget says so. While a Fedora release upgrade is stored, the button is not there.
 
-If another updater has prepared the next restart, the banner warns and offers **Restart…**:
+If another updater has prepared the next restart, the message warns and offers **Restart…**:
 
 ```
- (!) The next restart belongs to another updater, so the updates Kempt
-     staged will not install then. Restart when you're ready. Kempt then
-     shows what is still pending.
+ (!) Another updater has taken your next restart, so these updates will not
+     install then.
 ```
 
-With nothing of Kempt's staged, the banner says only that the restart belongs to another updater,
+With nothing of Kempt's waiting, the message says `Another updater has prepared your next restart.`
 and **Install on Next Restart** is gone until you have restarted. **Update Now** runs live, even
 when Kempt is set to install on the next restart. With system updates waiting it asks first:
 
@@ -244,7 +239,7 @@ after the setting was turned off and on again, or after `kempt discover-notifier
 
 ### The list
 
-Updates are grouped under **System (dnf)**, **Apps (flatpak)**, **Flatpak runtimes** and **Held**.
+Updates are grouped under **System**, **Apps**, **Flatpak runtimes** and **Held**.
 Each row shows the package with its old and new versions. Long version lines wrap and long names are
 shortened. A package the update would add shows `new → 1.0-1.fc44`. An app installed for you alone
 is marked **For you only**.
@@ -282,7 +277,7 @@ succeeds it reads `No successful check yet`. It can add:
 - ` · lists 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
   not showing.
 - ` · 1 held`
-- ` · ~140 MB`, the estimated download, when known, something is pending, and no update is staged.
+- ` · ~140 MB`, the estimated download, when known, something is pending, and no updates are ready.
 - ` · restart pending`, when a restart is owed and its message is not showing.
 
 The size leaves out new dependencies and held items, and overstates Flatpak, which downloads only
@@ -290,7 +285,7 @@ the changes. Below a megabyte it reads `< 1 MB`.
 
 **Update Now** runs updates wherever **Run updates in** says. With **On the next
 restart** and system updates pending, it reads **Install on Next Restart**. A press shows a
-spinner until Kempt answers. It hides when nothing is pending, an update is staged, or its question
+spinner until Kempt answers. It hides when nothing is pending, updates are ready, or its question
 is open. Kernel or desktop updates make it ask first (message 8), unless a release upgrade is
 stored.
 
@@ -299,9 +294,9 @@ stored.
 The widget says what is happening:
 
 - `Updating…`, with the live log below, for **In this widget**
-- `Staging updates for the next restart…`, when staging.
+- `Preparing updates for the next restart…`, while it does that.
 
-You can close the widget meanwhile. If a run cannot start, the widget shows Kempt's message and fix. If it still says it is updating after the run has ended, press **Not Updating? Check for Updates**.
+You can close the widget meanwhile. If a run cannot start, the widget shows Kempt's message and fix. If it still says it is updating after the run has ended, press **Not Updating? Check Again**.
 After three hours without word from a run, the widget checks again. The run may still be going.
 
 ### When the widget checks
@@ -312,10 +307,10 @@ screen stay until the answer arrives. If a check is already running, one more ru
 finishes, however often you open the widget.
 
 Every 30 seconds (every 2 during an update) the widget also checks the package databases, the
-staged update, its state file and the config file. A `dnf upgrade` or `sudo dnf5 offline clean` in
+updates that are ready, its state file and the config file. A `dnf upgrade` or `sudo dnf5 offline clean` in
 a terminal, a Discover run, another Kempt run or a settings change shows up without you asking. For
 a minute after a check, the widget ignores changes that check made. A change to the packages or the
-staged update in that minute is checked when the minute is up.
+waiting updates in that minute is checked when the minute is up.
 
 ### When nothing is pending
 
@@ -333,7 +328,7 @@ plug in or switch connections, and **Download Anyway** sits under the hint.
 cannot open, the message says why.
 
 The updates are already installed. Running programs and the kernel keep the old versions until
-they restart. A staged update is the other way round: it installs during the restart.
+they restart. Updates that are ready are the other way round: they install during the restart.
 
 The **x** hides the message until your next Plasma login.
 
@@ -396,7 +391,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Update Now** | `kempt run` |
 | **Install Now** | `kempt run --risky-ok` |
 | **Install on Next Restart** | `kempt run --surface=offline` |
-| **Discard Staged Update** | `kempt unstage` |
+| **Discard Update** | `kempt unstage` |
 | Drawing the warning about Discover's automatic updates | `kempt discover-notifier seen` |
 | **Update Now**, while another updater holds the next restart | `kempt run --surface=<a live surface>`, after its own question when system updates are waiting |
 | The padlock | `kempt hold` or `kempt unhold` |

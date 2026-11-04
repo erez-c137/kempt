@@ -246,7 +246,7 @@ PlasmoidItem {
     // thing between a double press and two runs.
     property bool runRequested: false
 
-    // The same guard for Install on Next Restart and Discard Staged Update:
+    // The same guard for Install on Next Restart and Discard Update:
     // one flag for both, set at the press and cleared on every callback path. Each waits its
     // turn on the executor, behind a check for up to two minutes, and `updating` is false all that
     // time, so without it a second press queues a second action. The popup disables both.
