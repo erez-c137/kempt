@@ -277,6 +277,29 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,hel
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,held_total:0,last_check:"2026-08-26T10:00:00+03:00",last_success:"2026-08-25T10:00:00+03:00",backends:{}},false,"",{nowMs:Date.UTC(2026,7,26,7,0,0)}).tooltipSub')" \
   "x · Last successful check 1 day ago" "the stale tooltip gives the age of the counts in words"
 
+# --- a failed check never says "Up to date" ------------------------------------------------------
+# The header says when updates were last looked for, by whichever clock is older: a check an hour
+# ago that answered from five-day-old lists has not looked for an hour.
+NF_NOW='{nowMs:Date.parse("2026-08-27T10:00:00+03:00")}'
+nf() { js "L.viewModel({schema:1,status:\"stale\",error:\"x\",actionable:0,held_total:0,backends:{},$1},false,\"\",$NF_NOW).$2"; }
+NF_HOUR='last_success:"2026-08-27T09:00:00+03:00"'
+NF_OLD='metadata_refreshed:"2026-08-22T10:00:00+03:00"'
+assert_eq "$(nf "$NF_HOUR" headerText)" "No updates found 1 hour ago" "failed check, nothing waiting: says when it last found nothing"
+assert_eq "$(nf "$NF_HOUR" tooltipMain)" "No updates found 1 hour ago" "...and the tooltip's title says the same"
+assert_eq "$(nf "$NF_HOUR,$NF_OLD" headerText)" "No updates found 5 days ago" "...by the older clock when the lists are older"
+assert_eq "$(nf 'last_success:"2026-08-22T10:00:00+03:00",metadata_refreshed:"2026-08-27T09:00:00+03:00"' headerText)" \
+  "No updates found 5 days ago" "...and by the older clock when the check is older"
+assert_eq "$(nf "$NF_HOUR,metadata_refreshed:\"not a date\"" headerText)" "No updates found 1 hour ago" "...an unreadable list stamp is no clock"
+assert_eq "$(nf 'last_success:"not a date"' headerText)" "Last check failed" "an unreadable check stamp: no time, and no Up to date"
+assert_eq "$(nf "$NF_HOUR,backends:{dnf:{items:[{name:\"bash\",from:\"1\",to:\"2\",held:true}]}}" headerText)" \
+  "No updates found 1 hour ago · 1 held" "...the held count stays beside it"
+assert_eq "$(nf 'backends:{dnf:{items:[{name:"bash",from:"1",to:"2",held:true}]}}' headerText)" \
+  "Last check failed · 1 held" "...also with no successful check on record"
+assert_eq "$(nf "$NF_HOUR,backends:{flatpak:{scopes:{user:\"failed\"}}}" headerText)" \
+  "No updates found 1 hour ago · apps for you only not checked" "...and so does the unchecked apps note"
+assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,backends:{},$NF_HOUR,$NF_OLD},false,\"\",$NF_NOW).headerText")" \
+  "Up to date" "premise: a check that succeeded still says Up to date"
+
 # --- stale is CALM: last-known contents, explained in the tooltip, never an alarm --------------
 # A repo that flapped is not a broken machine. The panel keeps rendering whatever the last good
 # check found; only a state we genuinely cannot read earns the warning treatment.
@@ -2052,7 +2075,11 @@ assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2
 assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
   "Last update 1 min ago · staged for restart" "a staging run's row says the changes are deferred, not absent"
 assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
-  "Last update 1 min ago · no package changes" "a failed staging run falls back to the counts, which are honestly zero"
+  "Last update failed 1 min ago · no package changes" "a failed staging run reads as failed, over counts that are honestly zero"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"terminal\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
+  "Last update failed 1 min ago · no package changes" "...and so does any other failed run"
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"terminal\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}'), $W + $MIN)")" \
+  "Last update failed 1 min ago · 2 packages" "...still counting what it did change before it failed"
 # ...and the row for a staging run that staged nothing. Past tense, and WITHOUT the reason: this
 # row is one line among several and the distinction needs a clause it has no room for, so the
 # post-run line above carries it. What matters here is that it no longer promises a restart.
@@ -2812,6 +2839,11 @@ assert_contains "$(js "L.lastRunText($LAST,$NOW,false)")" "staged for restart" "
 # Discover's setting.
 DU='discover_unattended:true,discover_unattended_warn:true,discover_offer:true'
 assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "Discover set to update itself: warned"
+assert_eq "$(js 'L.COPY.discoverUnattended')" "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates." "...in one plain sentence"
+assert_eq "$(js 'L.messageStack({staged: true, discoverUnattended: true, startup: true, restart: true})')" '["staged","discoverUnattended"]' \
+  "...ranked right after what is staged, above a service failure and a restart"
+assert_eq "$(js 'L.messageStack({discoverUnattended: true, stageRestorable: true, startup: true})')" '["discoverUnattended","stageRestorable"]' \
+  "...and before everything under it with nothing staged"
 assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...over the plain offer"
 # Held with updates paused too: both are true, so both show, and the question has nothing to warn about.
 assert_eq "$(held "$PEND" '{}' updateAsksHeld)" "true" "held with system updates: Update Now asks"

@@ -3285,7 +3285,7 @@ offline_partial_current() {
   [[ -s "$OFFLINE_PARTIAL_FILE" ]] && [[ "$(offline_stored_fingerprint)" == "$(cat "$OFFLINE_PARTIAL_FILE" 2>/dev/null)" ]]
 }
 offline_partial_tidy() {
-  if [[ -e "$OFFLINE_PARTIAL_FILE" ]] && ! offline_partial_current; then
+  if [[ -e "$OFFLINE_PARTIAL_FILE" ]] && [[ "$(offline_system_status)" != unknown ]] && ! offline_partial_current; then
     rm -f "$OFFLINE_PARTIAL_FILE" 2>/dev/null || true
   fi
   return 0
@@ -3311,10 +3311,19 @@ offline_stored_fingerprint() {  # → one opaque line, or nothing
 # package-based machine that is not there.
 on_ostree() { [[ -e "$KEMPT_OSTREE_MARKER" ]]; }
 
-offline_system_status() {  # → ready | absent | dnf5's own status word
-  local s
-  s="$(offline_toml_value status)" || { printf 'absent\n'; return 0; }
-  printf '%s\n' "${s:-absent}"
+# Three answers, and the third is a real one. `absent` needs proof that nothing is stored: a file that
+# is there and yields no status, or a folder that cannot be looked in, is `unknown`, and nobody acts
+# on unknown. Reading it as absent cleared the note of a stage that was still armed.
+offline_system_status() {  # → ready | absent | unknown | dnf5's own status word
+  local s dir
+  s="$(offline_toml_value status 2>/dev/null)" || s=""
+  if [[ -n "$s" ]]; then printf '%s\n' "$s"; return 0; fi
+  dir="$(dirname "$KEMPT_OFFLINE_TOML")"
+  if [[ -e "$KEMPT_OFFLINE_TOML" || ( -d "$dir" && ! -x "$dir" ) ]]; then
+    printf 'unknown\n'
+  else
+    printf 'absent\n'
+  fi
 }
 
 # Is the transaction dnf5 has stored a Fedora RELEASE upgrade rather than an ordinary offline
@@ -4741,7 +4750,9 @@ KEMPT_JQ_STATUS='
     restartMessage: "Restart to apply installed updates",
     restartHeld: "The next restart belongs to another updater",
     noSuccessfulCheckYet: "No successful check yet",
-    lastCheckFailed: "last check failed"
+    lastCheckFailed: "last check failed",
+    noUpdatesFound: "No updates found",
+    lastCheckFailedHeader: "Last check failed"
   };
   def section_titles: {dnf: "System (dnf)", flatpak: "Apps (flatpak)"};
   def kind_titles: {flatpak: {runtime: "Flatpak runtimes"}};
@@ -4850,9 +4861,15 @@ KEMPT_JQ_STATUS='
               elif $n == 1 then status_copy.stagedHeaderOne
               else ($n | tostring) + " " + status_copy.stagedHeaderTail end)
          elif $actionable == 0 then
-           (if $held_total > 0 then status_copy.upToDate + dot + ($held_total | tostring) + " " + status_copy.held
-            elif $user_unchecked then status_copy.upToDate + dot + status_copy.userAppsUncheckedShort
-            else status_copy.upToDate end)
+           (if ($stale | not) then status_copy.upToDate
+            elif (($s.last_success | renderable_stamp) and ($s.last_success | stamp_s) != null) then
+              (($s.metadata_refreshed | stamp_s) as $lists | ($s.last_success | stamp_s) as $checked
+               | status_copy.noUpdatesFound + " "
+                 + (if $lists != null and $lists < $checked then $s.metadata_refreshed else $s.last_success end | rel_time($now)))
+            else status_copy.lastCheckFailedHeader end) as $nothing_waiting
+           | (if $held_total > 0 then $nothing_waiting + dot + ($held_total | tostring) + " " + status_copy.held
+              elif $user_unchecked then $nothing_waiting + dot + status_copy.userAppsUncheckedShort
+              else $nothing_waiting end)
          elif $actionable == 1 then "1 update available"
          else ($actionable | tostring) + " updates available" end) as $header
       | (if (($s.risky_pending | type) == "array") then [$s.risky_pending[] | tostring] else [] end) as $risky

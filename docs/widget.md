@@ -65,6 +65,7 @@ update leaves the kernel out:
 The header reads one of:
 
 - `3 updates available`. The count has no cap.
+- `No updates found 5 days ago` after a failed check, dated by the older of that check and its lists.
 - `Up to date`, `Up to date · 2 held` when every pending update is held, or
   `Up to date · apps for you only not checked` when the apps installed for you alone could not be
   listed.
@@ -250,8 +251,8 @@ when Kempt is set to install on the next restart. With system updates waiting it
 Flatpak apps alone do not ask. Nor does Update Now while updates are paused, because the run would
 be refused.
 
-If Discover is set to install updates by itself, a warning says it can take over your next restart,
-with **Turn Off**. It shows once, whatever Kempt's mode, and comes back only
+If Discover is set to install updates by itself, a warning says it can take over your next restart
+and stop Kempt's updates, with **Turn Off**. It shows once, whatever Kempt's mode, and comes back only
 after the setting was turned off and on again, or after `kempt discover-notifier on`.
 
 ### The list

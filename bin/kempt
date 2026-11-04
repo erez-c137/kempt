@@ -2868,6 +2868,28 @@ reconcile_detour_stage() {  # marker-json toml-status [none, when nothing of it 
     || echo "warning: could not record that the staged update was announced. The next check may repeat it" >&2
 }
 
+# A restart that installed none of a stage is a failed run, and until one says so the staging run is
+# the last update on record, which `kempt status` reads as "staged". Written only while that staging
+# run is still the newest entry, which also makes it once: this entry then takes its place.
+record_stage_did_not_run() {  # dnf5's status word
+  local newest surface="restart (staged update did not run)" ts hist
+  # shellcheck disable=SC2012  # the listing status_last_run reads, and its reasons
+  newest="$(ls -1 "$HIST_DIR"/*.json 2>/dev/null | LC_ALL=C sort -r | awk 'NR==1' || true)"
+  [[ -n "$newest" ]] || return 0
+  jq -e '.surface == "offline" and (.backends.dnf.status? // .status) == "ok" and ((.staged_nothing // "") == "")' \
+    "$newest" >/dev/null 2>&1 || return 0
+  [[ "$1" != transaction-incomplete ]] || surface="offline (restart did not finish)"
+  ts="$(date +%Y%m%dT%H%M%S)"
+  hist="$HIST_DIR/$ts.json"
+  [[ -e "$hist" ]] && hist="$HIST_DIR/$ts-offline.json"
+  jq -n --arg ts "$(now_iso)" --arg surface "$surface" '
+    {timestamp:$ts, surface:$surface, status:"failed", reboot_needed:false, log:"",
+     error:"the restart installed none of the staged update",
+     backends:{dnf:{updated:[],added:[],removed:[],status:"failed",skipped_held:[]},
+               flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' > "$hist" \
+    || { rm -f "$hist"; log_event "harvest entry not written (state directory unwritable?)"; }
+}
+
 # Before the restart: the transaction dnf5 holds is no longer the stage this marker records.
 # Something replaced it - `sudo dnf5 offline clean` and a stage of its own, or a second admin staging
 # over it - and the next restart installs THAT. Said once, and recorded on the marker as `replaced`,
@@ -2975,6 +2997,9 @@ harvest_offline() {
   # dnf5's own view, because the marker cannot tell "waiting for a restart" from "the transaction
   # is gone" - and a manual `dnf5 offline clean` would otherwise leave one every check waits on.
   toml_status="$(offline_system_status)"
+  # Nothing can be concluded from a stored state that cannot be read: not that it is gone, and not
+  # that a package which moved was installed by it. The next readable check answers.
+  [[ "$toml_status" == unknown ]] && return 0
   # First, whatever the boot: is the transaction dnf5 still holds the one this marker records?
   if [[ "$toml_status" != absent ]]; then reconcile_replaced_stage; fi
   if [[ -n "$boot" && "$boot" != unknown && "$boot" == "$(current_boot_id)" ]]; then
@@ -3044,8 +3069,10 @@ harvest_offline() {
         fi
       elif [[ "$toml_status" != ready ]]; then
         reconcile_detour_stage "$marker" "$toml_status" none
+        record_stage_did_not_run "$toml_status"
       else
         reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
+        record_stage_did_not_run "$toml_status"
       fi
     fi
     return 0
@@ -3085,6 +3112,7 @@ harvest_offline() {
         if [[ "$partly_count" == 0 ]]; then
           rm -f "$now_snap"
           reconcile_detour_stage "$marker" "$toml_status" none
+          record_stage_did_not_run "$toml_status"
           return 0
         fi
         # Already told it can no longer install, so a second report would only contradict that.
@@ -3437,6 +3465,11 @@ cmd_unstage() {
   local marker pre status
   marker="$(offline_marker_read)"
   status="$(offline_system_status)"
+  if [[ "$status" == unknown ]]; then
+    echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
+    log_event "unstage refused (the stored transaction could not be read)"
+    exit 5
+  fi
   # Nothing stored. Either a marker is left over and this tidies it, or there is nothing at all;
   # neither is a failure and neither needs root, so neither raises an authentication dialog.
   if [[ "$status" == absent ]]; then
@@ -5310,6 +5343,7 @@ doctor_offline_rows() {
       absent)
         # Nothing for anyone to do: harvest_offline clears a marker with no transaction under it.
         doctor_info "staged update: the transaction is gone, so the next check clears the marker ($OFFLINE_MARKER)" ;;
+      unknown) : ;;
       transaction-incomplete)
         # Only when nothing of it can be shown to have changed, or that is not known: the harvest
         # clears the marker over a partial install.
@@ -5324,9 +5358,9 @@ doctor_offline_rows() {
     # would attribute Kempt's own stage to somebody else. info, not FAIL: a torn read is a moment
     # (update and check hold different locks, so a check can arrive mid-write).
     doctor_info "staged update: the marker cannot be read, so nothing here describes what Kempt staged: $OFFLINE_MARKER (dnf5 says \"$dr_toml\"). A marker that will not parse is skipped rather than cleared, so the next check leaves it where it is"
-  elif [[ "$dr_toml" != absent ]] || offline_release_upgrade >/dev/null; then
+  elif [[ "$dr_toml" != absent && "$dr_toml" != unknown ]] || offline_release_upgrade >/dev/null; then
     # `|| offline_release_upgrade` is not redundant: a transaction-state file that is READABLE but
-    # carries no `status` key reads as `absent` here, while the two releasever keys are right there
+    # carries no `status` key reads as `unknown` here, while the two releasever keys are right there
     # to be compared - so `kempt check` published a release upgrade and this report said nothing at
     # all about one.
     # Not Kempt's: it staged nothing and will harvest nothing. Still worth a line for somebody
@@ -5354,7 +5388,7 @@ doctor_offline_rows() {
           # `absent` here is a readable file with no `status` key, not a missing one - a missing one
           # never reaches this branch, because offline_release_upgrade cannot read its releasevers.
           local dr_word="status \"$dr_toml\""
-          [[ "$dr_toml" == absent ]] && dr_word="no status recorded"
+          [[ "$dr_toml" == unknown ]] && dr_word="no status recorded"
           doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and did not finish ($dr_word). See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
         *)
           doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
@@ -5395,7 +5429,7 @@ doctor_offline_rows() {
     else
       doctor_warn "another updater has prepared the next restart: $dr_where"
     fi
-  elif [[ "$dr_link" == dnf5 && "$dr_toml" != ready ]]; then
+  elif [[ "$dr_link" == dnf5 && "$dr_toml" != ready && "$dr_toml" != unknown ]]; then
     if [[ "$dr_toml" == absent ]]; then
       doctor_fail "boot symlink is live with nothing staged behind it: $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Remove it with: sudo dnf5 offline clean"
     else

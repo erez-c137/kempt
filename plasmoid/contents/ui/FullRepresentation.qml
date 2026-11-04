@@ -1007,7 +1007,7 @@ PlasmaExtras.Representation {
             Component.onCompleted: popup.plainTextMessage(discoverUnattendedMessage)
             Layout.fillWidth: true
             type: Kirigami.MessageType.Warning
-            text: i18n("Discover is set to install updates by itself, so it can take over your next restart. Updates Kempt staged would not install then. Turning off its notifier should stop that.")
+            text: i18n("Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.")
             Accessible.name: text
             visible: popup.shows("discoverUnattended")
             actions: [
@@ -2015,7 +2015,8 @@ PlasmaExtras.Representation {
                 id: footerLabel
                 Layout.fillWidth: true
                 text: popup.vm.footerText
-                elide: Text.ElideRight
+                // Wrapped, never cut: its last fact can be a restart that no message is carrying.
+                wrapMode: Text.Wrap
                 font: Kirigami.Theme.smallFont
                 opacity: 0.8
 

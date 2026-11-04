@@ -429,6 +429,7 @@ plain_in=(
   "harvest entry not written (state directory unwritable?)" "harvest log not written (state directory unwritable?)"
   "history entry not written (state directory unwritable?)" "unstage discarded the staged update"
   "unstage refused (another updater has prepared the next restart)" "unstage refused by the root helper"
+  "unstage refused (the stored transaction could not be read)"
   "unstage found nothing staged" "unstage cleared a marker with no transaction under it" "unstage failed rc=126"
   "unstage left a transaction behind (status ready)" "reclaim removed 2 runtimes (2000000 bytes) rc=0"
   "reclaim found nothing to remove" "reclaim changed (digest), nothing removed"

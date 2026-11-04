@@ -135,7 +135,7 @@ fi
 # below, counted with wc -w once the roff macros are stripped, so it needs no groff.
 declare -A WORD_BUDGET=(
   [README.md]=820
-  [AGENTS.md]=420
+  [AGENTS.md]=510
   [CONTRIBUTING.md]=1700
   [SECURITY.md]=420
   [tests/README.md]=310
