@@ -1101,19 +1101,21 @@ su() {  # block fields, vm field [opts]
   js "L.viewModel($(su_state "$1"), false, '', ${3:-{\}}).$2"
 }
 assert_eq "$(su "announced:[$SU_BT]" 'startupEntries.map(function (e) { return e.text; })')" \
-  '["Bluetooth service didn'"'"'t start after the update.\nIt stopped with an error. A system service (bluetooth.service)."]' \
+  '["Bluetooth failed to start after the update.\nIt stopped with an error. A system service (bluetooth.service)."]' \
   "one service: the title names it, the body names the kind and the unit"
 assert_eq "$(su "announced:[$SU_BT]" 'startupHeading')" "" "...and needs no heading above it"
 assert_eq "$(su "announced:[$SU_BT], attribution:'restart'" 'startupTitle')" \
-  "Bluetooth service didn't start after the last restart." "another tool changed packages since: no update is named"
+  "Bluetooth failed to start after the last restart." "another tool changed packages since: no update is named"
 assert_eq "$(su "announced:[$SU_USR]" 'startupEntries[0].text.split("\n")[1]')" \
   "It stopped with an error. A service in your session (plasma-foo.service)." "a session service says so in the body"
 assert_eq "$(su "announced:[$SU_BT, $SU_USR, $SU_ESC]" 'startupHeading')" \
-  "3 services didn't start after the update." "several: one heading with the count"
+  "3 services failed to start after the update, including Bluetooth and plasma-foo.service." "several: one heading with the count and two names"
+assert_eq "$(su "announced:[$SU_BT, $SU_USR]" 'startupHeading')" \
+  "Bluetooth and plasma-foo.service failed to start after the update." "two: the heading names both"
 assert_eq "$(su "announced:[$SU_BT, $SU_USR, $SU_ESC]" 'startupEntries.map(function (e) { return e.text.split("\n")[0]; })')" \
   '["Bluetooth service","plasma-foo.service","File System Check on /dev/disk/by-uuid/1"]' "...and each one listed under it by name"
 assert_eq "$(su "announced:[{unit:\"x.service\",scope:\"system\",description:\"\"}]" 'startupTitle')" \
-  "x.service didn't start after the update." "no description: the unit name stands in"
+  "x.service failed to start after the update." "no description: the unit name stands in"
 # The command each Copy Command copies, quoted only where a shell would mangle it.
 assert_eq "$(su "announced:[$SU_BT, $SU_USR, $SU_ESC]" 'startupEntries.map(function (e) { return e.command; })')" \
   '["systemctl status bluetooth.service","systemctl --user status plasma-foo.service","systemctl status '"'"'systemd-fsck@dev-disk-by\\x2duuid-1.service'"'"'"]' \
@@ -1139,27 +1141,18 @@ assert_eq "$(su "already:[$SU_USR]" 'messageSlots.indexOf("startup")')" "-1" "..
 assert_eq "$(su "announced:[$SU_BT]" 'messageSlots')" '["startup"]' "a failure takes a message slot"
 assert_eq "$(js "L.viewModel($(su_state "announced:[$SU_BT]"), true, '', {}).messageSlots")" '[]' "...not during an update"
 assert_eq "$(su "announced:[$SU_BT], notify:false" 'messageSlots')" '[]' "...nor with the setting off"
-assert_eq "$(js 'L.messageStack({restart: true, startup: true, fetchMissed: true})')" '["startup","restart"]' \
+assert_eq "$(js 'L.messageStack({restart: true, startup: true, reclaim: true})')" '["startup","restart"]' \
   "a failure ranks above the restart"
 assert_eq "$(js 'L.messageStack({report: true, restart: true, startup: true})')" '["report","startup"]' \
   "...so a run that broke a service shows its report and the failure, and the restart waits in the footer"
-assert_eq "$(js 'L.messageStack({restart: true, startupRecovered: true, fetchMissed: true})')" '["restart","startupRecovered"]' \
-  "the running-again line alone stays below the restart"
 assert_eq "$(js 'L.viewModel(S("live"), false, "", {}).startupEntries')" '[]' "no block, no banner"
-# Recovered: one line, acknowledged by the digest, and kept on screen after the acknowledgement.
+# Recovered: nothing on screen, the warning going away is the news. Acknowledged by the digest.
 REC="recovered:[$SU_BT], recovered_digest:'0123456789abcdef'"
-assert_eq "$(su "$REC" 'startupRecoveredText')" "Bluetooth service is running again." "a recovered service: one line"
-assert_eq "$(su "$REC" 'messageSlots')" '["startupRecovered"]' "...in its own slot, below the restart"
-assert_eq "$(su "announced:[$SU_USR], $REC" 'messageSlots')" '["startup"]' "...or inside a failure's slot when there is one"
-assert_eq "$(su "announced:[$SU_USR], $REC" 'startupAckDigest')" "0123456789abcdef" "...and acknowledged there too"
-assert_eq "$(su "$REC" 'startupAckDigest')" "0123456789abcdef" "...with the digest the popup acknowledges"
+assert_eq "$(su "$REC" 'messageSlots')" '[]' "a recovered service takes no slot"
+assert_eq "$(su "$REC" 'startupAckDigest')" "0123456789abcdef" "...and is acknowledged by its digest"
+assert_eq "$(su "announced:[$SU_USR], $REC" 'startupAckDigest')" "0123456789abcdef" "...with a failure up too"
 assert_eq "$(su "recovered:[$SU_BT], recovered_digest:'nope'" 'startupAckDigest')" "" "a digest of the wrong shape is never sent"
-assert_eq "$(su "$REC" 'startupAckDigest' '{reportShown: true, doctorShown: false}')" "0123456789abcdef" "(a report beside it leaves room)"
-assert_eq "$(js "var s = $(su_state "$REC"); s.reboot_needed = true; s.offline_staged = {staged_at:'2026-09-09T09:00:00+03:00', count:2, armed:true}; L.viewModel(s, false, '', {}).startupAckDigest")" "" \
-  "...and a line the cap keeps off the screen is not acknowledged"
-assert_eq "$(su "recovered:[], recovered_digest:''" 'startupRecoveredText' "{startupRecoveredKept: [$SU_BT]}")" \
-  "Bluetooth service is running again." "acknowledged, the line stays until the widget closes"
-assert_eq "$(su "recovered:[], recovered_digest:''" 'startupAckDigest' "{startupRecoveredKept: [$SU_BT]}")" "" "...with nothing left to acknowledge"
+assert_eq "$(js "L.viewModel($(su_state "$REC"), true, '', {}).startupAckDigest")" "" "...and none during an update"
 # Never in the count, the badge, the icon or the attention.
 assert_eq "$(js "var a = V('live'), b = L.viewModel($(su_state "announced:[$SU_BT, $SU_USR], $REC"), false); ['badgeText','badgeVisible','iconState','actionable','tooltipMain','tooltipSub','headerText'].map(function (k) { return a[k] === b[k]; }).join(',')")" \
   "true,true,true,true,true,true,true" "the panel's count, icon and tooltip ignore all of it"
@@ -2330,72 +2323,68 @@ fm() {  # extra-fields askedMs field [more opts]
 }
 FM_STAMP="2026-08-26T12:02:30+03:00"
 NETERR='backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (7): Failed to connect to mirrors.fedoraproject.org port 443 after 3 ms: Could not connect to server"}}'
-assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedMessage)" \
-  "Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
+assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage)" \
+  "Kempt could not reach the update servers, so this list may be out of date." \
   "a press whose fetch failed on the network says Kempt could not reach the update servers"
-assert_eq "$(fm "$NETERR" "$ASKED" messageSlots)" '["fetchMissed"]' "...in its own message slot"
-assert_eq "$(fm "$NETERR" "$ASKED" footerText)" "Checked 1 min ago" \
-  "...and the footer leaves the age to the notice, so it is said once"
+assert_eq "$(fm "$NETERR" "$ASKED" messageSlots)" '["report"]' "...in the report's slot"
 assert_eq "$(fm "$NETERR" "$ASKED" checkAnswerText)" \
-  "Up to date. Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
+  "Up to date. Kempt could not reach the update servers, so this list may be out of date." \
   "...and the spoken answer says the same"
-assert_eq "$(fm 'backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (22): The requested URL returned error: 404"}}' "$ASKED" fetchMissedMessage)" \
-  "Kempt could not download fresh package lists. The counts are from lists 3 hours old." \
+assert_eq "$(fm 'backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (22): The requested URL returned error: 404"}}' "$ASKED" reportFetchMessage)" \
+  "The check failed, so this list is from 3 hours ago." \
   "a fetch that reached a server and failed says only that it could not download"
-assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedMessage)" \
-  "Kempt waits for mains power to download fresh package lists. The counts are from lists 3 hours old." \
+assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" reportFetchMessage)" \
+  "Kempt skips the online check on battery, so this list may be out of date." \
   "a fetch skipped on battery says Kempt waits for mains power"
-assert_eq "$(fm "refresh_skipped:\"metered\",$NETERR" "$ASKED" fetchMissedMessage)" \
-  "Kempt waits for an unmetered connection to download fresh package lists. The counts are from lists 3 hours old." \
+assert_eq "$(fm "refresh_skipped:\"metered\",$NETERR" "$ASKED" reportFetchMessage)" \
+  "Kempt skips the online check on a metered connection, so this list may be out of date." \
   "...one skipped on a metered link says so, even with an older refresh error on record"
-assert_eq "$(fm '' "$ASKED" fetchMissedMessage)" \
-  "Kempt did not get fresh package lists. The counts are from lists 3 hours old." \
+assert_eq "$(fm '' "$ASKED" reportFetchMessage)" \
+  "Kempt did not download fresh lists, so this list is from 3 hours ago." \
   "an engine that publishes neither reason gets the lead that claims no cause"
-assert_eq "$(fm "metadata_refreshed:\"2026-08-26T12:02:10+03:00\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+assert_eq "$(fm "metadata_refreshed:\"2026-08-26T12:02:10+03:00\",$NETERR" "$ASKED" reportFetchMessage)" "" \
   "a later press whose fetch worked clears it, whatever refresh_error a later gate left"
-assert_eq "$(fm "$NETERR" 0 fetchMissedMessage)" "" "an automatic check never shows it"
-assert_eq "$(fm 'last_check:"2026-08-26T12:30:00+03:00"' "$ASKED" fetchMissedMessage)" "" \
+assert_eq "$(fm "$NETERR" 0 reportFetchMessage)" "" "an automatic check never shows it"
+assert_eq "$(fm 'last_check:"2026-08-26T12:30:00+03:00"' "$ASKED" reportFetchMessage)" "" \
   "...and an automatic check after the press takes it away"
-assert_eq "$(fm "last_check:\"2026-08-26T12:30:00+03:00\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+assert_eq "$(fm "last_check:\"2026-08-26T12:30:00+03:00\",$NETERR" "$ASKED" reportFetchMessage)" "" \
   "...even with an old refresh error still on record"
-assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedMessage 'refreshCheckStamp:""')" "" \
+assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage 'refreshCheckStamp:""')" "" \
   "...as does a press whose own check gave no state"
-assert_eq "$(fm "last_check:\"2026-08-26T11:50:00+03:00\",$NETERR" "$ASKED" fetchMissedMessage \
+assert_eq "$(fm "last_check:\"2026-08-26T11:50:00+03:00\",$NETERR" "$ASKED" reportFetchMessage \
              'refreshCheckStamp:"2026-08-26T11:50:00+03:00"')" "" \
   "...nor does a state another check wrote before the press"
-assert_eq "$(fm "status:\"stale\",error:\"dnf check failed\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+assert_eq "$(fm "status:\"stale\",error:\"dnf check failed\",$NETERR" "$ASKED" reportFetchMessage)" "" \
   "...nor a stale check, which reports its own failure"
-assert_eq "$(fm "$NETERR" "$ASKED" messageSlots fetchMissedDismissed:true)" '[]' \
-  "the close button takes it off screen"
-assert_eq "$(fm "$NETERR" "$ASKED" footerText fetchMissedDismissed:true)" "Checked 1 min ago · lists 3 hours old" \
-  "...and the footer says the age again"
-assert_eq "$(fm "$NETERR" "$ASKED" fetchMissedMessage 'nowMs:Date.UTC(2026,7,26,11,0,0)')" \
-  "Kempt could not reach the update servers to download fresh package lists. The counts are from lists 3 hours old." \
+assert_eq "$(fm "$NETERR" "$ASKED" footerText)" "Checked 1 min ago · lists 3 hours old" \
+  "the footer always gives the lists' age"
+assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage reportShown:true)" "" "a report of something that happened takes the slot first"
+assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedAnyway reportShown:true)" "" "...and Download Anyway goes with the sentence"
+assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage 'nowMs:Date.UTC(2026,7,26,11,0,0)')" \
+  "Kempt could not reach the update servers, so this list may be out of date." \
   "the age is measured at the check, so the sentence does not change while the widget is open"
-assert_eq "$(fm "refresh_skipped:\"off\",$NETERR" "$ASKED" fetchMissedMessage)" \
-  "Kempt did not get fresh package lists. The counts are from lists 3 hours old." \
+assert_eq "$(fm "refresh_skipped:\"off\",$NETERR" "$ASKED" reportFetchMessage)" \
+  "Kempt did not download fresh lists, so this list is from 3 hours ago." \
   "with refreshing turned off, an old refresh error is not read as this check's"
-assert_eq "$(js 'JSON.stringify(L.messageStack({report:true, fetchMissed:true, staged:true}))')" \
-  '["report","staged"]' "the staged banner outranks the notice"
 assert_eq "$(fm "offline_staged:{staged_at:\"2026-08-26T11:00:00+03:00\",count:3,armed:true},$NETERR" "$ASKED" footerText reportShown:true)" \
   "Checked 1 min ago · lists 3 hours old" \
   "...and the footer gives the age when the notice is crowded out"
 assert_eq "$(js "L.fetchMissedOf($(fm_state "metadata_refreshed:\"2026-08-26T12:01:40+03:00\",$NETERR"), $ASKED, \"$FM_STAMP\")")" \
-  "Kempt could not reach the update servers to download fresh package lists. The counts are from lists less than a minute old." \
+  "Kempt could not reach the update servers, so this list may be out of date." \
   "...and lists fetched seconds before the press are less than a minute old"
 # Lists fetched by dnf or Discover leave no metadata_refreshed. A press whose fetch failed still
 # says the lists could not be downloaded, and leaves out the age nobody knows.
-assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" fetchMissedMessage)" \
-  "Kempt could not reach the update servers to download fresh package lists." \
+assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" reportFetchMessage)" \
+  "Kempt could not reach the update servers, so this list may be out of date." \
   "with no metadata stamp, a failed fetch still leads with the failure, without an age"
 assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" checkAnswerText)" \
-  "Up to date. Kempt could not reach the update servers to download fresh package lists." \
+  "Up to date. Kempt could not reach the update servers, so this list may be out of date." \
   "...and the spoken answer says so too"
 assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" footerText)" "Checked 1 min ago" \
   "...while the footer invents no age"
-assert_eq "$(fm 'metadata_refreshed:null' "$ASKED" fetchMissedMessage)" "" \
+assert_eq "$(fm 'metadata_refreshed:null' "$ASKED" reportFetchMessage)" "" \
   "...and with no stamp and no refresh error there is nothing to claim"
-assert_eq "$(fm "metadata_refreshed:null,refresh_skipped:\"off\",$NETERR" "$ASKED" fetchMissedMessage)" "" \
+assert_eq "$(fm "metadata_refreshed:null,refresh_skipped:\"off\",$NETERR" "$ASKED" reportFetchMessage)" "" \
   "...nor with refreshing turned off, whose refresh error is from a download Kempt no longer tries"
 # Answering an offer, or the Discover setting: a verb that takes the CLI's writers' lock, which
 # waits up to 30 s, so the widget waits longer than that before it calls the write lost.
@@ -3385,7 +3374,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","blockedMessage","blockedOffersDoctor","blockedWarns","checkAnswerText","discoverMessage","discoverSerious","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldLiveSurface","iconState","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","blockedMessage","blockedOffersDoctor","blockedWarns","checkAnswerText","discoverMessage","discoverSerious","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","footerText","footerTooltip","headerText","heldLiveSurface","iconState","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","remedyCommand","reportFetchMessage","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

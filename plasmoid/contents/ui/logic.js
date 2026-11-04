@@ -236,13 +236,14 @@ var COPY = {
     lastSuccessfulCheck: "Last successful check %1",
     countsFrom: "The counts are from %1.",
     // A Check for Updates whose fetch did not land, over counts the check still answered from the
-    // lists already here. One lead says why, then fetchCountsFrom says how old those lists are.
-    // %1 is an age such as "3 hours old".
-    fetchNoServers: "Kempt could not reach the update servers to download fresh package lists.",
-    fetchFailed: "Kempt could not download fresh package lists.",
-    fetchWaitsForPower: "Kempt waits for mains power to download fresh package lists.",
-    fetchWaitsForUnmetered: "Kempt waits for an unmetered connection to download fresh package lists.",
-    fetchMissed: "Kempt did not get fresh package lists.",
+    // lists already here. It says why, and %1 is when those lists are from, where that is the news.
+    fetchNoServers: "Kempt could not reach the update servers, so this list may be out of date.",
+    fetchFailed: "The check failed, so this list is from %1.",
+    fetchFailedNoAge: "The check failed, so this list may be out of date.",
+    fetchWaitsForPower: "Kempt skips the online check on battery, so this list may be out of date.",
+    fetchWaitsForUnmetered: "Kempt skips the online check on a metered connection, so this list may be out of date.",
+    fetchMissed: "Kempt did not download fresh lists, so this list is from %1.",
+    fetchMissedNoAge: "Kempt did not download fresh lists, so this list may be out of date.",
     // The button on fetchWaitsFor* and under the battery and metered no-cache hints. One press runs
     // one check that downloads anyway. Its tooltip follows the reason the check published.
     downloadAnyway: "Download Anyway",
@@ -251,7 +252,6 @@ var COPY = {
     // A press whose check waited out another check's lock: the CLI served the state from before
     // the press and downloaded nothing, so the press is asked for again.
     anywayLost: "Another check was running. Press Download Anyway again.",
-    fetchCountsFrom: "The counts are from lists %1.",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
     showLog: "Show Log",
@@ -1119,8 +1119,6 @@ var MESSAGE_CAP = 2;
 //            message that changes what the rest of the popup may offer.
 //   restart  a restart is owed. The footer says "restart pending" whenever this message is not on
 //            screen, and the footer wraps rather than cutting its last words off.
-//   fetchMissed  a Check for Updates whose fetch did not land. Below the banners, whose buttons
-//            act on the system: when it is crowded out the footer gives the lists' age instead.
 //   reclaim  unused Flatpak runtimes. Last: the space stays free to take at any later open.
 // `releaseUpgrade` sits below the report and imageBased, above Kempt's own staged transaction:
 // the next restart replaces the whole operating system, which outranks anything below it, and it is the reason the offline
@@ -1132,12 +1130,9 @@ var MESSAGE_CAP = 2;
 // In its mild form it stays last but one: it is about something that may happen.
 // `startup` (a service that stopped starting after an update) sits above the restart: a live run
 // that broke a service and owes a restart shows its report and the failure, and the footer says
-// `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
-// and sits under the restart. With a failure up, that line rides in the failure's slot instead.
-// Either is acknowledged only while drawn.
+// `restart pending`.
 var MESSAGE_ORDER = ["question", "report", "blocked", "staged", "startup",
-                     "restart", "startupRecovered", "fetchMissed",
-                     "discover", "reclaim"];
+                     "restart", "discover", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1202,17 +1197,25 @@ function startupVerbArgs(verb, entry) {
     return " startup " + verb + " " + shellQuote(entry.unit) + (entry.scope === "user" ? " --user" : "");
 }
 
-// startupOf(state, kept) -> what the banner says. `kept` is the recovered set this widget already
-// acknowledged: the CLI has cleared it, and the line stays until the widget closes.
-function startupOf(state, kept) {
+// startupShortName(entry) -> its name in a sentence, without the word the sentence supplies.
+function startupShortName(e) {
+    return e.name.replace(/ service$/, "");
+}
+
+// startupOf(state) -> what the banner says, and the digest of what recovered: that one is
+// acknowledged, so `kempt startup` stops listing it, and the warning having gone is the news.
+function startupOf(state) {
     var b = state && state.startup && typeof state.startup === "object" && !isArray(state.startup)
         ? state.startup : null;
-    var none = { entries: [], title: "", heading: "", already: "", recoveredText: "", digest: "" };
+    var none = { entries: [], title: "", heading: "", already: "", digest: "" };
     if (b === null || b.notify !== true) return none;
     var when = b.attribution === "update" ? "update" : "last restart";
     var announced = startupEntriesOf(b.announced), i;
-    var title = announced.length === 1 ? announced[0].name + " didn't start after the " + when + "."
-        : announced.length > 1 ? announced.length + " services didn't start after the " + when + "." : "";
+    var failed = " failed to start after the " + when;
+    var title = announced.length === 1 ? startupShortName(announced[0]) + failed + "."
+        : announced.length === 2 ? startupShortName(announced[0]) + " and " + startupShortName(announced[1]) + failed + "."
+        : announced.length > 2 ? announced.length + " services" + failed + ", including "
+            + startupShortName(announced[0]) + " and " + startupShortName(announced[1]) + "." : "";
     var entries = [];
     for (i = 0; i < announced.length; i++) {
         var a = announced[i];
@@ -1225,14 +1228,12 @@ function startupOf(state, kept) {
     var recovered = startupEntriesOf(b.recovered);
     var digest = recovered.length > 0 && typeof b.recovered_digest === "string"
         && STARTUP_DIGEST_RE.test(b.recovered_digest) ? b.recovered_digest : "";
-    if (recovered.length === 0) recovered = startupEntriesOf(kept);
     return {
         entries: entries,
         title: title,
         heading: announced.length > 1 ? title : "",
         already: announced.length > 0 && already.length > 0
             ? "Already failing before the " + when + ": " + already.join(", ") + "." : "",
-        recoveredText: recovered.map(function (e) { return e.name + " is running again."; }).join("\n"),
         digest: digest
     };
 }
@@ -1861,16 +1862,17 @@ function fetchMissedOf(state, askedMs, pressStamp) {
     var asked = Math.floor(Number(askedMs) / 1000) * 1000;
     var checked = stampMs(state.last_check);
     if (!isFinite(checked) || checked < asked) return "";
-    // No stamp means nobody knows how old the lists are: the lead stands alone, without an age.
     var stamped = isFinite(stampMs(state.metadata_refreshed));
-    var age = stamped ? ageWords(checked - stampMs(state.metadata_refreshed)) : "";
-    if (stamped && age === "") return "";
+    if (stamped && stampMs(state.metadata_refreshed) > checked) return "";
     var err = refreshErrorOf(state);
-    var lead = state.refresh_skipped === "battery" ? COPY.fetchWaitsForPower
-        : state.refresh_skipped === "metered" ? COPY.fetchWaitsForUnmetered
-        : err === "" || typeof state.refresh_skipped === "string" ? COPY.fetchMissed
-        : REFRESH_NETWORK_RE.test(err) ? COPY.fetchNoServers : COPY.fetchFailed;
-    return age === "" ? lead : lead + " " + COPY.fetchCountsFrom.replace("%1", age);
+    if (state.refresh_skipped === "battery") return COPY.fetchWaitsForPower;
+    if (state.refresh_skipped === "metered") return COPY.fetchWaitsForUnmetered;
+    var named = err === "" || typeof state.refresh_skipped === "string";
+    if (!named && REFRESH_NETWORK_RE.test(err)) return COPY.fetchNoServers;
+    // No stamp means nobody knows how old the lists are. Measured at the check, so the sentence does
+    // not change while the widget is open.
+    if (!stamped) return named ? COPY.fetchMissedNoAge : COPY.fetchFailedNoAge;
+    return (named ? COPY.fetchMissed : COPY.fetchFailed).replace("%1", relativeTime(state.metadata_refreshed, checked));
 }
 
 // servedBeforePress(state, askedMs) -> whether a check started at `askedMs` answered with a state
@@ -1888,17 +1890,6 @@ function servedBeforePress(state, askedMs) {
 // that skipped the fetch, else "". Fetching turned off ("off") is a setting no press overrides.
 function anywayReasonOf(refreshSkipped) {
     return refreshSkipped === "battery" || refreshSkipped === "metered" ? refreshSkipped : "";
-}
-
-// ageWords(ms) -> "5 min old", "3 hours old", "2 days old", or "" for an age that is not one.
-function ageWords(age) {
-    if (typeof age !== "number" || !isFinite(age) || age < 0) return "";
-    if (age < 60000) return "less than a minute old";
-    var days = Math.floor(age / METADATA_STALE_MS);
-    if (days >= 1) return days + (days === 1 ? " day old" : " days old");
-    var hours = Math.floor(age / 3600000);
-    if (hours >= 1) return hours + (hours === 1 ? " hour old" : " hours old");
-    return Math.floor(age / 60000) + " min old";
 }
 
 // --- the check command ------------------------------------------------------------------------
@@ -2975,24 +2966,23 @@ function viewModel(state, updating, cliError, opts) {
     // this by itself would leave logic.js unable to tell whether it had.
     // `reportShown` is the one input this file cannot derive - the post-run line and a failed press
     // are main.qml's own state, not the CLI's.
-    // A Check for Updates whose fetch did not land. Shown until the next check, whoever starts it, or
-    // its close button (opts.fetchMissedDismissed).
+    // A Check for Updates whose fetch did not land. In the report's slot, until the next check,
+    // whoever starts it. A report of something that happened takes the slot first.
     var fetchMissedMessage = usable && !updating && !noEngine
         ? fetchMissedOf(state, opts.refreshAskedMs, opts.refreshCheckStamp) : "";
     // --- a service that stopped starting after an update ---------------------------------------
     // Never in the count, the badge, the icon or its attention: the update count is about updates.
-    var startup = startupOf(usable ? state : null, opts.startupRecoveredKept);
+    var startup = startupOf(usable ? state : null);
     var startupFree = !updating && !noEngine;
     var startupWanted = startupFree && startup.entries.length > 0;
-    var startupRecoveredWanted = startupFree && !startupWanted && startup.recoveredText !== "";
 
+    // ...and while a blocked stage is up, a report saying the stage installs on the next restart
+    // is the very promise that warning takes back, so it gives way the same way.
+    var reportRun = opts.reportShown === true
+        && !((staged || stageBlocked || restartHeldBanner) && opts.reportRepeatsStaged === true);
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
-        // ...and while a blocked stage is up, a report saying the stage installs on the next restart
-        // is the very promise that warning takes back, so it gives way the same way.
-        report: opts.reportShown === true
-            && !((staged || stageBlocked || restartHeldBanner) && opts.reportRepeatsStaged === true),
-        fetchMissed: fetchMissedMessage !== "" && opts.fetchMissedDismissed !== true,
+        report: reportRun || fetchMissedMessage !== "",
         // Check Installation's result, or its busy line: main.qml's own state, like the report.
         // Never hidden with a report that repeats the staged message: it says something else.
         doctor: opts.doctorShown === true && !updating,
@@ -3008,8 +2998,7 @@ function viewModel(state, updating, cliError, opts) {
         discover: discoverUnattended ? "serious" : (discoverOffer ? "mild" : false),
         // The same offer with the reason that matters while something is staged, and higher up.
         reclaim: reclaimShown && !updating,
-        startup: startupWanted,
-        startupRecovered: startupRecoveredWanted
+        startup: startupWanted
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -3039,8 +3028,7 @@ function viewModel(state, updating, cliError, opts) {
         // from may be a week old, and only this line can tell the person that.
         var metaAge = metadataAgeText(state.metadata_refreshed, opts.nowMs,
                                       refreshMissed(state, opts.refreshAskedMs) ? 60000 : undefined);
-        // ...unless the notice above is saying it already.
-        if (metaAge !== "" && messageSlots.indexOf("fetchMissed") < 0) footerParts.push(metaAge);
+        if (metaAge !== "") footerParts.push(metaAge);
     } else if (noState) {
         // No state at all - the first seconds of a session, or a CLI that could not be run. There
         // has been no successful check as far as this widget knows, and saying so is true.
@@ -3121,11 +3109,10 @@ function viewModel(state, updating, cliError, opts) {
         heldLiveSurface: restartHeld ? "popup" : "",
         stagedMessage: stageBlocked ? COPY.stageBlocked
             : restartHeldBanner ? COPY.restartHeldBanner : stagedMessage,
-        // A Check for Updates whose fetch did not land: why, and how old the lists are. Shown in
-        // the "fetchMissed" slot. Empty when there is nothing to say.
-        fetchMissedMessage: fetchMissedMessage,
+        // A Check for Updates whose fetch did not land, when the report's slot is free for it.
+        reportFetchMessage: reportRun ? "" : fetchMissedMessage,
         // Why that message may offer Download Anyway: "battery", "metered", or "" for no button.
-        fetchMissedAnyway: fetchMissedMessage !== "" ? anywayReasonOf(state.refresh_skipped) : "",
+        fetchMissedAnyway: !reportRun && fetchMissedMessage !== "" ? anywayReasonOf(state.refresh_skipped) : "",
         // The same for the placeholder over lists never downloaded: only under the battery and
         // metered hints, so never beside Check Installation or fetching turned off. A refresh
         // error from before is only the detail there (checkProblemOf).
@@ -3212,9 +3199,7 @@ function viewModel(state, updating, cliError, opts) {
         startupTitle: startup.title,
         startupHeading: startup.heading,
         startupAlready: startup.already,
-        startupRecoveredText: startup.recoveredText,
-        startupAckDigest: messageSlots.indexOf("startup") >= 0 || messageSlots.indexOf("startupRecovered") >= 0
-            ? startup.digest : "",
+        startupAckDigest: startupFree ? startup.digest : "",
         footerText: footerParts.join(DOT),
         checkAnswerText: checkAnswerText,
         // Published rather than left inside the two strings above, so a future surface (a

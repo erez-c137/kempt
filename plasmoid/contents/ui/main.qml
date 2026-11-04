@@ -128,7 +128,6 @@ PlasmoidItem {
     property string reclaimDismissed: ""
     // The Check for Updates press (its refreshAskedMs) whose missed-fetch notice was closed. A
     // later press can show the notice again.
-    property double fetchMissedClosedFor: 0
     // The last_check of the state the latest Check for Updates press was answered with. The
     // missed-fetch notice shows only while that state is the one on screen, so any later check,
     // automatic or not, takes it away.
@@ -271,8 +270,6 @@ PlasmoidItem {
                                                 refreshCheckStamp: refreshCheckStamp,
                                                 restartDismissed: restartDismissed,
                                                 reclaimDismissed: reclaimDismissed,
-                                                fetchMissedDismissed: fetchMissedClosedFor > 0
-                                                    && fetchMissedClosedFor === refreshAskedMs,
                                                 engineFault: engineFault,
                                                 // What a run started NOW would actually do. The
                                                 // popup needs it because the refusals the CLI
@@ -298,8 +295,7 @@ PlasmoidItem {
                                                 reportRepeatsStaged: reportLatest === "run"
                                                     && Logic.reportRepeatsStaged(lastRun),
                                                 doctorShown: doctorRunning
-                                                             || doctorSummary.length > 0,
-                                                startupRecoveredKept: startupRecoveredKept })
+                                                             || doctorSummary.length > 0 })
 
     // --- the CLI -------------------------------------------------------------------------------
     // plasmashell does not necessarily inherit a login shell's PATH, so the prefix finds the CLI
@@ -1019,10 +1015,6 @@ PlasmoidItem {
         reclaimDismissed = vm.reclaimDigest;
     }
 
-    function dismissFetchMissed() {
-        fetchMissedClosedFor = refreshAskedMs;
-    }
-
     // Download Anyway: one check that fetches even on battery or a metered connection. Only this
     // press asks for that. During a check it is remembered and runs next, unless the running check
     // already passes the rules: then a second press adds nothing, not even a plain check. During a
@@ -1254,8 +1246,6 @@ PlasmoidItem {
         // A Startup page request belongs to the open it asked for, never to the next one.
         // An acknowledgement that did not land is tried again at the next open.
         startupAckSent = "";
-        // ...and a "running again" line that was acknowledged has now been seen.
-        startupRecoveredKept = [];
         startupMuteError = null;
         postRunLine = "";
         // A choice left open is a question nobody answered: next time, Update Now asks again.
@@ -1452,18 +1442,13 @@ PlasmoidItem {
         }
     }
 
-    // A line that lands while the popup is open has been seen.
+    // A service that recovers while the popup is open has been seen too.
     onVmChanged: acknowledgeStartup()
 
-    // The "running again" line: shown once, acknowledged with
-    // `kempt startup ack --expect=<digest>` while the popup is on screen and the line is drawn
-    // (vm.startupAckDigest is "" otherwise). A set that changed in between is refused (exit 6).
-    // The CLI then clears the line from state.json, so the set acknowledged is kept here and
-    // shown until the popup closes: a line that vanished as it was read would not be read.
-    // Exit 1 is kept too: the CLI may have forgotten the set and then failed to patch state.json,
-    // and the next state written would take the line away unread.
+    // What recovered is acknowledged with `kempt startup ack --expect=<digest>` while the popup is
+    // on screen (vm.startupAckDigest is "" otherwise). A set that changed in between is refused
+    // (exit 6). The warning going away is the news, so nothing is drawn for it.
     property string startupAckSent: ""
-    property var startupRecoveredKept: []
 
     // Marked only once the warning is really on screen: closed popup, no mark, and none behind the
     // Startup page. Whether the write landed is not waited for: at worst the warning comes back on
@@ -1481,11 +1466,9 @@ PlasmoidItem {
         var digest = vm.startupAckDigest;
         if (!popupOnScreen || digest === "" || digest === startupAckSent) return;
         startupAckSent = digest;
-        var seen = kemptState && kemptState.startup ? kemptState.startup.recovered : [];
         executor.run(kemptCmd + " startup ack --expect=" + Logic.shellQuote(digest),
                      Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
             if (rc !== 0 && rc !== 1) return;
-            root.startupRecoveredKept = seen;
             root.adoptState();
         });
     }

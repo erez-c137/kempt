@@ -1515,7 +1515,8 @@ p.pump(50)
 p.check("a report that names kempt doctor offers Check Installation",
         [lev("reportMessage.actions[1].text"), lev("reportMessage.actions[1].visible")],
         ["Check Installation", True])
-p.check("...and nothing more on that row", lev("reportMessage.actions.length"), 2)
+p.check("...and nothing more on that row",
+        lev("reportMessage.actions.filter(function (a) { return a.visible; }).length"), 1)
 open(DOCTOROUT, "w").write(DOCTOR_ONE)
 open(DOCTORRC, "w").write("1")
 open(DOCTORWAIT, "w").write("1")
@@ -2265,35 +2266,33 @@ _failed["backends"]["dnf"]["refresh_error"] = (
     "Curl error (7): Could not connect to server for https://mirrors.example/repomd.xml")
 open(os.path.join(p.sandbox, "state-fetch-failed.json"), "w").write(json.dumps(_failed))
 open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetch-failed.json"))
-_fetch_words = (ev("Logic.COPY.fetchNoServers") + " "
-                + ev("Logic.COPY.fetchCountsFrom").replace("%1", "3 hours old"))
+_fetch_words = ev("Logic.COPY.fetchNoServers")
 hush()
 ev("checkAction.trigger()")
 settle()
 p.check("a Check for Updates that could not reach the servers says so in a message",
-        [lev("fetchMissedMessage.visible"), lev("fetchMissedMessage.text"),
-         lev("fetchMissedMessage.type === Kirigami.MessageType.Information")],
+        [lev("reportMessage.visible"), lev("reportMessage.text"),
+         lev("reportMessage.type === Kirigami.MessageType.Information")],
         [True, _fetch_words, True])
 p.check("...and the answer reads it, once", said(), ["Up to date. " + _fetch_words])
-p.check("...and the footer leaves the age to the message",
-        "metadata" in str(lev("footerLabel.text")), False)
+p.check("...and the footer gives the age",
+        "lists 3 hours old" in str(lev("footerLabel.text")), True)
 # The age is the lists' age at the check, so the clock moving does not rewrite or re-read it.
 hush()
 ev("root.nowMs = Date.now() + 3600000")
 p.pump(80)
 p.check("an hour on the clock leaves the sentence as it was, and says nothing",
-        [lev("fetchMissedMessage.text"), said()], [_fetch_words, []])
+        [lev("reportMessage.text"), said()], [_fetch_words, []])
 ev("root.refreshClock()")
 # New words while it is on screen, outside a check's answer: the new sentence is the one read.
 # Same last_check, so the message stays up and only its words change.
 _power = dict(_failed, refresh_skipped="battery")
-_power_words = (ev("Logic.COPY.fetchWaitsForPower") + " "
-                + ev("Logic.COPY.fetchCountsFrom").replace("%1", "3 hours old"))
+_power_words = ev("Logic.COPY.fetchWaitsForPower")
 hush()
 ev("root.kemptState = JSON.parse(%s)" % json.dumps(json.dumps(_power)))
 settle()
 p.check("new words on the message are read as the new sentence, not the one before",
-        [lev("fetchMissedMessage.text"), said()], [_power_words, [_power_words]])
+        [lev("reportMessage.text"), said()], [_power_words, [_power_words]])
 # Any later check takes the notice away: its state is not the one the press was answered with.
 _auto = dict(_failed, last_check=(datetime.datetime.now().astimezone()
                                   + datetime.timedelta(seconds=8)).isoformat(timespec="seconds"))
@@ -2303,7 +2302,7 @@ hush()
 ev("root.doCheck(true)")
 settle()
 p.check("an automatic check after the press takes the message away, quietly",
-        [lev("fetchMissedMessage.visible"), ev("root.vm.fetchMissedMessage"), said()],
+        [lev("reportMessage.visible"), ev("root.vm.reportFetchMessage"), said()],
         [False, "", []])
 # Back to a press that missed, for the close button.
 _failed["last_check"] = (datetime.datetime.now().astimezone()
@@ -2313,16 +2312,9 @@ open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetch-failed.json"))
 ev("checkAction.trigger()")
 settle()
 p.check("premise: a new press that missed shows the message again",
-        lev("fetchMissedMessage.visible"), True)
+        lev("reportMessage.visible"), True)
 p.check("...and a fetch that failed offers no Download Anyway",
         [lev("fetchAnywayAction.visible"), lev("fetchAnywayAction.enabled")], [False, False])
-lev("fetchMissedMessage.visible = false")
-settle()
-p.check("closing it keeps it closed for this press",
-        [ev("root.fetchMissedClosedFor === root.refreshAskedMs"), lev("fetchMissedMessage.visible")],
-        [True, False])
-p.check("...and the footer gives the age again",
-        "lists 3 hours old" in str(lev("footerLabel.text")), True)
 _fetched = dict(_failed, metadata_refreshed=datetime.datetime.now().astimezone().isoformat(
     timespec="seconds"), backends=_missed["backends"], last_check=(
         datetime.datetime.now().astimezone() + datetime.timedelta(seconds=5)).isoformat(
@@ -2332,7 +2324,7 @@ open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetched.json"))
 ev("checkAction.trigger()")
 settle()
 p.check("a later Check for Updates that fetched shows no message",
-        [lev("fetchMissedMessage.visible"), ev("root.vm.fetchMissedMessage")], [False, ""])
+        [lev("reportMessage.visible"), ev("root.vm.reportFetchMessage")], [False, ""])
 
 # Download Anyway: on a fetch skipped for battery or a metered link, the message carries one button.
 # Its press runs one check with --anyway, and that check's answer clears the message.
@@ -2345,7 +2337,7 @@ open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-skipped.json"))
 ev("checkAction.trigger()")
 settle()
 p.check("a fetch skipped on battery offers Download Anyway on its message",
-        [lev("fetchMissedMessage.visible"), lev("fetchAnywayAction.visible"),
+        [lev("reportMessage.visible"), lev("fetchAnywayAction.visible"),
          lev("fetchAnywayAction.enabled"), lev("fetchAnywayAction.text")],
         [True, True, True, "Download Anyway"])
 p.check("...with the battery tooltip", lev("fetchAnywayAction.tooltip"),
@@ -2366,7 +2358,7 @@ settle()
 p.check("pressing it runs one check that downloads anyway",
         p.calls_matching("check"), ["check --anyway"])
 p.check("...and its answer takes the message and the button away",
-        [lev("fetchMissedMessage.visible"), lev("fetchAnywayAction.visible")], [False, False])
+        [lev("reportMessage.visible"), lev("fetchAnywayAction.visible")], [False, False])
 p.clear_calls()
 ev("root.doCheck(true)")
 settle()
@@ -3493,12 +3485,13 @@ _ASSEMBLED_IN_LOGIC = {
     "checkFailedFor",       # -> staleAnswerOf -> vm.checkAnswerText (dnf and Flatpak into the %1)
     "checkFailedPlain",     # -> staleAnswerOf, when the reason names neither
     "countsFrom",           # -> staleAnswerOf, with the age of the counts in the %1
-    "fetchNoServers",       # -> fetchMissedOf -> vm.fetchMissedMessage, for a network failure
+    "fetchNoServers",       # -> fetchMissedOf -> vm.reportFetchMessage, for a network failure
     "fetchFailed",          # -> fetchMissedOf, for any other failed fetch
     "fetchWaitsForPower",   # -> fetchMissedOf, for a fetch skipped on battery
     "fetchWaitsForUnmetered",  # -> fetchMissedOf, for a fetch skipped on a metered connection
+    "fetchFailedNoAge",     # -> fetchMissedOf, for a failed fetch with no stamp on the lists
     "fetchMissed",          # -> fetchMissedOf, for an engine that does not say why
-    "fetchCountsFrom",      # -> fetchMissedOf, joined on with the age of the lists in the %1
+    "fetchMissedNoAge",     # -> fetchMissedOf, the same with no stamp on the lists
     "riskyAskLead",         # -> FullRepresentation's question, spoken in front of its words
     "stagedBannerOne",      # -> stagedVariantOf -> vm.stagedBanner, under the header's count
     "stagedBannerMore",     # -> stagedVariantOf -> vm.stagedBanner

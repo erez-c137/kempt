@@ -106,10 +106,10 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
    `Update failed: <the reason>`, or why a button press failed. After an answer to message 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
-   check that worked. If the press got no fresh lists, another message says why and, when known,
-   gives their age, until closed or the next check. On battery or a metered connection it offers **Download
-   Anyway**, which fetches them once, now. If another check held the lock until the press gave
-   up, it says `Another check was running. Press Download Anyway again.`
+   check that worked. If the press got no fresh lists, it says why, until the next check. On battery
+   or a metered connection it offers **Download Anyway**, which fetches them once, now. If another
+   check held the lock until the press gave up, it says `Another check was running. Press Download
+   Anyway again.`
 
    **Show Log** opens the run's log, when there is one. **Check Installation** appears when the
    message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
@@ -122,7 +122,7 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    The last two have **Check Installation**, which names the folder or gives the upgrade's commands.
 5. **What the next restart will install**, when an update is staged. See
    [The staged banner](#the-staged-banner).
-6. **A service did not start after the update.** *"Bluetooth service didn't start after the
+6. **A service did not start after the update.** *"Bluetooth failed to start after the
    update. It stopped with an error. A system service (bluetooth.service)."* Several get a heading
    and a message each. **Copy Command** copies its `systemctl status` command. **Mute Until It
    Starts** stops Kempt mentioning it until it starts cleanly again. Services that were already

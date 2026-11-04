@@ -420,7 +420,10 @@ PlasmaExtras.Representation {
         }
         // Assertive for a run that finished or a press that failed. Polite for good news about
         // something the person just did (actionDone), which is the answer to their own press.
-        popup.speakMessage(reportMessage, popup.plasmoidItem.reportLatest !== "done");
+        // Polite too for a fetch that did not land. Its words are passed as they are, as on the staged
+        // banner: Accessible.name follows `text` a binding later.
+        popup.speakMessage(reportMessage, !reportMessage.aboutFetch && popup.plasmoidItem.reportLatest !== "done",
+                           reportMessage.text);
     }
 
     // A message's words come from outside the widget (flatpak's error line, the CLI's stderr), so
@@ -1079,9 +1082,12 @@ PlasmaExtras.Representation {
             id: reportMessage
             Component.onCompleted: popup.plainTextMessage(reportMessage)
             Layout.fillWidth: true
-            type: popup.plasmoidItem.reportFailed ? Kirigami.MessageType.Error
-                                                  : Kirigami.MessageType.Positive
-            text: popup.plasmoidItem.reportText
+            // Information for a fetch that did not land: the counts are still the best known.
+            readonly property bool aboutFetch: popup.vm.reportFetchMessage.length > 0
+            type: aboutFetch ? Kirigami.MessageType.Information
+                : popup.plasmoidItem.reportFailed ? Kirigami.MessageType.Error
+                : Kirigami.MessageType.Positive
+            text: aboutFetch ? popup.vm.reportFetchMessage : popup.plasmoidItem.reportText
             visible: popup.shows("report")
             Accessible.name: text
             // Assertive: a run that has just finished, or a press that failed, is the answer to
@@ -1096,7 +1102,8 @@ PlasmaExtras.Representation {
                     // Only for a RUN, and only for one that recorded a log: a history entry old
                     // enough (or damaged enough) to have none is an ordinary event, and a failed
                     // button press has no log at all.
-                    enabled: popup.plasmoidItem.reportLatest === "run"
+                    enabled: !reportMessage.aboutFetch
+                             && popup.plasmoidItem.reportLatest === "run"
                              && !!popup.plasmoidItem.lastRun
                              && popup.plasmoidItem.lastRun.logPath.length > 0
                     visible: enabled
@@ -1107,9 +1114,21 @@ PlasmaExtras.Representation {
                 Kirigami.Action {
                     text: i18n("Check Installation")
                     icon.name: "tools-report-bug"
-                    enabled: popup.plasmoidItem.reportOffersDoctor
+                    enabled: !reportMessage.aboutFetch && popup.plasmoidItem.reportOffersDoctor
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.runDoctor()
+                },
+                // On battery or a metered connection, one press downloads the lists anyway.
+                Kirigami.Action {
+                    id: fetchAnywayAction
+                    text: i18n("Download Anyway")
+                    icon.name: "download"
+                    visible: popup.vm.fetchMissedAnyway.length > 0
+                    tooltip: popup.vm.fetchMissedAnyway === "metered"
+                             ? i18n("Downloads fresh package lists now over this metered connection.")
+                             : i18n("Downloads fresh package lists now, on battery power.")
+                    enabled: visible && !popup.plasmoidItem.updating
+                    onTriggered: source => popup.plasmoidItem.downloadAnyway()
                 }
             ]
         }
@@ -1185,9 +1204,7 @@ PlasmaExtras.Representation {
             }
         }
 
-        // A service that stopped starting after an update, and one that runs again. The failure has
-        // the `startup` slot, above the restart; the running-again line alone has `startupRecovered`,
-        // below it, and rides in the failure's slot when there is one (logic.js, MESSAGE_ORDER). A Warning per service, each with its own two buttons, under
+        // A service that stopped starting after an update, in the `startup` slot above the restart. A Warning per service, each with its own two buttons, under
         // a heading only when there are several; the services already failing before the update are
         // one quiet line under them. Nothing here acts on a unit: Copy Command puts the command that
         // shows why on the clipboard, and Mute Until It Starts only tells Kempt to stop mentioning it.
@@ -1197,9 +1214,8 @@ PlasmaExtras.Representation {
             id: startupBanner
             Layout.fillWidth: true
             spacing: Kirigami.Units.smallSpacing
-            visible: popup.shows("startup") || popup.shows("startupRecovered")
-            readonly property string sentence: [popup.vm.startupTitle, popup.vm.startupRecoveredText]
-                .filter(function (t) { return t.length > 0; }).join("\n")
+            visible: popup.shows("startup")
+            readonly property string sentence: popup.vm.startupTitle
             property string spoken: ""
             function speak() {
                 if (sentence.length > 0) popup.speakMessage(startupBanner, false, sentence);
@@ -1306,69 +1322,6 @@ PlasmaExtras.Representation {
                 wrapMode: Text.Wrap
                 font: Kirigami.Theme.smallFont
                 opacity: 0.7
-            }
-
-            // Shown once: main.qml acknowledges it while it is on screen, and keeps it until the
-            // popup closes.
-            Kirigami.InlineMessage {
-                id: startupRecovered
-                Component.onCompleted: popup.plainTextMessage(startupRecovered)
-                Layout.fillWidth: true
-                type: Kirigami.MessageType.Positive
-                visible: text.length > 0
-                text: popup.vm.startupRecoveredText
-                Accessible.name: text
-            }
-        }
-
-        // A Check for Updates that could not fetch fresh lists: why, and how old the lists behind
-        // the counts are. Information, because those counts are still the best known. It goes at
-        // the next check, whoever starts it, or with its close button.
-        Kirigami.InlineMessage {
-            id: fetchMissedMessage
-            Component.onCompleted: popup.plainTextMessage(fetchMissedMessage)
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            showCloseButton: true
-            // Passed to speakMessage as it is, as on the staged banner: Accessible.name follows
-            // `text` a binding later, so reading it in this handler would say the previous one.
-            readonly property string sentence: popup.vm.fetchMissedMessage
-            text: sentence
-            Accessible.name: text
-            visible: popup.shows("fetchMissed")
-            // On battery or a metered connection, one press downloads the lists anyway.
-            actions: [
-                Kirigami.Action {
-                    id: fetchAnywayAction
-                    text: i18n("Download Anyway")
-                    icon.name: "download"
-                    visible: popup.vm.fetchMissedAnyway.length > 0
-                    tooltip: popup.vm.fetchMissedAnyway === "metered"
-                             ? i18n("Downloads fresh package lists now over this metered connection.")
-                             : i18n("Downloads fresh package lists now, on battery power.")
-                    enabled: visible && !popup.plasmoidItem.updating
-                    onTriggered: source => popup.plasmoidItem.downloadAnyway()
-                }
-            ]
-            // Polite. While the check's answer lands, that answer says this sentence itself.
-            property string spoken: ""
-            function speak() {
-                if (popup.plasmoidItem.answeringCheck) {
-                    fetchMissedMessage.spoken = fetchMissedMessage.visible ? sentence : "";
-                    return;
-                }
-                popup.speakMessage(fetchMissedMessage, false, sentence);
-            }
-            onSentenceChanged: speak()
-            // The close button breaks the visibility binding, as on the restart message: turn it
-            // into a dismissal and put the binding back.
-            onVisibleChanged: {
-                if (visible) { speak(); return; }
-                fetchMissedMessage.spoken = "";
-                if (!popup.closedByButton(fetchMissedMessage, "fetchMissed")) return;
-                popup.plasmoidItem.dismissFetchMissed();
-                popup.rescueFocus();
-                visible = Qt.binding(function () { return popup.shows("fetchMissed"); });
             }
         }
 
