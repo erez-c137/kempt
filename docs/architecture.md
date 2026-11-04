@@ -112,18 +112,8 @@ installonly and multilib sets never do.
 
 ## Where Kempt writes
 
-Kempt's own files live under `~/.config/kempt` and `~/.local/state/kempt`. Both can be redirected
-with `KEMPT_CONFIG_DIR` and `KEMPT_STATE_DIR`. The full list, with modes and retention, is in
-[configuration.md](configuration.md#files-and-retention). Apart from short-lived temp files in
-`$TMPDIR`, Kempt writes outside them in three places:
-
-- `kempt discover-notifier off` and `on` write to `~/.config/autostart`. `off` writes Kempt's
-  entry and keeps any earlier one as `*.before-kempt`. `on` removes Kempt's entry, moves an edited
-  one aside as `*.kempt-edited`, and puts the earlier one back.
-- `kempt enable-passwordless` writes `/etc/polkit-1/rules.d/49-kempt.rules` as root.
-- `install.sh` installs Kempt itself.
-
-Rules for the state directory:
+Every file Kempt writes, with its mode and retention, is listed in
+[configuration.md](configuration.md#files-and-retention). Rules for the state directory:
 
 - **Readers take no lock.** `atomic_write` renames a temp file into place, so a reader sees the
   whole old file or the whole new one. The temp sits next to its destination.
@@ -695,7 +685,7 @@ Three settings put Kempt in the system tray, and each fails silently when wrong:
 `logic.js` holds every derivation (badge, icon state, tooltip, widget rows, watcher comparison,
 icon size) in engine-agnostic JavaScript, which node runs in `tests/test_widget_logic.sh`. The
 remaining QML is bindings, which the probes in `tests/qml/` execute against a stubbed `kempt`.
-[tests/README.md](../tests/README.md) says how to run both.
+[CONTRIBUTING.md](../CONTRIBUTING.md#dev-setup) says how to run both.
 
 ## Adding a backend for your distro
 
@@ -849,7 +839,7 @@ assert_eq "$(jq -r '.[] | select(.name == "newthing") | .from' <<<"$out")" "?" \
 finish
 ```
 
-[tests/README.md](../tests/README.md#writing-a-test-file) explains `sandbox` and the assertions.
+[CONTRIBUTING.md](../CONTRIBUTING.md#harness-rules) explains `sandbox` and the assertions.
 Then **prove the test binds**: break the code it covers, watch it fail, and put the code back. A
 test that passes against the defect it is named after is worse than none. `tests/run_tests.sh`
 runs everything.

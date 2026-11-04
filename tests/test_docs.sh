@@ -82,7 +82,7 @@ fi
 # --- every doc passes the prose check --------------------------------------------------------------
 # tools/prose-check.py reads sentence length, asides and self-praise. It skips code blocks, tables,
 # headings and blockquotes. Docs have no word limit; a release compares `wc -w` with the last tag.
-PROSE_DOCS=(README.md CONTRIBUTING.md SECURITY.md tests/README.md "$REPO_ROOT"/docs/*.md)
+PROSE_DOCS=(README.md CONTRIBUTING.md SECURITY.md "$REPO_ROOT"/docs/*.md)
 if ! command -v python3 >/dev/null 2>&1; then
   echo "FAIL: python3 is missing, so the prose check cannot run"; _fail=1
 else

@@ -157,60 +157,9 @@ cd kempt
 ./install.sh
 ```
 
-The installer does four things, in this order:
-
-1. **Symlinks the CLI and its man page** into `~/.local/bin/kempt` and
-   `~/.local/share/man/man1/kempt.1`, so `man kempt` works without root.
-2. **Asks for authentication once**, through one `pkexec`. As root, it copies the two helpers and
-   the polkit action out of the repo.
-3. **Installs the panel widget and its icons** with `kpackagetool6`, with no authentication. If
-   you decline the dialog in step 2, this step is skipped, because the widget cannot work without
-   the root helpers.
-4. **Offers to turn off Discover's notifier**, as [described below](#the-discover-notifier-opt-out).
-
-The CLI, its library, the backends and the passwordless rules template all run from the checkout.
-Moving or deleting the checkout breaks `kempt`. Only the root-owned files and the widget are
-copies.
-
-### What lands where
-
-| Path | Owner | Installed by |
-| --- | --- | --- |
-| `~/.local/bin/kempt` | you | `install.sh` (symlink into the checkout) |
-| `~/.local/share/man/man1/kempt.1` | you | `install.sh` (symlink into the checkout) |
-| `/usr/local/libexec/kempt-refresh` | `root:root` 0755 | the one `pkexec` |
-| `/usr/local/libexec/kempt-apply` | `root:root` 0755 | the one `pkexec` |
-| `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | the one `pkexec` |
-| `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/` | you | `install.sh` (a **copy**, via `kpackagetool6`) |
-| `~/.local/share/icons/hicolor/{scalable,64x64,48x48,32x32,22x22,16x16}/apps/kempt.svg` | you | `install.sh`, so the icon resolves by name in Add Widgets |
-| No file: an `org.kde.KIconLoader.iconChanged` signal on your session bus | none | `install.sh`, so a running Plasma finds the new icon |
-| `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you turn Discover's notifier off |
-| `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
-
-The widget is a copy, so re-run `./install.sh` after changing anything under `plasmoid/`.
-Installing the widget does not put it on a panel: right-click the panel > **Add Widgets…** >
-search for **Kempt**.
-
-The icon goes into `~/.local/share/icons/hicolor/` because Add Widgets looks it up by name
-through the icon theme. Each size directory gets a drawing made for that size. The installer then
-sends this signal so a running Plasma rescans its icon directories:
-
-```
-dbus-send --session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:0
-```
-
-If Add Widgets still shows a placeholder icon, log out and back in.
-
-If `kpackagetool6` is missing, the widget is skipped with a note and everything else installs.
-
-Nothing else is written at install time.
-
-If `kempt` is not found afterwards, `~/.local/bin` is missing from your `PATH`. Fedora's default
-shell profile adds it when the directory exists, so a fresh login usually fixes it:
-
-```bash
-command -v kempt    # expect: /home/<you>/.local/bin/kempt
-```
+What the installer does, every path it writes and how the widget copy works are in
+[CONTRIBUTING.md](../CONTRIBUTING.md#installing-from-a-checkout). Updating and removing a checkout
+install are below.
 
 ### Installing from the KDE Store first
 

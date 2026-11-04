@@ -26,7 +26,7 @@ Nothing is setuid, and the CLI never runs as root.
 | `libexec/kempt-flatpak-unused` | The one Python file Kempt ships. It lists unused Flatpak runtimes and runs as the user. |
 | `plasmoid/contents/ui/logic.js` | Turns the state file into what the widget shows. It has no Qt and no I/O, so Node can run it in the tests. |
 | `plasmoid/contents/ui/*.qml` | The widget itself, mostly bindings to `logic.js`. |
-| `tests/` | About 4,000 assertions in plain bash, QML probes in `tests/qml/`, a container test in `tests/live/`, and the release check in `tests/release/`, which tests the built packages. |
+| `tests/` | The bash suite, QML probes in `tests/qml/`, a container test in `tests/live/`, and the release check in `tests/release/`, which tests the built packages. |
 | `docs/` | User and design docs. Read `architecture.md` first. |
 
 ## Six rules that catch people out

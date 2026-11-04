@@ -46,7 +46,7 @@ shows up in its own list like any other update. Only checkout installs upgrade b
    with the last tag, read any that grew, and cut it.
 
    ```bash
-   python3 tools/prose-check.py README.md AGENTS.md CONTRIBUTING.md SECURITY.md tests/README.md docs/*.md
+   python3 tools/prose-check.py README.md AGENTS.md CONTRIBUTING.md SECURITY.md docs/*.md
    for f in README.md CONTRIBUTING.md docs/*.md; do
      echo "$f $(git show "$(git describe --tags --abbrev=0):$f" 2>/dev/null | wc -w) -> $(wc -w < "$f")"
    done
