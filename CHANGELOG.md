@@ -20,6 +20,20 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **A failed check no longer says "Up to date".** With nothing waiting, the widget and `kempt status`
+  now say "Last check failed". The footer and the tooltip say how long ago the last good check was.
+- **A failed update still reads as failed after the widget is reopened.** The Last update row now
+  starts "Last update failed", with the reason under it.
+- **The footer no longer cuts off "restart pending".** It takes a second line when it needs one.
+- **A stored offline state that cannot be read no longer loses a staged update.** Kempt used to treat
+  it as gone, which could drop its note of an armed stage or claim that a restart had installed
+  updates. It now does nothing until the state can be read. `kempt doctor` says it cannot tell what the stored
+  update will do and how to clear it, and `kempt unstage` works when root can read the state.
+- **A restart that installed none of a staged update is now a failed run.** It gets a history entry,
+  and `kempt status` stops saying the update is staged.
+- **Discover's automatic updates get a plainer warning, higher up.** It sits right after the staged
+  update message: "Discover is set to install updates by itself, so it can take over your next
+  restart and stop Kempt's updates."
 - **Kempt no longer offers to stage behind another updater's restart.** When another updater, such as
   Discover, has prepared the next restart, the widget says the restart belongs to it and offers
   **Restart…**. `kempt status` says so too, and `kempt doctor` warns. Install on Next Restart and the

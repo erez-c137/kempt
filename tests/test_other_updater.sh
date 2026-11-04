@@ -501,6 +501,76 @@ KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
 assert_contains "$(cat "$WORLD/notifications")" "1 of your staged updates was installed, but" "an unfinished restart does not count a new dependency either"
 rm -f "$KEMPT_STATE_DIR/offline-partial"
 
+# A restart that installed nothing is a failed run. `kempt status` read the staging run as the last
+# update, and said "staged" after the restart had shown that it was not.
+staging_entry() {  # the run that made this stage, as the last thing history knows
+  mkdir -p "$KEMPT_STATE_DIR/history"
+  jq -n --arg ts "$(date -Iseconds -d '-1 hour')" \
+    '{timestamp:$ts, surface:"offline", status:"ok", reboot_needed:false, log:"",
+      backends:{dnf:{updated:[],added:[],removed:[],status:"ok",skipped_held:[]},
+                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}' \
+    > "$KEMPT_STATE_DIR/history/20200101T000000.json"
+}
+harvest_keeping_history() {
+  : > "$WORLD/notifications"
+  KEMPT_RPM_QA_CMD="${QA_CMD:-cat $qa}" KEMPT_DNF_INSTALLED_CMD="cat $after_tsv" KEMPT_BOOT_ID=boot-after \
+    "$KEMPT" check >/dev/null 2>&1 || true
+}
+last_run_line() { "$KEMPT" status 2>&1 | grep '^Last update' || true; }
+rm -rf "$KEMPT_STATE_DIR/history"
+staging_entry
+assert_contains "$(last_run_line)" "staged" "premise: before the restart, status says the update is staged"
+
+staged_marker "$NAMES"; cp "$pre" "$after_tsv"; qa_from_after
+export KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml"
+harvest_keeping_history
+assert_eq "$(entries)" "2" "a restart that stopped and installed nothing: a history entry"
+assert_eq "$(entry .status)" "failed" "...a failed one"
+assert_eq "$(entry .error)" "the restart installed none of the staged update" "...saying so"
+assert_eq "$(entry .surface)" "restart (staged update did not run)" "...and how"
+assert_eq "$(entry '.backends.dnf.updated | length')" "0" "...with nothing listed as installed"
+assert_contains "$(last_run_line)" "failed" "status reads it as failed"
+assert_contains "$("$KEMPT" summary | awk 'NR==1')" ") FAILED (the restart installed none of the staged update)" \
+  "summary gives the reason, with no run log to point at"
+assert_not_contains "$(last_run_line)" "staged" "...and stops saying staged"
+harvest_keeping_history
+harvest_keeping_history
+assert_eq "$(entries)" "2" "...and it is one entry, however many checks follow"
+rm -f "$marker"; export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
+
+# The same with the restart marker gone: dnf5 still says ready, and no restart ran it.
+rm -rf "$KEMPT_STATE_DIR/history"; staging_entry
+staged_marker "$NAMES"; cp "$pre" "$after_tsv"; qa_from_after
+harvest_keeping_history
+assert_eq "$(entry .status)" "failed" "a restart that walked past the stage: failed too"
+assert_eq "$(entry .surface)" "restart (staged update did not run)" "...in its own words"
+assert_not_contains "$(last_run_line)" "staged for" "...and status stops promising it"
+
+# ...and when other packages moved and none of the stage's did.
+rm -f "$marker"; rm -rf "$KEMPT_STATE_DIR/history"; staging_entry
+staged_marker "$NAMES"
+moved $'zzz-unrelated\t1.0-1.fc44'
+qa_from_after
+harvest_keeping_history
+assert_eq "$(entry .status)" "failed" "other packages moved and none of the stage's: failed as well"
+assert_eq "$(entry .surface)" "restart (staged update did not run)" "...in the same words"
+
+# A marker already told it cannot install still gets the row, on the box that upgraded to this.
+rm -rf "$KEMPT_STATE_DIR/history"; staging_entry
+jq -c '. + {armed:false, lost_announced:true}' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
+harvest_keeping_history
+assert_eq "$(entry .status)" "failed" "an already announced stage: the failed entry still lands"
+assert_eq "$(cat "$WORLD/notifications")" "" "...with no second notification"
+
+# Some other run came after the stage: it is the last update, and it is not rewritten as failed.
+rm -f "$marker"; rm -rf "$KEMPT_STATE_DIR/history"; staging_entry
+jq '.surface = "terminal" | .timestamp = "2026-11-03T10:00:00+02:00"' "$KEMPT_STATE_DIR/history/20200101T000000.json" \
+  > "$KEMPT_STATE_DIR/history/20200101T000001.json"
+staged_marker "$NAMES"; cp "$pre" "$after_tsv"; qa_from_after
+harvest_keeping_history
+assert_eq "$(entries)" "2" "a newer run stands as the last update: no entry on top of it"
+rm -f "$marker"; rm -rf "$KEMPT_STATE_DIR/history"
+
 # None of it changed, with the set as it was.
 staged_marker "$NAMES"; cp "$pre" "$after_tsv"; qa_from_after
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest

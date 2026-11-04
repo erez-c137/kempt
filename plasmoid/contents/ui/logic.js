@@ -172,7 +172,7 @@ var COPY = {
     // Discover is set to install updates by itself, which puts its update ahead of Kempt's at the
     // next restart. Not the offer above: that one is about a count.
     discoverUnattended:
-        "Discover is set to install updates by itself, so it can take over your next restart. Updates Kempt staged would not install then. Turning off its notifier should stop that.",
+        "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.",
     discoverOfferOff: "Turn Off Discover's Notifier",
     discoverOfferKeep: "Keep Discover's Notifier",
     discoverOn: "Turn On Discover's Notifier",
@@ -216,6 +216,8 @@ var COPY = {
     // What the footer gains while the counts above it are stale: three words on the line that
     // DATES those counts. The CLI's reason goes in the tooltip of the button that tries again.
     lastCheckFailed: "last check failed",
+    // ...and the header in place of "Up to date" when that check found nothing waiting.
+    lastCheckFailedHeader: "Last check failed",
     // ...and while the per-user apps could not be listed. The rest of the check stands, so this is
     // a footer fact like the one above. The sentence replaces "Everything is up to date".
     userAppsUnchecked: "Apps installed for you only could not be checked.",
@@ -1313,7 +1315,7 @@ var MESSAGE_CAP = 2;
 //   staged   what the next restart will install, and whether a hold landed behind it. The one
 //            message that changes what the rest of the popup may offer.
 //   restart  a restart is owed. The footer says "restart pending" whenever this message is not on
-//            screen, so the fact is never lost.
+//            screen, and the footer wraps rather than cutting its last words off.
 //   fetchMissed  a Check for Updates whose fetch did not land. Below the banners, whose buttons
 //            act on the system: when it is crowded out the footer gives the lists' age instead.
 //   kernel   the offline recommendation: advice about a transaction that will still be there next
@@ -1325,6 +1327,8 @@ var MESSAGE_CAP = 2;
 // `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
 // comes first because it answers the Update Now press just made, and nothing runs until it is
 // answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
+// `discoverUnattended` sits right after `staged`: it says who may take the restart that message
+// is counting on. It draws once, so a restart or a failure it displaces is back on the next open.
 // `stageDiscoverWarning` sits under the failure and the restart: a person warned to restart soon
 // needs the restart banner's button, and a failure is worse news than something that may happen.
 // `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
@@ -1335,8 +1339,8 @@ var MESSAGE_CAP = 2;
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
 // `foldersPaused` sits under imageBased: every button below it ends in the helper's refusal.
-var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "stageRestorable", "startup",
-                     "restart", "stageDiscoverWarning", "discoverUnattended", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
+var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "discoverUnattended", "stageRestorable", "startup",
+                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
                      "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
@@ -2706,8 +2710,8 @@ function lastRunText(run, nowMs, restartHeld) {
     // clock relativeTime falls back to the absolute stamp, which is a perfectly good row.
     if (!isRenderableStamp(run.when)) return "";
     // The staging run, between the stage and the restart: its zero counts are true and misleading,
-    // same reasoning as postRunLine. `failed` is checked because this row otherwise ignores
-    // failure, and a staging run that FAILED staged nothing. Exact match on "offline" - the
+    // same reasoning as postRunLine. `failed` is checked because a staging run that FAILED staged
+    // nothing. Exact match on "offline": the
     // harvest's surface is "offline (applied on reboot)" and its counts render.
     if (!run.failed && run.surface === "offline") {
         // The same exception postRunLine makes, for the same reason: a run that staged nothing is
@@ -2725,7 +2729,10 @@ function lastRunText(run, nowMs, restartHeld) {
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
-    return "Last update " + relativeTime(run.when, nowMs) + DOT + what + reclaimedTailOf(run);
+    // Failed goes in the words of the title, because the transient line that said so clears when
+    // the popup closes and this row is what is left.
+    return (run.failed ? "Last update failed " : "Last update ") + relativeTime(run.when, nowMs)
+        + DOT + what + reclaimedTailOf(run);
 }
 
 // lastRunSubtitle(run, seenWhen) -> the Last update row's second line, or "".
@@ -2992,9 +2999,11 @@ function viewModel(state, updating, cliError, opts) {
         // a box whose every pending update is held would draw. Nothing is ACTIONABLE, which is
         // what the badge and the button are about; the header is the sentence, and the sentence
         // owes the held count.
+        // ...and a failed check has not looked. The footer and the tooltip say when something last did.
+        var nothingWaiting = stale ? COPY.lastCheckFailedHeader : COPY.upToDate;
         countPhrase = actionable === 0
-            ? (heldTotal > 0 ? COPY.upToDate + DOT + heldTotal + " " + COPY.held
-                : userUnchecked ? COPY.upToDate + DOT + COPY.userAppsUncheckedShort : COPY.upToDate)
+            ? (heldTotal > 0 ? nothingWaiting + DOT + heldTotal + " " + COPY.held
+                : userUnchecked ? nothingWaiting + DOT + COPY.userAppsUncheckedShort : nothingWaiting)
             : (actionable === 1 ? "1 update available" : actionable + " updates available");
     }
 

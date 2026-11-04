@@ -1258,6 +1258,23 @@ p.check("...in priority order: what you just did, then what changed under you",
         json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), ["report", "staged"])
 p.check("...and the restart is not lost, it is in the footer, which is why it gives way first",
         "restart pending" in str(lev("footerLabel.text")), True)
+# ...and in the footer on a line long enough to run out of room, as a full day's facts are.
+_crowded = json.load(open(CONFLICT_REBOOT))
+_crowded.update({"status": "stale", "error": "x", "metadata_refreshed": "2026-08-20T10:00:00+03:00"})
+_crowded_path = os.path.join(p.sandbox, "state-footer-crowded.json")
+json.dump(_crowded, open(_crowded_path, "w"))
+state(_crowded_path)
+ev('root.actionMessage = "Could not change the hold on bash."')
+p.pump(80)
+p.check("premise: this footer is wider than the line it is on",
+        lev("footerLabel.implicitWidth") > lev("footerLabel.width") > 0, True)
+p.check("...with the displaced restart as its last fact",
+        str(lev("footerLabel.text")).endswith("restart pending"), True)
+p.check("...and none of it is cut off", lev("footerLabel.truncated"), False)
+p.check("...because it takes a second line", lev("footerLabel.lineCount") > 1, True)
+state(CONFLICT_REBOOT)
+ev('root.actionMessage = "Could not change the hold on bash."')
+p.pump(80)
 ev('root.actionMessage = ""')
 p.pump(80)
 p.check("with the failed press cleared, the restart comes back into the second slot",
@@ -3538,6 +3555,27 @@ p.check("...and closing the popup over it marks that run seen", ev("root.reclaim
 p.pump(50)
 p.check("...after which the row says it no more", lev("lastRunView.itemAtIndex(0).subtitle"), "")
 ev('root.reclaimInUseSeen = ""')
+
+# A run that failed still reads as failed once the transient line is gone: open, close, open again.
+failed_run = json.loads(json.dumps(LAST_RUN))
+failed_run["status"] = "failed"
+failed_run["error"] = "the mirror went away"
+open(RUNJSON, "w").write(json.dumps(failed_run))
+ev('root.postRunLine = ""; root.actionMessage = ""; root.actionDone = ""')
+ev("root.loadLastRun()")
+settle()
+ev("root.postRunLine = Logic.postRunLine(root.lastRun)")
+p.pump(50)
+p.check("premise: the run just failed, and the transient line says so",
+        ev("root.postRunLine"), "Update failed: the mirror went away")
+ev("root.popupClosed()")
+ev("root.popupOpened()")
+p.pump(50)
+p.check("premise: reopening has cleared the transient line", ev("root.postRunLine"), "")
+p.check("...and the row left behind still says the update failed",
+        str(lev("lastRunView.itemAtIndex(0).title")).startswith("Last update failed "), True)
+p.check("...with the reason under it",
+        "the mirror went away" in str(lev("lastRunView.itemAtIndex(0).subtitle")), True)
 open(RUNJSON, "w").write(json.dumps(LAST_RUN))
 ev("root.loadLastRun()")
 settle()
@@ -3985,6 +4023,7 @@ _ASSEMBLED_IN_LOGIC = {
     "restartHeldBanner",    # -> vm.stagedBanner and vm.stagedMessage
     "restartHeldFooter",    # -> lastRunText
     "restartHeldAsk",       # -> vm.heldChoiceMessage
+    "lastCheckFailedHeader",  # -> vm.headerText and vm.tooltipMain, over a failed check with nothing waiting
 }
 _COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
 p.check("every string said to be assembled in logic.js is still in the copy table",

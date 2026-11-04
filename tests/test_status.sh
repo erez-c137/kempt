@@ -298,6 +298,17 @@ jq '.backends.dnf.items = [{name: "bash", from: "1", to: "2", held: true}] | .ba
 jq '.offline_staged = {count: 0}' "$L" > "$PAR/x-staged-zero.json"
 jq '.offline_staged = {count: "12"}' "$L" > "$PAR/x-staged-strcount.json"
 
+# A failed check with nothing waiting: never Up to date, in words the widget also uses.
+EMPTY_STALE='.status = "stale" | .backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0 | .held_total = 0'
+HOUR_AGO="$(date -d "@$(( NOW - 3600 ))" -Iseconds)"
+jq --arg a "$HOUR_AGO" "$EMPTY_STALE"' | .last_success = $a | .metadata_refreshed = null' "$L" > "$PAR/x-failed-none.json"
+jq --arg a "$HOUR_AGO" "$EMPTY_STALE"' | .last_success = $a | .metadata_refreshed = null | .backends.flatpak.scopes = {user: "failed"}' "$L" > "$PAR/x-failed-user-unchecked.json"
+jq --arg a "$HOUR_AGO" "$EMPTY_STALE"' | .last_success = $a | .metadata_refreshed = null | .backends.dnf.items = [{name: "bash", from: "1", to: "2", held: true}]' "$L" > "$PAR/x-failed-held.json"
+jq "$EMPTY_STALE"' | .last_success = "not a date" | .metadata_refreshed = null' "$L" > "$PAR/x-failed-bad-stamp.json"
+jq "$EMPTY_STALE"' | .last_success = null | .metadata_refreshed = null | .backends.dnf.items = [{name: "bash", from: "1", to: "2", held: true}]' "$L" > "$PAR/x-failed-never-held.json"
+cp "$PAR/x-failed-none.json" "$STATE_FILE"
+assert_eq "$(status | awk 'NR==1')" "Last check failed" "status after a failed check: says so, no Up to date"
+
 bash_facts() {  # state file → {header, sections: [[title, count]], held, security}
   local doc
   doc="$(jq -c -n '[inputs][0] | select(type == "object")' "$1" 2>/dev/null)" || doc=""
