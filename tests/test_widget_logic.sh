@@ -855,9 +855,9 @@ assert_eq "$(js 'L.COPY.discoverOffer')" "Discover, Plasma's software center, al
   "its sentences, which say why"
 assert_eq "$(js '[L.COPY.discoverOfferOff, L.COPY.discoverOfferKeep, L.COPY.discoverOn].join("|")')" \
   "Turn Off Discover's Notifier|Keep Discover's Notifier|Turn On Discover's Notifier" "...its two answers, and the way back in Settings"
-for _lit in discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
+for _lit in discoverUnattended discoverOffer discoverOfferOff discoverOfferKeep discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" \
-    "$(case $_lit in discoverOfferOff) echo 3 ;; discoverOfferKeep) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
+    "$(case $_lit in discoverOfferOff) echo 4 ;; discoverOfferKeep) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done
 # What Settings shows, from `kempt discover-notifier status --json`.
 dn() { js "JSON.stringify(L.discoverSettingOf('$1'))"; }
@@ -2705,13 +2705,13 @@ assert_eq "$(js 'L.messageStack({staged: true, stageDiscoverWarning: true, fetch
 BLK=',offline_stage_blocked:{staged_at:"2026-09-02T10:31:00+03:00",count:61}'
 assert_eq "$(vm '{}' "$BLK" 0 'stageBlocked')" "true" "a blocked stage is read"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedBanner')" \
-  "Another updater has prepared the next restart, so the updates Kempt staged will not install then. Restart to let that update install. Kempt then shows what is still pending." \
+  "The next restart belongs to another updater, so the updates Kempt staged will not install then. Restart when you're ready. Kempt then shows what is still pending." \
   "...and says the next restart installs something else"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedMessage')" "$(vm '{}' "$BLK" 0 'stagedBanner')" "...as its whole sentence"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedType')" "warning" "...as a warning"
 assert_eq "$(vm '{}' "$BLK" 0 'messageSlots.indexOf("staged") >= 0')" "true" "...in the staged slot"
 assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowRebuild, v.stagedShowDiscard, v.stagedArmed].join(); })(L.viewModel($(st "$BLK"),false,\"\",{}))")" \
-  "false,false,false,false" "...with no restart, rebuild or discard, and nothing armed"
+  "true,false,false,false" "...with Restart, since restarting is what is left to do, no rebuild or discard, and nothing armed"
 assert_eq "$(vm '{}' "$BLK" 0 'headerText.indexOf("staged") < 0')" "true" "...and the header promises nothing"
 assert_eq "$(vm '{}' "$STG$BLK" 0 'stagedBanner')" "They install when you restart." \
   "an armed stage wins over a stray blocked key"
@@ -2722,6 +2722,82 @@ assert_eq "$(vm '{}' ',offline_stage_blocked:[1]' 0 'stageBlocked')" "false" "..
 assert_eq "$(vm '{}' '' 0 'stageBlocked')" "false" "...and no key is no blocked stage"
 assert_eq "$(js "L.viewModel($(st "$BLK"),false,\"\",{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf(\"report\")")" "-1" \
   "a staging run's report gives way to the blocked stage it would contradict"
+
+# --- another updater holds the next restart: each state's slots and buttons ---------------------
+HLD=',restart_holder:"other"'
+PEND='backends:{dnf:{actionable:3,status:"ok"}},actionable:3'
+held() { js "L.viewModel({schema:1,status:\"ok\",last_success:\"2026-08-26T12:00:00+03:00\",restart_holder:\"other\",$1},false,\"\",${2:-{\}}).$3"; }
+free() { js "L.viewModel({schema:1,status:\"ok\",last_success:\"2026-08-26T12:00:00+03:00\",$1},false,\"\",${2:-{\}}).$3"; }
+OFFL='{surface:"offline",configuredSurface:"offline"}'
+assert_eq "$(free "$PEND" "$OFFL" restartHeld)" "false" "no holder published: nobody holds it"
+assert_eq "$(free "$PEND,restart_holder:\"kempt\"" "$OFFL" restartHeld)" "false" "...nor when it is dnf5's own"
+assert_eq "$(free "$PEND" "$OFFL" updateStages)" "true" "...and the footer stages as configured"
+
+# Nothing staged: the banner, with Restart, and no way to stage anywhere.
+assert_eq "$(held "$PEND" "$OFFL" 'messageSlots.indexOf("staged") >= 0')" "true" "held, nothing staged: a banner in the staged slot"
+assert_eq "$(held "$PEND" "$OFFL" stagedBanner)" "The next restart belongs to another updater. Restart when you're ready. Kempt then shows what is still pending." "...in these words"
+assert_eq "$(held "$PEND" "$OFFL" stagedMessage)" "$(held "$PEND" "$OFFL" stagedBanner)" "...as its whole sentence"
+assert_eq "$(held "$PEND" "$OFFL" stagedType)" "warning" "...as a warning"
+assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowRebuild, v.stagedShowDiscard, v.stagedArmed, v.offlineStageOffered].join(); })(L.viewModel({schema:1,status:\"ok\",restart_holder:\"other\",$PEND},false,\"\",$OFFL))")" \
+  "true,false,false,false,false" "...with Restart, and no rebuild, discard, or staging route"
+assert_eq "$(held "$PEND,reboot_needed:true" "$OFFL" stagedShowRestart)" "false" "...and no second Restart when the restart message shows one"
+assert_eq "$(held "$PEND" "$OFFL" 'stagedBanner.indexOf("Install on")')" "-1" "...and the banner offers no install"
+assert_eq "$(held 'actionable:0,backends:{}' '{}' 'messageSlots.indexOf("staged") >= 0')" "true" "...and it is there with nothing pending too"
+assert_eq "$(held "$PEND,release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}" "$OFFL" 'messageSlots.indexOf("staged")')" "-1" "...but not beside a release upgrade's own message"
+
+# The footer button is Update Now, whatever the setting says.
+assert_eq "$(held "$PEND" "$OFFL" updateStages)" "false" "the footer button does not stage"
+assert_eq "$(held "$PEND" "$OFFL" updateButtonText)" "Update Now" "...and says Update Now"
+assert_eq "$(held "$PEND" "$OFFL" updateOffered)" "true" "...and is offered"
+assert_eq "$(held "$PEND" "$OFFL" heldLiveSurface)" "popup" "a box set to stage runs it live, naming the surface"
+assert_eq "$(held "$PEND" '{surface:"terminal",configuredSurface:"offline",autoAccept:false}' heldLiveSurface)" "terminal" "...the terminal, with confirmation on"
+assert_eq "$(held "$PEND" '{surface:"background",configuredSurface:"background"}' heldLiveSurface)" "background" "...and the surface already chosen, when that is live"
+assert_eq "$(free "$PEND" "$OFFL" heldLiveSurface)" "" "...and no surface is named when nobody holds it"
+
+# Its own question with system updates, none for Flatpak alone.
+assert_eq "$(held "$PEND" "$OFFL" updateAsksHeld)" "true" "system updates waiting: Update Now asks"
+assert_eq "$(held "$PEND" "$OFFL" heldChoiceMessage)" "The next restart belongs to another updater. If you update now, the update it prepared may no longer install." "...saying what it can cost"
+assert_eq "$(held 'backends:{flatpak:{actionable:2,status:"ok"}},actionable:2' "$OFFL" updateAsksHeld)" "false" "Flatpak alone asks nothing"
+assert_eq "$(free "$PEND" "$OFFL" updateAsksHeld)" "false" "...and nobody holding it asks nothing"
+assert_eq "$(held "$PEND" "$OFFL" 'messageSlots.indexOf("heldChoice")')" "-1" "the question is not up until it is asked"
+assert_eq "$(held "$PEND" '{surface:"offline",heldChoiceOpen:true}' 'messageSlots.indexOf("heldChoice")')" "0" "...and comes first when it is"
+assert_eq "$(free "$PEND" '{surface:"offline",heldChoiceOpen:true}' 'messageSlots.indexOf("heldChoice")')" "-1" "...and goes when the holder does"
+
+# The kernel banner: the risk, no advice, no route.
+RISK=',risky_pending:["kernel-core"]'
+assert_eq "$(held "$PEND$RISK" '{surface:"popup",configuredSurface:"popup"}' riskyMessage)" "1 pending update touches a package your running session depends on (the Linux kernel)." "a risky set shows the summary"
+assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' 'riskyMessage.indexOf("restart")')" "-1" "...which advises nothing"
+assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' 'messageSlots.indexOf("kernel") >= 0')" "true" "...and is never silent"
+assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' offlineStageOffered)" "false" "...with no staging button"
+assert_eq "$(held "$PEND$RISK" '{surface:"popup"}' updateAsksFirst)" "false" "...and no question offering one"
+assert_eq "$(free "$PEND$RISK" '{surface:"popup"}' updateAsksFirst)" "true" "...which is there when nobody holds it"
+assert_contains "$(held "$PEND$RISK" '{surface:"popup"}' heldChoiceMessage)" "1 pending update touches a package your running session depends on (the Linux kernel)." "the question names the risk too"
+
+# A stage already made, then held.
+assert_eq "$(held "$PEND$BLK" "$OFFL" stagedBanner)" "$(js 'L.COPY.stageBlocked')" "a blocked stage keeps its own banner"
+assert_eq "$(held "$PEND$BLK" "$OFFL" stagedShowRestart)" "true" "...with Restart"
+assert_eq "$(held "$PEND$BLK,reboot_needed:true" "$OFFL" stagedShowRestart)" "false" "...unless the restart message has one"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",restart_holder:"other",actionable:3,backends:{dnf:{actionable:3}}},false,"",{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf("report")')" "-1" \
+  "a report repeating a stage gives way to the banner it contradicts"
+assert_eq "$(held "$PEND,offline_stage_restorable:{staged_at:\"2026-09-02T10:31:00+03:00\"}" "$OFFL" stageRestorableAt)" "" "Put It Back is not offered behind it"
+
+# The footer.
+LAST='{when:"2026-08-26T11:00:00+03:00",surface:"offline",failed:false,stagedNothing:null}'
+NOW='Date.parse("2026-08-26T12:00:00+03:00")'
+assert_contains "$(js "L.lastRunText($LAST,$NOW,true)")" "the next restart belongs to another updater" "the footer says who holds it"
+assert_not_contains "$(js "L.lastRunText($LAST,$NOW,true)")" "staged for restart" "...and not that it is staged"
+assert_contains "$(js "L.lastRunText($LAST,$NOW,false)")" "staged for restart" "...which it says with nobody holding it"
+
+# Discover's setting.
+DU='discover_unattended:true,discover_unattended_warn:true,discover_offer:true'
+assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "Discover set to update itself: warned"
+assert_eq "$(free "$PEND,$DU" '{}' 'messageSlots.indexOf("discoverOffer")')" "-1" "...over the plain offer"
+assert_eq "$(free "$PEND,$DU" '{surface:"terminal",discoverOfferAnswered:true}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "...in any mode, the offer answered or not"
+assert_eq "$(free "$PEND,discover_unattended:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...not once it was drawn"
+assert_eq "$(free "$PEND,discover_unattended:true" '{discoverWarningKept:true}' 'messageSlots.indexOf("discoverUnattended") >= 0')" "true" "...but it stays up for the open that drew it"
+assert_eq "$(free "$PEND,$DU" '{discoverTurnedOff:true}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and Turn Off hides it at once"
+assert_eq "$(free "$PEND,discover_unattended:false,discover_unattended_warn:true" '{}' 'messageSlots.indexOf("discoverUnattended")')" "-1" "...and a setting reading false never warns"
+assert_eq "$(js 'L.COPY.restartHeldBanner + L.COPY.restartHeldAsk + L.COPY.discoverUnattended + L.COPY.restartHeld + L.COPY.stageBlocked' | grep -c -E '—| - |popup' || true)" "0" "the new copy has no dashes and no popup"
 assert_eq "$(vm '{restartReminder:false}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
   "...and takes it back when that message is switched off"
 assert_eq "$(vm '{restartDismissed:true}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
@@ -3620,7 +3696,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldItems","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","checkAnswerText","cliError","downloadText","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","fetchMissedMessage","footerText","footerTooltip","headerText","heldChoiceMessage","heldItems","heldLiveSurface","heldTotal","iconState","imageBasedMessage","lastSuccessText","messageSlots","needsAttention","offlineStageOffered","problemAnyway","problemDetail","problemHint","problemNetwork","rebootNeeded","reclaimAutomatic","reclaimDigest","reclaimLines","reclaimMessage","releaseUpgradeMessage","remedyCommand","restartHeld","restartMessageVisible","restartShowAction","riskyMessage","riskySummary","rows","sections","securityCount","securityDigest","stageBlocked","stageRestorableAt","stageRestorableMessage","stageTooltipNamesFlatpak","stagedArmed","stagedBanner","stagedConflictNames","stagedMessage","stagedRebuildTooltip","stagedShowDiscard","stagedShowRebuild","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupRecoveredText","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateButtonText","updateButtonTooltip","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \

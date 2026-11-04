@@ -995,6 +995,51 @@ PlasmaExtras.Representation {
             ]
         }
 
+        // Discover set to install updates by itself. Drawn once per setting (main.qml), and its one
+        // button is the notifier's off: with the notifier stopped nothing reads that setting.
+        Kirigami.InlineMessage {
+            id: discoverUnattendedMessage
+            Component.onCompleted: popup.plainTextMessage(discoverUnattendedMessage)
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Warning
+            text: i18n("Discover is set to install updates by itself, so it can take over your next restart. Updates Kempt staged would not install then. Turning off its notifier should stop that.")
+            Accessible.name: text
+            visible: popup.shows("discoverUnattended")
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Turn Off Discover's Notifier")
+                    icon.name: "notifications-disabled"
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
+                }
+            ]
+        }
+
+        // Update Now while another updater holds the next restart, asked before anything runs.
+        Kirigami.InlineMessage {
+            id: heldChoiceMessage
+            Component.onCompleted: popup.plainTextMessage(heldChoiceMessage)
+            Layout.fillWidth: true
+            type: Kirigami.MessageType.Warning
+            text: popup.vm.heldChoiceMessage
+            Accessible.name: text
+            visible: popup.shows("heldChoice")
+            onVisibleChanged: if (visible) popup.announce(text, false)
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Update Now")
+                    icon.name: "system-software-update"
+                    enabled: !popup.plasmoidItem.actionPending && !popup.plasmoidItem.runRequested
+                    onTriggered: source => { popup.plasmoidItem.startUpdate(true); popup.rescueFocus(); }
+                },
+                Kirigami.Action {
+                    text: i18n("Cancel")
+                    icon.name: "dialog-cancel"
+                    onTriggered: source => { popup.plasmoidItem.heldChoiceOpen = false; popup.rescueFocus(); }
+                }
+            ]
+        }
+
         // The Discover offer, while something it can cancel is staged. Same answers, same marker.
         Kirigami.InlineMessage {
             id: stageDiscoverWarningMessage
@@ -1862,7 +1907,7 @@ PlasmaExtras.Representation {
                     value: lastRunItem.expandName
                 }
                 icon: "documentinfo"
-                title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs)
+                title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs, popup.vm.restartHeld)
                 // Only a failure earns a second line here, or extensions the run's automatic removal
                 // took from an app (once per run, see Logic.lastRunSubtitle), and it is logic.js's
                 // own sentence about that run rather than a new one written in QML. NOT the entry's
@@ -2022,7 +2067,7 @@ PlasmaExtras.Representation {
                 // when the question closes, however that happens (main.qml, riskyChoiceOpen).
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
                          && !popup.vm.stagedArmed && popup.vm.updateOffered
-                         && !riskyMessage.asking
+                         && !riskyMessage.asking && !heldChoiceMessage.visible
                 // ...and refusing from the press until `kempt run` comes back. That call launches
                 // the surface and returns, and is allowed fifteen seconds to do it; startUpdate's
                 // guard tests `updating`, which is still false for all of them. Disabled rather

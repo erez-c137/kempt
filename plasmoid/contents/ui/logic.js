@@ -169,6 +169,10 @@ var COPY = {
     discoverOffer: "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.",
     stageDiscoverWarning:
         "Discover's update check can cancel your staged updates before you restart. Turning off its notifier should stop that.",
+    // Discover is set to install updates by itself, which puts its update ahead of Kempt's at the
+    // next restart. Not the offer above: that one is about a count.
+    discoverUnattended:
+        "Discover is set to install updates by itself, so it can take over your next restart. Updates Kempt staged would not install then. Turning off its notifier should stop that.",
     discoverOfferOff: "Turn Off Discover's Notifier",
     discoverOfferKeep: "Keep Discover's Notifier",
     discoverOn: "Turn On Discover's Notifier",
@@ -321,9 +325,19 @@ var COPY = {
     // A stage Kempt made that the next restart will NOT install: another updater (Discover, through
     // PackageKit) has prepared that restart, and dnf5 does not run behind its symlink. The CLI
     // publishes offline_stage_blocked for it and never offline_staged, so nothing above applies.
-    stageBlocked: "Another updater has prepared the next restart, so the updates Kempt staged "
-        + "will not install then. Restart to let that update install. Kempt then shows what is "
-        + "still pending.",
+    stageBlocked: "The next restart belongs to another updater, so the updates Kempt staged "
+        + "will not install then. Restart when you're ready. Kempt then shows what is still "
+        + "pending.",
+
+    // The same restart with nothing of Kempt's behind it. The short form is what `kempt status`
+    // prints, and what the Update Now question opens with.
+    restartHeld: "The next restart belongs to another updater",
+    restartHeldBanner: "The next restart belongs to another updater. Restart when you're ready. "
+        + "Kempt then shows what is still pending.",
+    restartHeldFooter: "the next restart belongs to another updater",
+    // Update Now with system updates waiting: a live run may cancel what that updater prepared.
+    restartHeldAsk: "The next restart belongs to another updater. If you update now, the update "
+        + "it prepared may no longer install.",
 
     // ...and the three the banner has once a hold lands behind the stage. These REPLACE
     // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
@@ -730,6 +744,14 @@ function effectiveSurfaceOf(surface, autoAccept) {
 // Only system updates stage, so with none actionable (only Flatpak pending, or every dnf update
 // held) the press stages nothing and the button says Update Now. The tooltip names Flatpak only
 // when Flatpak apps are waiting.
+// heldLiveSurfaceOf(effectiveSurface) -> the surface Update Now names while another updater holds the
+// next restart. Named on every such run, because `run` with none reads the setting, and offline there
+// is the stage the CLI refuses. With confirmation on the effective surface is the terminal already.
+function heldLiveSurfaceOf(effectiveSurface) {
+    var s = resolveSurface(effectiveSurface);
+    return s === "offline" ? "popup" : s;
+}
+
 function updateButtonOf(surface, dnfActionable, flatpakPending) {
     if (resolveSurface(surface) !== "offline" || typeof dnfActionable !== "number" || !(dnfActionable > 0))
         return { stages: false, text: COPY.updateNow, tooltip: "" };
@@ -1309,8 +1331,8 @@ var MESSAGE_CAP = 2;
 // `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
 // and sits under the restart. With a failure up, that line rides in the failure's slot instead.
 // Either is acknowledged only while drawn.
-var MESSAGE_ORDER = ["riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "stageRestorable", "startup",
-                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
+var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "releaseUpgrade", "staged", "stageRestorable", "startup",
+                     "restart", "stageDiscoverWarning", "discoverUnattended", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
                      "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
@@ -2670,7 +2692,7 @@ function reclaimOutcomeOf(rc, stdout, stderr, last, sinceMs) {
 // CLI's own wording, emitted verbatim by KEMPT_JQ_COUNTS in lib/common.sh, and this line quotes
 // the terminal (lowercase because it sits mid sentence after the dot). Do NOT reword it here
 // alone - the tests tie all three spellings together.
-function lastRunText(run, nowMs) {
+function lastRunText(run, nowMs, restartHeld) {
     if (!run) return "";
     // An entry we cannot DATE gets no row. relativeTime answers "never" for a missing stamp, so
     // the sentence would describe a run in the same breath as denying there was one; an unreadable
@@ -2689,6 +2711,10 @@ function lastRunText(run, nowMs) {
         // and the distinction needs a clause it has no room for.
         if (run.stagedNothing !== null) {
             return "Last update " + relativeTime(run.when, nowMs) + DOT + COPY.lastRunNothingStaged;
+        }
+        // ...and over a stage the next restart will not install, the same promise for a like reason.
+        if (restartHeld === true) {
+            return "Last update " + relativeTime(run.when, nowMs) + DOT + COPY.restartHeldFooter;
         }
         return "Last update " + relativeTime(run.when, nowMs) + DOT + "staged for restart";
     }
@@ -3003,8 +3029,13 @@ function viewModel(state, updating, cliError, opts) {
     var runSurface = resolveSurface(typeof opts.surface === "string" ? opts.surface : "");
     var stagesByDefault = (runSurface === "offline");
     var flatpakPending = usable && backendActionable(state, "flatpak") > 0;
+    // Another updater holds the next restart. Taken from the CLI's word, like every other fact here;
+    // anything that acts on it asks again there. No stage can install behind it, so the press is a
+    // live run whatever the setting says (heldLiveSurfaceOf), and the staging routes go.
+    var restartHeld = usable && state.restart_holder === "other";
     var updateButton = updateButtonOf(
-        typeof opts.configuredSurface === "string" ? opts.configuredSurface : runSurface,
+        restartHeld ? "terminal"
+            : (typeof opts.configuredSurface === "string" ? opts.configuredSurface : runSurface),
         usable ? backendActionable(state, "dnf") : 0, flatpakPending);
     var releaseUpgradeMessage = !releaseUpgrade ? ""
         : (relState === "armed"      ? COPY.releaseUpgradeStaged.replace("%1", relTo)
@@ -3052,7 +3083,7 @@ function viewModel(state, updating, cliError, opts) {
     // The recommendation is only printable where the route it recommends exists. Where it does not,
     // the summary sentence stands in - it states the risk and advises nothing, which is the honest
     // half to keep.
-    var noOfflineRoute = releaseUpgrade || imageBased;
+    var noOfflineRoute = releaseUpgrade || imageBased || restartHeld;
     // ...and on a box Kempt cannot update AT ALL, the risk is not the widget's to raise: no button
     // it offers can act on it, dnf's view is not what installs there, and a second message under
     // the one saying so would be a count with nowhere to go. The release-upgrade case is the
@@ -3070,6 +3101,13 @@ function viewModel(state, updating, cliError, opts) {
     var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute
         && (runSurface === "popup" || runSurface === "background");
     var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
+    // Nothing of Kempt's staged behind that restart: the banner stands by itself. Not beside what
+    // the release-upgrade and image-based messages already say about the same restart.
+    var restartHeldBanner = restartHeld && !staged && !stageBlocked && !releaseUpgrade && !imageBased;
+    // Update Now while it is held: its own question when system updates would run, none for
+    // Flatpak alone, which touches nothing that updater prepared.
+    var updateAsksHeld = restartHeld && !imageBased && !staged && backendActionable(state, "dnf") > 0;
+    var heldChoice = opts.heldChoiceOpen === true && updateAsksHeld && !updating;
 
     // The one offer of the popup default. The CLI publishes surface_offer only while updates run
     // in the terminal; the configured surface is checked again here because a choice made in
@@ -3091,6 +3129,12 @@ function viewModel(state, updating, cliError, opts) {
     var discoverOffer = usable && state.discover_offer === true && !updating
         && opts.discoverOfferAnswered !== true && opts.discoverAnswerKnown !== false
         && !surfaceOffer && !(state.surface_offer === true && opts.surfaceKnown === false);
+    // Discover's setting, over the offer: it says the larger thing. Kept up once drawn, for as long
+    // as this popup stays open (main.qml), since drawing it is what clears the CLI's flag.
+    var discoverUnattended = usable && state.discover_unattended === true && !updating
+        && opts.discoverTurnedOff !== true
+        && (state.discover_unattended_warn === true || opts.discoverWarningKept === true);
+    if (discoverUnattended) discoverOffer = false;
 
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`
     // means "nothing to say", NEVER "no restart needed": backends/dnf.sh's dnf_reboot_needed
@@ -3306,7 +3350,7 @@ function viewModel(state, updating, cliError, opts) {
     var restorableStage = (state && state.offline_stage_restorable
                            && typeof state.offline_stage_restorable === "object")
         ? state.offline_stage_restorable : null;
-    var stageRestorableAt = (restorableStage && !staged && !stageBlocked
+    var stageRestorableAt = (restorableStage && !staged && !stageBlocked && !restartHeld
                              && typeof restorableStage.staged_at === "string")
         ? restorableStage.staged_at : "";
     var messageSlots = messageStack({
@@ -3314,7 +3358,7 @@ function viewModel(state, updating, cliError, opts) {
         // ...and while a blocked stage is up, a report saying the stage installs on the next restart
         // is the very promise that warning takes back, so it gives way the same way.
         report: opts.reportShown === true
-            && !((staged || stageBlocked) && opts.reportRepeatsStaged === true),
+            && !((staged || stageBlocked || restartHeldBanner) && opts.reportRepeatsStaged === true),
         fetchMissed: fetchMissedMessage !== "" && opts.fetchMissedDismissed !== true,
         // Check Installation's result, or its busy line: main.qml's own state, like the report.
         // Never hidden with a report that repeats the staged message: it says something else.
@@ -3322,7 +3366,7 @@ function viewModel(state, updating, cliError, opts) {
         // ...including `updating`, because a run hides the whole stack. Without it the popup's own
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
-        staged: staged || stageBlocked,
+        staged: staged || stageBlocked || restartHeldBanner,
         stageRestorable: stageRestorableAt !== "" && !updating,
         // Above everything except a report of something that just happened: it is the one message
         // that says what this machine is, and every other message here presumes a box Kempt can
@@ -3339,6 +3383,8 @@ function viewModel(state, updating, cliError, opts) {
         // never drawn twice.
         kernel: riskyMessage !== "" && !riskyChoice,
         riskyChoice: riskyChoice,
+        heldChoice: heldChoice,
+        discoverUnattended: discoverUnattended,
         surfaceOffer: surfaceOffer,
         // The same offer with the reason that matters while something is staged, and higher up.
         discoverOffer: discoverOffer && !staged,
@@ -3457,7 +3503,15 @@ function viewModel(state, updating, cliError, opts) {
         riskyMessage: riskyMessage,
         // Update Now opens the risky choice instead of running (main.qml, startUpdate).
         updateAsksFirst: updateAsksFirst,
-        stagedMessage: stageBlocked ? COPY.stageBlocked : stagedMessage,
+        // Who holds the next restart, and what Update Now does about it (main.qml, startUpdate).
+        restartHeld: restartHeld,
+        updateAsksHeld: updateAsksHeld,
+        heldLiveSurface: restartHeld
+            ? heldLiveSurfaceOf(typeof opts.surface === "string" ? opts.surface : "") : "",
+        heldChoiceMessage: updateAsksHeld
+            ? COPY.restartHeldAsk + (riskyPending.length > 0 ? " " + riskySummaryOf(riskyPending) : "") : "",
+        stagedMessage: stageBlocked ? COPY.stageBlocked
+            : restartHeldBanner ? COPY.restartHeldBanner : stagedMessage,
         // A Check for Updates whose fetch did not land: why, and how old the lists are. Shown in
         // the "fetchMissed" slot. Empty when there is nothing to say.
         fetchMissedMessage: fetchMissedMessage,
@@ -3471,6 +3525,7 @@ function viewModel(state, updating, cliError, opts) {
             ? anywayReasonOf(state.refresh_skipped) : "",
         // What the banner shows: the plain one gives way to the header's count.
         stagedBanner: stageBlocked ? COPY.stageBlocked
+            : restartHeldBanner ? COPY.restartHeldBanner
             : stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
         // "there is an armed transaction", for the surfaces that have to stand down rather than
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
@@ -3484,7 +3539,7 @@ function viewModel(state, updating, cliError, opts) {
         // "positive" for the ordinary armed stage, "warning" once a hold has landed behind it. A
         // string rather than a boolean because the QML binds it to a Kirigami.MessageType, and a
         // third spelling is a plausible next state for this banner rather than an exotic one.
-        stagedType: stageBlocked ? "warning" : stagedVariant.type,
+        stagedType: (stageBlocked || restartHeldBanner) ? "warning" : stagedVariant.type,
         // The blocked stage above: in the staged slot, with no action of its own.
         stageBlocked: stageBlocked,
         // Never two Restart… buttons in one popup: the restart Warning already carries one
@@ -3492,7 +3547,10 @@ function viewModel(state, updating, cliError, opts) {
         // ...and never a Restart… on a warning variant at all, which is the stricter rule and the
         // reason the flip is worth anything: the person is looking at a sentence saying the next
         // restart will install the package they tried to keep out.
-        stagedShowRestart: staged && !restartMessageVisible && !stagedWarning,
+        // Over a restart another updater holds the stricter rule does not apply: restarting is the
+        // one thing there is to do, and the sentence says so.
+        stagedShowRestart: !restartMessageVisible
+            && ((staged && !stagedWarning) || stageBlocked || restartHeldBanner),
         // ...and what stands in its place. Only on the variants where there is something to
         // change: rebuilding an ordinary armed stage would destroy a good transaction to
         // produce the same one back.
@@ -3616,6 +3674,7 @@ if (typeof module !== "undefined" && module.exports) {
         riskyMessageOf: riskyMessageOf,
         pendingNamesOf: pendingNamesOf,
         stagedMessageOf: stagedMessageOf,
+        heldLiveSurfaceOf: heldLiveSurfaceOf,
         stagedVariantOf: stagedVariantOf,
         messageStack: messageStack,
         MESSAGE_CAP: MESSAGE_CAP,
