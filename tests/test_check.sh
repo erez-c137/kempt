@@ -1999,6 +1999,25 @@ echo '[]' > "$TESTTMP/advisory-out"
 out="$("$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c '.security.count' <<<"$out")" "0" "no advisories is an answer: a count of zero"
 
+# Nothing to install: no question at all, so an idle check does not pay for the query.
+: > "$TESTTMP/advisory-calls"
+cat > "$TESTTMP/refresh-nothing-pending" <<'STUB'
+#!/usr/bin/env bash
+exit 0
+STUB
+chmod +x "$TESTTMP/refresh-nothing-pending"
+out="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-nothing-pending" "$KEMPT" check 2>/dev/null)"
+assert_eq "$(jq -c '[.status, has("security")]' <<<"$out")" '["ok",false]' "with nothing pending there is no block"
+assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "...and advisories are not asked about"
+"$KEMPT" check >/dev/null 2>&1
+adv_names="$(jq -r '.backends.dnf.items[].name' "$STATE_FILE")"
+: > "$TESTTMP/advisory-calls"
+for n in $adv_names; do "$KEMPT" hold "dnf:$n" >/dev/null 2>&1; done
+out="$("$KEMPT" check 2>/dev/null)"
+assert_eq "$(grep -c . "$TESTTMP/advisory-calls" || true)" "0" "with every pending package held, advisories are not asked about either"
+assert_eq "$(jq -c 'has("security")' <<<"$out")" "false" "...and there is no block"
+for n in $adv_names; do "$KEMPT" unhold "dnf:$n" >/dev/null 2>&1; done
+
 # dnf not answering, or an image-based system: no question at all.
 : > "$TESTTMP/advisory-calls"
 cat > "$TESTTMP/refresh-check-fails" <<'STUB'

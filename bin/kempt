@@ -487,10 +487,6 @@ cmd_check() {
     # which carry their own sizes - re-pricing puts today's bytes on yesterday's list.
     dnf_priced=true
     dnf_sizes > "$dnf_sz" 2>/dev/null || : > "$dnf_sz"
-    # Which of them fix a security advisory: only when dnf answered, and never on an image-based
-    # system, which dnf does not update. Read against the items after mark_held, below. A failure
-    # publishes nothing.
-    on_ostree || sec_raw="$(dnf_security_query)" || sec_raw=""
   elif helper_busy_in "$errf"; then
     # The helper refused because a Kempt run is under way: an update (the person's own, perhaps)
     # or the check it started earlier. That is not a failed check, and the widget must not flash
@@ -534,6 +530,13 @@ cmd_check() {
   # already name a runtime (it was writable long before runtimes were counted), and mark_held keys
   # on the bare name, so without this a stale line would start holding a runtime today.
   fp_items="$(mark_held flatpak <<<"$fp_items" | flatpak_runtimes_never_held)"
+  # Which pending packages fix a security advisory. Asked only when dnf answered and something not
+  # held is pending, so an idle check costs nothing, and never on an image-based system, which dnf
+  # does not update. A failure publishes nothing.
+  if [[ "$dnf_priced" == true ]] && ! on_ostree \
+     && jq -e 'any(.[]; .held != true)' <<<"$dnf_items" >/dev/null 2>&1; then
+    sec_raw="$(dnf_security_query)" || sec_raw=""
+  fi
   if [[ -n "$sec_raw" ]]; then
     sec_items_f="$(mktemp)"
     printf '%s\n' "$dnf_items" > "$sec_items_f"

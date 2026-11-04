@@ -111,7 +111,7 @@ RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
 # waits for the writers' lock. Kept small, because the widget's CHECK_BODY_MS counts them and the
 # notification bound below (a test there reads these three lines).
 # shellcheck disable=SC2034  # read by backends/dnf.sh
-SECURITY_QUERY_TIMEOUT=15
+SECURITY_QUERY_TIMEOUT=5
 # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
 WRITER_LOCK_WAIT=5
 # The bound on one notification (notify, notify_delivered).
