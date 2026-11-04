@@ -145,6 +145,8 @@ Up to 0.1.7 the helpers kept the caller's umask. `kempt doctor` checks dnf's cac
 staged packages for files another user could change. A changed staged package installs as root
 without a second signature check, so the state and staged rows are failures.
 
+`kempt update` reads the same rules first and stops with exit 5, before any password prompt, when it can see the problem. Root can see more, so the helper still decides.
+
 So the helper exits 3 while another user could change those folders, the cache for upgrade and
 stage (rpm checks only a digest after dnf5's signature check), or any folder above them. Every name
 on the way must be root's, with no group or other write, sticky or not, no ACL entry that grants

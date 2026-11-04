@@ -192,8 +192,9 @@ no_clean_advice "...and does not advise a clean"
 # The helper refuses the upgrade, the stage and the arm then. The CLI reads the same rule as the
 # user, names the folder, and points at kempt doctor, which prints the fix. A world-writable folder
 # counts whoever runs the suite.
-UNSAFE="$TESTTMP/unsafe-state"; mkdir -m 0777 "$UNSAFE"
-unsafe_refusal() { printf 'echo "kempt-apply: refusing %s: other users can change files in %s. Run kempt doctor for the fix." >&2; exit 3' "$1" "$UNSAFE"; }
+# These folders turn unsafe after the run has started, the one case that still reaches the helper.
+UNSAFE="$TESTTMP/unsafe-state"
+unsafe_refusal() { printf 'mkdir -m 0777 "%s"; echo "kempt-apply: refusing %s: other users can change files in %s. Run kempt doctor for the fix." >&2; exit 3' "$UNSAFE" "$1" "$UNSAFE"; }
 apply_stub stage-unsafe "dnf-offline-stage) $(unsafe_refusal dnf-offline-stage) ;;"
 stored offline-ready.toml; rm -f "$marker"; reset_run
 rc=0
@@ -205,14 +206,14 @@ assert_eq "$(last_error)" "nothing was staged, because other users can change fi
   "...and the reason names the folder and the doctor"
 
 apply_stub arm-unsafe "dnf-offline-arm) $(unsafe_refusal dnf-offline-arm) ;;"
-stored offline-ready.toml; rm -f "$marker"; reset_run
+stored offline-ready.toml; rm -f "$marker"; reset_run; rm -rf "$UNSAFE"
 KEMPT_DNF_OFFLINE_PKG_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-unsafe" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_eq "$(calls dnf-offline-clean)" "0" "an arm refused over an unsafe dnf folder is not unwound"
 assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart, because other users can change files in $UNSAFE. See: kempt doctor" \
   "...and the reason names the staged-package folder"
 
 apply_stub live-unsafe "dnf-upgrade) $(unsafe_refusal dnf-upgrade) ;;"
-stored offline-ready.toml; rm -f "$marker"; reset_run
+stored offline-ready.toml; rm -f "$marker"; reset_run; rm -rf "$UNSAFE"
 rc=0
 KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-live-unsafe" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "1" "a live update refused over an unsafe dnf folder fails the run"
@@ -227,6 +228,42 @@ reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-live-unsafe" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_eq "$(last_error)" "nothing was installed, because other users can change files in dnf's folders. See: kempt doctor" \
   "...and without a folder to name, it says dnf's folders"
+rm -rf "$UNSAFE"
+
+# --- folders this user can already see are unsafe: no helper, so no password prompt -------------------
+mkdir -m 0777 "$UNSAFE"
+apply_stub ok ""
+for _sf in background offline terminal; do
+  stored offline-ready.toml; rm -f "$marker"; reset_run
+  rc=0
+  KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" "$KEMPT" update --surface=$_sf --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?
+  assert_eq "$rc" "5" "$_sf over a folder other users can change: exit 5, nothing changed"
+  assert_eq "$(calls dnf)" "0" "...and the helper, with its password prompt, is never asked"
+  assert_contains "$(cat "$TESTTMP/err")" "nothing was changed, because other users can change files in $UNSAFE. See: kempt doctor" "...and the reason is the folder"
+  assert_eq "$(compgen -G "$KEMPT_STATE_DIR/history/*.json" | wc -l)" "0" "...and no run is recorded, since none started"
+done
+# Apps still update when no system update is waiting, without a word to the helper.
+printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/refresh-none"; chmod +x "$TESTTMP/refresh-none"
+reset_run; rc=0
+KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-none" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?
+assert_eq "$rc" "0" "no system updates waiting: the run goes on"
+assert_eq "$(calls dnf)" "0" "...and leaves the helper out"
+# A stage has nothing else to do, so it refuses either way.
+reset_run; rc=0
+KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-none" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?
+assert_eq "$rc" "5" "...but a stage with nothing waiting still refuses"
+# A check that cannot answer refuses too.
+printf '#!/usr/bin/env bash\nexit 1\n' > "$TESTTMP/refresh-broken"; chmod +x "$TESTTMP/refresh-broken"
+reset_run; rc=0
+KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-broken" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?
+assert_eq "$rc" "5" "a check that cannot answer refuses too"
+# A user's mount gets the words the helper and doctor use for it.
+_mi="$TESTTMP/mountinfo-users"
+{ cat "$KEMPT_MOUNTINFO"; printf '90 1 0:50 / %s rw - fuse.sshfs u@h:/d rw,user_id=1000,group_id=1000\n' "$UNSAFE"; } > "$_mi"
+reset_run; rc=0
+KEMPT_MOUNTINFO="$_mi" KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" "$KEMPT" update --surface=background --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?
+assert_eq "$rc" "5" "over a user's mount: exit 5"
+assert_contains "$(cat "$TESTTMP/err")" "nothing was changed, because $UNSAFE is on a mount made by a user other than root. See: kempt doctor" "...in the helper's words"
 rm -rf "$UNSAFE"
 
 # --- the helper's own sentence, because only it knows ------------------------------------------------

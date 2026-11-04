@@ -38,6 +38,19 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   history has the versions on the box. If Kempt cannot tell what happened, it says nothing false and
   shows the normal list. `kempt doctor` names `kempt unstage` for what dnf5 keeps afterwards. Only a
   version newer than before the stage counts, and a stage already reported lost is not reported again.
+  The number said is never more than Kempt said it staged, because new dependencies no longer count.
+- **A restart that stops part way says so.** When a package's script fails during the restart, Kempt
+  used to say the staged update could no longer install, with no history, and `kempt doctor` said it
+  was never set to install. It now says how many of the staged updates went in, records a failed run
+  with the versions on the box, and points to the normal list. If none did, it says it did not finish.
+- **`kempt update` refuses unsafe folders before asking for a password.** It already knew, and it
+  exited 1 after the prompt. It now exits 5 and changes nothing, Flatpak included. With no system
+  updates waiting, a live run still updates Flatpak. A folder that turns unsafe during a run still
+  exits 1.
+- **A user's mount is called that.** `kempt status` and refusals now say a folder is on a mount made by
+  a user other than root, as the root helper and `kempt doctor` do, and doctor no longer blames an old
+  Kempt for it. While another updater holds the restart, `kempt status` no longer ends with a stage
+  "for a restart".
 
 ### Added
 

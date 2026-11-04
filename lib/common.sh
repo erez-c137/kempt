@@ -4486,6 +4486,8 @@ KEMPT_JQ_COUNTS='
     then "staged update (installed by another updater)"
     elif .surface == "offline (partly installed outside Kempt)"
     then "staged update (partly installed outside Kempt)"
+    elif .surface == "offline (restart did not finish)"
+    then "staged update (restart did not finish)"
     elif .surface == "popup" then "widget"
     else .surface end;
 '

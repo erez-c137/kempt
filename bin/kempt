@@ -991,31 +991,58 @@ preflight_abort() {  # message
 # check may find a kernel. Nothing is changed, Flatpak included. With no system updates waiting the
 # run carries on. A check that cannot answer refuses too, since either run could meet the same answer.
 # Reads: wanted_stage, risky_ok. Exits 3 or 5, or returns.
-refuse_run_behind_other_updater() {
-  restart_held_by_other || return 0
-  if [[ "$wanted_stage" != true ]]; then
-    [[ -z "$risky_ok" ]] || return 0
-    [[ -t 0 && -t 1 ]] && return 0
-  fi
-  local cerr pending="" rc=0
+# The updates a run would install, holds left out. REPLY is the count; non-zero when the check could
+# not answer. Another run holding the helper's lock exits 3 here.
+run_pending_count() {
+  local cerr rc=0
   cerr="$(mktemp)"
-  pending="$(dnf_check 2>"$cerr" | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || rc=$?
+  REPLY="$(dnf_check 2>"$cerr" | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || rc=$?
   if grep -qxF -- "$KEMPT_HELPER_UPDATE_BUSY_TEXT" "$cerr"; then
     rm -f "$cerr"
     echo "another kempt update is running" >&2
     exit 3
   fi
   rm -f "$cerr"
-  [[ $rc -eq 0 && "$pending" == 0 ]] && return 0
+  return "$rc"
+}
+refuse_run_behind_other_updater() {
+  restart_held_by_other || return 0
+  if [[ "$wanted_stage" != true ]]; then
+    [[ -z "$risky_ok" ]] || return 0
+    [[ -t 0 && -t 1 ]] && return 0
+  fi
+  local rc=0
+  run_pending_count || rc=$?
+  [[ $rc -eq 0 && "$REPLY" == 0 ]] && return 0
   # The root helper would refuse the terminal run named below, so that is not the way out here.
   local unsafe_dir
   if unsafe_dir="$(apply_unsafe_dir)"; then
-    preflight_abort "the next restart belongs to another updater, and other users can change files in $unsafe_dir, so nothing was changed. See: kempt doctor"
+    preflight_abort "the next restart belongs to another updater, and $(apply_unsafe_words "$unsafe_dir"), so nothing was changed. See: kempt doctor"
   fi
   if [[ "$wanted_stage" != true ]]; then
     preflight_abort "the next restart belongs to another updater, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now with: kempt update --surface=terminal"
   fi
   preflight_abort "the next restart belongs to another updater, so nothing was staged or changed. Restart when you are ready, or update now with: kempt update --surface=terminal"
+}
+
+# The root helper refuses dnf's verbs while these folders are unsafe, and asking it first means a
+# password prompt for a refusal this user's own reading of the same rules already knows about. So the
+# run stops here, changing nothing, Flatpak included, as the gate above does. With no system updates
+# waiting a live run goes on for Flatpak's sake and leaves the helper out; a stage has nothing else to
+# do. A reading that finds nothing proves little, since root sees more: the helper still decides.
+# Reads: surface. Sets: dnf_apply_skipped. Exits 3 or 5, or returns.
+refuse_run_over_unsafe_folders() {
+  local unsafe_dir
+  unsafe_dir="$(apply_unsafe_dir 2>/dev/null)" || return 0
+  if [[ "$surface" != offline ]]; then
+    local rc=0
+    run_pending_count || rc=$?
+    if [[ $rc -eq 0 && "$REPLY" == 0 ]]; then
+      dnf_apply_skipped=true
+      return 0
+    fi
+  fi
+  preflight_abort "nothing was changed, because $(apply_unsafe_words "$unsafe_dir"). See: kempt doctor"
 }
 
 # The risky-transaction recommendation, run BEFORE the lock is taken so an abort leaves no lock
@@ -1609,6 +1636,8 @@ cmd_update() {
   fi
   [[ "$surface" == offline ]] && wanted_stage=true
   refuse_run_behind_other_updater
+  local dnf_apply_skipped=false
+  refuse_run_over_unsafe_folders
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
   trap release_lock EXIT
 
@@ -1740,7 +1769,7 @@ cmd_update() {
       if refused_why="$(log_folder_refusal "$log")"; then
         reason_override="nothing was staged. $refused_why"
       elif unsafe_dir="$(apply_unsafe_dir)"; then
-        reason_override="nothing was staged, because other users can change files in $unsafe_dir. See: kempt doctor"
+        reason_override="nothing was staged, because $(apply_unsafe_words "$unsafe_dir"). See: kempt doctor"
       else
         reason_override="nothing was staged, because $(apply_refusal_reason) and staging would replace it. See: kempt doctor"
       fi
@@ -1822,7 +1851,7 @@ cmd_update() {
         if refused_why="$(log_folder_refusal "$log")"; then
           reason_override="the updates were staged, but not set to install on the next restart. $refused_why"
         elif unsafe_dir="$(apply_unsafe_dir)"; then
-          reason_override="the updates were staged, but not set to install on the next restart, because other users can change files in $unsafe_dir. See: kempt doctor"
+          reason_override="the updates were staged, but not set to install on the next restart, because $(apply_unsafe_words "$unsafe_dir"). See: kempt doctor"
         else
           reason_override="the updates were staged, but not set to install on the next restart, because $(apply_refusal_reason). See: kempt doctor"
         fi
@@ -1938,7 +1967,8 @@ cmd_update() {
     local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
     live_cmd="${live_argv[*]}"
     local live_rc=0 unsafe_dir="" live_status live_was_status="$status" live_was_failed="$run_failed_otherwise"
-    apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || live_rc=$?
+    [[ "$dnf_apply_skipped" == true ]] \
+      || apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || live_rc=$?
     if [[ $live_rc -eq 0 ]]; then
       dnf_status="ok"
     else
@@ -1949,7 +1979,7 @@ cmd_update() {
           reason_override="nothing was installed. $refused_why"
         else
           unsafe_dir="$(apply_unsafe_dir)" || unsafe_dir="dnf's folders"
-          reason_override="nothing was installed, because other users can change files in $unsafe_dir. See: kempt doctor"
+          reason_override="nothing was installed, because $(apply_unsafe_words "$unsafe_dir"). See: kempt doctor"
         fi
         log_event "live update refused by the root helper"
       fi
@@ -2619,6 +2649,10 @@ status_last_run() {  # now-epoch → "Last update ..." for the newest history en
   [[ -n "$line" ]] || return 0
   phrase="$(history_phrase "$f" 2>/dev/null)" || phrase=""
   [[ -n "$phrase" ]] || return 0
+  # The stage this names may still be stored, and a restart would not install it now.
+  if [[ "$phrase" == *" for a restart" ]] && restart_held_by_other; then
+    phrase="${phrase% for a restart}, but another updater has since prepared the next restart"
+  fi
   failed="${line#*$'\x1f'}"
   printf 'Last update %s · %s%s\n' "${line%%$'\x1f'*}" "$phrase" "${failed:+ · failed}"
 }
@@ -2718,7 +2752,7 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
   local unsafe_folder
   unsafe_folder="$(jq -r '.unsafe_folder | strings' <<<"${doc:-null}" 2>/dev/null)" || unsafe_folder=""
   if [[ -n "$unsafe_folder" ]]; then
-    echo "Updates paused for safety: other users can change files in $(doctor_plain_name "$unsafe_folder"). Run kempt doctor for the fix."
+    echo "Updates paused for safety: $(apply_unsafe_words "$unsafe_folder"). Run kempt doctor for the fix."
   fi
 
   # While a stage is armed the pending sections and the security count read as work still waiting,
@@ -2804,7 +2838,7 @@ stage_remedy() {
 
 # The announce-once key is the marker itself - `armed: false` IS the record that this was said,
 # and a box checking every ten minutes would otherwise repeat it 144 times a day.
-reconcile_detour_stage() {  # marker-json toml-status
+reconcile_detour_stage() {  # marker-json toml-status [none, when nothing of it was installed]
   # `.armed == false` and never `.armed // true`: jq's alternative operator treats FALSE as empty,
   # so `//` would read the demoted marker as armed and announce it again on every check. Absent
   # means announce - a marker written before this field existed describes a stage that was armed.
@@ -2813,12 +2847,18 @@ reconcile_detour_stage() {  # marker-json toml-status
   # write below is a read-modify-write of a file `kempt update` owns under a different lock.
   offline_marker_still "$1" || {
     log_event "offline marker kept (a new stage arrived while the check ran)"; return 0; }
-  if offline_stage_restorable "$1"; then
+  local outcome="cannot install"
+  if [[ "$2" == transaction-incomplete ]]; then
+    # dnf5 started this on a restart and stopped. It was never unable to install, and whether any
+    # of it went in is only said when the caller could tell.
+    outcome="did not finish on the restart"
+    notify "Kempt" "Your staged update did not finish installing on the restart${3:+, and none of it was installed}. $(stage_remedy)"
+  elif offline_stage_restorable "$1"; then
     notify "Kempt" "Your staged update can no longer install on a restart, because another program removed its restart step. To put it back, open Kempt and press Put It Back, or run kempt restore-stage."
   else
     notify "Kempt" "Your staged update can no longer install on a restart. $(stage_remedy)"
   fi
-  log_event "offline stage cannot install (status $2) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
+  log_event "offline stage $outcome (status $2) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
   # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
   # pointer, the names and the boot id survive for the doctor rows that read them.
   # `kempt restore-stage` shares this lock, and may have put it back during that notification.
@@ -3003,7 +3043,7 @@ harvest_offline() {
           log_event "offline marker kept (a new stage arrived while the check ran)"
         fi
       elif [[ "$toml_status" != ready ]]; then
-        reconcile_detour_stage "$marker" "$toml_status"
+        reconcile_detour_stage "$marker" "$toml_status" none
       else
         reconcile_detour_stage "$marker" "ready, but the restart marker is gone"
       fi
@@ -3019,11 +3059,12 @@ harvest_offline() {
   # (offline_stage_satisfied). Then another updater installed the same updates, on this restart or
   # before it (PackageKit, preparing them behind dnf5's back, replaces the symlink and leaves dnf5's
   # state at `ready`), and the stage is done.
-  # Short of that it depends what the question can answer. A transaction dnf5 left incomplete is the
-  # detour, whatever moved. Otherwise what counts is how many staged packages changed since the stage:
-  # some of them is a partial install outside Kempt, none of them is the detour, and a question that
-  # cannot be asked (dnf5's copy unreadable, or no longer Kempt's) claims nothing either way.
-  local installed_elsewhere=false partly_elsewhere=false partly_report="" partly_count=0
+  # Short of that it depends what the question can answer. What counts is how many staged packages
+  # changed since the stage: some of them is a partial install, none of them is the detour, and a
+  # question that cannot be asked (dnf5's copy unreadable, or no longer Kempt's) claims nothing either
+  # way. A transaction dnf5 left incomplete is the same question with dnf5 as the one who stopped:
+  # a package's script can fail part way through, leaving the packages before it installed.
+  local installed_elsewhere=false partly_elsewhere=false restart_unfinished=false partly_report="" partly_count=0 partly_shown=0
   if [[ "$toml_status" != absent ]]; then
     if [[ "$toml_status" != ready ]] \
        || [[ -n "$boot" && "$boot" != unknown && "$(offline_link_state)" != dnf5 ]]; then
@@ -3031,19 +3072,19 @@ harvest_offline() {
       offline_marker_stage_satisfied "$marker" || sat_rc=$?
       if [[ "$sat_rc" == 0 ]]; then
         installed_elsewhere=true
-      elif [[ "$toml_status" == transaction-incomplete ]]; then
-        rm -f "$now_snap"
-        reconcile_detour_stage "$marker" "$toml_status"
-        return 0
       elif ! partly_report="$(stage_changed_report "$marker" "$pre" "$now_snap" "$sat_rc")"; then
         rm -f "$now_snap"
-        stage_result_unknown "$marker"
+        if [[ "$toml_status" == transaction-incomplete ]]; then
+          reconcile_detour_stage "$marker" "$toml_status"
+        else
+          stage_result_unknown "$marker"
+        fi
         return 0
       else
         partly_count="$(jq '(.updated | length) + (.added | length)' <<<"$partly_report")"
         if [[ "$partly_count" == 0 ]]; then
           rm -f "$now_snap"
-          reconcile_detour_stage "$marker" "$toml_status"
+          reconcile_detour_stage "$marker" "$toml_status" none
           return 0
         fi
         # Already told it can no longer install, so a second report would only contradict that.
@@ -3056,6 +3097,13 @@ harvest_offline() {
           return 0
         fi
         partly_elsewhere=true
+        [[ "$toml_status" != transaction-incomplete ]] || restart_unfinished=true
+        # The number said to the person. New dependencies count toward "some changed" above, but they
+        # were never in the count Kempt gave when it staged, which is the number this is read against.
+        partly_shown="$(jq '.updated | length' <<<"$partly_report")"
+        local told=""
+        told="$(jq -r '.staged | numbers' <<<"$marker" 2>/dev/null)" || told=""
+        if [[ "$told" =~ ^[1-9][0-9]*$ ]] && (( partly_shown > told )); then partly_shown="$told"; fi
       fi
     elif ! jq -e '.set_moved == true' <<<"$marker" >/dev/null 2>&1; then
       # Once, not once per check: this lasts until the restart that installs it. The baseline is
@@ -3091,8 +3139,9 @@ harvest_offline() {
     staged_names="$(offline_txjson_names)" || staged_names=""
     report="$(report_keep_names "$report" "$staged_names")"
   elif [[ "$partly_elsewhere" == true ]]; then
-    # dnf5 ran nothing of this, so its history has nothing to attribute.
+    # The report is already the staged packages that changed, so the history has nothing to add.
     hsurface="offline (partly installed outside Kempt)"
+    [[ "$restart_unfinished" != true ]] || hsurface="offline (restart did not finish)"
     report="$partly_report"
   elif attribution="$(offline_history_attribution "$marker")"; then
     verdict="${attribution%%$'\n'*}"
@@ -3144,13 +3193,19 @@ harvest_offline() {
   # compares against it.
   local hfb=""
   hfb="$(jq -c '.failed_before | objects' <<<"$marker" 2>/dev/null)" || hfb=""
+  # A restart that stopped part way is a failed run, with the packages it did install as its report.
+  local hstatus=ok herror=""
+  if [[ "$restart_unfinished" == true ]]; then
+    hstatus=failed herror="the install did not finish on the restart"
+  fi
   jq -n --arg ts "$(now_iso)" --slurpfile repa "$rep_f" --arg surface "$hsurface" --arg txid "$txid" \
-        --arg log "$hlog" --arg dur "$hdur" --arg fb "$hfb" '
+        --arg log "$hlog" --arg dur "$hdur" --arg fb "$hfb" --arg status "$hstatus" --arg error "$herror" '
     ($repa[0]) as $dnf |
-    {timestamp:$ts, surface:$surface, status:"ok",
+    {timestamp:$ts, surface:$surface, status:$status,
      reboot_needed:false, log:$log,
-     backends:{dnf:($dnf + {status:"ok", skipped_held:[]}),
+     backends:{dnf:($dnf + {status:$status, skipped_held:[]}),
                flatpak:{updated:[],added:[],removed:[],status:"skipped",skipped_held:[]}}}
+    + (if $error == "" then {} else {error: $error} end)
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
     + (if $dur == "" then {} else {duration_sec: ($dur | tonumber)} end)
     + (if $fb == "" then {} else {failed_before: ($fb | fromjson)} end)' > "$hist" \
@@ -3167,6 +3222,8 @@ harvest_offline() {
     hlog_head="Kempt staged this update, and another updater installed the same packages."
   elif [[ "$partly_elsewhere" == true ]]; then
     hlog_head="Kempt staged this update, and some of its packages were installed outside Kempt."
+    [[ "$restart_unfinished" != true ]] \
+      || hlog_head="Kempt staged this update, and dnf5 stopped before the end of the install during the restart."
   fi
   if [[ -n "$hist" ]]; then
     if { printf '%s\n' \
@@ -3213,12 +3270,17 @@ harvest_offline() {
     notify "Kempt" "Your staged updates are installed."
   elif [[ "$partly_elsewhere" == true ]]; then
     # Who did it stays unsaid, since `dnf upgrade foo` looks the same, and so does what became of the
-    # rest: the normal list shows whatever is still pending.
-    log_event "offline stage partly installed outside Kempt${harvested:+ ($harvested)}"
-    if [[ "$partly_count" == 1 ]]; then
-      notify "Kempt" "1 of your staged updates was installed outside Kempt."
+    # rest: the normal list shows whatever is still pending. Nor does a restart that stopped name the
+    # package that stopped it: nothing Kempt reads here says which it was.
+    local partly_words="$partly_shown of your staged updates were installed"
+    if [[ "$partly_shown" == 1 ]]; then partly_words="1 of your staged updates was installed"
+    elif [[ "$partly_shown" == 0 ]]; then partly_words="Part of your staged update was installed"; fi
+    if [[ "$restart_unfinished" == true ]]; then
+      log_event "offline stage partly installed on a restart that did not finish${harvested:+ ($harvested)}"
+      notify "Kempt" "$partly_words, but the install did not finish on the restart. Kempt's update list shows what is still waiting."
     else
-      notify "Kempt" "$partly_count of your staged updates were installed outside Kempt."
+      log_event "offline stage partly installed outside Kempt${harvested:+ ($harvested)}"
+      notify "Kempt" "$partly_words outside Kempt."
     fi
   elif [[ "$verdict" == did-not-run ]]; then
     # Nothing here says what DID happen to the stage, because the history does not say it either:
@@ -3500,7 +3562,7 @@ cmd_restore_stage() {
     if refused_why="$(helper_folder_refusal "$err")"; then
       echo "Your staged update was not put back. $refused_why" >&2
     elif unsafe_dir="$(apply_unsafe_dir)"; then
-      echo "Your staged update was not put back, because other users can change files in $unsafe_dir. See: kempt doctor" >&2
+      echo "Your staged update was not put back, because $(apply_unsafe_words "$unsafe_dir"). See: kempt doctor" >&2
     else
       echo "Your staged update was not put back, because $(apply_refusal_reason). See: kempt doctor" >&2
     fi
@@ -4648,6 +4710,16 @@ apply_unsafe_dir() {  # → the first such folder; rc 1 when there is none
   [[ -n "$DOCTOR_TREE_HIT" ]] && { doctor_plain_name "$KEMPT_DNF_CACHE_DIR"; echo; return 0; }
   return 1
 }
+# Why that folder is unsafe, in the words the root helper and doctor use for it.
+apply_unsafe_words() {  # folder → the end of a sentence
+  local shown
+  shown="$(doctor_plain_name "$1")"
+  if doctor_on_users_mount "$1"; then
+    printf '%s is on a mount made by a user other than root' "$shown"
+  else
+    printf 'other users can change files in %s' "$shown"
+  fi
+}
 # A clean the helper refused. Over a folder problem, the unwind's words are these. Over what is
 # stored, the caller keeps its own sentence with the reason in it.
 clean_refused_over_folders() {  # run log or "" → 0 when the folders are why
@@ -4697,6 +4769,8 @@ doctor_dnf_cache_row() {
     || doctor_could_not_check "dnf cache" "$KEMPT_DNF_CACHE_DIR" "$KEMPT_CONTENTS_HOLD"
   hit="$DOCTOR_TREE_HIT"
   if [[ -n "$hit" ]]; then
+    local old_note=" Kempt 0.1.7 or earlier may have left them that way."
+    doctor_on_users_mount "$hit" && old_note=""
     hit="$(doctor_plain_name "$hit")"   # another user picks the name, so it never reaches the terminal raw
     printf -v dir_q '%q' "$KEMPT_DNF_CACHE_DIR"
     # Not dnf5 clean all: it follows links planted at <repo>/packages or <repo>/repodata and deletes
@@ -4712,12 +4786,14 @@ doctor_dnf_cache_row() {
     # empty", which leaves a root-only <dir>-unsafe.XXXXXX behind; the glob reaches it again.
     fix+=". If the last step says the directory is not empty, run this again later: sudo rm -rf --one-file-system $dir_q-unsafe.*"
     # A FAIL: a live upgrade installs from here, and after dnf5's signature check rpm checks only the digest.
-    doctor_fail "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Do not use dnf5 clean all on it, because it can delete files outside the cache. $fix. $KEMPT_CONTENTS_HOLD"
+    doctor_fail "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit).$old_note Do not use dnf5 clean all on it, because it can delete files outside the cache. $fix. $KEMPT_CONTENTS_HOLD"
   fi
   doctor_scan_tree "$KEMPT_DNF_SYSIMAGE_DIR" links \
     || doctor_could_not_check "dnf state" "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_CONTENTS_HOLD"
   hit="$DOCTOR_TREE_HIT"
   if [[ -n "$hit" ]]; then
+    local old_note=" Kempt 0.1.7 or earlier may have left them that way."
+    doctor_on_users_mount "$hit" && old_note=""
     hit="$(doctor_plain_name "$hit")"
     printf -v dir_q '%q' "$KEMPT_DNF_SYSIMAGE_DIR"
     # The directories first, and only them: once each is root's, with no ACL entry and no group or
@@ -4746,19 +4822,21 @@ doctor_dnf_cache_row() {
     # A FAIL: dnf5 keeps a staged update's record here, and a changed record installs as root. The
     # lock-down keeps the record, so the fix discards it last, once nobody else can change it again;
     # dnf5 offline clean exits 0 when nothing is staged, so the chain goes on either way.
-    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way. Fix it with: $lock_dirs && $drop_hard && sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there. $KEMPT_CONTENTS_HOLD"
+    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit).$old_note Fix it with: $lock_dirs && $drop_hard && sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there. $KEMPT_CONTENTS_HOLD"
   fi
   doctor_scan_tree "$KEMPT_DNF_OFFLINE_PKG_DIR" links \
     || doctor_could_not_check "dnf staged updates" "$KEMPT_DNF_OFFLINE_PKG_DIR" "$KEMPT_CONTENTS_HOLD"
   hit="$DOCTOR_TREE_HIT"
   if [[ -n "$hit" ]]; then
+    local old_note="Kempt 0.1.7 or earlier may have left them that way, and a changed package"
+    doctor_on_users_mount "$hit" && old_note="A changed package"
     hit="$(doctor_plain_name "$hit")"
     printf -v dir_q '%q' "$KEMPT_DNF_OFFLINE_PKG_DIR"
     # The restart installs these packages as root without checking their signatures again, so a
     # swapped one runs its scripts as root. Their contents cannot be trusted, so the fix discards
     # the stage and the directory; dnf5 makes a new one at the next stage. dnf5 offline clean does
     # not follow links (checked on dnf5 5.4.6), and rm -rf never does.
-    doctor_fail "dnf staged updates: other users can change files in $KEMPT_DNF_OFFLINE_PKG_DIR (for example $hit). Kempt 0.1.7 or earlier may have left them that way, and a changed package there installs as root at the next restart. Before you restart, discard the staged update and remove the folder: sudo dnf5 offline clean && sudo rm -rf --one-file-system $dir_q. Then stage the updates again. $KEMPT_CONTENTS_HOLD"
+    doctor_fail "dnf staged updates: other users can change files in $KEMPT_DNF_OFFLINE_PKG_DIR (for example $hit). $old_note there installs as root at the next restart. Before you restart, discard the staged update and remove the folder: sudo dnf5 offline clean && sudo rm -rf --one-file-system $dir_q. Then stage the updates again. $KEMPT_CONTENTS_HOLD"
   fi
 }
 
@@ -4867,6 +4945,11 @@ doctor_mount_of() {  # path → REPLY, the index of the mount it sits on: longes
     if (( ${#mp} >= best_len )); then best=$i best_len=${#mp}; fi
   done
   REPLY=$best
+}
+doctor_on_users_mount() {  # path → 0 when it sits on a FUSE mount root did not make; 1 when unknown
+  doctor_load_mounts || return 1
+  doctor_mount_of "$1"
+  (( REPLY >= 0 )) && doctor_mount_is_users "$REPLY"
 }
 # Everything doctor_dnf_parents_row reports, in arrays: what another user can change and the three
 # lists its fix needs, the mounts as "folder<TAB>mount point<TAB>options", and the checks that failed
@@ -5186,7 +5269,7 @@ doctor_offline_rows() {
   # and would fall through to the armed row below. offline_marker_read refuses an empty,
   # unparsable or over-1 MB marker, and that means "skip", not "the stage is gone".
   dr_marker="$(offline_marker_read)"
-  # What is left of a stage partly installed outside Kempt: no marker, and the copy the harvest saw.
+  # What is left of a stage only partly installed: no marker, and the copy the harvest saw.
   if [[ -z "$dr_marker" && ! -e "$OFFLINE_MARKER" ]] && offline_partial_current; then dr_partial=true; fi
   # A stored release upgrade answers for the whole section: dnf5 has one slot, ours is not in it,
   # and every sentence below would be about a transaction that no longer exists. Reported as
@@ -5227,6 +5310,10 @@ doctor_offline_rows() {
       absent)
         # Nothing for anyone to do: harvest_offline clears a marker with no transaction under it.
         doctor_info "staged update: the transaction is gone, so the next check clears the marker ($OFFLINE_MARKER)" ;;
+      transaction-incomplete)
+        # Only when nothing of it can be shown to have changed, or that is not known: the harvest
+        # clears the marker over a partial install.
+        doctor_fail "staged update did not finish: dnf5 started it on a restart and stopped before the end (status \"$dr_toml\"), and no restart runs it again. Clear it with: sudo dnf5 offline clean" ;;
       *)
         # Not `ready` means not armed, and no restart applies it. FAIL rather than info: a real
         # defect with an exact remedy, spelled out because the remedy needs root.
@@ -5277,9 +5364,9 @@ doctor_offline_rows() {
     elif [[ "$dr_partial" == true ]]; then
       # Neither "staged outside Kempt" nor dnf5's own clean: Kempt staged it, and unstage knows it.
       if [[ "$dr_holder" == other ]]; then
-        doctor_info "dnf5 still keeps what is left of a staged update that was partly installed outside Kempt. It will not run again. A later stage replaces it. To remove it, restart first, then run: kempt unstage"
+        doctor_info "dnf5 still keeps what is left of a staged update that was only partly installed. It will not run again. A later stage replaces it. To remove it, restart first, then run: kempt unstage"
       else
-        doctor_info "dnf5 still keeps what is left of a staged update that was partly installed outside Kempt. It will not run again. A later stage replaces it. To remove it, run: kempt unstage"
+        doctor_info "dnf5 still keeps what is left of a staged update that was only partly installed. It will not run again. A later stage replaces it. To remove it, run: kempt unstage"
       fi
     else
       doctor_info "an offline transaction is staged outside Kempt (status \"$dr_toml\"). See: dnf5 offline status"
