@@ -3155,7 +3155,7 @@ function viewModel(state, updating, cliError, opts) {
     if (actionable > 0 && downloadText !== "") footerParts.push(downloadText);
     // ...and the restart, whenever the message is not carrying it - including one the CAP
     // displaced, which is what makes displacing it honest rather than merely quiet. With the
-    // reminder off, or dismissed for this session, this line is the only place it is said.
+    // message dismissed for this session, this line is the only place it is said.
     if (rebootNeeded && !restartShown) footerParts.push(COPY.restartPending);
 
     // What Check for Updates says out loud when it lands, in the words already on screen. ONE

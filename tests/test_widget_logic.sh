@@ -2214,7 +2214,7 @@ assert_eq "$(js 'L.viewModel({schema:2,status:"ok",actionable:0,held_total:0,bac
 # Dismissed for this session: no message, and the footer picks the fact up instead, because a
 # popup that hides a pending restart is lying to the person looking at it.
 RB=',reboot_needed:true'
-assert_eq "$(vm '{}' "$RB" 0 'restartMessageVisible')" "true" "reminder on: the message shows"
+assert_eq "$(vm '{}' "$RB" 0 'restartMessageVisible')" "true" "a restart owed: the message shows"
 assert_eq "$(vm '{restartDismissed:true}' "$RB" 0 'restartMessageVisible')" "false" \
   "dismissed this session: no message"
 assert_eq "$(vm '{}' '' 0 'restartMessageVisible')" "false" "no restart owed: nothing to show"

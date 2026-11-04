@@ -582,18 +582,6 @@ kempt_default() {  # key → default ("" if unknown)
     # Twinned with DEFAULT_SURFACE in the widget's logic.js.
     surface) echo popup ;;
     refresh_interval_min) echo 60 ;;
-    # Panel-icon size for the Plasma widget: auto|small|medium|large. A widget setting kept here so
-    # the widget and `kempt config` share one place; the CLI has no icons and never reads it. The
-    # VALUE is deliberately not validated: the widget turns anything it does not recognise into
-    # `auto` rather than refusing to draw, and a CLI that rejected values would be a second opinion
-    # about a Plasma detail it cannot see.
-    # Whether the widget's popup offers to open KDE's restart prompt when a restart is owed -
-    # another widget setting kept here so `kempt config` stays the one way in and out.
-    # The DEFAULT is the whole point of the entry: the widget asks the CLI for the key and runs the
-    # answer through is_true(), and a key with no default answers with the empty string, which
-    # is_true reads as false. A missing entry here would not mean "no opinion" - it would silently
-    # switch the reminder OFF on every box whose config file has never named it. Same failure mode
-    # as a missing include_<backend> default (docs/architecture.md, the backend wiring table).
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction, so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
@@ -4202,7 +4190,6 @@ staged_summary_line() {  # [state file, the published one by default] → one li
 # --- human summary of one history entry (same renderer for the terminal, the popup and the
 # notification body: one truth, rendered once) ---
 render_summary() {  # history-json-file → human text
-  # The reclaim setting now, for the end-of-life hint: with reclaim=off, kempt reclaim refuses.
   jq -r "$KEMPT_JQ_COUNTS"'
     def newest(v): v | split(",") | last;   # installonly sets stay truthful in JSON; humans see newest → newest
     # NOT always an arrow. A Flatpak runtime can update without its version string moving - most

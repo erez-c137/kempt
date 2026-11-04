@@ -14,7 +14,7 @@ kept yet and why. The pending parts show up as skips in the suite's summary.
 | 7 | A non-admin gets no root. Helpers take no caller-chosen arguments. | `test_polkit.sh`, `test_helpers.sh` | `apply is auth_admin_keep`; `render refuses a template that lost the scope clause`; `apply: arm takes no arguments`; `apply: injection via exclude` |
 | 8 | Warn before a risky live update. | `test_update.sh`, `test_check.sh` | `recommendation explains the risk`; `pending session-critical package is flagged` |
 | 9 | Report other updaters. Never compete with them. | `test_other_updater.sh`, `test_widget_logic.sh` | `...and answering s anyway never stages`; `held, nothing staged: a banner in the staged slot` |
-| 10 | Say when a restart is owed. | `test_status.sh`, `test_widget_logic.sh`, `qml/probe_popup.py` | `a restart owed has its line`; `reminder on: the message shows`; `...and none of it is cut off` |
+| 10 | Say when a restart is owed. | `test_status.sh`, `test_widget_logic.sh`, `qml/probe_popup.py` | `a restart owed has its line`; `a restart owed: the message shows`; `...and none of it is cut off` |
 | 11 | Deleting the state folder costs at most one repeat notification. **Partly pending:** see below. | `test_promises.sh` | `deleting the state folder costs at most one notification` |
 
 ## Pending

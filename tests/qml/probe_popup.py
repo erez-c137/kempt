@@ -741,7 +741,7 @@ ev("root.promptRestart()")
 settle()
 p.check("...and the next attempt that works clears it", ev("root.restartError"), "")
 
-# --- the reminder setting, and closing the message ------------------------------------------------
+# --- closing the restart message ------------------------------------------------------------------
 open(CHECKSRC, "w").write(os.path.join(harness.FIXTURES, "state-reboot-needed.json"))
 ev("root.doCheck()")
 settle()
@@ -2566,7 +2566,7 @@ p.check("the footer's tooltip is the absolute stamp people compare the relative 
 # Kirigami's close button hides its message by ASSIGNING visible = false, so the handler that
 # turns a close into dismissRestart() sees the same signal when an ancestor hides. A handler
 # that only asked "does the view model still want this?" would read a run starting as the user
-# closing the message, and an update would silently switch the reminder off for the session.
+# closing the message, and an update would silently dismiss it for the session.
 state(fixture("state-reboot-needed.json"))
 ev("root.restartDismissed = false")
 p.check("the restart message is up before the run", lev("restartMessage.visible"), True)

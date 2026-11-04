@@ -152,14 +152,11 @@ settle()
 p.check("a prompt that DOES open leaves nothing to apologise for", ev("root.restartError"), "")
 
 # ==================================================================================================
-# A dismissal that outlived the message it was about
+# Closing the restart message
 # ==================================================================================================
 # Closing the restart message sets restartDismissed for this plasmashell session, which is the
 # right shape for a dismissal (see main.qml: persisting it would promise to remember something the
-# next restart makes untrue). What was missing is the other way out of it. Switching the reminder
-# OFF and back ON in the settings page is a person saying "show me this again", and the message
-# stayed hidden anyway - no button, and nothing on that page to explain why the setting they just
-# turned on did nothing.
+# next restart makes untrue).
 ev("root.restartDismissed = false")
 ev("root.doCheck()")
 settle()
