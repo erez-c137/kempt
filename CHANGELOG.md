@@ -15,6 +15,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Rebuild Staged Update.** To apply new holds to a staged update, press **Discard Staged Update**
   and stage again. That deletes the download, so staging again downloads the packages again. In a
   terminal, `kempt update --surface=offline` still replaces the stage and reuses the download.
+- **The widget's offer to update inside it, and keeping `terminal` on upgrade.** An install from before 0.1.8 whose config file names no `surface` now updates in the widget, with no offer first. To keep a terminal window, run `kempt config set surface terminal`.
+- **Recognizing the Discover startup file that `install.sh` wrote before 0.1.8.** `kempt discover-notifier on` now treats that file as your own and leaves it. To turn the notifier back on, delete it from `~/.config/autostart`.
 
 ### Security
 

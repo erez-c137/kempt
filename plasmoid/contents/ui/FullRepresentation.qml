@@ -1134,30 +1134,6 @@ PlasmaExtras.Representation {
             ]
         }
 
-        // The one-time offer to update here instead of in a terminal window, made to a box that had
-        // the terminal before the popup became the default (bin/kempt, surface_migrate). Either
-        // answer is written as the setting, which is what ends the offer.
-        Kirigami.InlineMessage {
-            id: surfaceOfferMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: i18n("Updates can now run in this widget instead of a terminal window.")
-            Accessible.name: text
-            visible: popup.shows("surfaceOffer")
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Use This Widget")
-                    icon.name: "dialog-ok"
-                    onTriggered: source => { popup.plasmoidItem.useSurface("popup"); popup.rescueFocus(); }
-                },
-                Kirigami.Action {
-                    text: i18n("Keep the Terminal Window")
-                    icon.name: "utilities-terminal"
-                    onTriggered: source => { popup.plasmoidItem.useSurface("terminal"); popup.rescueFocus(); }
-                }
-            ]
-        }
-
         // The one-time offer to turn off Discover's own update notifier, which counts updates on
         // its own schedule. Either answer ends it. Settings can turn the notifier back on.
         Kirigami.InlineMessage {

@@ -192,22 +192,12 @@ PlasmoidItem {
     readonly property bool discoverWarningDrawn: vm.messageSlots.indexOf("discoverUnattended") >= 0
     onDiscoverWarningDrawnChanged: acknowledgeDiscoverWarning()
 
-    // The one-time offer to update in the popup was answered in this session. The CLI forgets the
-    // offer when the surface is set; this hides it at once rather than at the next check.
-    property bool surfaceOfferAnswered: false
-
-    // The same for the one-time offer to turn off Discover's notifier. Either button runs
+    // The one-time offer to turn off Discover's notifier was answered in this session. Either button runs
     // `kempt discover-notifier`, which records the answer for the CLI too.
     property bool discoverOfferAnswered: false
     // Whether the CLI's answered marker has been looked for. The answer outlives a plasmashell
     // restart there, even when the check after it never rewrote state.json.
     property bool discoverAnswerKnown: false
-
-    // Whether the CLI has answered for the surface yet. Until it has, `surface` is only the
-    // default, so the offer waits. The risky question does not: the default is the popup, so in
-    // that window Update Now asks first, which is the safe side. Defaulting to the terminal would
-    // start a session-critical set live on a box set to the popup.
-    property bool surfaceKnown: false
 
     // A question is about the moment it was asked. A run started elsewhere, or a set that is no
     // longer risky, ends it, so it cannot come back after that run fails.
@@ -335,10 +325,8 @@ PlasmoidItem {
                                                 discoverWarningKept: discoverWarningKept,
                                                 discoverTurnedOff: discoverTurnedOff,
                                 checkUnfinished: checkFailNote,
-                                                surfaceOfferAnswered: surfaceOfferAnswered,
                                                 discoverOfferAnswered: discoverOfferAnswered,
                                                 discoverAnswerKnown: discoverAnswerKnown,
-                                                surfaceKnown: surfaceKnown,
                                                 // The one input logic.js cannot derive: the
                                                 // post-run line and a failed press are this
                                                 // file's own state, not the CLI's, and the
@@ -802,10 +790,7 @@ PlasmoidItem {
     function readSurface() {
         executor.run(kemptCmd + " config get surface", 10000, function(stdout, stderr, rc) {
             var s = Logic.firstLineOf(stdout);
-            if (rc === 0 && s !== "") {
-                root.surface = s;
-                root.surfaceKnown = true;
-            }
+            if (rc === 0 && s !== "") root.surface = s;
         });
         executor.run(kemptCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
             var v = Logic.firstLineOf(stdout);
@@ -1121,32 +1106,6 @@ PlasmoidItem {
         doCheck(false, true, false, true);
     }
 
-    // The one-time offer's answer, either way, written as the setting itself: setting the surface
-    // is also what tells the CLI the offer is answered. Only the two names the buttons carry.
-    function useSurface(value) {
-        if (value !== "popup" && value !== "terminal") return;
-        surfaceOfferAnswered = true;
-        actionMessage = "";
-        actionDone = "";
-        executor.run(kemptCmd + " config set surface " + value, Logic.ANSWER_TIMEOUT_MS,
-                     function(stdout, stderr, rc) {
-            var said = Logic.answerOutcomeOf(rc, stdout, stderr,
-                value === "popup" ? Logic.COPY.surfaceSetPopup : Logic.COPY.surfaceSetTerminal);
-            if (!said.ok) {
-                // Not saved, so not answered: the offer comes back with the reason above it.
-                root.surfaceOfferAnswered = false;
-                root.actionMessage = said.text;
-                return;
-            }
-            root.readSurface();
-            // A check publishes state.json without surface_offer, so the offer stays gone after
-            // this session forgets the answer.
-            root.doCheck();
-            // After the check, which clears the last event's reports at its top.
-            root.actionDone = said.text;
-        });
-    }
-
     // The answer to the Discover offer: "off" turns Discover's notifier off, "keep" changes
     // nothing. Both record the answer in the CLI's marker, so a check then publishes state.json
     // without discover_offer, and readDiscoverAnswered finds it after a restart either way.
@@ -1167,7 +1126,7 @@ PlasmoidItem {
                 return;
             }
             root.doCheck();
-            // The CLI's own confirmation, after the check for the same reason as useSurface.
+            // The CLI's own confirmation, after the check, which clears the last event's reports at its top.
             root.actionDone = said.text;
         });
     }

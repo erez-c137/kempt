@@ -102,7 +102,7 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    and **Copy Command**. Either one shows alone. See
    [install.md](install.md#installing-from-the-kde-store-first).
 2. **What just happened:** `Updated 4 packages in 2s`, `No package changes`,
-   `Update failed: <the reason>`, or why a button press failed. After an answer to message 9 or 10,
+   `Update failed: <the reason>`, or why a button press failed. After an answer to message 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
    check that worked. If the press got no fresh lists, another message says why and, when known,
    gives their age, until closed or the next check. On battery or a metered connection it offers **Download
@@ -142,19 +142,14 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    yet."*, ends *"Install on the next restart, or now?"* and adds **Install Now**. **Install on Next
    Restart** gets the keyboard focus. In a terminal, the terminal asks instead. While a Fedora
    release upgrade is stored, it does not ask, and **Update Now** updates live.
-9. **"Updates can now run in this widget instead of a terminal window."** It shows once, on an
-   install that kept the terminal on upgrading to 0.1.8. **Use This Widget** switches
-   **Run updates in** to **In this widget**. **Keep the Terminal Window** keeps your setting. Either
-   hides the message for good ([more](configuration.md#upgrading-from-an-older-kempt)). To go back
-   later, set **Run updates in** to **Terminal window**, or run `kempt config set surface terminal`.
-10. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
-    from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
-    starts with your session. If message 9 is showing, it waits until you answer that one.
-    **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
-    nothing. Either answer hides the message for good. An image-based Fedora, which is told to use
-    Discover, does not get this message or the warning below. The **Discover** row in settings turns the
-    notifier back on.
-11. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
+9. **"Discover, Plasma's software center, also shows update notifications. Its count can differ
+   from Kempt's, and its checks can make an update wait."** It shows while Discover's notifier
+   starts with your session.
+   **Turn Off Discover's Notifier** turns it off for you. **Keep Discover's Notifier** changes
+   nothing. Either answer hides the message for good. An image-based Fedora, which is told to use
+   Discover, does not get this message or the warning below. The **Discover** row in settings turns the
+   notifier back on.
+10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
     is at least 100 MB to free, or an amount Kempt could not measure. **Show Runtimes** lists the
     runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
     saw. If the list changed, or removing needs an administrator, nothing is removed and the widget

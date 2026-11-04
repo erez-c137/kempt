@@ -461,17 +461,6 @@ def answer(message, index, what):
 
 ev("root.popupOpened()")
 settle()
-_so = json.load(open(fixture("state-live.json")))
-_so["surface_offer"] = True
-_sopath = os.path.join(p.sandbox, "state-surface-offer.json")
-open(_sopath, "w").write(json.dumps(_so))
-for index, what in ((0, "Use This Widget"), (1, "Keep the Terminal Window")):
-    ev('root.surface = "terminal"')
-    ev("root.surfaceOfferAnswered = false")
-    state(_sopath)
-    p.check("premise: the offer to use the widget is up", lev("surfaceOfferMessage.visible"), True)
-    answer("surfaceOfferMessage", index, what)
-
 _do = json.load(open(fixture("state-live.json")))
 _do["discover_offer"] = True
 _dopath = os.path.join(p.sandbox, "state-discover-offer.json")

@@ -741,12 +741,6 @@ cmd_check() {
      && [[ -n "$merged" ]]; then
     state="$merged"
   fi
-  # true or absent, like image_based: the popup's one offer of the popup default, to an install
-  # surface_migrate kept on the terminal.
-  if surface_offer_pending \
-     && merged="$(jq '. + {surface_offer: true}' <<<"$state" 2>/dev/null)" && [[ -n "$merged" ]]; then
-    state="$merged"
-  fi
   # true or absent: the widget's one offer to turn off Discover's notifier, while it starts with
   # the session and nobody has answered.
   if discover_offer_pending \
@@ -3322,9 +3316,7 @@ cmd_config() {
          local v="$3"
          [[ "$2" != surface || "$(surface_canon "$v")" != popup ]] || v=popup
          config_warn_unknown "$2" "$v"
-         config_set "$2" "$v"
-         # Choosing how updates run, here or in Settings, answers the popup's one offer.
-         [[ "$2" != surface ]] || rm -f "$SURFACE_OFFER_FILE" ;;
+         config_set "$2" "$v" ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
 }
@@ -5757,16 +5749,6 @@ if [[ $EUID -eq 0 && "${KEMPT_ALLOW_ROOT:-}" != 1 ]]; then
        exit 8 ;;
   esac
 fi
-
-# Before any command reads the config, so the first `config get surface` of this version already
-# answers what the migration decided. Only the commands that exist: help, the version and a
-# mistyped command change nothing, so they skip it. So does `discover-notifier status`, which only
-# reads: `install.sh --uninstall` runs it and must write nothing.
-case "${1:-help}" in
-  check|update|run|summary|history|log|doctor|config|hold|unhold|holds|unstage|reclaim|startup|\
-  enable-passwordless|disable-passwordless) surface_migrate ;;
-  discover-notifier) [[ "${2:-}" == status ]] || surface_migrate ;;
-esac
 
 case "${1:-help}" in
   check)   shift; cmd_check "$@" ;;

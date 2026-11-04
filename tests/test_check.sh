@@ -745,7 +745,7 @@ assert_exit 2 "check refuses --anyway with a value" "$KEMPT" check --anyway=yes
 # may export a variable that carries it.
 internal_calls="$(grep -nE '(^|[^_a-z])cmd_check( |$)' "$REPO_ROOT/bin/kempt" | grep -v 'cmd_check()' \
                   | grep -vF 'check)   shift; cmd_check "$@" ;;' | grep -v '^[0-9]*: *#')"
-assert_eq "$(grep -c . <<<"$internal_calls")" "11" "bin/kempt has its eleven internal checks (premise)"
+assert_eq "$(grep -c . <<<"$internal_calls")" "8" "bin/kempt has its eight internal checks (premise)"
 assert_eq "$(grep -cvE 'cmd_check >/dev/null 2>&1 \|\| true$' <<<"$internal_calls")" "0" \
   "...and every one runs cmd_check with no arguments, so none can pass --anyway"
 assert_eq "$(grep -ciE 'export[^#]*anyway|KEMPT_ANYWAY' "$REPO_ROOT/bin/kempt" "$REPO_ROOT/lib/common.sh" \
@@ -1929,18 +1929,6 @@ assert_eq "$rc" "0" "a reclaim listing that fails never fails the check"
 assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "failed" "...it is reported inside the block instead"
 assert_eq "$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")" "$before" "...and the rest of the state is unchanged"
 assert_eq "$(jq -r '.reclaim.status' "$STATE_FILE")" "failed" "...and written"
-
-# --- surface_offer: the popup's one offer of the popup default ---------------------------------------
-# This sandbox has run checks, so it is an install that has run Kempt before. Drop the record that
-# the migration ran and any surface key, and the next run is the first run of the new version.
-assert_eq "$(jq -c 'has("surface_offer")' <<<"$out")" "false" "a new install is offered nothing"
-rm -f "$SURFACE_MIGRATED_FILE"; sed -i '/^surface=/d' "$CONFIG_FILE"
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c '.surface_offer' <<<"$out")" "true" "an install the migration kept on the terminal is offered the popup"
-assert_eq "$(jq -c '.surface_offer' "$STATE_FILE")" "true" "...and the state file says so"
-"$KEMPT" config set surface terminal
-out="$("$KEMPT" check 2>/dev/null)"
-assert_eq "$(jq -c 'has("surface_offer")' <<<"$out")" "false" "...until a surface is chosen"
 
 # --- discover_offer: the widget's one offer to turn off Discover's notifier --------------------------
 assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "with no Discover notifier installed, nothing is offered"

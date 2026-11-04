@@ -829,32 +829,6 @@ assert_eq "$(js 'L.COPY.installNow')" "Install Now" "the second answer is Instal
 assert_eq "$(js 'L.COPY.installNowTooltip')" "Installs the update now, while your desktop is running." \
   "...with a tooltip, as its sibling has"
 
-# --- the one offer of the popup default ---------------------------------------------------------
-offer_vm() {  # extra opts → JS for a state carrying surface_offer, on a box that updates in the terminal
-  local o="${1:-}"; [[ -n "$o" ]] || o='{}'
-  printf 'L.viewModel(Object.assign(S("live"), {surface_offer: true}), false, "", Object.assign({surface: "terminal", configuredSurface: "terminal", autoAccept: true}, %s))' "$o"
-}
-assert_eq "$(js "$(offer_vm).messageSlots")" '["surfaceOffer"]' "an install the migration kept on the terminal is offered the popup"
-assert_eq "$(js 'L.viewModel(S("live"), false, "", {surface: "terminal", configuredSurface: "terminal"}).messageSlots')" '[]' \
-  "no surface_offer in the state, no offer"
-assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {surface_offer: "true"}), false, "", {configuredSurface: "terminal"}).messageSlots')" '[]' \
-  "...and only a real true counts"
-assert_eq "$(js "$(offer_vm '{surfaceOfferAnswered: true}').messageSlots")" '[]' "answered in this session, it is gone at once"
-assert_eq "$(js "$(offer_vm '{configuredSurface: "popup", surface: "popup"}').messageSlots")" '[]' \
-  "a surface chosen in Settings answers it before the next check does"
-assert_eq "$(js "$(offer_vm '{autoAccept: false}').messageSlots")" '[]' \
-  "with confirmation on the popup cannot run updates, so it is not offered"
-assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {surface_offer: true}), true, "", {configuredSurface: "terminal"}).messageSlots')" '[]' \
-  "...nor during a run"
-assert_eq "$(js 'L.messageStack({kernel: true, surfaceOffer: true, reclaim: true})')" '["kernel","surfaceOffer"]' \
-  "it waits below the risky advice and above the reclaim offer"
-assert_eq "$(js '[L.COPY.surfaceOfferUse, L.COPY.surfaceOfferKeep].join("|")')" "Use This Widget|Keep the Terminal Window" \
-  "its two answers, in the words Settings uses for the two choices"
-assert_eq "$(js 'L.COPY.surfaceOffer')" "Updates can now run in this widget instead of a terminal window." \
-  "...and its sentence, which does not say popup either"
-assert_eq "$(js "$(offer_vm '{surfaceKnown: false}').messageSlots")" '[]' \
-  "not before the widget has read the setting, when its surface is only the default"
-
 # --- the one offer to turn off Discover's notifier ------------------------------------------------
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).messageSlots')" '["discoverOffer"]' \
   "a notifier that starts with the session is offered once"
@@ -865,14 +839,6 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), f
   "answered in this session, it is gone at once"
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), true, "", {}).messageSlots')" '[]' \
   "...and it waits out a run"
-assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, discover_offer: true}), false, \"\", {surface: \"terminal\", configuredSurface: \"terminal\", autoAccept: true}).messageSlots")" \
-  '["surfaceOffer"]' "one offer at a time: it waits while the surface offer shows"
-assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, discover_offer: true}), false, \"\", {surface: \"terminal\", configuredSurface: \"terminal\", autoAccept: true, surfaceOfferAnswered: true}).messageSlots")" \
-  '["discoverOffer"]' "...and comes once the surface offer is answered"
-assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {surface_offer: true, discover_offer: true}), false, \"\", {surfaceKnown: false}).messageSlots")" \
-  '[]' "...and waits while the surface offer is undecided, so the two never swap under the pointer"
-assert_eq "$(js "L.viewModel(Object.assign(S(\"live\"), {discover_offer: true}), false, \"\", {surfaceKnown: false}).messageSlots")" \
-  '["discoverOffer"]' "...a wait only a pending surface offer causes"
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {discoverAnswerKnown: false}).messageSlots')" '[]' \
   "it waits until the widget has looked for the CLI's answered marker"
 assert_eq "$(js 'L.messageStack({kernel: true, discoverOffer: true, reclaim: true})')" '["kernel","discoverOffer"]' \

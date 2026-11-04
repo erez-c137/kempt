@@ -227,8 +227,7 @@ cope with that.
 | `restart_holder` | `none`, `kempt` or `other` | Who holds the next restart (`restart_holder()`). `other` is anything at `/system-update` that is not dnf5's own link: another updater's link, a dangling one, or a plain file. A reader acting on it asks again. Additive. |
 | `discover_unattended` | boolean | Discover's notifier would run and its `UseUnattendedUpdates` setting is on. Additive. |
 | `discover_unattended_warn` | `true`, optional | The widget has not drawn its warning about that setting yet. Never `false`. Additive. |
-| `discover_offer` | `true`, optional | The widget may offer to turn off Discover's notifier. See [below](#the-two-offers). Never `false`. Additive. |
-| `surface_offer` | `true`, optional | The widget may offer to run updates in the widget. See [below](#the-two-offers). Never `false`. Additive. |
+| `discover_offer` | `true`, optional | The widget may offer to turn off Discover's notifier. See [below](#the-discover-offer). Never `false`. Additive. |
 
 Two rules for anything that reads this file:
 
@@ -337,12 +336,11 @@ removal while the same set is on offer.
 | `skipped` | `true` when the extensions were never tried: the first pass succeeded and Flatpak refused nothing, but the list between the passes could not be read. They keep their `since`, so no new hour's wait. The widget says so with `reclaimSkipped` in `logic.js`. |
 | `in_use` | Only when non-empty: as `id//branch`, the extensions Flatpak removed although it printed that an app uses them. It counts only apps installed after the list taken just before that pass. |
 
-### The two offers
+### The Discover offer
 
 | Key | Present while | Gone when |
 | --- | --- | --- |
 | `discover_offer` | Discover's update notifier starts with the session, and the state file `discover-offer-answered` does not exist | `kempt discover-notifier off`, `on` or `keep` writes that file |
-| `surface_offer` | The upgrade to 0.1.8 kept this install on the terminal (state file `surface-offer`), and `surface` is still `terminal` | `surface` is set in any way, or a check finds another surface |
 
 `discover-entry-written` holds the bytes Kempt last wrote to the autostart entry. `on` removes the
 entry only while it still matches.

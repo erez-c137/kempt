@@ -1042,7 +1042,6 @@ MESSAGES = [("engineFaultMessage", "the no-working-engine message"),
             ("imageBasedMessage", "the rpm-ostree message"),
             ("foldersPausedMessage", "updates paused over a system folder"),
             ("riskyMessage", "the session-critical warning"),
-            ("surfaceOfferMessage", "the offer to update in the popup"),
             ("discoverOfferMessage", "the offer to turn off Discover's notifier"),
             ("reportMessage", "the report of the last thing that happened"),
             ("doctorMessage", "what Check Installation found")]
@@ -1333,7 +1332,6 @@ ev('root.actionMessage = ""; root.actionDone = ""')
 # --- the Discover offer, with the reason that matters while something is staged ---------------
 offer_doc = json.load(open(CONFLICT1))
 offer_doc["discover_offer"] = True
-offer_doc.pop("surface_offer", None)
 STAGED_OFFER = os.path.join(p.sandbox, "state-staged-offer.json")
 json.dump(offer_doc, open(STAGED_OFFER, "w"))
 state(STAGED_OFFER)
@@ -1350,7 +1348,6 @@ p.check("...and without the offer pending it does not",
 # --- another updater holds the next restart ------------------------------------------------------
 def held_state(name, **extra):
     doc = json.load(open(fixture("state-live.json")))
-    doc.pop("surface_offer", None)
     doc.pop("discover_offer", None)
     doc["restart_holder"] = "other"
     doc.update(extra)
@@ -3040,93 +3037,6 @@ ev("root.leaveUpdating()")
 settle()
 ev('root.postRunLine = ""')
 
-# --- the one-time offer to run updates in the widget -----------------------------------------------
-# Made to a box the migration kept on the terminal (state.json surface_offer), and only while the
-# terminal is still the setting. The stub answers terminal from here on, and the stubbed check
-# keeps serving surface_offer, so whatever hides the offer below is the widget's own answer.
-_so = json.loads(open(fixture("state-live.json")).read())
-_so["surface_offer"] = True
-_sopath = os.path.join(p.sandbox, "state-surface-offer.json")
-open(_sopath, "w").write(json.dumps(_so))
-state(_sopath)
-p.check("the offer is made to a box that still has the terminal", lev("surfaceOfferMessage.visible"), True)
-p.check("...in plain words", lev("surfaceOfferMessage.text"), ev("Logic.COPY.surfaceOffer"))
-p.check("...with the two answers",
-        [lev("surfaceOfferMessage.actions[0].text"), lev("surfaceOfferMessage.actions[1].text")],
-        [ev("Logic.COPY.surfaceOfferUse"), ev("Logic.COPY.surfaceOfferKeep")])
-ev('root.surface = "popup"')
-p.pump(50)
-p.check("...but not to a box already updating in the widget", lev("surfaceOfferMessage.visible"), False)
-ev('root.surface = "terminal"')
-ev("root.autoAccept = false")
-p.pump(50)
-p.check("...nor while confirmation is on, which only a terminal can ask for",
-        lev("surfaceOfferMessage.visible"), False)
-ev("root.autoAccept = true")
-ev("root.surfaceKnown = false")
-p.pump(50)
-p.check("...nor before the widget has read the setting, when its surface is only the default",
-        lev("surfaceOfferMessage.visible"), False)
-ev("root.surfaceKnown = true")
-p.pump(50)
-
-# Keep the Terminal Window: the stub reads back terminal and the check still serves the offer, so
-# only the answered flag can be what hides it.
-p.clear_calls()
-lev("surfaceOfferMessage.actions[1].trigger()")
-p.pump(50)
-settle()
-p.check("Keep the Terminal Window writes the terminal as the setting, which ends the offer for good",
-        p.calls_matching("config set"), ["config set surface terminal"])
-p.check("...reads the setting back", ev("root.surface"), "terminal")
-p.check("...and checks, so state.json drops the offer", p.call_count("check") >= 1, True)
-p.check("...and the offer stays gone on this session's answer alone",
-        [ev("root.kemptState.surface_offer"), ev("root.surfaceOfferAnswered"),
-         lev("surfaceOfferMessage.visible")], [True, True, False])
-
-# A failed answer is not an answer: the offer comes back, with the CLI's reason.
-ev("root.surfaceOfferAnswered = false")
-ev('root.actionMessage = ""')
-p.pump(50)
-open(CFGSETRC, "w").write("1")
-lev("surfaceOfferMessage.actions[0].trigger()")
-p.wait_for(ev, 'root.actionMessage !== ""', True, timeout_ms=8000)
-settle()
-open(CFGSETRC, "w").write("")
-p.check("Use This Widget that could not be saved leaves the offer unanswered",
-        ev("root.surfaceOfferAnswered"), False)
-p.check("...so the offer is back", lev("surfaceOfferMessage.visible"), True)
-p.check("...under the CLI's reason", ev("root.actionMessage"), "kempt: could not write the config file")
-ev('root.actionMessage = ""')
-# An answer the CLI did not confirm in time: the Executor's kill, rc 124. The offer comes back
-# with a sentence, never the timeout text.
-open(CFGSETRC, "w").write("hang")
-lev("surfaceOfferMessage.actions[0].trigger()")
-p.pump(300)
-ev('executor.finish("", "timeout after " + Logic.ANSWER_TIMEOUT_MS + "ms", 124)')
-p.pump(100)
-p.check("Use This Widget that timed out leaves the offer unanswered, and back on screen",
-        [ev("root.surfaceOfferAnswered"), lev("surfaceOfferMessage.visible")], [False, True])
-p.check("...under a sentence that says the answer may not be saved",
-        ev("root.actionMessage"), ev("Logic.COPY.answerTimedOut"))
-open(CFGSETRC, "w").write("")
-p.pump(3500)
-settle()
-ev('root.actionMessage = ""')
-p.clear_calls()
-lev("surfaceOfferMessage.actions[0].trigger()")
-p.pump(50)
-settle()
-p.check("Use This Widget writes the widget as the setting",
-        p.calls_matching("config set"), ["config set surface popup"])
-p.check("...and the offer goes", lev("surfaceOfferMessage.visible"), False)
-# `kempt config set` prints nothing, so the confirmation is the widget's own sentence.
-p.check("...and the popup confirms the answer, as good news",
-        [lev("reportMessage.visible"), lev("reportMessage.text"),
-         lev("reportMessage.type === Kirigami.MessageType.Positive")],
-        [True, ev("Logic.COPY.surfaceSetPopup"), True])
-ev('root.actionDone = ""')
-ev("root.surfaceOfferAnswered = false")
 open(SURF, "w").write("popup\n")
 ev("root.readSurface()")
 settle()
@@ -3145,32 +3055,6 @@ p.check("...in the words on screen", lev("discoverOfferMessage.text"), ev("Logic
 p.check("...with the two answers",
         [lev("discoverOfferMessage.actions[0].text"), lev("discoverOfferMessage.actions[1].text")],
         [ev("Logic.COPY.discoverOfferOff"), ev("Logic.COPY.discoverOfferKeep")])
-
-# One offer at a time: with the surface offer up too, the Discover offer waits for it.
-_both = dict(_do, surface_offer=True)
-_bothpath = os.path.join(p.sandbox, "state-both-offers.json")
-open(_bothpath, "w").write(json.dumps(_both))
-open(SURF, "w").write("terminal\n")
-ev("root.readSurface()")
-settle()
-state(_bothpath)
-p.check("with the surface offer showing, the Discover offer waits",
-        [lev("surfaceOfferMessage.visible"), lev("discoverOfferMessage.visible")], [True, False])
-ev("root.surfaceOfferAnswered = true")
-p.pump(50)
-p.check("...and comes once the surface offer is answered", lev("discoverOfferMessage.visible"), True)
-ev("root.surfaceOfferAnswered = false")
-# Right after a plasmashell restart the surface setting is unread, so the surface offer is
-# undecided. The Discover offer waits rather than show and then give way under the pointer.
-ev("root.surfaceKnown = false")
-p.pump(50)
-p.check("with the surface offer undecided, neither offer shows yet",
-        [lev("surfaceOfferMessage.visible"), lev("discoverOfferMessage.visible")], [False, False])
-ev("root.surfaceKnown = true")
-open(SURF, "w").write("popup\n")
-ev("root.readSurface()")
-settle()
-state(_dopath)
 
 # Turn Off Discover's Notifier: the command, then a check, and the offer is gone.
 p.clear_calls()
@@ -3799,7 +3683,6 @@ _ASSEMBLED_IN_LOGIC = {
     "fetchWaitsForUnmetered",  # -> fetchMissedOf, for a fetch skipped on a metered connection
     "fetchMissed",          # -> fetchMissedOf, for an engine that does not say why
     "fetchCountsFrom",      # -> fetchMissedOf, joined on with the age of the lists in the %1
-    "surfaceSetPopup",      # -> answerOutcomeOf -> root.actionDone, after Use This Widget
     "riskyAskLead",         # -> FullRepresentation's risky message, in front of its words
     "riskyAskQuestion",     # -> FullRepresentation's risky message and announcement, at its end
     "riskySummaryOne",      # -> riskySummaryOf -> vm.riskyMessage, with no route to the next restart
@@ -3826,7 +3709,6 @@ _ASSEMBLED_IN_LOGIC = {
     "lastSuccessfulCheck",  # -> vm.tooltipSub while stale (a relative time goes into the %1)
     "securityCount",        # -> vm.tooltipSub, the security updates pending (the count goes into the %1)
     "securityCountOne",     # -> vm.tooltipSub, when there is one
-    "surfaceSetTerminal",   # -> answerOutcomeOf -> root.actionDone, after Keep the Terminal Window
     "answerTimedOut",       # -> answerOutcomeOf, for the Executor's own kill
     "settingTimedOut",      # -> answerOutcomeOf, for a Settings switch or config write the Executor killed
     "holdTimedOut",         # -> answerOutcomeOf, for a hold or unhold the Executor killed

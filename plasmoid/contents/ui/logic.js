@@ -148,16 +148,6 @@ var COPY = {
     installNow: "Install Now",
     installNowTooltip: "Installs the update now, while your desktop is running.",
 
-    // The one offer of the new default, to an install that kept the terminal when the default
-    // changed. Each button is an answer, so the message has no close button. In the words Settings
-    // uses for the two choices: In this widget, Terminal window.
-    surfaceOffer: "Updates can now run in this widget instead of a terminal window.",
-    surfaceOfferUse: "Use This Widget",
-    surfaceOfferKeep: "Keep the Terminal Window",
-    // ...and what the popup says once either answer is saved. `kempt config set` prints nothing,
-    // so these are the widget's own words for what the person just chose.
-    surfaceSetPopup: "Updates now run in this widget.",
-    surfaceSetTerminal: "Updates keep running in a terminal window.",
     // An answer the CLI did not confirm in time (ANSWER_TIMEOUT_MS). The write may still land.
     answerTimedOut: "Kempt did not answer in time, so your answer may not be saved. Try again.",
     // ...the same for a switch in Settings, and for a hold, which are changes rather than answers.
@@ -1291,7 +1281,7 @@ var MESSAGE_CAP = 2;
 // button is missing - a person looking for that button needs this message, not the one it displaced.
 // `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
 // comes first because it answers the Update Now press just made, and nothing runs until it is
-// answered. `surfaceOffer` keeps until it is answered, so it waits below the advice.
+// answered.
 // `discoverUnattended` sits right after `staged`: it says who may take the restart that message
 // is counting on. It draws once, so a restart or a failure it displaces is back on the next open.
 // `stageDiscoverWarning` sits under the failure and the restart: a person warned to restart soon
@@ -1305,7 +1295,7 @@ var MESSAGE_CAP = 2;
 // Either is acknowledged only while drawn.
 // `foldersPaused` sits under imageBased: every button below it ends in the helper's refusal.
 var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "discoverUnattended", "startup",
-                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel", "surfaceOffer",
+                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel",
                      "discoverOffer", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
@@ -3080,26 +3070,11 @@ function viewModel(state, updating, cliError, opts) {
         && backendActionable(state, "dnf") > 0;
     var heldChoice = opts.heldChoiceOpen === true && updateAsksHeld && !updating;
 
-    // The one offer of the popup default. The CLI publishes surface_offer only while updates run
-    // in the terminal; the configured surface is checked again here because a choice made in
-    // Settings reaches this file before the next check does. With confirmation on, the popup
-    // cannot run updates, so the offer would change nothing.
-    var surfaceOffer = usable && state.surface_offer === true && !updating
-        && opts.surfaceOfferAnswered !== true
-        // Not before the widget has read the setting: until then its surface is only the default.
-        && opts.surfaceKnown !== false
-        && resolveSurface(typeof opts.configuredSurface === "string" ? opts.configuredSurface : "")
-            === "terminal"
-        && isTrue(opts.autoAccept === undefined ? true : opts.autoAccept);
     // The one offer to turn off Discover's notifier. The CLI publishes discover_offer while the
-    // notifier starts with the session and nobody has answered. One offer at a time: it waits
-    // while the surface offer is showing, and while the surface offer is still undecided because
-    // the setting is unread, or it would show and then give way under the pointer. It also waits
-    // for the widget to read the CLI's answered marker, which a state.json from before the answer
-    // does not reflect.
+    // notifier starts with the session and nobody has answered. It waits for the widget to read
+    // the CLI's answered marker, which a state.json from before the answer does not reflect.
     var discoverOffer = usable && !imageBased && state.discover_offer === true && !updating
-        && opts.discoverOfferAnswered !== true && opts.discoverAnswerKnown !== false
-        && !surfaceOffer && !(state.surface_offer === true && opts.surfaceKnown === false);
+        && opts.discoverOfferAnswered !== true && opts.discoverAnswerKnown !== false;
     // Discover's setting, over the offer: it says the larger thing. Kept up once drawn, for as long
     // as this popup stays open (main.qml), since drawing it is what clears the CLI's flag.
     var discoverUnattended = usable && !imageBased && state.discover_unattended === true && !updating
@@ -3349,7 +3324,6 @@ function viewModel(state, updating, cliError, opts) {
         riskyChoice: riskyChoice,
         heldChoice: heldChoice,
         discoverUnattended: discoverUnattended,
-        surfaceOffer: surfaceOffer,
         // The same offer with the reason that matters while something is staged, and higher up.
         discoverOffer: discoverOffer && !staged,
         stageDiscoverWarning: discoverOffer && staged && !stageBlocked,

@@ -115,10 +115,6 @@ EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
 # shellcheck disable=SC2034  # read by backends/flatpak.sh, kept here with the other state files
 RECLAIM_SIZES_FILE="$KEMPT_STATE_DIR/reclaim-sizes.json"
 RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
-# The popup default for `surface` (surface_migrate). The first records that the migration ran; the
-# second exists while the popup still owes an install it pinned to the terminal its one offer.
-SURFACE_MIGRATED_FILE="$KEMPT_STATE_DIR/surface-migrated"
-SURFACE_OFFER_FILE="$KEMPT_STATE_DIR/surface-offer"
 # The security advisories already announced and already seen, for notify_security:
 # {"notified": [ids], "acknowledged": [ids]}. Written under the writers' lock (see security_update).
 SECURITY_SEEN_FILE="$KEMPT_STATE_DIR/security-seen.json"
@@ -620,8 +616,7 @@ config_warn_unknown() {  # key value
 kempt_default() {  # key → default ("" if unknown)
   case "$1" in
     include_flatpak|auto_accept) echo true ;;
-    # Twinned with DEFAULT_SURFACE in the widget's logic.js. An install from before this default
-    # keeps the terminal through surface_migrate.
+    # Twinned with DEFAULT_SURFACE in the widget's logic.js.
     surface) echo popup ;;
     refresh_interval_min) echo 60 ;;
     # Panel-icon size for the Plasma widget: auto|small|medium|large. A widget setting kept here so
@@ -653,47 +648,6 @@ kempt_default() {  # key → default ("" if unknown)
     notify_startup) echo true ;;
     *) echo "" ;;
   esac
-}
-
-# Runs updates in the popup by default without moving anyone who already uses Kempt. On the first
-# run after that default arrived, an install that has run Kempt before (state.json, a history
-# entry or a non-empty config file) and whose config names no surface gets surface=terminal, the default it had, and the
-# popup offers the new one once. A config that names a surface is never touched, and a new install
-# gets the default. SURFACE_MIGRATED_FILE says it ran. A write that fails is tried again on the
-# next run, and nothing here may fail the command it runs in front of.
-surface_migrate() {
-  [[ -e "$SURFACE_MIGRATED_FILE" ]] && return 0
-  # An unreadable config cannot say whether it names a surface. Next run.
-  [[ -e "$CONFIG_FILE" && ! -r "$CONFIG_FILE" ]] && return 0
-  # A config file with something in it counts too: an install that only ever changed a setting has
-  # no state or history, and this runs before any command of this version can write the file.
-  local used=""
-  if [[ -e "$STATE_FILE" || -s "$CONFIG_FILE" ]] \
-     || [[ -n "$(find "$HIST_DIR" -maxdepth 1 -name '*.json' -print -quit 2>/dev/null)" ]]; then
-    used=1
-  fi
-  if [[ -n "$used" ]]; then
-    # The check for a surface line and the write are one step under the writers' lock (rc 3: the
-    # config already names one, which is the answer too). Any other failure is tried next run.
-    local rc=0
-    config_set surface terminal if-absent 2>/dev/null || rc=$?
-    [[ $rc -eq 0 || $rc -eq 3 ]] || return 0
-    [[ $rc -eq 0 ]] && { : > "$SURFACE_OFFER_FILE"; } 2>/dev/null
-  fi
-  { mkdir -p "$KEMPT_STATE_DIR" && : > "$SURFACE_MIGRATED_FILE"; } 2>/dev/null || true
-}
-
-# The offer, as state.json carries it: pending while the marker exists and updates still run in
-# the terminal. A config edited by hand to another surface has answered it too, so the marker goes
-# then, and editing back to the terminal does not bring the offer back.
-surface_offer_pending() {  # → 0 when the popup should offer the popup default
-  [[ -e "$SURFACE_OFFER_FILE" ]] || return 1
-  local s
-  s="$(config_get surface 2>/dev/null)" || return 1
-  s="${s#"${s%%[![:space:]]*}"}"; s="${s%"${s##*[![:space:]]}"}"
-  [[ "${s,,}" == terminal ]] && return 0
-  rm -f "$SURFACE_OFFER_FILE" 2>/dev/null
-  return 1
 }
 
 # --- Discover's update notifier ---------------------------------------------------------------
@@ -850,9 +804,7 @@ discover_running() {
 }
 
 # Whose the user entry is. Anything Kempt did not write byte for byte is the person's.
-#   kempt     exactly what Kempt last wrote, or exactly what install.sh wrote before 0.1.8: the
-#             three-line entry when there was no system entry to copy, else the system entry as
-#             it is now, put through that installer's edit (discover_legacy_entry). `on` removes it.
+#   kempt     exactly what Kempt last wrote. `on` removes it.
 #   edited    carries Kempt's mark but has changed since. `on` moves it aside and says where.
 #   own       anything else, a symlink included.
 #   none      no user entry.
@@ -868,23 +820,9 @@ discover_entry_kind() {
   elif [[ ! -e "$user" ]]; then echo none
   elif [[ ! -f "$user" ]]; then echo notfile
   elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && same_content "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
-  elif same_content "$user" <(printf '[Desktop Entry]\nType=Application\nName=Discover Notifier\nHidden=true\n'); then
-    echo kempt
-  elif [[ -r "$(discover_sys_entry)" ]] && same_content "$user" <(discover_legacy_entry); then
-    echo kempt
   elif grep -qx "$DISCOVER_MARK" "$user"; then echo edited
   else echo own
   fi
-}
-
-# The bytes install.sh 0.1.7 wrote from the system entry, made from the system entry as it is now:
-# every line starting `Hidden=` dropped, the trailing newlines stripped by its $(...), then one
-# `Hidden=true`. Matched only while the system entry is unchanged since then, which is the only
-# case where the file can be told apart from a copy the person hid.
-discover_legacy_entry() {
-  local body
-  body="$(grep -v '^Hidden=' "$(discover_sys_entry)")" || true
-  printf '%sHidden=true\n' "${body:+$body$'\n'}"
 }
 
 discover_entry_is_kempts() { case "$(discover_entry_kind)" in kempt|edited) return 0 ;; esac; return 1; }
@@ -1395,10 +1333,7 @@ flatpak_included() {  # → 0 when Flatpak is part of Kempt's checks and updates
   command -v "${cmd%% *}" >/dev/null 2>&1
 }
 
-config_set() {  # key value [if-absent]
-  # With a third argument, the write happens only when the file has no line for the key, decided
-  # inside the lock: rc 3 means a line was there and nothing was written. surface_migrate needs it,
-  # because a `config set surface` landing between its own check and its write would be overwritten.
+config_set() {  # key value
   [[ "$1" =~ ^[a-z][a-z0-9_]+$ ]] || { echo "invalid config key: $1" >&2; return 2; }
   [[ "$2" == *$'\n'* ]] && { echo "config value must be single-line" >&2; return 2; }
   kempt_init_dirs
@@ -1407,10 +1342,6 @@ config_set() {  # key value [if-absent]
   # writer that reads between them writes this key straight back out. Held to the rename and no
   # further - see writer_lock.
   writer_lock || return 1
-  if [[ -n "${3:-}" ]] && grep -qs "^$1=" "$CONFIG_FILE"; then
-    writer_unlock
-    return 3
-  fi
   # The outgoing value, read BEFORE anything is written: "(was false)" is what turns the event line
   # "auto_accept=true" into evidence that the click changed something. Same read config_get does,
   # and it shares config_get's one ambiguity - a stored empty value and an absent key are

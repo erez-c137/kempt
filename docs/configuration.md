@@ -34,7 +34,7 @@ half a minute.
 | --- | --- | --- | --- |
 | `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. On a computer without Flatpak, it counts as off. If you set it to `true` yourself there, `kempt doctor` warns. |
 | `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). When off, the run always uses the `terminal` surface with live output, because no other surface can answer a prompt. |
-| `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. `kempt config set surface widget` stores `popup`. An unrecognised value logs a warning and falls back to `terminal`. An older install keeps `terminal`: see [Upgrading](#upgrading-from-an-older-kempt). |
+| `surface` | `terminal`, `popup`, `background`, `offline` | `popup` | Where `kempt run` sends the update. `kempt config set surface widget` stores `popup`. An unrecognised value logs a warning and falls back to `terminal`. |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
 | `widget_icon_size` | `auto`, `small`, `medium`, `large` | `auto` | The size of the widget's panel icon. `auto` matches the system tray: 22 px on panels from 22 to 47 px thick, and 48 or 64 px on a thick or HiDPI panel. `small`, `medium` and `large` are 16, 22 and 32 px, but `large` is never smaller than `auto`. A size the panel cannot fit falls back to `auto`, so inside the system tray the tray's size wins. The widget validates this key: an unrecognised value means `auto`. |
 | `restart_reminder` | boolean | `true` | Whether the widget offers a restart when one is needed. When on, it shows a message with a **Restart…** button that opens KDE's restart prompt; closing the message hides it until the next Plasma session. When off, there is no message or button, and the status line ends `restart pending` when a restart is needed. Nothing restarts on its own either way. |
@@ -121,17 +121,6 @@ The terminal asks before installing kernel, systemd or desktop updates. On the o
 **Update Now** asks in the widget first, and offers **Install on Next Restart** or
 **Install Now**.
 
-### Upgrading from an older Kempt
-
-Before 0.1.8 the default was `terminal`. An install that has run Kempt before, and whose config
-file names no surface, keeps `terminal`. The first `kempt` command after the upgrade writes
-`surface=terminal`, once. `--help`, `--version`, `kempt status` and `discover-notifier status`
-do not count. A config file that names a surface is never changed.
-
-When Kempt wrote that line, the widget offers once to run updates itself: **Use This Widget**
-or **Keep the Terminal Window**. Any change to the `surface` setting answers the offer, including
-an edit by hand.
-
 ### Offline staging
 
 Kempt recommends this path when session-critical packages are pending. Flatpak apps still update
@@ -203,8 +192,6 @@ day.
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update waiting for the next restart |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
-| `~/.local/state/kempt/surface-migrated` | Empty marker: the [upgrade step](#upgrading-from-an-older-kempt) has run |
-| `~/.local/state/kempt/surface-offer` | Empty marker: the widget's one offer is still open |
 | `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |

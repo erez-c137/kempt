@@ -1030,10 +1030,6 @@ whether automatic updates are on in Discover's settings. `--json` prints `instal
 **`seen`** records that the widget has shown its warning about Discover's automatic updates, and
 changes nothing else. The widget runs it.
 
-A file that `./install.sh` wrote before 0.1.8 counts as Kempt's while Discover's own startup file
-is unchanged, so `on` removes it. Once Discover's file changes, it counts as your own. Delete it to
-turn the notifier back on.
-
 | Exit | When |
 | --- | --- |
 | 0 | Done, or nothing needed doing. |
