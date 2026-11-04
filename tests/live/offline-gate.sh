@@ -85,6 +85,10 @@ events() { cat "$STATE/events.log" 2>/dev/null || true; }
 notes()  { cat /tmp/gate-notifications; }
 txnames() { jq -r '.rpms[] | select(.action=="Upgrade" or .action=="Install") | .nevra | sub("\\.[^.]*$";"") | split("-") | .[0:-2] | join("-")' "$TXJSON" 2>/dev/null | sort -u; }
 section() { echo; echo "=== $1 ==="; }
+# What staging again has to reuse: the downloaded packages by inode, and the bytes this container
+# received, which are held against the size of those packages.
+stage_rpms() { find "$PKGCACHE" /usr/lib/sysimage/libdnf5/offline -name '*.rpm' -printf '%p %i %T@ %s\n' 2>/dev/null | sort; }
+rx_bytes() { awk 'NR > 2 && $1 != "lo:" { s += $2 } END { print s + 0 }' /proc/net/dev; }
 
 # The image is rebuilt continuously and is sometimes fully current, in which case there is no
 # transaction to stage and every scenario below is vacuous - the gate used to depend, silently, on
@@ -139,8 +143,10 @@ has "an unprivileged user's hold reads the live transaction too" "$u" "still con
 
 section "S3 rebuild with the hold: the excluded package leaves the transaction"
 : > /tmp/gate-notifications
+rpms_before=$(stage_rpms)
 "$K" update --surface=offline --no-flatpak > /tmp/s3.out 2>&1; rc=$?
 is "rebuild exits 0" "$rc" "0"
+is "the rebuild downloads nothing new" "$(comm -13 <(printf '%s\n' "$rpms_before") <(stage_rpms))" ""
 is "dnf5 says ready again" "$(toml_status)" "ready"
 lacks_name "the held package is no longer in dnf5's transaction" "$(txnames)" "$NAME"
 m=$(marker)
@@ -312,6 +318,25 @@ is "dnf5 still says ready - the demote is Kempt's reading, not dnf5's" "$(toml_s
 is "nothing is published as a pending install" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
 d=$("$K" doctor 2>&1)
 has "doctor says to stage again" "$d" "Stage it again with: kempt update --surface=offline"
+# The way back, which is what the widget and the docs offer: stage again over the lost stage. Whether
+# that downloads again is measured rather than assumed, because the changelog tells people it does not.
+rpms_before=$(stage_rpms); rx_before=$(rx_bytes)
+"$K" update --surface=offline --no-flatpak > /tmp/s10-again.out 2>&1
+rx_after=$(rx_bytes); rpms_after=$(stage_rpms)
+is "staging again arms it" "$(toml_status)" "ready"
+[[ -L "$LINK" ]] && ok "...with the symlink back" || bad "staging again left no symlink" "$(tail -3 /tmp/s10-again.out)"
+is "...and the marker armed" "$(jq -r '.armed' <<<"$(marker)")" "true"
+rpm_count=$(grep -c . <<<"$rpms_after"); rpm_bytes=$(awk '{ s += $4 } END { print s + 0 }' <<<"$rpms_after")
+echo "  measured: $rpm_count packages, $rpm_bytes bytes; received $((rx_after - rx_before)) bytes while staging again"
+(( rx_before > 0 )) && ok "the counter saw the first download, so a small number means something" \
+  || bad "the receive counter reads zero, so it measures nothing" "$rx_before"
+[[ -n "$rpms_before" ]] && ok "there was a download to reuse" || bad "no packages on disk before staging again"
+is "staging again keeps the same downloaded files" "$rpms_after" "$rpms_before"
+(( rx_after - rx_before < rpm_bytes )) && ok "...and receives less than the packages weigh" \
+  || bad "staging again downloaded the packages" "$((rx_after - rx_before)) bytes for $rpm_bytes"
+rm -f "$LINK"
+KEMPT_BOOT_ID=s10-boot-2 "$K" check > /dev/null 2>&1
+is "lost again, for the clean below" "$(jq -r '.armed' <<<"$(marker)")" "false"
 dnf5 -y -q offline clean >/dev/null 2>&1
 KEMPT_BOOT_ID=s10-boot "$K" check >/dev/null 2>&1
 is "a real clean then clears the demoted marker" "$(marker)" ""
@@ -332,7 +357,11 @@ is "dnf5 kept the transaction" "$(toml_status)" "ready"
 [[ -L "$LINK" ]] && bad "dnf5 left the symlink alone - this scenario is about it not doing that" \
                  || ok "...and silently dropped the boot symlink, which is the whole finding"
 KEMPT_BOOT_ID=s11-boot "$K" check >/dev/null 2>&1
-is "no history entry was fabricated" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$before_hist"
+# The check is in a new boot here, and none of the stage went in: that is a failed run, and the one
+# entry says so instead of claiming the packages were applied.
+is "one history entry is added" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$((before_hist + 1))"
+is "...saying the restart installed none of it" "$(jq -r '.error' "$(ls -1 "$STATE"/history/*.json | LC_ALL=C sort | tail -1)")" \
+  "the restart installed none of the staged update"
 hasnt "...and nothing was announced as applied" "$(notes)" "were installed during the restart"
 has "the user is told the stage can no longer install" "$(notes)" "can no longer install on a restart"
 is "the marker is demoted, not deleted" "$(jq -r '.armed' <<<"$(marker)")" "false"
