@@ -4610,7 +4610,8 @@ render_summary() {  # history-json-file → human text
     "Kempt - " + .timestamp + " (" + surface_label
       + (if (.duration_sec | type) == "number" then ", " + (.duration_sec|tostring) + "s" else "" end) + ") "
       + (if .status == "ok" then "✓"
-         else "FAILED. See " + .log
+         else "FAILED"
+              + (if (.log // "") != "" then ". See " + .log else "" end)
               + (if (.error // "") != "" then " (" + .error + ")" else "" end) end),
     "System (dnf): " + (first(stage_phrase) // counts(.backends.dnf))
       + (if .backends.dnf.status != "ok" then " [" + .backends.dnf.status + "]" else "" end),

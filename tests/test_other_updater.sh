@@ -530,6 +530,8 @@ assert_eq "$(entry .error)" "the restart installed none of the staged update" ".
 assert_eq "$(entry .surface)" "offline (restart did not finish)" "...and how"
 assert_eq "$(entry '.backends.dnf.updated | length')" "0" "...with nothing listed as installed"
 assert_contains "$(last_run_line)" "failed" "status reads it as failed"
+assert_contains "$("$KEMPT" summary | awk 'NR==1')" ") FAILED (the restart installed none of the staged update)" \
+  "summary gives the reason, with no run log to point at"
 assert_not_contains "$(last_run_line)" "staged" "...and stops saying staged"
 harvest_keeping_history
 harvest_keeping_history
