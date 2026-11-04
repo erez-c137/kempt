@@ -26,7 +26,7 @@ Nothing is setuid, and the CLI never runs as root.
 | `libexec/kempt-flatpak-unused` | The one Python file Kempt ships. It lists unused Flatpak runtimes and runs as the user. |
 | `plasmoid/contents/ui/logic.js` | Turns the state file into what the widget shows. It has no Qt and no I/O, so Node can run it in the tests. |
 | `plasmoid/contents/ui/*.qml` | The widget itself, mostly bindings to `logic.js`. |
-| `tests/` | About 4,000 assertions in plain bash, QML probes in `tests/qml/`, a container test in `tests/live/`, and the release check in `tests/release/`, which tests the built packages. |
+| `tests/` | The bash suite, QML probes in `tests/qml/`, a container test in `tests/live/`, and the release check in `tests/release/`, which tests the built packages. |
 | `docs/` | User and design docs. Read `architecture.md` first. |
 
 ## Six rules that catch people out
@@ -39,8 +39,8 @@ environment. Set `KEMPT_PKEXEC=` to empty. Point `KEMPT_APPLY_HELPER`, `KEMPT_RE
 sandbox for you: source it and call `sandbox`.
 
 **2. Seams are how tests replace commands.** Every outside command the CLI runs goes through a
-`KEMPT_*` variable. `docs/architecture.md` lists them all. `tests/test_docs.sh` reads the list from
-the code, so a new seam without a row in that table fails the suite.
+`KEMPT_*` variable, and the comment where it is read says what it replaces. Add no seam read in
+`libexec/` without a test.
 
 **3. `tests/live/offline-gate.sh` breaks dnf5 inside a container.** It hides `/usr/bin/dnf5`,
 empties dnf5's package cache and points every repository at a dead address, and it refuses to run
@@ -77,6 +77,5 @@ so. CI runs them in a Fedora container, so a green badge means the widget was te
 Public files name nobody and say nothing about how the work was made.
 
 A feature changes the docs it touches and leaves them no longer. Before you add a paragraph, cut
-or merge an older one in the same section. `tests/test_docs.sh` holds a word budget per doc. Raise
-one only when the reader gains something new, and say why in the commit. Run
-`python3 tools/prose-check.py` on every doc you changed.
+or merge an older one in the same section. Run `python3 tools/prose-check.py` on every doc you
+changed.

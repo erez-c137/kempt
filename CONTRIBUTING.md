@@ -22,11 +22,13 @@ tests/run_tests.sh
 
 You need bash 4+, `jq`, `flock` (util-linux), GNU coreutils and `python3`. You do not need dnf,
 Flatpak, polkit or root: every outside command goes through an
-[environment seam](docs/architecture.md#environment-seams), and the suite stubs them all.
+environment variable, and the suite stubs them all.
 
 Two optional tools add the widget's tests, which are more than half the suite. `node` runs the
 tests of `logic.js`. `python3` with PySide6 (`python3-pyside6`) runs the probes that load the real
-QML. The suite prints a warning when either is missing.
+QML. The suite prints a `skip:` line when either is missing and lists every skip at the end.
+`tests/run_tests.sh` runs four files at once. Set `KEMPT_TEST_JOBS=1` to run one at a time, or a
+larger number on a bigger machine. Run one file with `bash tests/test_doctor.sh`.
 
 | Command | What it tests | Needs |
 | --- | --- | --- |
@@ -59,6 +61,67 @@ directory with no `pkexec` and no prompts:
 ./install.sh --destdir /tmp/stage --uninstall
 ```
 
+### Installing from a checkout
+
+```bash
+./install.sh
+```
+
+The installer does four things, in this order:
+
+1. **Symlinks the CLI and its man page** into `~/.local/bin/kempt` and
+   `~/.local/share/man/man1/kempt.1`, so `man kempt` works without root.
+2. **Asks for authentication once**, through one `pkexec`. As root, it copies the two helpers and
+   the polkit action out of the repo.
+3. **Installs the panel widget and its icons** with `kpackagetool6`, with no authentication. If
+   you decline the dialog in step 2, this step is skipped, because the widget cannot work without
+   the root helpers.
+4. **Offers to turn off Discover's notifier**, as [described in the install guide](docs/install.md#the-discover-notifier-opt-out).
+
+The CLI, its library, the backends and the passwordless rules template all run from the checkout.
+Moving or deleting the checkout breaks `kempt`. Only the root-owned files and the widget are
+copies.
+
+#### What lands where
+
+| Path | Owner | Installed by |
+| --- | --- | --- |
+| `~/.local/bin/kempt` | you | `install.sh` (symlink into the checkout) |
+| `~/.local/share/man/man1/kempt.1` | you | `install.sh` (symlink into the checkout) |
+| `/usr/local/libexec/kempt-refresh` | `root:root` 0755 | the one `pkexec` |
+| `/usr/local/libexec/kempt-apply` | `root:root` 0755 | the one `pkexec` |
+| `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | the one `pkexec` |
+| `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/` | you | `install.sh` (a **copy**, via `kpackagetool6`) |
+| `~/.local/share/icons/hicolor/{scalable,64x64,48x48,32x32,22x22,16x16}/apps/kempt.svg` | you | `install.sh`, so the icon resolves by name in Add Widgets |
+| No file: an `org.kde.KIconLoader.iconChanged` signal on your session bus | none | `install.sh`, so a running Plasma finds the new icon |
+| `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you turn Discover's notifier off |
+| `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
+
+The widget is a copy, so re-run `./install.sh` after changing anything under `plasmoid/`.
+Installing the widget does not put it on a panel: right-click the panel > **Add Widgets…** >
+search for **Kempt**.
+
+The icon goes into `~/.local/share/icons/hicolor/` because Add Widgets looks it up by name
+through the icon theme. Each size directory gets a drawing made for that size. The installer then
+sends this signal so a running Plasma rescans its icon directories:
+
+```
+dbus-send --session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:0
+```
+
+If Add Widgets still shows a placeholder icon, log out and back in.
+
+If `kpackagetool6` is missing, the widget is skipped with a note and everything else installs.
+
+Nothing else is written at install time.
+
+If `kempt` is not found afterwards, `~/.local/bin` is missing from your `PATH`. Fedora's default
+shell profile adds it when the directory exists, so a fresh login usually fixes it:
+
+```bash
+command -v kempt    # expect: /home/<you>/.local/bin/kempt
+```
+
 ## Tests come first, and they have to bind
 
 Write the failing test first and check it fails for the right reason. Then make it pass.
@@ -76,7 +139,15 @@ that passes against the bug it is named after gives false confidence.
   then passes silently.
 - **Stub the seams you use.** Unstubbed helper seams point at `UNSTUBBED-*` paths, so a missed
   stub fails loudly.
-- **Use the assertions:** `assert_eq`, `assert_json_eq`, `assert_exit`. End with `finish`.
+- **Use the assertions:** `assert_eq`, `assert_contains`, `assert_not_contains`, `assert_json_eq`,
+  `assert_exit`. They print what was expected, what arrived, and the file and line. End with
+  `finish`.
+- **Label setup with `premise:`.** An assertion that only sets up the next one gets that prefix. A
+  failure there means the scenario never happened.
+- **Use `awk 'NR==1'`, not `head`.** `head` closes the pipe early, the command before it gets
+  SIGPIPE, and under `pipefail` and `errexit` the file exits 141 with no `FAIL` line. It happens
+  only some of the time, so it can pass every time you run it by hand. For `head -c`, count with
+  `wc -c` instead.
 - **Every test file runs on its own** (`bash tests/test_foo.sh`) as well as through
   `tests/run_tests.sh`.
 
@@ -90,7 +161,26 @@ that passes against the bug it is named after gives false confidence.
 - **Include guard rows.** These rows fail a test if a guard is removed. Examples: a pending
   package missing from the installed list, a duplicate name at two versions, the tool's headers.
 
-More on the test layers is in [tests/README.md](tests/README.md).
+### The QML probes
+
+`tests/qml/probe_*.py` run the real Qt 6 QML engine over the shipped `.qml` files against a stubbed
+`kempt` on a real `PATH`. `tests/test_widget_qml.sh` runs every file matching that glob, so a new
+probe needs no list edited anywhere. They need `python3-pyside6` and the Plasma and Kirigami QML
+modules the widget imports.
+
+Run one on its own:
+
+```bash
+python3 tests/qml/safe_probe.py 120 python3 tests/qml/probe_popup.py
+```
+
+A probe refuses to run without the supervisor, which adds the timeout, a process group to kill,
+and the offscreen platform. Without them a stuck probe keeps running and windows open on your
+desktop.
+
+Inside a probe, `p.stub(...)` writes the fake CLI, `p.calls_matching(...)` reads back what the
+widget ran, and `p.clear_calls()` empties that log. Clear it before an action whose calls you count,
+or earlier scenarios' calls are counted too.
 
 ## Working on the widget
 
@@ -169,8 +259,7 @@ Docs, comments, commit messages, issues and the widget's text all follow these r
     disagree, fix the doc. Run every example before you commit it.
 
 `tools/prose-check.py` measures sentence length, asides and self-praise. The suite runs it over
-every doc. It fails on a FAIL verdict, and when a doc goes over its word budget in
-`tests/test_docs.sh`.
+every doc. It fails on a FAIL verdict.
 
 Address the reader as "you" and the program as "Kempt". Spelling is British (*behaviour*,
 *cancelled*), except text copied from Plasma. Commands, paths and keys go in backticks, and
@@ -196,17 +285,8 @@ grep -rnP '[\x{2013}\x{2014}]' *.md docs/*.md docs/man/   # expect no output
 
 ## Bumping the version
 
-`VERSION` is the only file that holds the version. `kempt --version` and `kempt doctor` read it.
-After editing it, run `tests/test_version.sh`, which names each file that does not agree yet
-(`plasmoid/metadata.json`, the metainfo's newest `<release>`, and `kempt.spec`'s `Version:`):
-
-```bash
-printf '0.2.0\n' > VERSION
-tests/test_version.sh
-```
-
-The git tag and the spec's dated `%changelog` entry are done by hand. Bump in a commit of its own.
-The full order is in [docs/RELEASING.md](docs/RELEASING.md#the-release).
+The steps, in order, are in [docs/RELEASING.md](docs/RELEASING.md#the-release). Bump in a commit of
+its own.
 
 ### Building an RPM by hand
 

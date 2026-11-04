@@ -249,5 +249,4 @@ prefer the config keys.
 | `KEMPT_VIA` | (unset) | `widget` marks an event-log line as coming from the Plasma widget, which sets it on every command it runs. Anything else, including unset, is recorded as `cli`. Read by nothing except the event log. |
 | `KEMPT_CONFIG_DIR`, `KEMPT_STATE_DIR` | `~/.config/kempt`, `~/.local/state/kempt` | Move config and state, for example to test against a scratch directory. |
 
-The full list, including the variables the test suite uses, is in
-[architecture.md](architecture.md#environment-seams).
+Other `KEMPT_*` variables exist so tests can replace commands. Each is documented where the code reads it.

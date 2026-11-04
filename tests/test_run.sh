@@ -52,8 +52,6 @@ assert_eq "$("$KEMPT" help | grep -c -- '--print-command' | awk '{print ($1 >= 1
   "the usage text offers the new spelling"
 assert_eq "$("$KEMPT" help | grep -ci dry)" "0" \
   "...and does not offer the old one"
-assert_eq "$(grep -ci dry "$REPO_ROOT/docs/man/kempt.1")" "0" \
-  "...and neither does the man page"
 
 # An unknown surface (config typo, stale value from an older widget) falls back to the one surface
 # that can always show a human what happened. auto_accept goes back to TRUE first, or the

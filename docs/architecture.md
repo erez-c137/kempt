@@ -1,7 +1,7 @@
 # Architecture
 
 This is the map for changing Kempt's code: the parts, the rules that must hold, the state file
-format, the test seams, and how to add a backend.
+format, and how to add a backend.
 
 ```
   Plasma panel widget (QML)          thin: no package-manager knowledge at all
@@ -31,7 +31,7 @@ The core rule: **the badge count comes from the same command path that performs 
 - **No runtime dependencies and no build step.** bash and jq are on every Fedora install.
 
 The costs are paid in structure. Every impure command goes through an
-[environment seam](#environment-seams), and shellcheck gates CI. The parsers are pure functions
+environment variable the tests can replace, and shellcheck gates CI. The parsers are pure functions
 tested against recorded fixtures. The widget speaks only to the CLI and the state file, so another
 engine could replace the bash one.
 
@@ -112,18 +112,8 @@ installonly and multilib sets never do.
 
 ## Where Kempt writes
 
-Kempt's own files live under `~/.config/kempt` and `~/.local/state/kempt`. Both can be redirected
-(see [Environment seams](#environment-seams)). The full list, with modes and retention, is in
-[configuration.md](configuration.md#files-and-retention). Apart from short-lived temp files in
-`$TMPDIR`, Kempt writes outside them in three places:
-
-- `kempt discover-notifier off` and `on` write to `~/.config/autostart`. `off` writes Kempt's
-  entry and keeps any earlier one as `*.before-kempt`. `on` removes Kempt's entry, moves an edited
-  one aside as `*.kempt-edited`, and puts the earlier one back.
-- `kempt enable-passwordless` writes `/etc/polkit-1/rules.d/49-kempt.rules` as root.
-- `install.sh` installs Kempt itself.
-
-Rules for the state directory:
+Every file Kempt writes, with its mode and retention, is listed in
+[configuration.md](configuration.md#files-and-retention). Rules for the state directory:
 
 - **Readers take no lock.** `atomic_write` renames a temp file into place, so a reader sees the
   whole old file or the whole new one. The temp sits next to its destination.
@@ -695,7 +685,7 @@ Three settings put Kempt in the system tray, and each fails silently when wrong:
 `logic.js` holds every derivation (badge, icon state, tooltip, widget rows, watcher comparison,
 icon size) in engine-agnostic JavaScript, which node runs in `tests/test_widget_logic.sh`. The
 remaining QML is bindings, which the probes in `tests/qml/` execute against a stubbed `kempt`.
-[tests/README.md](../tests/README.md) says how to run both.
+[CONTRIBUTING.md](../CONTRIBUTING.md#dev-setup) says how to run both.
 
 ## Adding a backend for your distro
 
@@ -849,7 +839,7 @@ assert_eq "$(jq -r '.[] | select(.name == "newthing") | .from' <<<"$out")" "?" \
 finish
 ```
 
-[tests/README.md](../tests/README.md#writing-a-test-file) explains `sandbox` and the assertions.
+[CONTRIBUTING.md](../CONTRIBUTING.md#harness-rules) explains `sandbox` and the assertions.
 Then **prove the test binds**: break the code it covers, watch it fail, and put the code back. A
 test that passes against the defect it is named after is worse than none. `tests/run_tests.sh`
 runs everything.
@@ -871,110 +861,6 @@ snapshot, since it is the same rpm database.
 Open a discussion before a pull request for anything that changes the state schema, the exit codes
 or the privileged helpers. A backend touches all three: a new root verb, a new key under
 `backends`, and a changed `assemble_state` signature.
-
-## Environment seams
-
-Every impure call in the CLI goes through a variable. That is how the suite tests privileged and
-destructive paths without running them. "Stubbed" below means `tests/lib.sh` points the seam at a
-missing path, unless the row says otherwise.
-
-`libexec/kempt-apply` honours a seam only when not root, or as root when its uid map is not the
-full identity and its own path is not one a polkit action binds to. pkexec only ever runs those
-paths, so a real root run reads none of these.
-
-| Variable | Default | Used for |
-| --- | --- | --- |
-| `KEMPT_ROOT` | the directory above `lib/common.sh` | Where the CLI reads `VERSION`, `backends/` and the rules template. `kempt doctor` calls it a checkout when `install.sh` is in it. With no `VERSION`, `kempt --version` answers `kempt unknown` |
-| `KEMPT_ALLOW_ROOT` | unset | `1` lets every command run as root. Unset, only help, the version and `discover-notifier status` do, and the rest exit 8. `tests/lib.sh` sets it only when the suite itself runs as root |
-| `KEMPT_CONFIG_DIR`, `KEMPT_STATE_DIR` | `~/.config/kempt`, `~/.local/state/kempt` | Redirect config and state |
-| `KEMPT_NOW` | unset, so the clock | Seconds since the epoch that `kempt status` and `kempt startup --all` take as now, so a test can pin their relative times |
-| `KEMPT_PKEXEC` | `pkexec` | Set empty to call a helper directly (tests) |
-| `KEMPT_REFRESH_HELPER`, `KEMPT_APPLY_HELPER` | the matching `*_HELPER_PATH` | Point at stub helpers |
-| `KEMPT_REFRESH_HELPER_PATH`, `KEMPT_APPLY_HELPER_PATH` | `/usr/local/libexec/kempt-{refresh,apply}` | The paths polkit's `exec.path` pins. `kempt doctor` checks root:root 0755 only when the helper seam equals this one. Compared, never run |
-| `KEMPT_DNF_CMD`, `KEMPT_DNF_INSTALLED_CMD` | `dnf5`, (rpm query) | Replace the dnf commands |
-| `KEMPT_DNF_SIZES_CMD` | (empty, so the `dnf_sizes` query in [the network boundary](#the-network-boundary)) | The download-size query, apart from `KEMPT_DNF_CMD`, which tests point at a `needs-restarting` stub. Stubbed |
-| `KEMPT_DNF_ADVISORY_CMD` | (empty, so `KEMPT_DNF_CMD`) | The security advisory query, run only when `notify_security` is on. `tests/lib.sh` points it at a missing path, so a test that wants an answer stubs it |
-| `KEMPT_DNF_SYSTEM_CACHE` | `/var/cache/libdnf5` | The cache `dnf_sizes` and the advisory query read, so sizes come from the check's metadata. When unreadable, the query drops the `--setopt`. Point it at a missing directory to test that |
-| `KEMPT_FLATPAK_REMOTE_CMD`, `KEMPT_FLATPAK_LIST_CMD` | `flatpak remote-ls --cached/list --system --app ...` | Replace the flatpak commands. The remote query is cache-only (see [the network boundary](#the-network-boundary)) |
-| `KEMPT_FLATPAK_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_LIST_RUNTIME_CMD` | the two queries above with `--runtime` in place of `--app`, and `branch` added to the columns | The runtime queries. `tests/lib.sh` pins both at `true` (no runtimes), because a missing path would fail every flatpak check |
-| `KEMPT_FLATPAK_SNAP_CMD`, `KEMPT_FLATPAK_SNAP_RUNTIME_CMD` | the two list queries above with `active` added to the columns | The run's before and after snapshots. Many runtimes have no useful version, so the deployed commit is included. `tests/lib.sh` pins both at `true` |
-| `KEMPT_FLATPAK_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_INFO_CMD` | `flatpak list --system --app --columns=application,name,runtime`, `flatpak info --system` | The end-of-life lookups, run only after an end-of-life notice. A failure loses the note, not the run. `tests/lib.sh` pins both at `true` |
-| `KEMPT_FLATPAK_REMOTES_CMD`, `KEMPT_FLATPAK_USER_REMOTES_CMD` | `flatpak remotes --system --columns=name`, and `--user` | The configured remotes. With none, `flatpak_refresh` fetches nothing and no event claims a download. An unreadable list, or one that takes longer than `KEMPT_FLATPAK_REMOTES_TIMEOUT` (10 s), still lets the fetch run. `tests/lib.sh` pins both at `echo flathub` |
-| `KEMPT_FLATPAK_REFRESH_CMD` | the app remote query **minus** `--cached` | The flatpak half of `maybe_refresh_metadata`. Runs as the user, never through `pkexec`. Stubbed, so no test fetches from flathub |
-| `KEMPT_FLATPAK_UPDATE_CMD` | `flatpak update --system` | The flatpak apply (`flatpak_apply`), run as the user. Stubbed, so the suite cannot update the host |
-| `KEMPT_FLATPAK_USER_DIR` | `$FLATPAK_USER_DIR`, else `$XDG_DATA_HOME/flatpak`, else `~/.local/share/flatpak` | The per-user installation, used only when `repo/config` exists. Skipped as root, under `sudo` or under `pkexec`. A failed per-user read drops only the per-user side. Stubbed |
-| `KEMPT_FLATPAK_USER_SKIP` | (empty) | Any value makes the rest of a run leave the per-user installation alone. `kempt update` sets it when that set could not be read before the run |
-| `KEMPT_FLATPAK_USER_REMOTE_CMD`, `KEMPT_FLATPAK_USER_LIST_CMD`, `KEMPT_FLATPAK_USER_REMOTE_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_LIST_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_SNAP_CMD`, `KEMPT_FLATPAK_USER_SNAP_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_APP_RUNTIME_CMD`, `KEMPT_FLATPAK_USER_INFO_CMD` | each system command above with `--user` in place of `--system` | The per-user queries, run as the user. `tests/lib.sh` pins them at `true` |
-| `KEMPT_FLATPAK_USER_REFRESH_CMD`, `KEMPT_FLATPAK_USER_UPDATE_CMD` | the user remote query minus `--cached`, `flatpak update --user` | The per-user fetch and apply, run as the user. The apply runs after the system one. Stubbed |
-| `KEMPT_FLATPAK_UNUSED_CMD` | `libexec/kempt-flatpak-unused` in `KEMPT_ROOT` | Lists unused Flatpak refs as JSON, run as the user. Stubbed |
-| `KEMPT_DU_CMD` | `du` | Sizes the unused runtimes in one `du -sb` call, used directories first, so shared files are not counted. Stubbed |
-| `KEMPT_FLATPAK_UNINSTALL_CMD` | `flatpak uninstall --system --no-related --noninteractive` | The removal, run as the user once per pass, with the offered refs appended. Its first word also tells whether Flatpak is installed, so the stub turns the feature off |
-| `KEMPT_PKCHECK` | `pkcheck` | Asks polkit, without a dialog, whether this process may remove runtimes. A no, no answer in time, or no `pkcheck` means no removal. Stubbed |
-| `KEMPT_RECLAIM_PKCHECK_TIMEOUT` | `10` | Seconds that question may take. No answer in time is a no. A value outside 1 to 10 is 10, since the widget's wait is sized on it |
-| `KEMPT_GETENT_CMD` | `getent passwd` | Counts local login accounts, under a 5-second limit. More than one, or a failed lookup, makes `reclaim=automatic` act as `ask`. Stubbed |
-| `KEMPT_NSSWITCH_FILE`, `KEMPT_HOME_ROOTS` | `/etc/nsswitch.conf`, `/home /var/home` | The other two account signals: a network source (`sss`, `ldap`, `winbind`, `nis`) on the `passwd` line, and Flatpak data in more than one home. Either makes `reclaim=automatic` act as `ask`. Stubbed |
-| `KEMPT_SSSD_DIR`, `KEMPT_SMB_CONF`, `KEMPT_SYSTEMCTL_CMD` | `/etc/sssd`, `/etc/samba/smb.conf`, `systemctl` | Whether `sss` or `winbind` on that line counts. `sss` counts with an sssd `[domain/...]` section. If `/etc/sssd` is unreadable, it counts unless systemd says sssd is down and found no config. `winbind` counts with `security = ads` or `domain`. Any unreadable config counts. `ldap` and `nis` count from the line alone. `KEMPT_SYSTEMCTL_CMD` also answers `notify_startup`'s read-only queries, under `timeout 5`. Stubbed |
-| `KEMPT_JOURNALCTL_CMD`, `KEMPT_GROUPS_CMD` | `journalctl`, `id -Gn` | `kempt startup --all`'s log lines. The system journal is read only for members of `wheel`, `adm` or `systemd-journal`, and only after `journalctl --system -b -n 1` prints a line: it exits 0 without access. One query per scope, and none when nothing failed |
-| `KEMPT_CRONTAB_CMD`, `KEMPT_ATQ_CMD` | `crontab`, `atq` | Your own cron and `at` jobs for the Startup report |
-| `KEMPT_RPM_QF_CMD` | `rpm` | One `rpm -qf` for every unit and autostart file the Startup report lists, with an unowned directory between paths to mark each answer |
-| `KEMPT_SYSTEMD_ANALYZE_CMD` | `systemd-analyze` | Startup time, recorded once per boot in `boot-times.json`. Until startup has finished, `time` says so and each check asks again (a few milliseconds). `blame`, which costs half a second, is asked only by the page, once per boot |
-| `KEMPT_STARTUP_ETC`, `KEMPT_ANACRON_SPOOL`, `KEMPT_LINGER_DIR`, `KEMPT_SYSTEM_UNIT_DIRS` | `/etc`, `/var/spool/anacron`, `/var/lib/systemd/linger`, `/etc/systemd/system /usr/lib/systemd/system` | Where the Startup report finds `crontab`, `cron.d`, `cron.*`, `anacrontab` and `rc.local`, anacron's stamps (their times give the last run), the lingering flag, and an enabled template's file, which `systemctl show` refuses |
-| `KEMPT_NOTIFY`, `KEMPT_TERMINAL` | `notify-send`, `konsole` | Notifications and the terminal surface |
-| `KEMPT_GETFACL` | `getfacl` | ACL scan of the dnf folders, in doctor and in `kempt-apply`, under the rule above |
-| `KEMPT_FIND` | `find` | Owner and mode scan of the dnf folders, likewise |
-| `KEMPT_MOUNTINFO` | `/proc/self/mountinfo` | The mount table, read for user FUSE mounts, likewise. `tests/lib.sh` points it at one plain root line |
-| `KEMPT_MNT_NS_INIT` | `/proc/1/ns/mnt` | The mount namespace the helper must share, likewise. `tests/lib.sh` points it at the process's own |
-| `KEMPT_RISKY_RE`, `KEMPT_BOOT_ID` | (empty) | Override the session-critical pattern and the boot session, which the harvest and `notify_startup` compare |
-| `KEMPT_SKIP_REFRESH`, `KEMPT_RETRY_DELAY` | (unset), `10` | Deterministic checks and fast retry tests |
-| `KEMPT_VIA` | (unset) | The event log's `via` column: `widget` when set to that, `cli` otherwise. Read only by `log_event` |
-| `KEMPT_ASSUME_TTY`, `KEMPT_LIVE_OUTPUT` | (unset) | Drive the interactive prompt path from a script |
-| `KEMPT_RULES_DST` | (unset, so `/etc/polkit-1/rules.d/49-kempt.rules`) | Passwordless rule destination, for tests. Honoured only when `KEMPT_PKEXEC` is empty and the CLI is not root, and it must be an absolute `*.rules` path. Set in a pkexec or root run, it is refused with exit 2 |
-| `KEMPT_POLICY_FILE` | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | Where `kempt doctor` reads each action's `exec.path`, to compare with the helper path the CLI uses |
-| `KEMPT_PLASMOID_DIR` | `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt` | The user's copy of the widget, read by `kempt doctor`. A checkout install diffs it against `plasmoid/`. On a packaged install it is a FAIL, because Plasma prefers a user copy over `/usr/share` |
-| `KEMPT_UI_DIR` | the checkout's `plasmoid/contents/ui` | Which copy of the QML the probes under `tests/qml/` run. The release check points it at the packaged copy. Read by the test harness only |
-| `KEMPT_REFRESH_TIMEOUT` | `120` | Seconds the Flatpak fetch, or an authentication dialog nobody answers, may take before the check gives up on it. `kempt-refresh` stops `dnf5 makecache` itself after 120 seconds, a limit fixed in the helper |
-| `KEMPT_CHECK_LOCK_WAIT` | `60` | Seconds a check waits for `check.lock` before serving the previous state instead |
-| `KEMPT_RUN_START_WAIT` | `5` | Seconds `kempt run` waits for the terminal window to start the update before it reports that it did not start (exit 5). A launcher that exits with an error is reported at once |
-| `KEMPT_CLOSING_CHECK_MARK` | unset | Set by the terminal window around `kempt update`. The update creates this file after its closing check, so the window does not check a second time |
-| `KEMPT_SYSTEM_PLASMOID_DIR` | `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt` | Where the package puts the widget. Read only by `kempt doctor` on a packaged install, to say whether `kempt-plasmoid` is missing. Stubbed |
-| `KEMPT_WIDGET_PATH` | `~/.local/bin:$PATH` | The `PATH` the widget's command line builds. `kempt doctor` resolves `kempt` through it to report which CLI the widget would run. Never executed. `tests/lib.sh` points it at a directory with no `kempt` |
-| `KEMPT_OFFLINE_TOML` | `/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml` | dnf5's record of a staged transaction. Never written. `tests/lib.sh` pins it at a `ready` fixture. `kempt-apply` honours this variable only when not root |
-| `KEMPT_OFFLINE_TXJSON` | `/usr/lib/sysimage/libdnf5/offline/transaction.json` | dnf5's stored transaction, the package set a restart will install. Read live, never written. `tests/lib.sh` pins it at a recorded transaction. Point it at anything unparsable to test the fallback |
-| `KEMPT_DNF_HISTORY_CMD` | `dnf5` | Answers `history list --json` and `history info <id> --json`, run as the user to find [which transaction ran](#which-transaction-ran). Stubbed, so tests take the "cannot tell" branch |
-| `KEMPT_XDG_AUTOSTART_DIR` | `/etc/xdg/autostart` | Where `kempt doctor`, `kempt check` and `kempt discover-notifier` look for Discover's update notifier. Never written. Stubbed |
-| `KEMPT_DISCOVER_PGREP`, `KEMPT_DISCOVER_PKILL` | `pgrep`, `pkill` | How `kempt discover-notifier` finds and stops this user's running notifier. `tests/lib.sh` points both at `false` |
-| `KEMPT_DISCOVER_START` | `kstart` | What `kempt discover-notifier on` starts the notifier with, as `--application org.kde.discover.notifier`, detached. `on` waits up to `KEMPT_DISCOVER_START_POLLS` tenths of a second (default 30) for pgrep to find it. Stubbed |
-| `KEMPT_DISCOVER_BIN` | `/usr/libexec/DiscoverNotifier` | Started directly, detached, when there is no `kstart` or it started nothing. Also the start of the command line pgrep and pkill match. Stubbed |
-| `KEMPT_DISCOVER_UPDATES_CONF` | `~/.config/PlasmaDiscoverUpdates` | Discover's update settings. `kempt doctor` reads `UseUnattendedUpdates` under `[Global]` as text. Never written. `tests/lib.sh` points it at a missing file |
-| `KEMPT_DISCOVER_UPDATES_SYSCONF` | `PlasmaDiscoverUpdates` in each `$XDG_CONFIG_DIRS` directory (`/etc/xdg`) | The system defaults for the same setting, a colon-separated list with the most important first. Each file overrides the ones after it, and the user's file overrides them all. A `[$i]` marker on the key, `[Global]` or the whole file stops every file read after it. Never written. `tests/lib.sh` points it at a missing file |
-| `KEMPT_OSTREE_MARKER` | `/run/ostree-booted` | Marks an image-based system. Read by `kempt update` (aborts in pre-flight), `kempt check` (publishes `image_based`) and `kempt doctor`. Stubbed |
-| `KEMPT_OFFLINE_LINK` | `/system-update` | The symlink `dnf5 offline reboot` creates. Never written or followed: its presence and its text decide whether it is dnf5's. Stubbed |
-| `KEMPT_OFFLINE_DATADIR` | `/usr/lib/sysimage/libdnf5/offline` | Where dnf5 points `/system-update`. A symlink pointing anywhere else is another updater's, so dnf5's transaction is not armed. `libexec/kempt-apply` reads this and `KEMPT_OFFLINE_LINK` only when not root. `tests/lib.sh` points it at the test directory |
-| `KEMPT_SYSTEMD_RUN` | `/usr/bin/systemd-run` | What the root helpers hand dnf5 to, so systemd starts it as a fresh service. Honoured only when not root. `tests/lib.sh` points it at a stand-in that records its arguments |
-| `KEMPT_SYSTEMD_BOOTED` | `/run/systemd/system` | Present only while systemd is PID 1. Without it, or without `systemd-run`, the root helpers exit 4 and start nothing. Honoured only when not root. `tests/lib.sh` points it at a test directory |
-| `KEMPT_SYSTEMD_SYSTEMCTL` | `/usr/bin/systemctl` | What the root helpers ask whether their fixed-name service is running, clear its last failure with, and poll while `systemd-run` waits. Honoured only when not root. `tests/lib.sh` points it at a stand-in that answers from a script of states |
-| `KEMPT_SYSTEMD_POLL` | `5` | Seconds between the root helpers' polls of their service. Until the service is seen running, the first 10 polls come every second, or every `KEMPT_SYSTEMD_POLL` seconds when that is shorter. Honoured only when not root |
-| `KEMPT_SYSTEMD_GRACE` | `2` | Polls a service must stay ended before a helper stops waiting on `systemd-run`. Honoured only when not root |
-| `KEMPT_SYSTEMD_LONG_RUN` | `180` | Polls before a helper says once that dnf5 has run for 15 minutes. Honoured only when not root |
-| `KEMPT_DNF_CACHE_DIR` | `/var/cache/libdnf5` | dnf5's system cache. `kempt doctor` warns when another user owns or can write an entry in it, and never follows a link to do so. With no readable `*/repodata/repomd.xml` in it, and the directory itself readable, a failed dnf refresh is tried again after 15 minutes. `tests/lib.sh` points it at a path that does not exist |
-| `KEMPT_DNF_SYSIMAGE_DIR` | `/usr/lib/sysimage/libdnf5` | dnf5's system state. Checked by `kempt doctor` like the cache. `kempt-apply` refuses to upgrade, stage or arm while another user can change it. It honours this variable only when not root. `tests/lib.sh` points it at a path that does not exist |
-| `KEMPT_DNF_OFFLINE_PKG_DIR` | `/var/lib/dnf/offline` | Where dnf5 keeps a staged update's packages. Checked by `kempt doctor` like the cache. `kempt-apply` refuses to upgrade, stage or arm while another user can change it. It honours this variable only when not root. `tests/lib.sh` points it at a path that does not exist |
-| `KEMPT_DNF_PARENTS_TOP` | (unset) | `kempt doctor` checks every folder above the three dnf folders, up to `/`. When set, the walk stops below this folder. `tests/lib.sh` sets it to the test directory, which the test user owns |
-| `KEMPT_DNF_CONF` | `/etc/dnf/dnf.conf` | Read for `installonlypkgs`, so an old kernel that is still installed does not count against a stage another updater installed. Points at a missing file in the tests |
-| `KEMPT_RPM_INSTALLONLY_CMD` | (unset: `rpm -q --whatprovides` for `installonlypkg(kernel)`, `installonlypkg(kernel-module)`, `installonlypkg(vm)` and `multiversion(kernel)`) | Lists the installed installonly names, kmod and akmod builds included. With no names, a fixed list of kernel families stands in. Stubbed |
-| `KEMPT_RPM_QA_CMD` | (unset: `rpm -qa` with an epoch-always query format) | Lists installed packages as `name-epoch:version-release.arch`, to tell whether every staged package is installed. Stubbed |
-| `KEMPT_RPM_INHIBIT_CMD` | (unset: `rpm -q` for `libdnf5-plugin-systemd-inhibit` and `rpm-plugin-systemd-inhibit`) | Lists which shutdown-inhibit plugins are installed, for `kempt doctor`. `tests/lib.sh` pins it at the rpm plugin |
-| `KEMPT_DNF_INHIBIT_CONF` | `/etc/dnf/libdnf5-plugins/00-systemd-inhibit.conf` | libdnf5's config for its plugin. On when the file exists and `[main]` does not set `enabled` to 0, no, false or off. Stubbed |
-| `KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` | (unset) | Root helpers print the final command instead of running it |
-| `KEMPT_DNF5_VERSION` | (the installed `dnf5` package's version) | Whether dnf5 is asked for JSON: `check-update --json` from 5.4.0, `needs-restarting --json` from 5.4.1. `tests/lib.sh` pins Fedora 43's 5.2.18.0 |
-| `KEMPT_KPACKAGETOOL` | `kpackagetool6` | The tool `install.sh` installs and removes the widget with. It goes through the same `run` seam as the privileged commands, so `KEMPT_INSTALL_ECHO` prints it |
-| `KEMPT_DBUS_SEND` | `dbus-send` | The `org.kde.KIconLoader.iconChanged` signal `install.sh` sends so plasmashell reloads icons. Best effort. `tests/lib.sh` points it at `true` |
-| `KEMPT_INSTALL_ECHO` | (unset) | `install.sh` prints its privileged commands instead of running them. `=fail` also makes them report failure. Unprivileged symlinks are still created, so use a scratch `HOME` for a fully inert dry run. The notifier question's `kempt discover-notifier off` is printed too |
-| `KEMPT_INSTALL_CONFIG_HOME` | (unset) | With `KEMPT_INSTALL_ECHO`, the directory the notifier commands run in. Their autostart entry, config and state stay inside it. Without it, the question's command is printed |
-
-`KEMPT_APPLY_ECHO`, `KEMPT_REFRESH_ECHO` and `KEMPT_DNF5_VERSION` are for tests only. They cannot reach a real
-privileged run, because pkexec clears the caller's environment. `KEMPT_INSTALL_ECHO` runs on the
-user's side and can only stop `install.sh` from running privileged commands.
 
 ## Known v1 decisions
 
