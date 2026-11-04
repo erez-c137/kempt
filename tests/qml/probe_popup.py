@@ -3738,6 +3738,7 @@ _ASSEMBLED_IN_LOGIC = {
     "userAppsUncheckedShort",  # -> vm.footerText and vm.tooltipSub
     "noPackageChanges",     # -> postRunLine
     "updateFailed",         # -> postRunLine
+    "updatesPausedFolder",  # -> postRunLine, for a run the helper refused over a system folder
     "stagedNothingHeld",    # -> postRunLine, for a staging run that staged nothing
     "stagedNothingNonePending",  # -> postRunLine, the other reason it can have staged nothing
     "lastRunNothingStaged",  # -> lastRunText, the past-tense row for the same run
