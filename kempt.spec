@@ -57,6 +57,8 @@ Requires:       polkit
 # The root helpers start dnf5 through systemd-run.
 Requires:       /usr/bin/systemd-run
 Requires:       util-linux-core
+# The one rule for dnf's folders is a find, in the root helpers and in the CLI.
+Requires:       findutils
 # `dnf5 needs-restarting` is the WHOLE of the reboot answer, and it lives in dnf5-plugins, not in
 # dnf5: `dnf5 -q repoquery --whatprovides "dnf5-command(needs-restarting)"` returns dnf5-plugins,
 # and dnf5 itself only provides dnf5-command(offline). Without it reboot_needed is permanently
