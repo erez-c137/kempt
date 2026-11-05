@@ -132,13 +132,12 @@ sandbox() {  # fresh dirs per test file; call first
   # Discover installed would decide if an unrelated doctor test grows a line about it.
   export KEMPT_XDG_AUTOSTART_DIR="$TESTTMP/no-system-autostart"
   # `kempt discover-notifier` finds, stops and starts the real notifier of the session running the
-  # suite. Never from a test: pgrep finds nothing, pkill stops nothing, and both starters are paths
-  # that do not exist. Files that test those steps point them at their own stubs.
+  # suite. Never from a test: pgrep finds nothing, pkill stops nothing, and the starter is a path
+  # that does not exist. Files that test those steps point them at their own stubs.
   # Discover's update settings: none, so no test reads a developer's own.
   export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-discover-updates-conf"
-  export KEMPT_DISCOVER_UPDATES_SYSCONF="$TESTTMP/no-discover-updates-sysconf"
   export KEMPT_DISCOVER_PGREP="false" KEMPT_DISCOVER_PKILL="false"
-  export KEMPT_DISCOVER_START="$TESTTMP/UNSTUBBED-kstart" KEMPT_DISCOVER_BIN="$TESTTMP/UNSTUBBED-notifier"
+  export KEMPT_DISCOVER_START="$TESTTMP/UNSTUBBED-kstart"
   # Poisoned for the same reason, and a louder one: unset, this falls back to the REAL
   # `flatpak update --system`, which no longer goes through a stubbable root helper. A test file
   # that forgets to name its own stub would update the machine running the suite.

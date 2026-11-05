@@ -298,12 +298,12 @@ writes
 .I ~/.config/autostart/org.kde.discover.notifier.desktop
 with
 .B Hidden=true
-and stops the running notifier. A file of your own there moves to a name ending in
-.IR .before\-kempt .
+and a line marking it as Kempt's, and stops the running notifier. A file of your own there is left
+alone, and Kempt names it and exits 1.
 .B on
-removes Kempt's file, puts yours back and starts the notifier. An edited Kempt file moves to a
-name ending in
-.IR .kempt\-edited .
+deletes that file only if it carries the mark, puts back a
+.I .before\-kempt
+copy kept by 0.2.0, and starts the notifier.
 .B keep
 changes nothing and records that you answered the widget's offer.
 .B status
@@ -311,14 +311,15 @@ says whether the notifier is installed, on, turned off by Kempt and running.
 .B \-\-json
 prints the same as one object.
 .IP
-Exit 1, with nothing changed:
+Exit 1:
 .B off
-found a
-.I .before\-kempt
-copy already there,
+found something at that path that is not Kempt's, or could not write its file, or
 .B on
-found a file of your own keeping the notifier off, or the path is a directory or a broken
-symlink.
+could not remove Kempt's file, all with nothing changed; or
+.B on
+found a file of your own keeping the notifier off, which can be the
+.I .before\-kempt
+copy it just put back. A file with the mark as a line of its own counts as Kempt's.
 .TP
 .BR \-\-version ", " version ", " \-V
 Print
@@ -416,10 +417,9 @@ Success.
 .B 1
 Something failed. This includes a busy writers' lock:
 .BR "config set" ,
-.BR hold ,
-.B unhold
+.B hold
 and
-.B "discover\-notifier off|on|keep"
+.B unhold
 give up after 30 seconds and write nothing.
 .TP
 .B 2

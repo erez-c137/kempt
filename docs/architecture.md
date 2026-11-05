@@ -310,9 +310,6 @@ The widget offers the list from 1 GB and names those refs to `kempt reclaim`. Th
 | --- | --- | --- |
 | `discover_offer` | Discover's update notifier starts with the session, and the state file `discover-offer-answered` does not exist | `kempt discover-notifier off`, `on` or `keep` writes that file |
 
-`discover-entry-written` holds the bytes Kempt last wrote to the autostart entry. `on` removes the
-entry only while it still matches.
-
 ## History entries
 
 Each run's history entry is the second **public interface**. Two commands print it:

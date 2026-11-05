@@ -373,378 +373,64 @@ kempt_default() {  # key → default ("" if unknown)
 
 # --- Discover's update notifier ---------------------------------------------------------------
 # plasma-discover-notifier checks for updates on its own schedule, from PackageKit's cache, so its
-# count can differ from Kempt's. `kempt discover-notifier` turns it off for this user with an XDG
-# autostart entry in ~/.config/autostart: a user entry shadows the system one of the same name, and
-# Hidden=true means it never starts. No root is needed for any of it.
-KEMPT_XDG_AUTOSTART_DIR="${KEMPT_XDG_AUTOSTART_DIR:-/etc/xdg/autostart}"
+# count can differ from Kempt's. `kempt discover-notifier off` writes one autostart file for this
+# user: a user entry shadows the system one of the same name, and Hidden=true means it never starts.
+# The mark says the file is Kempt's. `on` deletes only a marked file. Any other file at that path
+# is the person's, so Kempt refuses and names it. No root is needed for any of it.
 KEMPT_DISCOVER_PGREP="${KEMPT_DISCOVER_PGREP:-pgrep}"
 KEMPT_DISCOVER_PKILL="${KEMPT_DISCOVER_PKILL:-pkill}"
-# What turning it back on starts it with. kstart --application launches the package's own
-# application entry the way Plasma launches an app, in its own systemd scope. Without kstart, the
-# binary itself, detached.
+# kstart --application launches the package's own application entry the way Plasma launches an
+# app, in its own systemd scope. It comes with plasma-desktop.
 KEMPT_DISCOVER_START="${KEMPT_DISCOVER_START:-kstart}"
-KEMPT_DISCOVER_BIN="${KEMPT_DISCOVER_BIN:-/usr/libexec/DiscoverNotifier}"
-DISCOVER_ENTRY=org.kde.discover.notifier.desktop
-DISCOVER_APP=org.kde.discover.notifier
-# The line that marks the user entry as Kempt's, so `on` removes only a file Kempt wrote.
+DISCOVER_SYS_ENTRY="${KEMPT_XDG_AUTOSTART_DIR:-/etc/xdg/autostart}/org.kde.discover.notifier.desktop"
+DISCOVER_USER_ENTRY="${XDG_CONFIG_HOME:-$HOME/.config}/autostart/org.kde.discover.notifier.desktop"
 DISCOVER_MARK="X-Kempt-Override=true"
 # The process, matched on its command line: the name is longer than the 15 characters pgrep sees.
 # Anchored to the binary at the start, so `less /usr/libexec/DiscoverNotifier` is not it.
-DISCOVER_PATTERN="^${KEMPT_DISCOVER_BIN}( |\$)"
-# How long `on` waits for a started notifier to appear, in tenths of a second, before it tries the
-# binary itself and then says it could not start it.
-KEMPT_DISCOVER_START_POLLS="${KEMPT_DISCOVER_START_POLLS:-30}"
+DISCOVER_PATTERN='^/usr/libexec/DiscoverNotifier( |$)'
 # Discover's own update settings. `UseUnattendedUpdates=true` under [Global] makes the notifier
 # download updates and prepare them for the next restart by itself, through PackageKit.
 KEMPT_DISCOVER_UPDATES_CONF="${KEMPT_DISCOVER_UPDATES_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/PlasmaDiscoverUpdates}"
-# The administrator's defaults for the same setting, which the user's file overrides unless locked.
-# A colon-separated list in XDG_CONFIG_DIRS order, most important first. Relative entries are skipped.
-discover_sysconf_default() {
-  local d out="" dirs
-  IFS=: read -ra dirs <<<"${XDG_CONFIG_DIRS:-/etc/xdg}"
-  for d in "${dirs[@]}"; do
-    if [[ "$d" == /* ]]; then out+="${out:+:}${d%/}/PlasmaDiscoverUpdates"; fi
-  done
-  printf '%s\n' "${out:-/etc/xdg/PlasmaDiscoverUpdates}"
-}
-KEMPT_DISCOVER_UPDATES_SYSCONF="${KEMPT_DISCOVER_UPDATES_SYSCONF:-$(discover_sysconf_default)}"
-# Exists once the person has answered the widget's offer either way, or used the command.
+# Exists once the person has answered the widget's offer either way, or used the command. Deleting
+# it costs one repeat of the offer.
 DISCOVER_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-offer-answered"
-# Exists once the warning about Discover's automatic updates has been drawn. Apart from the offer's
-# answer: that one is about a count, this one about who takes the next restart.
+# Exists once the warning about Discover's automatic updates has been drawn.
 DISCOVER_UNATTENDED_ANSWERED_FILE="$KEMPT_STATE_DIR/discover-unattended-answered"
-# The bytes Kempt last wrote to the user entry. `on` removes the entry only while it still matches.
-DISCOVER_WRITTEN_FILE="$KEMPT_STATE_DIR/discover-entry-written"
 
-discover_sys_entry()  { printf '%s\n' "$KEMPT_XDG_AUTOSTART_DIR/$DISCOVER_ENTRY"; }
-discover_user_entry() { printf '%s\n' "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$DISCOVER_ENTRY"; }
-# The person's own entry, kept while Kempt's replaces it, and put back by `on`. Beside the entry,
-# where the person looks for it. Autostart reads only *.desktop files, so this one never starts.
-discover_backup() { printf '%s.before-kempt\n' "$(discover_user_entry)"; }
-# A free name beside the entry for a file Kempt moves aside: base, else base.1, base.2 ...
-discover_free_name() {  # base
-  local base="$1" n=1
-  [[ -e "$base" || -L "$base" ]] || { printf '%s\n' "$base"; return; }
-  while [[ -e "$base.$n" || -L "$base.$n" ]]; do n=$((n + 1)); done
-  printf '%s\n' "$base.$n"
-}
+discover_installed() { [[ -f "$DISCOVER_SYS_ENTRY" ]]; }
+discover_entry_starts() { ! grep -qsiE '^[[:space:]]*Hidden[[:space:]]*=[[:space:]]*true' "$1"; }
+# The entry that decides: the user's when there is one, else the system's.
+discover_effective_entry() { if [[ -f "$DISCOVER_USER_ENTRY" ]]; then echo "$DISCOVER_USER_ENTRY"; else echo "$DISCOVER_SYS_ENTRY"; fi; }
+discover_enabled() { discover_installed && discover_entry_starts "$(discover_effective_entry)"; }
+# A regular file carrying the mark, which is also what 0.2.0 wrote. A symlink is the person's.
+discover_entry_is_kempts() { [[ -f "$DISCOVER_USER_ENTRY" && ! -L "$DISCOVER_USER_ENTRY" ]] && grep -qsx "$DISCOVER_MARK" "$DISCOVER_USER_ENTRY"; }
+discover_running() { "$KEMPT_DISCOVER_PGREP" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1; }
+discover_mark_answered() { { mkdir -p "$KEMPT_STATE_DIR" && : > "$DISCOVER_ANSWERED_FILE"; } 2>/dev/null || true; }
 
-discover_installed() { [[ -f "$(discover_sys_entry)" ]]; }
-
-# Whether an autostart entry starts in a Plasma session, by the XDG autostart rules: Hidden=true
-# wins over everything, then OnlyShowIn and NotShowIn, whose lists Plasma matches as KDE.
-discover_entry_starts() {  # file → 0 when it starts in Plasma
-  local f="$1" only not
-  grep -qiE '^[[:space:]]*Hidden[[:space:]]*=[[:space:]]*true' "$f" && return 1
-  # `|| true`: grep exits 1 for an absent key, the common case, and errexit would stop here.
-  only="$(grep -iE '^[[:space:]]*OnlyShowIn[[:space:]]*=' "$f" | head -1 || true)"
-  not="$(grep -iE '^[[:space:]]*NotShowIn[[:space:]]*=' "$f" | head -1 || true)"
-  [[ -n "$only" && "${only,,}" != *kde* ]] && return 1
-  [[ -n "$not" && "${not,,}" == *kde* ]] && return 1
-  return 0
-}
-
-# The entry that decides: the user's when there is one, else the system's. Empty when neither.
-discover_effective_entry() {
-  local user sys
-  user="$(discover_user_entry)"; sys="$(discover_sys_entry)"
-  if [[ -f "$user" ]]; then printf '%s\n' "$user"
-  elif [[ -f "$sys" ]]; then printf '%s\n' "$sys"
-  fi
-}
-
-discover_enabled() {
-  discover_installed || return 1
-  discover_entry_starts "$(discover_effective_entry)"
-}
-
-# → 0, and the path of the file that decided, when Discover is set to install updates by itself.
-# Read as text, never with kreadconfig6, which may be absent. As in KConfig, the system files are
-# read from least to most important and the user's file last, each overriding the one before. A
-# `[$i]` marker on the key, on [Global] or before any group locks the value for every later file.
-# True, on, yes and 1 count as true. A file that cannot be read counts as absent.
+# Whether the person's own settings file says Discover installs updates by itself. Read as text:
+# the kempt package does not bring kreadconfig6.
 discover_unattended() {
-  local f i dirs files=()
-  IFS=: read -ra dirs <<<"$KEMPT_DISCOVER_UPDATES_SYSCONF"
-  for (( i = ${#dirs[@]} - 1; i >= 0; i-- )); do
-    f="${dirs[i]}"
-    if [[ -n "$f" && -f "$f" && -r "$f" ]]; then files+=("$f"); fi
-  done
-  f="$KEMPT_DISCOVER_UPDATES_CONF"
-  if [[ -f "$f" && -r "$f" ]]; then files+=("$f"); fi
-  (( ${#files[@]} > 0 )) || return 1
-  for f in "${files[@]}"; do
-    printf '\001KEMPT-FILE %s\n' "$f"
-    head -c 65536 "$f" 2>/dev/null
-    printf '\n'
-  done | awk '
-    function locked(t) { return t ~ /\[\$[A-Za-z]*i[A-Za-z]*\]/ }
-    # A lock seen in one file applies from the next file on.
-    index($0, "\001KEMPT-FILE ") == 1 { if (pend) blocked = 1; pend = 0; cur = substr($0, 13); sec = ""; next }
-    /^[[:space:]]*\[/ {
-      s = $0; gsub(/[[:space:]]/, "", s); lk = locked(s); gsub(/\[\$[A-Za-z]+\]/, "", s)
-      if (s != "") { sec = s; if (lk && s == "[Global]") pend = 1 }
-      else if (lk && sec == "") pend = 1
-      next
-    }
-    sec == "[Global]" && index($0, "=") > 0 && !blocked {
-      k = substr($0, 1, index($0, "=") - 1); gsub(/[[:space:]]/, "", k); lk = locked(k)
-      gsub(/\[\$[A-Za-z]+\]/, "", k)
-      if (k != "UseUnattendedUpdates") next
-      v = substr($0, index($0, "=") + 1); gsub(/[[:space:]]/, "", v)
-      r = tolower(v); set = 1; f = cur
-      if (lk) pend = 1
-    }
-    END {
-      if (!set) exit 1
-      if (r == "true" || r == "on" || r == "yes" || r == "1") { print f; exit 0 }
-      exit 1
-    }'
+  [[ -f "$KEMPT_DISCOVER_UPDATES_CONF" && -r "$KEMPT_DISCOVER_UPDATES_CONF" ]] || return 1
+  awk -F'[[:space:]]*=[[:space:]]*' '/^\[/ { group = $0 }
+    group == "[Global]" && $1 == "UseUnattendedUpdates" { on = (tolower($2) ~ /^(true|on|yes|1)$/) }
+    END { exit !on }' "$KEMPT_DISCOVER_UPDATES_CONF"
 }
 
-# Discover's setting, while its notifier is there to act on it. → 0 and the deciding file when so.
-discover_unattended_active() {
-  discover_installed || return 1
-  { discover_entry_starts "$(discover_effective_entry)" || discover_running; } || return 1
-  discover_unattended
-}
+# Discover's setting, while its notifier is there to act on it.
+discover_unattended_active() { { discover_enabled || discover_running; } && discover_unattended; }
 
 # Whether the widget owes the warning. A setting that reads false forgets it was ever drawn, so
-# turning the setting on again warns again.
+# turning the setting on again warns again. Neither this nor the offer on an image-based Fedora,
+# where Kempt tells people to use Discover.
 discover_unattended_warn_pending() {
-  if ! discover_unattended >/dev/null; then
-    rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true
-    return 1
-  fi
-  # Not on an image-based Fedora, where Kempt tells people to use Discover.
-  ! on_ostree && [[ ! -e "$DISCOVER_UNATTENDED_ANSWERED_FILE" ]] && discover_unattended_active >/dev/null
+  discover_unattended || { rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true; return 1; }
+  ! on_ostree && [[ ! -e "$DISCOVER_UNATTENDED_ANSWERED_FILE" ]] && discover_unattended_active
 }
-
-discover_running() {
-  "$KEMPT_DISCOVER_PGREP" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1
-}
-
-# Whose the user entry is. Anything Kempt did not write byte for byte is the person's.
-#   kempt     exactly what Kempt last wrote. `on` removes it.
-#   edited    carries Kempt's mark but has changed since. `on` moves it aside and says where.
-#   own       anything else, a symlink included.
-#   none      no user entry.
-#   notfile   a directory or anything else that is not a file or a symlink.
-#   dangling  a symlink to nothing.
-# Compared with same_content, never cmp: cmp is diffutils, which a minimal Fedora does not have,
-# and a missing cmp would class Kempt's own file as the person's, so `on` would refuse.
-discover_entry_kind() {
-  local user
-  user="$(discover_user_entry)"
-  if [[ -L "$user" ]]; then
-    if [[ -e "$user" ]]; then echo own; else echo dangling; fi
-  elif [[ ! -e "$user" ]]; then echo none
-  elif [[ ! -f "$user" ]]; then echo notfile
-  elif [[ -f "$DISCOVER_WRITTEN_FILE" ]] && same_content "$user" "$DISCOVER_WRITTEN_FILE"; then echo kempt
-  elif grep -qx "$DISCOVER_MARK" "$user"; then echo edited
-  else echo own
-  fi
-}
-
-discover_entry_is_kempts() { case "$(discover_entry_kind)" in kempt|edited) return 0 ;; esac; return 1; }
-
-# Refuses an entry path Kempt cannot read or replace safely. → 0 when it is fine.
-discover_entry_usable() {  # kind
-  local user
-  user="$(discover_user_entry)"
-  case "$1" in
-    notfile)  echo "$user is not a file, so nothing changed." >&2; return 1 ;;
-    dangling) echo "$user is a symlink to $(readlink "$user"), which does not exist, so nothing changed." >&2
-              return 1 ;;
-  esac
-  # An entry that cannot be read cannot say whether it starts the notifier: grep's rc 2 would read
-  # as "it starts", and off would then fail half way. Either entry, since off copies the system one.
-  local f
-  for f in "$user" "$(discover_sys_entry)"; do
-    if [[ -e "$f" && ! -r "$f" ]]; then
-      echo "Cannot read $f, so nothing changed." >&2
-      return 1
-    fi
-  done
-  return 0
-}
-
-# The offer, as state.json carries it: while the notifier starts with the session and nobody has
-# answered yet. Not on an image-based Fedora, where Kempt tells people to use Discover.
-discover_offer_pending() {
-  ! on_ostree && [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] && discover_enabled
-}
-
-discover_mark_answered() {
-  { mkdir -p "$KEMPT_STATE_DIR" && : > "$DISCOVER_ANSWERED_FILE"; } 2>/dev/null || true
-}
-
-# Writes Kempt's entry from a seed: the seed's keys, with Hidden=true and the mark placed in the
-# [Desktop Entry] group. Appending would put them in whatever group comes last.
-discover_write_entry() {  # seed
-  local seed="$1" user tmp
-  user="$(discover_user_entry)"
-  mkdir -p "$(dirname "$user")" || return 1
-  tmp="$(mktemp "$user.XXXXXX")" || return 1
-  if awk -v mark="$DISCOVER_MARK" '
-       function put() { print "Hidden=true"; print mark; done = 1 }
-       /^\[Desktop Entry\][[:space:]]*$/ { print; group = 1; put(); next }
-       /^\[/ { group = 0 }
-       group && (/^Hidden[[:space:]]*=/ || $0 == mark) { next }
-       { print }
-       END { if (!done) { print "[Desktop Entry]"; put() } }
-     ' "$seed" > "$tmp" \
-     && mkdir -p "$KEMPT_STATE_DIR" && cp "$tmp" "$DISCOVER_WRITTEN_FILE" \
-     && mv -f "$tmp" "$user"; then
-    return 0
-  fi
-  rm -f "$tmp"
-  return 1
-}
-
-discover_wait_running() {
-  local i
-  for ((i = 0; i < KEMPT_DISCOVER_START_POLLS; i++)); do
-    discover_running && return 0
-    sleep 0.1
-  done
-  return 1
-}
-
-# Starts the notifier for this session, detached so it outlives the command and the widget, and
-# says whether it is running afterwards. setsid -f returns at once, so its status says nothing.
-# Every lock descriptor is closed for the child (6 stage, 7 writers, 8 update, 9 check): bash sets
-# no FD_CLOEXEC, and a flock lives as long as any descriptor to it, so a notifier started with fd 7
-# open would hold the writers' lock for the whole session and every later `config set`, `hold` or
-# `unhold` would wait 30 s and fail. Closing one that is not open is a no-op.
-# The binary is started when discover_wait_running gives up after kstart, even when kstart's launch
-# is only slow, so two can start.
-# That is harmless: DiscoverNotifier registers its D-Bus name through KDBusService with Unique set
-# (checked in plasma-discover-notifier 6.7.5), so whichever one finds the name taken exits at once.
-discover_start() {
-  if command -v "$KEMPT_DISCOVER_START" >/dev/null 2>&1; then
-    setsid -f "$KEMPT_DISCOVER_START" --application "$DISCOVER_APP" </dev/null >/dev/null 2>&1 \
-      6>&- 7>&- 8>&- 9>&-
-    discover_wait_running && return 0
-  fi
-  if [[ -x "$KEMPT_DISCOVER_BIN" ]]; then
-    setsid -f "$KEMPT_DISCOVER_BIN" </dev/null >/dev/null 2>&1 6>&- 7>&- 8>&- 9>&-
-    discover_wait_running && return 0
-  fi
-  return 1
-}
-
-discover_stop_running() {
-  if "$KEMPT_DISCOVER_PKILL" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1; then
-    echo "Stopped the one that was running."
-  fi
-}
-
-discover_notifier_off() {
-  local user backup kind seed moved=""
-  if ! discover_installed; then
-    echo "Discover's update notifier is not installed. Nothing changed."
-    return 0
-  fi
-  user="$(discover_user_entry)"; backup="$(discover_backup)"
-  kind="$(discover_entry_kind)"
-  discover_entry_usable "$kind" || return 1
-  # An entry that already keeps it off, whoever wrote it, is left exactly as it is.
-  if ! discover_enabled; then
-    discover_mark_answered
-    echo "Discover's update notifier is already off. Nothing changed."
-    discover_stop_running
-    return 0
-  fi
-  seed="$(discover_sys_entry)"
-  if [[ $kind != none ]]; then
-    # One copy of the person's own entry, never overwritten: a second one would lose the first.
-    if [[ -e "$backup" || -L "$backup" ]]; then
-      echo "A copy of your earlier autostart entry is already kept at $backup, so nothing changed. Move it away, then try again." >&2
-      return 1
-    fi
-    # mv, not cp: a symlink stays a symlink, and every attribute comes back with it.
-    mv "$user" "$backup" || { echo "could not keep a copy of $user, so nothing changed" >&2; return 1; }
-    moved="$backup"; seed="$backup"
-  fi
-  if ! discover_write_entry "$seed"; then
-    [[ -n "$moved" ]] && mv "$moved" "$user"
-    echo "could not write $user, so nothing changed" >&2
-    return 1
-  fi
-  discover_mark_answered
-  log_event "Discover's update notifier turned off"
-  echo "Discover's update notifier is off, and stays off when you log in again."
-  [[ -n "$moved" ]] && echo "Your earlier entry is kept at $moved"
-  discover_stop_running
-  return 0
-}
-
-discover_notifier_on() {
-  local user backup kind aside
-  if ! discover_installed; then
-    echo "Discover's update notifier is not installed. Nothing changed."
-    return 0
-  fi
-  user="$(discover_user_entry)"; backup="$(discover_backup)"
-  kind="$(discover_entry_kind)"
-  discover_entry_usable "$kind" || return 1
-  case "$kind" in
-    kempt)
-      rm -f "$user" || { echo "could not remove $user" >&2; return 1; }
-      log_event "Discover's update notifier turned on" ;;
-    edited)
-      aside="$(discover_free_name "$user.kempt-edited")"
-      mv "$user" "$aside" || { echo "could not move $user aside, so nothing changed" >&2; return 1; }
-      echo "Kempt's entry had changed since Kempt wrote it. Your version is kept at $aside"
-      log_event "Discover's update notifier turned on" ;;
-  esac
-  if [[ -e "$backup" || -L "$backup" ]]; then
-    if [[ -e "$user" || -L "$user" ]]; then
-      echo "Your earlier entry is still kept at $backup"
-    else
-      mv "$backup" "$user" || { echo "could not put back $user from $backup" >&2; return 1; }
-      echo "Your earlier entry is back at $user"
-    fi
-  fi
-  discover_mark_answered
-  rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true
-  if ! discover_enabled; then
-    echo "A startup file keeps Discover's notifier off: $(discover_effective_entry). Delete it, then run kempt discover-notifier on." >&2
-    return 1
-  fi
-  echo "Discover's update notifier is on."
-  # Off leaves KDE's setting alone, so on says what that setting does now.
-  if discover_unattended >/dev/null; then
-    echo "Discover's automatic updates resume too, because its setting is still on."
-  fi
-  # The writers' lock stays held until the notifier is up, so a concurrent off cannot slip in
-  # between. discover_start closes it for the child, so the notifier never inherits it.
-  discover_running && return 0
-  if discover_start; then
-    echo "Started it for this session."
-  else
-    echo "Could not start it now. It starts when you log in again."
-  fi
-  return 0
-}
-
-# The widget's Keep Discover's Notifier: records the answer and changes nothing else.
-discover_notifier_keep() {
-  if ! discover_installed; then
-    echo "Discover's update notifier is not installed. Nothing changed."
-    return 0
-  fi
-  discover_mark_answered
-  log_event "Discover's update notifier kept as it is"
-  echo "Discover's update notifier stays as it is."
-}
-
-# The widget drew the warning about Discover's automatic updates.
+# The widget drew the warning. The marker stops later checks owing it. The state says so now too,
+# because the next open of the popup comes before the next check, up to a day away. state.lock is
+# all this write needs: it changes one key, and nothing it reads comes from a user file.
 discover_notifier_seen() {
-  { mkdir -p "$KEMPT_STATE_DIR" && : > "$DISCOVER_UNATTENDED_ANSWERED_FILE"; } 2>/dev/null || true
-  # The next open of the popup comes before the next check, so the state says so now.
-  [[ -f "$STATE_FILE" ]] || return 0
+  { kempt_init_dirs && : > "$DISCOVER_UNATTENDED_ANSWERED_FILE"; } 2>/dev/null || true
   local out lfd
   state_lock_open
   out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.discover_unattended_warn)' "$STATE_FILE" 2>/dev/null)" || out=""
@@ -754,36 +440,84 @@ discover_notifier_seen() {
     _KEMPT_STATE_LOCK_HELD=""
   fi
   state_lock_close
+}
+# The offer, as state.json carries it: while the notifier starts with the session, unanswered.
+discover_offer_pending() { ! on_ostree && [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] && discover_enabled; }
+
+discover_notifier_off() {
+  if discover_enabled; then
+    if [[ -e "$DISCOVER_USER_ENTRY" || -L "$DISCOVER_USER_ENTRY" ]] && ! discover_entry_is_kempts; then
+      echo "Kempt did not write $DISCOVER_USER_ENTRY, so nothing changed. Add Hidden=true to its [Desktop Entry] group, or delete it and run kempt discover-notifier off." >&2
+      return 1
+    fi
+    { mkdir -p "$(dirname "$DISCOVER_USER_ENTRY")" \
+        && printf '[Desktop Entry]\nType=Application\nName=Discover\nHidden=true\n%s\n' "$DISCOVER_MARK" | atomic_write "$DISCOVER_USER_ENTRY"; } 2>/dev/null \
+      || { echo "could not write $DISCOVER_USER_ENTRY, so nothing changed" >&2; return 1; }
+    log_event "Discover's update notifier turned off"
+    echo "Discover's update notifier is off, and stays off when you log in again."
+  else
+    echo "Discover's update notifier is already off. Nothing changed."
+  fi
+  discover_mark_answered
+  "$KEMPT_DISCOVER_PKILL" -u "$(id -u)" -f "$DISCOVER_PATTERN" >/dev/null 2>&1 && echo "Stopped the one that was running."
   return 0
 }
 
+discover_notifier_on() {
+  local backup="$DISCOVER_USER_ENTRY.before-kempt"
+  if discover_entry_is_kempts; then
+    rm -f "$DISCOVER_USER_ENTRY" || { echo "could not remove $DISCOVER_USER_ENTRY" >&2; return 1; }
+    log_event "Discover's update notifier turned on"
+  fi
+  # 0.2.0 moved a person's own entry to this name when it turned the notifier off. Never over a file.
+  if [[ -e "$backup" || -L "$backup" ]]; then
+    mv -nT "$backup" "$DISCOVER_USER_ENTRY" 2>/dev/null || true
+    if [[ -e "$backup" || -L "$backup" ]]; then echo "Your earlier entry is still kept at $backup"
+    else echo "Your earlier entry is back at $DISCOVER_USER_ENTRY"; fi
+  fi
+  discover_mark_answered
+  rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true
+  if ! discover_enabled; then
+    echo "A startup file keeps Discover's notifier off: $(discover_effective_entry). Delete it, then run kempt discover-notifier on." >&2
+    return 1
+  fi
+  echo "Discover's update notifier is on."
+  # Off leaves KDE's setting alone, so on says what that setting does now.
+  discover_unattended && echo "Discover's automatic updates resume too, because its setting is still on."
+  discover_running && return 0
+  if ! command -v "$KEMPT_DISCOVER_START" >/dev/null 2>&1; then
+    echo "Could not start it now. It starts when you log in again."
+    return 0
+  fi
+  # Detached so it outlives the command and the widget, and setsid -f says nothing about the result.
+  # No lock is held here. Bash sets no FD_CLOEXEC, so a lock taken before this line would stay held
+  # by the notifier for the whole session.
+  setsid -f "$KEMPT_DISCOVER_START" --application org.kde.discover.notifier </dev/null >/dev/null 2>&1 || true
+  echo "Starting it for this session."
+}
+
 discover_notifier_status() {  # [--json]
-  local installed=false enabled=false running=false by_kempt=false unattended=false
-  discover_unattended >/dev/null && unattended=true
+  local installed=false enabled=false running=false by_kempt=false unattended=false entry=""
   discover_installed && installed=true
   discover_enabled && enabled=true
   discover_running && running=true
   discover_entry_is_kempts && by_kempt=true
+  discover_unattended && unattended=true
   if [[ "${1:-}" == --json ]]; then
     # Off by a file that is not Kempt's: which one, so Settings can say what to delete.
-    local entry=""
-    if [[ $installed == true && $enabled == false && $by_kempt == false ]]; then
-      entry=",\"entry\":$(jq -Rn --arg p "$(discover_effective_entry)" '$p')"
-    fi
+    [[ $installed == true && $enabled == false && $by_kempt == false ]] \
+      && entry=",\"entry\":$(jq -Rn --arg p "$(discover_effective_entry)" '$p')"
     printf '{"installed":%s,"enabled":%s,"running":%s,"by_kempt":%s,"unattended":%s%s}\n' \
       "$installed" "$enabled" "$running" "$by_kempt" "$unattended" "$entry"
-    return 0
+  elif [[ $installed == false ]]; then echo "Discover's update notifier: not installed"
+  else
+    if [[ $enabled == true ]]; then echo "Discover's update notifier: on"
+    elif [[ $by_kempt == true ]]; then echo "Discover's update notifier: off (turned off by Kempt)"
+    else echo "Discover's update notifier: off (by $(discover_effective_entry))"
+    fi
+    if [[ $running == true ]]; then echo "running: yes"; else echo "running: no"; fi
+    if [[ $unattended == true ]]; then echo "automatic updates: on in Discover's settings"; fi
   fi
-  if [[ $installed == false ]]; then
-    echo "Discover's update notifier: not installed"
-    return 0
-  fi
-  if [[ $enabled == true ]]; then echo "Discover's update notifier: on"
-  elif [[ $by_kempt == true ]]; then echo "Discover's update notifier: off (turned off by Kempt)"
-  else echo "Discover's update notifier: off (by $(discover_effective_entry))"
-  fi
-  if [[ $running == true ]]; then echo "running: yes"; else echo "running: no"; fi
-  if [[ $unattended == true ]]; then echo "automatic updates: on in Discover's settings"; fi
 }
 
 # The desktop user, and only the desktop user, may list or remove unused runtimes. For the system

@@ -2273,8 +2273,8 @@ assert_eq "$(fm 'metadata_refreshed:null' "$ASKED" reportFetchMessage)" "" \
   "...and with no stamp and no refresh error there is nothing to claim"
 assert_eq "$(fm "metadata_refreshed:null,refresh_skipped:\"off\",$NETERR" "$ASKED" reportFetchMessage)" "" \
   "...nor with refreshing turned off, whose refresh error is from a download Kempt no longer tries"
-# Answering an offer, or the Discover setting: a verb that takes the CLI's writers' lock, which
-# waits up to 30 s, so the widget waits longer than that before it calls the write lost.
+# Answering an offer: `config set` takes the CLI's writers' lock, which waits up to 30 s, so the
+# widget waits longer than that before it calls the write lost.
 assert_eq "$(js 'L.ANSWER_TIMEOUT_MS >= 35000')" "true" \
   "an answer is waited on for longer than the CLI's 30 s writers' lock"
 for f in main.qml configGeneral.qml; do

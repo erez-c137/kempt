@@ -56,8 +56,8 @@ Most commands use these codes. Each command's section lists its own cases.
 | 7 | `update` only: another program held the package lock. |
 | 8 | Run as root. Run Kempt as your own user, and it asks for a password when it needs one. |
 
-**The writers' lock.** `kempt config set`, `kempt hold`, `kempt unhold` and `kempt discover-notifier
-off|on|keep` each rewrite a file in your home directory. They take a lock at
+**The writers' lock.** `kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in
+your home directory. They take a lock at
 `~/.local/state/kempt/writer.lock` while they do it, so two at once cannot lose a write. After 30
 seconds of waiting the command gives up, writes nothing, says so on stderr and exits 1. Commands
 that only read take no lock.
@@ -893,15 +893,18 @@ Discover's update notifier counts updates on its own schedule, so its number can
 Kempt's, and its background work can make a Kempt run wait. These commands change it for you alone,
 without a password. When it is not installed, `off`, `on` and `keep` say so and change nothing.
 
-**`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, so the
-notifier stops starting at login, and stops the running one. A file of your own there moves to a
-name ending in `.before-kempt`, and Kempt prints where. A symlink stays a symlink. Kempt keeps one
-such copy and never overwrites it.
+**`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true` and a
+line marking it as Kempt's, so the notifier stops starting at login, and stops the running one. If
+a file of your own is there, Kempt leaves it alone, changes nothing and names it: add `Hidden=true`
+to that file's `[Desktop Entry]` group, or delete it and run `off` again. A file with
+`X-Kempt-Override=true` as a line of its own counts as Kempt's, so `off` replaces it and `on` deletes
+it. The same text in a comment or a value does not count.
 
-**`on`** removes Kempt's file and puts yours back. If you edited Kempt's file, your version moves to
-a name ending in `.kempt-edited`, and Kempt prints where. Then it starts the notifier and says so
-once it runs. If Discover's own setting for automatic updates is still on, `on` says those resume
-too, and the widget warns about them again.
+**`on`** deletes that file only if it carries Kempt's mark, so an edit made inside Kempt's file goes
+with it. A `.before-kempt` copy kept by 0.2.0 comes back to its old name, or stays and is named if a
+newer file is there. Then Kempt starts the notifier for this session, and if `kstart` is missing says it starts at your next login. If Discover's own
+setting for automatic updates is still on, `on` says those resume too, and the widget warns about
+them again.
 
 **`keep`** changes nothing, and records that you answered the widget's offer.
 
@@ -910,10 +913,10 @@ whether automatic updates are on in Discover's settings. `--json` prints `instal
 `running`, `by_kempt` and `unattended`, plus `entry` when the file keeping it off is not Kempt's.
 
 **`seen`** records that the widget has shown its warning about Discover's automatic updates, and
-changes nothing else. The widget runs it.
+takes that warning out of the state file. The widget runs it.
 
 | Exit | When |
 | --- | --- |
 | 0 | Done, or nothing needed doing. |
-| 1 | Nothing changed: `off` found a `.before-kempt` copy already there, `on` found a file of your own keeping the notifier off, the path is a directory, a broken symlink or a file Kempt cannot read, or the writers' lock was busy. |
+| 1 | `off` found something at that path that is not Kempt's, or could not write its file. `on` could not remove Kempt's file. Nothing changed in these cases. `on` also exits 1 when a file of your own keeps the notifier off, and names it. If that file is the `.before-kempt` copy it just put back, it says so too, and the copy stays back. |
 | 2 | An unknown subcommand or option. |

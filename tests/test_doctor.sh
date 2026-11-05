@@ -793,7 +793,7 @@ doctor_with_autostart() {  # → the report, with the seam pointed at the test's
 
 # Nothing installed: no row at all. A report is read line by line, and a line about something that
 # is not on the machine is noise in every one of them.
-assert_eq "$(doctor_with_autostart | grep -c -i discover || true)" "0" \
+assert_eq "$(doctor_with_autostart | grep -c Discover || true)" "0" \
   "with no notifier entry anywhere, doctor says nothing about it"
 
 # The system entry is there, so it starts.
@@ -825,19 +825,12 @@ notifier_entry "$USER_AUTOSTART/$NOTIFIER" "Hidden=false"
 assert_eq "$(doctor_with_autostart | grep -c "^info  Discover" || true)" "1" \
   "a user entry with Hidden=false still starts, and is reported"
 
-# Shown in another desktop only: it never starts in this session, so it is not a second updater.
-notifier_entry "$USER_AUTOSTART/$NOTIFIER" "OnlyShowIn=GNOME;"
-assert_eq "$(doctor_with_autostart | grep -c '^info  Discover' || true)" "0" \
-  "an entry limited to another desktop is not reported as running here"
-notifier_entry "$USER_AUTOSTART/$NOTIFIER" "NotShowIn=KDE;"
-assert_eq "$(doctor_with_autostart | grep -c '^info  Discover' || true)" "0" \
-  "...and neither is one that excludes this desktop"
-
 # Discover set to install updates by itself. Its prepared update takes /system-update and dnf5
 # leaves that symlink alone, so the next restart installs Discover's update, not Kempt's stage.
 # Reported only while the notifier that does it starts here or is running, and WARN only when
 # Kempt is set to stage.
 UNATTENDED='Discover is set to install updates by itself on restart'
+notifier_entry "$USER_AUTOSTART/$NOTIFIER" "Hidden=true"
 printf '[Global]\nUseUnattendedUpdates=true\n' > "$TESTTMP/discover-updates"
 export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/discover-updates"
 assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" \
@@ -861,53 +854,15 @@ printf '[Global]\nUseUnattendedUpdates=false\n' > "$TESTTMP/discover-updates"
 assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" "the setting turned off is not reported"
 printf '[Other]\nUseUnattendedUpdates=true\n' > "$TESTTMP/discover-updates"
 assert_eq "$(doctor_with_autostart | grep -c "$UNATTENDED" || true)" "0" "...nor the key in another section"
-# The parser on its own, against the shapes KConfig writes: KDE's `[$i]` lock on the key, the group
-# or the whole file is not part of the name, a bool may be written 1, and the last line wins.
+# The small read on its own. A bool may be written 1, and the last line wins.
 unatt() { printf "$1" > "$TESTTMP/discover-updates"
   bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT"; }
-assert_exit 0 "a key locked with [\$i] is still the key" -- unatt '[Global]\nUseUnattendedUpdates[$i]=true\n'
-assert_exit 0 "...and so is a key in a locked group" -- unatt '[Global][$i]\nUseUnattendedUpdates=true\n'
-assert_exit 0 "...or in a locked file" -- unatt '[$i]\n[Global]\nUseUnattendedUpdates=true\n'
 assert_exit 0 "1 reads as true" -- unatt '[Global]\nUseUnattendedUpdates=1\n'
-assert_exit 0 "...and so does On, spaces and a CRLF line ending included" -- unatt '[Global]\nUseUnattendedUpdates = On \r\n'
+assert_exit 0 "...and so does On, spaces included" -- unatt '[Global]\nUseUnattendedUpdates = On\n'
 assert_exit 1 "0 reads as false" -- unatt '[Global]\nUseUnattendedUpdates=0\n'
 assert_exit 1 "the last line wins" -- unatt '[Global]\nUseUnattendedUpdates=true\nUseUnattendedUpdates=false\n'
 assert_exit 1 "a commented line is not the setting" -- unatt '[Global]\n#UseUnattendedUpdates=true\n'
-# One system file is read first and the user's overrides it, unless the system file
-# locks the key, the group or the whole file with [$i]. True names the file that decided.
-both() { printf "$1" > "$TESTTMP/discover-sys"; printf "$2" > "$TESTTMP/discover-updates"
-  KEMPT_DISCOVER_UPDATES_SYSCONF="$TESTTMP/discover-sys" \
-    bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT"; }
-G='[Global]\nUseUnattendedUpdates'
-assert_eq "$(rm -f "$TESTTMP/discover-updates"; printf "$G=true\n" > "$TESTTMP/discover-sys"
-  KEMPT_DISCOVER_UPDATES_SYSCONF="$TESTTMP/discover-sys" \
-    bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT")" "$TESTTMP/discover-sys" \
-  "the system file alone turns it on, and is named as the file that decided"
-assert_eq "$(both "$G=false\n" "$G=true\n")" "$TESTTMP/discover-updates" "the user's file overrides the system's, and is named"
-assert_exit 1 "...in both directions" -- both "$G=true\n" "$G=false\n"
-assert_exit 1 "a user file without the key leaves the system's false" -- both "$G=false\n" '[Global]\nOther=1\n'
-assert_eq "$(both "$G[\$i]=true\n" "$G=false\n")" "$TESTTMP/discover-sys" "a key locked in the system file wins over the user's"
-assert_exit 0 "...and so does a locked group" -- both '[Global][$i]\nUseUnattendedUpdates=true\n' "$G=false\n"
-assert_exit 0 "...and a locked file" -- both "[\$i]\n$G=true\n" "$G=false\n"
-assert_exit 1 "a locked group that leaves the key unset keeps the user's true out" -- both '[Global][$i]\n' "$G=true\n"
-assert_exit 0 "a lock on another group does not stop the user's file" -- both '[Other][$i]\nX=1\n' "$G=true\n"
-assert_exit 0 "...nor a [\$i] that follows a group, which is no file lock" -- both "[Other]\n[\$i]\n$G=false\n" "$G=true\n"
-# Several system files, most important first as in XDG_CONFIG_DIRS: hi, then lo, then the user's.
-three() { printf "$1" > "$TESTTMP/discover-hi"; printf "$2" > "$TESTTMP/discover-lo"; printf "$3" > "$TESTTMP/discover-updates"
-  KEMPT_DISCOVER_UPDATES_SYSCONF="$TESTTMP/discover-hi:$TESTTMP/discover-lo" \
-    bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT"; }
-assert_eq "$(three "$G=true\n" "$G=false\n" '')" "$TESTTMP/discover-hi" "the first system directory overrides the later ones"
-assert_exit 1 "...and the user's file overrides them all" -- three "$G=true\n" '' "$G=false\n"
-assert_eq "$(three "$G=false\n" "$G[\$i]=true\n" "$G=false\n")" "$TESTTMP/discover-lo" \
-  "a lock in a later system directory holds against the earlier ones and the user"
-assert_exit 1 "...and a lock in the first one overrides the later ones and holds against the user" \
-  -- three "$G[\$i]=false\n" "$G=true\n" "$G=true\n"
-assert_eq "$(mkdir -p "$TESTTMP/xa" "$TESTTMP/xb"; printf "$G=true\n" > "$TESTTMP/xb/PlasmaDiscoverUpdates"
-  rm -f "$TESTTMP/discover-updates"
-  env -u KEMPT_DISCOVER_UPDATES_SYSCONF XDG_CONFIG_DIRS="$TESTTMP/xa:relative:$TESTTMP/xb/" \
-    bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT")" "$TESTTMP/xb/PlasmaDiscoverUpdates" \
-  "with no seam set, the system files come from XDG_CONFIG_DIRS"
-rm -f "$TESTTMP/discover-sys" "$TESTTMP/discover-hi" "$TESTTMP/discover-lo"
+assert_exit 1 "no file is not the setting" -- env KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-such-conf" bash -c 'source "$1/lib/common.sh"; discover_unattended' _ "$REPO_ROOT"
 "$KEMPT" config set surface "$saved_surface"
 export KEMPT_DISCOVER_UPDATES_CONF="$TESTTMP/no-discover-updates-conf"
 
