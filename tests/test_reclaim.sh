@@ -100,6 +100,10 @@ cat > "$STUBS/uninstall" <<'STUB'
 printf '%s\n' "$@" > "$STUBS/uninstall.args"
 [[ -f "$AFTER" ]] && cp "$AFTER" "$LISTING"
 [[ -n "${UNINSTALL_SAY:-}" ]] && printf '%s\n' "$UNINSTALL_SAY"
+if [[ -n "${UNINSTALL_WAIT:-}" ]]; then
+  : > "$STUBS/uninstall.started"
+  for _ in {1..300}; do [[ -e "$UNINSTALL_WAIT" ]] && break; sleep 0.1; done
+fi
 exit "${UNINSTALL_RC:-0}"
 STUB
 chmod +x "$STUBS"/*
@@ -210,6 +214,17 @@ reset; only > "$AFTER"
 rc=0; reclaim -y || rc=$?
 assert_eq "$rc|$(args)" "0|$(printf -- '--\n%s' "$ALL5")" "every ref on the list goes by name, after --"
 assert_exit 0 "...the update lock is free again" -- flock -n "$KEMPT_STATE_DIR/lock" true
+# Killed mid-removal, kempt leaves the update lock with the flatpak that inherited it: no update
+# starts until flatpak has finished.
+for sig in TERM HUP; do
+  reset; only > "$AFTER"; rm -f "$STUBS/uninstall.started" "$STUBS/go"
+  UNINSTALL_WAIT="$STUBS/go" "$KEMPT" reclaim -y </dev/null >/dev/null 2>&1 & p=$!
+  for _ in {1..100}; do [[ -e "$STUBS/uninstall.started" ]] && break; sleep 0.1; done
+  kill -"$sig" "$p"; wait "$p" 2>/dev/null || true
+  assert_exit 1 "after SIG$sig the update lock stays held while flatpak runs" -- flock -n "$KEMPT_STATE_DIR/lock" true
+  touch "$STUBS/go"
+  assert_exit 0 "...and is free once flatpak has ended" -- flock -w 30 "$KEMPT_STATE_DIR/lock" true
+done
 # Listing 1 is the one shown, listing 2 the one read just before the removal.
 reset
 only "$P24" "$KDE" > "$LISTING.1"; only "$KDE" "$GL" > "$LISTING.2"; only "$GL" > "$LISTING"
