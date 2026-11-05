@@ -257,9 +257,12 @@ keeps one stored transaction and staging would cancel the upgrade. The message n
 restart, `sudo dnf5 system-upgrade reboot`, `sudo dnf5 offline log`, or `sudo dnf5 offline clean`.
 Live updates still work, and the risky-transaction prompt offers only `[u]` and `[a]`.
 
-**When other users can change dnf's folders, the update stops,** with exit 5 and nothing changed,
-Flatpak included, before any password prompt. The message names the folder, and `kempt doctor` has
-the fix. With no system updates waiting, a live run still updates Flatpak.
+**When other users can change what is in dnf's folders, the update stops,** with exit 5 and nothing
+changed, Flatpak included, before any password prompt. The message names the folder, and `kempt
+doctor` has the fix. With no system updates waiting, a live run still updates Flatpak. This is the
+root helper's own test, read as you. Its answer is the one that counts: anything you cannot read, it
+checks as root. When your account cannot see the problem, root refuses later, so the run exits 1 and
+Flatpak still updates.
 
 **When another updater holds the next restart, `--surface=offline` stops too,** with exit 5 and
 nothing changed, Flatpak included, because a quiet fall to a live run
@@ -719,7 +722,10 @@ when off for you, and `info` when it starts with your session, naming
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
 
-The dnf rows fail when other users can change dnf's folders or one above them. Each gives the fix.
+The **dnf folders** row fails when other users can change what is in dnf's state, staged updates or
+cache, and gives the fix. It also fails, and says why, when the check itself cannot run. It is the root
+helper's test, read as you, and it says nothing when that test passes. Silence is no promise: the test
+covers only what your account can read, and it does not look at a writable parent, a write ACL or a link.
 
 | Line | What it means |
 | --- | --- |

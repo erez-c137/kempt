@@ -42,7 +42,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **`kempt log --raw` and the log's second set of words.** `events.log` now holds the sentences `kempt log` prints, so what you search is what you read. Lines from older versions print as stored. A script that searches the log for the old words, such as `run failed` or `check ok`, stops matching. A run's line drops where it ran, and the dnf history line drops the helper's exit code.
 - **`kempt enable-passwordless`, `kempt disable-passwordless` and the widget's Password prompts row.** The fixed rule replaces them. Upgrading from before 0.3.0 removes the rule an earlier version generated in `/etc/polkit-1/rules.d`, once, and an account outside `wheel` that had turned it on is asked again. A file there that an earlier version did not generate stays, on that upgrade and every later one.
-- **The root helpers' own checks of parent folders, ACL entries, FUSE mounts and the mount namespace, and their refusal on atomic Fedora.** `kempt update` and `kempt doctor` still make them before asking for anything. The helpers keep a short check that the folders dnf5 installs from belong to root.
+- **The root helpers' own checks of parent folders, ACL entries, FUSE mounts and the mount namespace, and their refusal on atomic Fedora.** The helpers keep a short check that the folders dnf5 installs from belong to root.
+- **The same parent, ACL and FUSE checks in `kempt update`, `kempt check`, `kempt status` and `kempt doctor`.** Kempt now has one rule for dnf's folders, the root helper's, so it never refuses an update over something root allows. A writable folder above dnf's, an ACL entry or a FUSE mount another user made no longer stops an update, and doctor no longer reports them. Doctor's five dnf rows are now one, **dnf folders**, shown only when it fails, which keeps the fixes for what Kempt 0.1.7 and earlier left behind. A root-owned link in dnf's state or staged folder no longer counts. The package no longer needs `acl`, and now requires `findutils`. A discard root refused no longer blames the folders, since root's discard never checks them.
 - **"dnf5 has been running for 15 minutes", and the plain sentence when a check meets another account's update.** A check that runs out behind another account's update now says the check failed. dnf5 waits for the running update, and the update is not harmed.
 - **A message per failed service, and the Startup Report's folding lists.** The main view has one message however many services failed, so muting one starts from **Startup Report**. The report's **Show All** and **Hide**, its counts and its separate lists are gone, since the report now shows the CLI's text.
 - **Startup time in the Startup Report and `kempt startup --all`.** `boot_time` is gone from `--json`, Kempt no longer runs `systemd-analyze`, and it no longer writes `boot-times.json`. An existing file there stays and nothing reads it, so you can delete it. `systemd-analyze` gives the same figures.
@@ -74,14 +75,12 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The no-dialog helper now refuses a package cache another user can change.** A check and a refresh both exit 3, as an update already did. `dnf-makecache.timer` is Fedora's and has no such check, so this narrows the hole and does not close it.
 - **A second check or refresh started while one runs now stops at once**, and each one ends after two minutes, so a loop of them cannot keep the package lists locked. A refresh does not block an update.
 - **[security.md](docs/security.md) now says what is true about SSH and a program with no session.** A program running as you with no session, started through `systemd-run --user` over SSH, counts as active and local if your account has a session at the computer and that session or another of yours, the SSH login included, is active. PackageKit has the same behaviour. It also adds `--exclude` to what such a program can do: it can leave chosen packages out of an update.
-- **Kempt now stops updating when another user could change dnf's folders or a folder above them.**
-  The root helper checks owners, write access, ACL entries and user FUSE mounts on the way to dnf's
-  state, staged packages and cache, and refuses to install, stage, set to install or discard while
-  any of them is unsafe. It also refuses when it cannot complete a check, on atomic Fedora, and in a
-  different mount namespace. Stock systems see no change, and `kempt doctor` gives the fix. A check
+- **Kempt now stops updating when another user could change what is in dnf's folders.**
+  The root helper checks owners and write access in dnf's state, staged packages and cache, and
+  refuses to install, stage or set to install while any of them is unsafe. It also refuses when it
+  cannot complete that check. Stock systems see no change, and `kempt doctor` gives the fix. A check
   finds the folder too, so `kempt status` and the widget say updates are paused before anyone presses
-  Update Now. A refused update reports the helper's own reason, and `kempt doctor` warns when these
-  folders sit on a network file system, where a server can refuse root.
+  Update Now. A refused update reports the helper's own reason.
 
 ### Fixed
 

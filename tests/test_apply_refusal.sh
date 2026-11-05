@@ -148,17 +148,16 @@ dnf-offline-clean) echo "kempt-apply: refusing dnf-offline-clean: the stored off
 stage_real
 reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-live-clean-refused" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-grep -q 'superseded the staged transaction. These updates were left in place. Run kempt doctor.' "$TESTTMP/err" \
+grep -q 'superseded the staged transaction, but it could not be discarded. See: kempt doctor' "$TESTTMP/err" \
   && echo "ok: ...and warns that it was left in place" || { echo "FAIL: no warning"; _fail=1; cat "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean"
 
 # --- the helper refuses because other users can change dnf5's folders ----------------------------
-# The helper refuses the upgrade, the stage and the arm then. The CLI reads the same rule as the
-# user, names the folder, and points at kempt doctor, which prints the fix. A world-writable folder
-# counts whoever runs the suite.
+# The helper refuses the upgrade, the stage and the arm then, and its sentence is what the run reports.
 # These folders turn unsafe after the run has started, the one case that still reaches the helper.
 UNSAFE="$TESTTMP/unsafe-state"
-unsafe_refusal() { printf 'mkdir -m 0777 "%s"; echo "kempt-apply: refusing %s: other users can change files in %s. Run kempt doctor for the fix." >&2; exit 3' "$UNSAFE" "$1" "$UNSAFE"; }
+UNSAFE_SAYS="Updates paused for safety: users other than root can change $UNSAFE. Run kempt doctor for the fix."
+unsafe_refusal() { printf 'mkdir -m 0777 "%s"; echo "kempt-apply: %s" >&2; exit 3' "$UNSAFE" "$UNSAFE_SAYS"; }
 apply_stub stage-unsafe "dnf-offline-stage) $(unsafe_refusal dnf-offline-stage) ;;"
 stored offline-ready.toml; reset_run
 rc=0
@@ -166,30 +165,31 @@ KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-stage-unsafe
 assert_eq "$rc" "1" "a stage refused over an unsafe dnf folder fails the run"
 assert_eq "$(calls dnf-offline-arm)" "0" "...arms nothing"
 assert_eq "$(calls dnf-offline-clean)" "0" "...and cleans nothing"
-assert_eq "$(last_error)" "nothing was prepared, because other users can change files in $UNSAFE. See: kempt doctor" \
-  "...and the reason names the folder and the doctor"
+assert_eq "$(last_error)" "nothing was prepared. $UNSAFE_SAYS" \
+  "...and the reason is the helper's sentence"
 
 apply_stub arm-unsafe "dnf-offline-arm) $(unsafe_refusal dnf-offline-arm) ;;"
 stored offline-ready.toml; reset_run; rm -rf "$UNSAFE"
 KEMPT_DNF_OFFLINE_PKG_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-unsafe" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_eq "$(calls dnf-offline-clean)" "0" "an arm refused over an unsafe dnf folder is not unwound"
-assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart, because other users can change files in $UNSAFE. See: kempt doctor" \
-  "...and the reason names the staged-package folder"
+assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart. $UNSAFE_SAYS" \
+  "...and the reason is the helper's sentence"
 
 apply_stub live-unsafe "dnf-upgrade) $(unsafe_refusal dnf-upgrade) ;;"
 stored offline-ready.toml; reset_run; rm -rf "$UNSAFE"
 rc=0
 KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-live-unsafe" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "1" "a live update refused over an unsafe dnf folder fails the run"
-assert_eq "$(last_error)" "nothing was installed, because other users can change files in $UNSAFE. See: kempt doctor" \
-  "...and the reason names the folder and the doctor"
+assert_eq "$(last_error)" "nothing was installed. $UNSAFE_SAYS" \
+  "...and the reason is the helper's sentence"
 grep -q "The update was refused by Kempt's system helper" "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log records the refusal" || { echo "FAIL: no live refusal event"; _fail=1; }
-grep -q 'See: kempt doctor' "$WORLD/notifications" \
+grep -q 'Run kempt doctor' "$WORLD/notifications" \
   && echo "ok: ...and the notification points at the doctor" || { echo "FAIL: notification"; _fail=1; cat "$WORLD/notifications"; }
-# Where the CLI cannot see the folder the helper saw, the reason still says what kind of problem it is.
+# A refusal with no sentence of the helper's still says what kind of problem it is.
+apply_stub live-silent 'dnf-upgrade) exit 3 ;;'
 reset_run
-KEMPT_APPLY_HELPER="$TESTTMP/apply-live-unsafe" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
+KEMPT_APPLY_HELPER="$TESTTMP/apply-live-silent" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_eq "$(last_error)" "nothing was installed, because other users can change files in dnf's folders. See: kempt doctor" \
   "...and without a folder to name, it says dnf's folders"
 rm -rf "$UNSAFE"
@@ -221,25 +221,15 @@ printf '#!/usr/bin/env bash\nexit 1\n' > "$TESTTMP/refresh-broken"; chmod +x "$T
 reset_run; rc=0
 KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-broken" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?
 assert_eq "$rc" "5" "a check that cannot answer refuses too"
-# A user's mount gets the words the helper and doctor use for it.
-_mi="$TESTTMP/mountinfo-users"
-{ cat "$KEMPT_MOUNTINFO"; printf '90 1 0:50 / %s rw - fuse.sshfs u@h:/d rw,user_id=1000,group_id=1000\n' "$UNSAFE"; } > "$_mi"
-reset_run; rc=0
-KEMPT_MOUNTINFO="$_mi" KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?
-assert_eq "$rc" "5" "over a user's mount: exit 5"
-assert_contains "$(cat "$TESTTMP/err")" "nothing was changed, because $UNSAFE is on a mount made by a user other than root. See: kempt doctor" "...in the helper's words"
 rm -rf "$UNSAFE"
 
 # --- the helper's own sentence, because only it knows ------------------------------------------------
-# A user's reading cannot see what root was denied, or tell a namespace from a folder, and what is
-# stored may be a second problem the helper never reached. So its last line is what the run reports.
+# A user's reading cannot see what root was denied, and what is stored may be a second problem the helper never reached. So its last line is what the run reports.
 S_CHECK="Kempt could not check /var/lib/secret (Permission denied). Run kempt doctor."
-S_NS="Updates paused for safety: Kempt is running in a different mount namespace from the system, so what it checks is not what dnf5 would use. Run kempt doctor."
-S_FUSE="Updates paused for safety: /var is on a mount made by a user other than root. Run kempt doctor for the fix."
-S_UNSAFE="Updates paused for safety: users other than root can change files in /var/cache/libdnf5. Run kempt doctor for the fix."
+S_UNSAFE="Updates paused for safety: users other than root can change /var/cache/libdnf5. Run kempt doctor for the fix."
 says() { printf 'echo "kempt-apply: %s" >&2; exit 3' "$1"; }
 i=0
-for sentence in "$S_CHECK" "$S_NS" "$S_FUSE" "$S_UNSAFE"; do
+for sentence in "$S_CHECK" "$S_UNSAFE"; do
   i=$(( i + 1 ))
   apply_stub "w-stage-$i" "dnf-offline-stage) $(says "$sentence") ;;"
   stored offline-ready.toml; reset_run
@@ -255,15 +245,26 @@ for sentence in "$S_CHECK" "$S_NS" "$S_FUSE" "$S_UNSAFE"; do
   KEMPT_APPLY_HELPER="$TESTTMP/apply-w-live-$i" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
   assert_eq "$(last_error)" "nothing was installed. $sentence" "...and a refused live update"
 done
+# A problem this account cannot see gets past the CLI to root. That refusal is exit 1, and Flatpak still updates.
+printf '#!/usr/bin/env bash\ntouch "%s/flatpak-ran"\n' "$WORLD" > "$TESTTMP/flatpak-update-log"; chmod +x "$TESTTMP/flatpak-update-log"
+apply_stub w-seen-live "dnf-upgrade) $(says "$S_UNSAFE") ;;"
+apply_stub w-seen-stage "dnf-offline-stage) $(says "$S_UNSAFE") ;;"
+for _sf in widget offline; do
+  rm -f "$WORLD/flatpak-ran"; stored offline-ready.toml; reset_run
+  rc=0; _stub="$TESTTMP/apply-w-seen-live"; [[ "$_sf" == offline ]] && _stub="$TESTTMP/apply-w-seen-stage"
+  KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/flatpak-update-log" KEMPT_APPLY_HELPER="$_stub" "$KEMPT" update --surface=$_sf >/dev/null 2>&1 </dev/null || rc=$?
+  assert_eq "$rc" "1" "root's refusal of a $_sf run the CLI could not foresee is exit 1"
+  assert_eq "$([[ -e "$WORLD/flatpak-ran" ]] && echo yes)" "yes" "...and Flatpak still updates"
+done
 # Folders caused it, and a release upgrade is stored as well: the helper's word stands.
 apply_stub w-stage-relup "dnf-offline-stage) cp '$RELUP' '$TOML'; $(says "$S_CHECK") ;;"
 stored offline-ready.toml; reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stage-relup" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
 assert_eq "$(last_error)" "nothing was prepared. $S_CHECK" "a stored release upgrade is not blamed when the helper named the folders"
-apply_stub w-arm-relup "dnf-offline-arm) cp '$RELUP' '$TOML'; $(says "$S_FUSE") ;;"
+apply_stub w-arm-relup "dnf-offline-arm) cp '$RELUP' '$TOML'; $(says "$S_UNSAFE") ;;"
 stored offline-ready.toml; reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-w-arm-relup" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
-assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart. $S_FUSE" "...nor at the arm"
+assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart. $S_UNSAFE" "...nor at the arm"
 # And when the helper did refuse over what is stored, the CLI's reason still says so.
 apply_stub w-stage-stored 'dnf-offline-stage) cp "'"$RELUP"'" "'"$TOML"'"; echo "kempt-apply: refusing dnf-offline-stage: a Fedora release upgrade (44 -> 45) is stored" >&2; exit 3 ;;'
 stored offline-ready.toml; reset_run
@@ -274,21 +275,6 @@ apply_stub w-stale "dnf-upgrade) echo 'kempt-apply: $S_CHECK' >&2; echo 'somethi
 stored offline-ready.toml; reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stale" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
 assert_not_contains "$(last_error)" "could not check" "a sentence that is not the helper's last line is not its reason"
-# A clean refused over the folders, with a release upgrade stored by then.
-stage_real
-apply_stub w-clean "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) $(says "$S_CHECK") ;;"
-reset_run
-KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-assert_contains "$(cat "$TESTTMP/err")" "this update superseded the staged transaction. These updates were left in place. $S_CHECK" \
-  "a clean refused over the folders says the helper's sentence"
-no_clean_advice "...and does not advise a clean"
-# ...with a stored record it cannot read by then: the helper's word still stands.
-stage_real
-apply_stub w-clean-unread "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) sed -i '/releasever/d' '$TOML'; $(says "$S_CHECK") ;;"
-reset_run
-KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean-unread" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-assert_contains "$(cat "$TESTTMP/err")" "These updates were left in place. $S_CHECK" "an unreadable record is not blamed when the helper named the folders"
-assert_not_contains "$(cat "$TESTTMP/err")" "could not be read" "...and is not mentioned"
 
 # dnf_status starts unknown and every path names it. A run that reached history says ok or failed.
 assert_eq "$(cat "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | jq -r 'select(.dnf != null) | .dnf.status' | grep -vxE 'ok|failed' | sort -u)" "" \

@@ -122,8 +122,8 @@ apply_stub clean-refused 'dnf-offline-clean) echo "kempt-apply: refusing dnf-off
 reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-refused" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "5" "a refusal from the root helper is a refusal here too, not a failed run"
-grep -q 'These updates were left in place. Run kempt doctor.' "$TESTTMP/err" \
-  && echo "ok: ...and with nothing odd stored, it points at the doctor, which explains the folders" \
+grep -q "Nothing was discarded, because Kempt's system helper refused. See: kempt doctor" "$TESTTMP/err" \
+  && echo "ok: ...and with nothing odd stored by then, it blames no folder and points at the doctor" \
   || { echo "FAIL: the refusal does not point at the doctor"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean either"
 # With a stored record whose releases the CLI cannot read either, the reason is the one that says so.
@@ -133,15 +133,6 @@ reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-refused" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "5" "a refusal over an unreadable stored file is a refusal too"
 assert_contains "$(cat "$TESTTMP/err")" "the stored offline transaction could not be read" "...and the reason says the file could not be read"
-
-# Over the folders, in the helper's sentence, and a stored release upgrade by then is not blamed.
-S_CHECK="Kempt could not check /var/lib/secret (Permission denied). Run kempt doctor."
-stage_real
-apply_stub clean-check 'dnf-offline-clean) cp "'"$FIXTURES/offline-release-upgrade.toml"'" "'"$TOML"'"; echo "kempt-apply: '"$S_CHECK"'" >&2; exit 3 ;;'
-reset_run
-rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-check" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
-assert_eq "$rc" "5" "a clean refused over the folders is a refusal"
-assert_eq "$(cat "$TESTTMP/err")" "These updates were left in place. $S_CHECK" "...in the helper's sentence, once, with nothing about what is stored"
 
 # Any other failure keeps what the helper said.
 stage_real

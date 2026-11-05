@@ -653,7 +653,7 @@ cmd_check() {
     state_merge --arg r "$REFRESH_SKIPPED" '. + {refresh_skipped: $r}'
   fi
   # The folder that has the root helper refusing updates, or absent: `kempt status` and the widget
-  # say so now, instead of a list of updates that cannot install. One read of the same rules doctor uses.
+  # say so now, instead of a list of updates that cannot install. The same find doctor and the helper use.
   local unsafe_folder
   if [[ "$image_based" == null ]] && unsafe_folder="$(apply_unsafe_dir 2>/dev/null)"; then
     state_merge --arg d "$unsafe_folder" '. + {unsafe_folder: $d}'
@@ -875,25 +875,18 @@ refuse_run_behind_other_updater() {
   local rc=0
   run_pending_count || rc=$?
   [[ $rc -eq 0 && "$REPLY" == 0 ]] && return 0
-  # The root helper would refuse the terminal run named below, so that is not the way out here.
-  local unsafe_dir
-  if unsafe_dir="$(apply_unsafe_dir)"; then
-    preflight_abort "another updater has prepared the next restart, and $(apply_unsafe_words "$unsafe_dir"), so nothing was changed. See: kempt doctor"
-  fi
   if [[ "$wanted_stage" != true ]]; then
     preflight_abort "another updater has prepared the next restart, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now by typing this in a terminal: kempt update --surface=widget"
   fi
   preflight_abort "another updater has prepared the next restart, so nothing was prepared or changed. Restart when you are ready, or update now by typing this in a terminal: kempt update --surface=widget"
 }
 
-# The sentence for a step the root helper refused: what the helper said about a folder, else the
-# folder this user can see for themselves, else what the caller knows.
+# The sentence for a step the root helper refused: what the helper said about a folder, else what
+# the caller knows.
 refusal_words() {  # log what fallback-reason → sentence
-  local why dir
+  local why
   if why="$(log_folder_refusal "$1")"; then
     printf '%s. %s\n' "$2" "$why"
-  elif dir="$(apply_unsafe_dir)"; then
-    printf '%s, because %s. See: kempt doctor\n' "$2" "$(apply_unsafe_words "$dir")"
   else
     printf '%s, because %s. See: kempt doctor\n' "$2" "$3"
   fi
@@ -904,11 +897,11 @@ log_nothing_to_stage() {  # held dnf names, or nothing
   else log_event "Nothing to stage"; fi
 }
 
-# The root helper refuses dnf's verbs while these folders are unsafe, and asking it first means a
-# password prompt for a refusal this user's own reading of the same rules already knows about. So the
-# run stops here, changing nothing, Flatpak included, as the gate above does. With no system updates
-# waiting a live run goes on for Flatpak's sake and leaves the helper out; a stage has nothing else to
-# do. A reading that finds nothing proves little, since root sees more: the helper still decides.
+# The root helper refuses to install or stage while these folders are unsafe, and asking it first
+# means a password prompt for a refusal this user's reading of the same find already knows about. So
+# the run stops here, changing nothing, Flatpak included, as the gate above does. With no system
+# updates waiting a live run goes on for Flatpak's sake and leaves the helper out; a stage has nothing
+# else to do. A reading that finds nothing proves little, since root sees more: the helper still decides.
 # Reads: surface. Sets: dnf_apply_skipped. Exits 3 or 5, or returns.
 refuse_run_over_unsafe_folders() {
   local unsafe_dir
@@ -1184,8 +1177,6 @@ reconcile_stage_after_live_run() {
   apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
   if [[ $clean_rc -eq 0 ]]; then
     log_event "Staged update dropped (a live update replaced it)"
-  elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]] && clean_refused_over_folders "$log"; then
-    log_warn "$log" "warning: this update superseded the staged transaction. $(clean_left_words "$log")"
   else
     log_warn "$log" "warning: this update superseded the staged transaction, but it could not be discarded. See: kempt doctor"
   fi
@@ -1280,9 +1271,11 @@ cmd_update() {
   fi
   local wanted_stage=false
   [[ "$surface" == offline ]] && wanted_stage=true
-  refuse_run_behind_other_updater
   local dnf_apply_skipped=false
+  # In this order: the refusal over the other updater offers a terminal run, which root would refuse
+  # over the folders.
   refuse_run_over_unsafe_folders
+  refuse_run_behind_other_updater
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
   trap release_lock EXIT
 
@@ -1434,11 +1427,7 @@ cmd_update() {
           log_event "Staged update discarded (the stored one would have installed what is now held)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
-          if clean_refused_over_folders "$log"; then
-            reason_override="nothing new was prepared. $(clean_left_words "$log")"
-          else
-            reason_override="nothing new was prepared, and the earlier updates were left in place because $(apply_refusal_reason). See: kempt doctor"
-          fi
+          reason_override="nothing new was prepared, and the earlier updates were left in place because $(apply_refusal_reason). See: kempt doctor"
         else
           dnf_status="failed"; status="failed"
           reason_override="nothing new was prepared, and the earlier updates could not be removed, so they still install on the next restart, held packages included. See: kempt doctor"
@@ -1467,13 +1456,8 @@ cmd_update() {
         fi
         if [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Never "run: sudo dnf5 offline clean" here: that is the command the refusal protects against.
-          if clean_refused_over_folders "$log"; then
-            notify_tail=". $(clean_left_words "$log")"
-            log_warn "$log" "warning: the updates could not be set to install$notify_tail"
-          else
-            log_warn "$log" "warning: the staged update that could not be set to install was left in place because $(apply_refusal_reason). See: kempt doctor"
-            notify_tail=". The stored transaction was left in place. See: kempt doctor"
-          fi
+          log_warn "$log" "warning: the staged update that could not be set to install was left in place because $(apply_refusal_reason). See: kempt doctor"
+          notify_tail=". The stored transaction was left in place. See: kempt doctor"
         elif [[ $clean_rc -ne 0 ]]; then
           log_warn "$log" "warning: could not discard the staged update that could not be set to install. See: kempt doctor"
           # Escalated past stderr because this is state (d): the toml and the boot symlink
@@ -1521,11 +1505,7 @@ cmd_update() {
           reason_override="the earlier updates were removed and could not be prepared again"
           log_event "Staged update discarded (rebuild failed)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
-          if clean_refused_over_folders "$log"; then
-            reason_override="could not replace the prepared updates. $(clean_left_words "$log")"
-          else
-            reason_override="could not replace the prepared updates, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
-          fi
+          reason_override="could not replace the prepared updates, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
         else
           reason_override="the earlier updates were removed and could not be prepared again or cleaned up. See: kempt doctor"
         fi
@@ -2596,20 +2576,11 @@ cmd_unstage() {
   fi
   # NOT through apply_with_retry: that tees into a run log this command does not have, and this is
   # one short verb rather than a transaction. A package lock held by something else fails plainly.
-  local rc=0 err="" refused_why=""
+  local rc=0 err=""
   { err="$(priv_apply dnf-offline-clean 2>&1 >&3)" || rc=$?; } 3>&1
-  if [[ $rc -eq $KEMPT_APPLY_REFUSED ]] && refused_why="$(helper_folder_refusal "$err")"; then
-    err=""
-  fi
   [[ -z "$err" ]] || printf '%s\n' "$err" >&2
   if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
-    if [[ -n "$refused_why" ]]; then
-      echo "These updates were left in place. $refused_why" >&2
-    elif clean_refused_over_folders; then
-      echo "$KEMPT_CLEAN_LEFT" >&2
-    else
-      echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
-    fi
+    echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
     log_event "Discard was refused by Kempt's system helper"
     exit 5
   fi
@@ -3394,21 +3365,20 @@ doctor_last_check_row() {
   return 0
 }
 
-# Releases up to 0.1.7 ran dnf5 as root with the caller's umask, so a caller at umask 000 left
-# world-writable files in dnf5's cache and state, which any user could then alter. An entry counts
-# when root does not own it, since its owner can change it whatever its mode, or when it is
-# world-writable and not a link. Group-writable counts only with a group other than root: root's
-# files belong to group root, and a common Fedora umask of 002 sets that bit harmlessly. find -P
-# never follows a link, so a link planted there cannot point the search elsewhere. Reported, never
-# repaired, because the fix needs root.
+# Root's rule for dnf5's three folders. The test is the find in kempt-apply's check_folders with its
+# owner and group at 0, and tests/test_doctor_folders.sh runs both on the same trees, so there is one
+# rule set. An entry counts when root does not own it, since its owner can change it whatever its
+# mode, or when it is world-writable and not a link. Group-writable counts only with a group other
+# than root: root's files belong to group root, and a common Fedora umask of 002 sets that bit
+# harmlessly. find -P never follows a link, so a link planted there cannot point the search elsewhere.
+# Run as the user this sees less than root and nothing root would not, so what it finds root refuses
+# over too, and what it does not find proves little: the helper still decides.
 # A check that fails is an answer of its own, except a name that vanished: dnf-makecache rewrites
 # the cache while this runs. Run as a user, "Permission denied" is not one either. dnf5's temporary
 # folders are root-only on a stock system, and root reads them when the helper checks. The words
 # are read in the C locale, and bfs's come out in the same last field.
-KEMPT_FOLDERS_HOLD="Until this is fixed, Kempt will not install, stage or discard updates."
-KEMPT_CONTENTS_HOLD="Until this is fixed, Kempt will not install or stage updates."
 DOCTOR_CHECK_ERROR=""
-doctor_first_check_error() {  # find or getfacl's output → DOCTOR_CHECK_ERROR, or ""
+doctor_first_check_error() {  # find's output → DOCTOR_CHECK_ERROR, or ""
   local line
   DOCTOR_CHECK_ERROR=""
   while IFS= read -r line; do
@@ -3422,33 +3392,15 @@ doctor_first_check_error() {  # find or getfacl's output → DOCTOR_CHECK_ERROR,
   done <<<"$1"
 }
 DOCTOR_TREE_HIT=""
-doctor_scan_tree() {  # dir [links] → DOCTOR_TREE_HIT, the first entry another user could change, or
-                      # ""; rc 1 with DOCTOR_CHECK_ERROR set when the check itself failed
-  # A root-owned link at the folder itself is followed, as the root helper does: the walk has checked it.
-  local d="$1" out rc=0 line
-  [[ -L "$d" ]] && d="$(realpath -m -- "$d")"
-  # With "links", any link counts too. dnf5 keeps none in its state, so a link there was planted, and
-  # chown -h would only make it root's: root's dnf5 would go on reading and writing through it.
-  local -a link=(-false); [[ "${2:-}" == links ]] && link=(-type l)
+doctor_scan_tree() {  # dir → DOCTOR_TREE_HIT, the first entry another user could change, or ""; rc 1
+                      # with DOCTOR_CHECK_ERROR set when the check itself failed
+  local out rc=0 line
   DOCTOR_TREE_HIT=""
-  out="$(LC_ALL=C "$KEMPT_FIND" -P "$d" -ignore_readdir_race \( ! -user root -o "${link[@]}" -o \( ! -type l \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) \
-    -printf 'HIT %p\n' -quit 2>&1)" || rc=$?
-  if [[ "$out" == *"HIT "* ]]; then
-    while IFS= read -r line; do
-      if [[ "$line" == "HIT "* ]]; then DOCTOR_TREE_HIT="${line#HIT }"; return 0; fi
-    done <<<"$out"
-  fi
-  if (( rc )); then
-    doctor_first_check_error "$out"
-    if (( rc != 1 )) || [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then DOCTOR_CHECK_ERROR="${DOCTOR_CHECK_ERROR:-the check failed}"; return 1; fi
-  fi
-  # An ACL entry gives access the mode bits do not show, and a default one passes it to every file
-  # root writes there later. getfacl -s lists only entries with more than the mode; -P stays off links.
-  command -v "$KEMPT_GETFACL" >/dev/null 2>&1 || return 0   # the package requires it
-  rc=0
-  out="$(LC_ALL=C "$KEMPT_GETFACL" -R -P -s -p -- "$d" 2>&1)" || rc=$?
+  [[ -e "$1" ]] || return 0
+  out="$(LC_ALL=C "$KEMPT_FIND" -P "$1" -ignore_readdir_race \( ! -uid 0 -o \( ! -type l \( -perm -0002 -o \
+    \( -perm -0020 ! -gid 0 \) \) \) \) -printf 'HIT %p\n' -quit 2>&1)" || rc=$?
   while IFS= read -r line; do
-    if [[ "$line" == "# file: "* ]]; then DOCTOR_TREE_HIT="${line#\# file: }"; return 0; fi
+    if [[ "$line" == "HIT "* ]]; then DOCTOR_TREE_HIT="${line#HIT }"; return 0; fi
   done <<<"$out"
   if (( rc )); then
     doctor_first_check_error "$out"
@@ -3456,62 +3408,31 @@ doctor_scan_tree() {  # dir [links] → DOCTOR_TREE_HIT, the first entry another
   fi
   return 0
 }
-# Kempt refuses to start while other users can change a dnf folder or one above it. The root helper
-# has a shorter check of its own, on the folders only, so this is the list a refusal can name a folder
-# and a fix from.
+# The folder the helper would refuse over, for a refusal before any password prompt and for what check
+# and status say. A check that fails here is no answer, so that is the helper's to decide.
 apply_unsafe_dir() {  # → the first such folder; rc 1 when there is none
   local d
-  doctor_dnf_parents_scan
-  if (( ${#DOCTOR_PARENT_SHOWN[@]} )); then printf '%s\n' "${DOCTOR_PARENT_SHOWN[0]}"; return 0; fi
-  if (( ${#DOCTOR_PARENT_FUSE[@]} )); then printf '%s\n' "${DOCTOR_PARENT_FUSE[0]%%$'\t'*}"; return 0; fi
-  for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR"; do
-    doctor_scan_tree "$d" links || continue
+  for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR" "$KEMPT_DNF_CACHE_DIR"; do
+    doctor_scan_tree "$d" || continue
     [[ -n "$DOCTOR_TREE_HIT" ]] && { doctor_plain_name "$d"; echo; return 0; }
   done
-  doctor_scan_tree "$KEMPT_DNF_CACHE_DIR" || return 1
-  [[ -n "$DOCTOR_TREE_HIT" ]] && { doctor_plain_name "$KEMPT_DNF_CACHE_DIR"; echo; return 0; }
   return 1
 }
-# Why that folder is unsafe, in the words the root helper and doctor use for it.
 apply_unsafe_words() {  # folder → the end of a sentence
-  local shown
-  shown="$(doctor_plain_name "$1")"
-  if doctor_on_users_mount "$1"; then
-    printf '%s is on a mount made by a user other than root' "$shown"
-  else
-    printf 'other users can change files in %s' "$shown"
-  fi
-}
-# A clean the helper refused. Over a folder problem, the unwind's words are these. Over what is
-# stored, the caller keeps its own sentence with the reason in it.
-clean_refused_over_folders() {  # run log or "" → 0 when the folders are why
-  local relup
-  [[ -n "${1:-}" ]] && log_folder_refusal "$1" >/dev/null && return 0
-  relup="$(offline_release_upgrade)" && return 1
-  [[ -e "$KEMPT_OFFLINE_LINK" || -L "$KEMPT_OFFLINE_LINK" ]] && [[ "$(offline_link_state)" != dnf5 ]] && return 1
-  [[ -e "$KEMPT_OFFLINE_TOML" || -L "$KEMPT_OFFLINE_TOML" ]] && ! offline_stored_is_readable && return 1
-  return 0
-}
-KEMPT_CLEAN_LEFT="These updates were left in place. Run kempt doctor."
-clean_left_words() {  # run log → KEMPT_CLEAN_LEFT, in the helper's words when it gave a folder reason
-  local why
-  if why="$(log_folder_refusal "$1")"; then printf 'These updates were left in place. %s\n' "$why"
-  else printf '%s\n' "$KEMPT_CLEAN_LEFT"; fi
+  printf 'other users can change files in %s' "$(doctor_plain_name "$1")"
 }
 # The helper's own sentence for a refusal over the folders. It alone knows
 # which: a user's reading cannot see what root was denied, and what is stored may be a second problem
 # the helper never reached. Its line is the last thing it prints.
-helper_folder_refusal() {  # the helper's output → the sentence; rc 1 when the last line is about something else
-  local line="${1##*$'\n'}"
+log_folder_refusal() {  # run log → the sentence; rc 1 when the last line is about something else
+  [[ -f "$1" ]] || return 1
+  local line
+  line="$(tail -n 1 -- "$1")"
   case "$line" in
     "kempt-apply: Updates paused for safety: "*|"kempt-apply: Kempt could not check "*)
       doctor_plain_name "${line#kempt-apply: }"; echo ;;
     *) return 1 ;;
   esac
-}
-log_folder_refusal() {  # run log → the sentence, as above
-  [[ -f "$1" ]] || return 1
-  helper_folder_refusal "$(tail -n 1 -- "$1")"
 }
 # Every byte outside printable ASCII becomes ?: control characters, C1 bytes and Unicode bidi
 # controls alike, so a planted name cannot move the cursor or reorder the line. Root's dnf5 paths
@@ -3520,329 +3441,72 @@ doctor_plain_name() {  # text → the text, safe to print
   local LC_ALL=C
   printf '%s' "${1//[^ -~]/?}"
 }
-doctor_could_not_check() {  # label path hold → a FAIL naming the path and the error
-  local shown; shown="$(doctor_plain_name "$2")"
-  doctor_fail "$1: Kempt could not check $shown ($DOCTOR_CHECK_ERROR). $3"
+doctor_dnf_cache_fix() {
+  local dir_q fix
+  printf -v dir_q '%q' "$KEMPT_DNF_CACHE_DIR"
+  # Not dnf5 clean all: it follows links planted at <repo>/packages or <repo>/repodata and deletes
+  # what they point at, outside the cache. The cache moves into a fresh root-only directory on the
+  # same file system, so another user cannot reach it mid-delete, and rm stays on that file system.
+  # --no-copy makes mv fail rather than fall back to a copy.
+  fix="t=\$(sudo mktemp -d $dir_q-unsafe.XXXXXX) && sudo mv -T --no-copy $dir_q \"\$t/old\""
+  fix+=" && sudo mkdir -m 0755 $dir_q && sudo restorecon $dir_q && sudo rm -rf --one-file-system \"\$t\""
+  # A staged update is unaffected: dnf5 keeps its packages in /var/lib/dnf/offline/packages and
+  # records their full paths, so it still installs from an empty cache. Another user still writing
+  # into the old cache can make the last rm fail with "Directory not empty", which leaves a root-only
+  # <dir>-unsafe.XXXXXX behind; the glob reaches it again.
+  printf '%s' "Do not use dnf5 clean all on it, because it can delete files outside the cache. Replace the cache with: $fix. If the last step says the directory is not empty, run this again later: sudo rm -rf --one-file-system $dir_q-unsafe.*."
 }
-doctor_dnf_cache_row() {
-  local hit dir_q fix
-  # One more try, as in the root helper: dnf-makecache may be rewriting it.
-  doctor_scan_tree "$KEMPT_DNF_CACHE_DIR" || doctor_scan_tree "$KEMPT_DNF_CACHE_DIR" \
-    || doctor_could_not_check "dnf cache" "$KEMPT_DNF_CACHE_DIR" "$KEMPT_CONTENTS_HOLD"
-  hit="$DOCTOR_TREE_HIT"
-  if [[ -n "$hit" ]]; then
-    local old_note=" Kempt 0.1.7 or earlier may have left them that way."
-    doctor_on_users_mount "$hit" && old_note=""
-    hit="$(doctor_plain_name "$hit")"   # another user picks the name, so it never reaches the terminal raw
-    printf -v dir_q '%q' "$KEMPT_DNF_CACHE_DIR"
-    # Not dnf5 clean all: it follows links planted at <repo>/packages or <repo>/repodata and deletes
-    # what they point at, outside the cache. The cache moves into a fresh root-only directory on the
-    # same file system, so another user cannot reach it mid-delete, and rm stays on that file system.
-    # --no-copy makes mv fail rather than fall back to a copy.
-    fix="t=\$(sudo mktemp -d $dir_q-unsafe.XXXXXX) && sudo mv -T --no-copy $dir_q \"\$t/old\""
-    fix+=" && sudo mkdir -m 0755 $dir_q && sudo restorecon $dir_q && sudo rm -rf --one-file-system \"\$t\""
-    # A staged update is unaffected: dnf5 keeps its packages in /var/lib/dnf/offline/packages and
-    # records their full paths, so it still installs from an empty cache.
-    fix="Replace the cache with: $fix"
-    # Another user still writing into the old cache can make the last rm fail with "Directory not
-    # empty", which leaves a root-only <dir>-unsafe.XXXXXX behind; the glob reaches it again.
-    fix+=". If the last step says the directory is not empty, run this again later: sudo rm -rf --one-file-system $dir_q-unsafe.*"
-    # A FAIL: a live upgrade installs from here, and after dnf5's signature check rpm checks only the digest.
-    doctor_fail "dnf cache: other users can change files in $KEMPT_DNF_CACHE_DIR (for example $hit).$old_note Do not use dnf5 clean all on it, because it can delete files outside the cache. $fix. $KEMPT_CONTENTS_HOLD"
-  fi
-  doctor_scan_tree "$KEMPT_DNF_SYSIMAGE_DIR" links \
-    || doctor_could_not_check "dnf state" "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_CONTENTS_HOLD"
-  hit="$DOCTOR_TREE_HIT"
-  if [[ -n "$hit" ]]; then
-    local old_note=" Kempt 0.1.7 or earlier may have left them that way."
-    doctor_on_users_mount "$hit" && old_note=""
-    hit="$(doctor_plain_name "$hit")"
-    printf -v dir_q '%q' "$KEMPT_DNF_SYSIMAGE_DIR"
-    # The directories first, and only them: once each is root's, with no ACL entry and no group or
-    # world write, nobody else can add, rename or remove a name anywhere in the tree. They are locked
-    # one at a time from the top, each from inside its parent (-execdir with \;, which runs before
-    # find reads that directory), so every path root acts on sits in a folder already locked: a
-    # batched -exec + would act on full paths later, while another user could still swap a listed
-    # folder for a link and have chmod, which always follows links, change its target. Then the hard
-    # links go. A file with more than one name may be another user's file linked in from outside,
-    # and chown -R or chmod -R would change that file itself, since a hard link is the same file.
-    # Deleting the name here leaves the file outside as it was. dnf5 keeps no file with a second
-    # name in its state, so nothing of dnf5's is lost. Doing this before the directories are
-    # locked would let another user link a file in again behind the delete.
-    # Then chown before chmod: chmod alone leaves another user's files theirs, and chmod before
-    # chown leaves a moment where that owner can still open them for writing, or chmod them back.
-    # -h changes a link, not its target. Links go last, once nobody else can add one; find -P
-    # -delete removes a link, never its target. Nothing here revokes a file another user already
-    # holds open for writing, hence the restart. setfacl -b drops every ACL entry, default ones
-    # included, which chmod leaves in place.
-    local acl="" dir_acl=""
-    if command -v setfacl >/dev/null 2>&1; then
-      acl=" && sudo setfacl -R -P -b $dir_q"; dir_acl=" -execdir setfacl -b {} \\;"
-    fi
-    local lock_dirs="sudo find -P $dir_q -type d -execdir chown -h root:root {} \\;$dir_acl -execdir chmod go-w {} \\;"
-    local drop_hard="sudo find -P $dir_q ! -type d -links +1 -print -delete"
-    # A FAIL: dnf5 keeps a staged update's record here, and a changed record installs as root. The
-    # lock-down keeps the record, so the fix discards it last, once nobody else can change it again;
-    # dnf5 offline clean exits 0 when nothing is staged, so the chain goes on either way.
-    doctor_fail "dnf state: other users can change files in $KEMPT_DNF_SYSIMAGE_DIR (for example $hit).$old_note Fix it with: $lock_dirs && $drop_hard && sudo chown -R -h root:root $dir_q$acl && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there. $KEMPT_CONTENTS_HOLD"
-  fi
-  doctor_scan_tree "$KEMPT_DNF_OFFLINE_PKG_DIR" links \
-    || doctor_could_not_check "dnf staged updates" "$KEMPT_DNF_OFFLINE_PKG_DIR" "$KEMPT_CONTENTS_HOLD"
-  hit="$DOCTOR_TREE_HIT"
-  if [[ -n "$hit" ]]; then
-    local old_note="Kempt 0.1.7 or earlier may have left them that way, and a changed package"
-    doctor_on_users_mount "$hit" && old_note="A changed package"
-    hit="$(doctor_plain_name "$hit")"
-    printf -v dir_q '%q' "$KEMPT_DNF_OFFLINE_PKG_DIR"
-    # The restart installs these packages as root without checking their signatures again, so a
-    # swapped one runs its scripts as root. Their contents cannot be trusted, so the fix discards
-    # the stage and the directory; dnf5 makes a new one at the next stage. dnf5 offline clean does
-    # not follow links (checked on dnf5 5.4.6), and rm -rf never does.
-    doctor_fail "dnf staged updates: other users can change files in $KEMPT_DNF_OFFLINE_PKG_DIR (for example $hit). $old_note there installs as root at the next restart. Before you restart, discard the staged update and remove the folder: sudo dnf5 offline clean && sudo rm -rf --one-file-system $dir_q. Then stage the updates again. $KEMPT_CONTENTS_HOLD"
-  fi
+doctor_dnf_state_fix() {
+  local dir_q lock_dirs drop_hard
+  printf -v dir_q '%q' "$KEMPT_DNF_SYSIMAGE_DIR"
+  # The directories first, and only them: once each is root's, with no group or world write, nobody
+  # else can add, rename or remove a name anywhere in the tree. They are locked one at a time from
+  # the top, each from inside its parent (-execdir with \;, which runs before find reads that
+  # directory), so every path root acts on sits in a folder already locked: a batched -exec + would
+  # act on full paths later, while another user could still swap a listed folder for a link and have
+  # chmod, which always follows links, change its target. Then the hard links go. A file with more
+  # than one name may be another user's file linked in from outside, and chown -R or chmod -R would
+  # change that file itself, since a hard link is the same file. Deleting the name here leaves the
+  # file outside as it was. dnf5 keeps no file with a second name in its state, so nothing of dnf5's
+  # is lost. Doing this before the directories are locked would let another user link a file in again
+  # behind the delete.
+  # Then chown before chmod: chmod alone leaves another user's files theirs, and chmod before chown
+  # leaves a moment where that owner can still open them for writing, or chmod them back. -h changes
+  # a link, not its target. Links go last, once nobody else can add one: dnf5 keeps none in its state,
+  # so one was planted, and chown -h would leave root's dnf5 going through it. find -P -delete removes
+  # a link, never its target. Nothing here revokes a file another user already holds open for writing,
+  # hence the restart. The lock-down keeps a staged update's record, and a changed record installs as
+  # root, so the fix discards it last; dnf5 offline clean exits 0 when nothing is staged.
+  lock_dirs="sudo find -P $dir_q -type d -execdir chown -h root:root {} \; -execdir chmod go-w {} \;"
+  drop_hard="sudo find -P $dir_q ! -type d -links +1 -print -delete"
+  printf '%s' "Fix it with: $lock_dirs && $drop_hard && sudo chown -R -h root:root $dir_q && sudo chmod -R go-w $dir_q && sudo find -P $dir_q -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer. A program that opened one of these files earlier can still write to it until it stops. Run kempt doctor again afterwards, and repeat the fix if this line is still there."
 }
-
-# The rows above check what is inside dnf5's folders. Whoever can change a folder above one can
-# rename it away and put their own in its place, so those rows would read the wrong folder. Each
-# parent counts when root does not own it, when it is writable by others or by a group other than
-# root, sticky or not (dnf5 deletes and recreates its offline folders, so a writable parent lets
-# another user create the name first), or when an ACL entry grants write. A FUSE mount another user
-# made counts too: fusermount3 is setuid, so a user can mount over a folder they own and report
-# uid 0, mode 0755. The walk resolves the path one name at a time, as the kernel does, so every link
-# on the way and every folder above where each one leads is checked. Reported, never repaired.
-# tests/test_doctor_folders.sh has the table.
-doctor_acl_grants_write() {  # getfacl -s -n -E's text on stdin → 0 when an entry grants write, mask included
-  awk -F: '
-    /^#/ || NF < 3 { next }
-    { d = ($1 == "default"); if (d) { $1 = $2; $2 = $3; $3 = $4 } }
-    $1 == "mask" { mask[d] = $3; next }
-    ($1 == "user" || $1 == "group") && $2 != "" && $3 ~ /w/ { want[d] = 1 }
-    d && $1 == "other" && $3 ~ /w/ { other = 1 }
-    END {
-      for (k = 0; k <= 1; k++) if (want[k] && (!(k in mask) || mask[k] ~ /w/)) exit 0
-      exit !other
-    }'
+doctor_dnf_staged_fix() {
+  local dir_q
+  printf -v dir_q '%q' "$KEMPT_DNF_OFFLINE_PKG_DIR"
+  # The restart installs these packages as root without checking their signatures again, so a
+  # swapped one runs its scripts as root. Their contents cannot be trusted, so the fix discards
+  # the stage and the directory; dnf5 makes a new one at the next stage. dnf5 offline clean does
+  # not follow links (checked on dnf5 5.4.6), and rm -rf never does.
+  printf '%s' "A changed package there installs as root at the next restart. Before you restart, discard the staged update and remove the folder: sudo dnf5 offline clean && sudo rm -rf --one-file-system $dir_q. Then stage the updates again."
 }
-doctor_shell_quote() {  # text → the text quoted for the shell, every byte outside ASCII escaped
-  local LC_ALL=C
-  printf '%q' "$1"
-}
-# path → every name the kernel passes through to reach it, top down, NUL after each: each folder, and
-# each link with the folders above its target after it. The folder reached last is left out, since
-# the rows above check it. At most 40 links are followed, the kernel's own limit. Past that the list
-# ends with //hops, which no walked name can be.
-doctor_dnf_path_names() {
-  local cur="" rest="$1/" c t hops=0
-  local -a names=(/)
-  while [[ -n "$rest" ]]; do
-    c="${rest%%/*}"; rest="${rest#*/}"
-    case "$c" in
-      ''|.) continue ;;
-      ..) cur="${cur%/*}"; continue ;;
-    esac
-    names+=("$cur/$c")
-    if [[ -L "$cur/$c" ]] && (( hops >= 40 )); then
-      printf '%s\0' "${names[@]}" //hops
-      return 0
-    fi
-    # The dot keeps a trailing newline of the target, which $(...) would strip into another name.
-    if [[ -L "$cur/$c" ]] && (( ++hops )) && t="$(readlink -- "$cur/$c" && echo .)" \
-       && t="${t%.}" && t="${t%$'\n'}" && [[ -n "$t" ]]; then
-      [[ "$t" == /* ]] && cur=""
-      rest="$t/$rest"
-    else
-      cur="$cur/$c"
+# A row only on a failure, from the find above. Reported, never repaired, because the fix needs root.
+# Clean says nothing: this reading cannot vouch for a writable parent, a write ACL or a link.
+doctor_dnf_folders_row() {
+  local d fix
+  for d in "$KEMPT_DNF_CACHE_DIR" "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR"; do
+    if ! doctor_scan_tree "$d"; then
+      doctor_fail "dnf folders: Kempt could not check $(doctor_plain_name "$d") ($DOCTOR_CHECK_ERROR). Root checks again before any update, and refuses if it cannot check either."
+    elif [[ -n "$DOCTOR_TREE_HIT" ]]; then
+      case "$d" in
+        "$KEMPT_DNF_CACHE_DIR") fix="$(doctor_dnf_cache_fix)" ;;
+        "$KEMPT_DNF_SYSIMAGE_DIR") fix="$(doctor_dnf_state_fix)" ;;
+        *) fix="$(doctor_dnf_staged_fix)" ;;
+      esac
+      # Another user picks the entry's name, so it never reaches the terminal raw.
+      doctor_fail "dnf folders: other users can change files in $(doctor_plain_name "$d") (for example $(doctor_plain_name "$DOCTOR_TREE_HIT")). Kempt 0.1.7 or earlier may have left them that way. $fix Until this is fixed, Kempt will not install or stage updates."
     fi
   done
-  unset 'names[-1]'
-  (( ${#names[@]} )) && printf '%s\0' "${names[@]}"
-}
-# The mount table: each line's mount point, with its octal escapes decoded, and its type and options.
-DOCTOR_MOUNT_POINTS=() DOCTOR_MOUNT_TYPES=() DOCTOR_MOUNT_OPTS=()
-doctor_decode_mount_name() {  # escaped → REPLY
-  local s="$1" o="" ch
-  while [[ "$s" == *\\* ]]; do
-    o+="${s%%\\*}"; s="${s#*\\}"
-    if [[ "$s" =~ ^[0-7]{3} ]]; then
-      printf -v ch "\\${s:0:3}"; o+="$ch"; s="${s:3}"
-    else
-      o+='\'
-    fi
-  done
-  REPLY="$o$s"
-}
-doctor_load_mounts() {  # → 0 with the arrays filled; 1 with DOCTOR_CHECK_ERROR set
-  local line i n err
-  local -a lines f
-  DOCTOR_MOUNT_POINTS=() DOCTOR_MOUNT_TYPES=() DOCTOR_MOUNT_OPTS=()
-  if ! err="$( { : < "$KEMPT_MOUNTINFO"; } 2>&1 )"; then DOCTOR_CHECK_ERROR="${err##*: }"; return 1; fi
-  mapfile -t lines < "$KEMPT_MOUNTINFO"
-  if (( ! ${#lines[@]} )); then DOCTOR_CHECK_ERROR="it is empty"; return 1; fi
-  for line in "${lines[@]}"; do
-    read -r -a f <<<"$line"
-    n=${#f[@]} i=6
-    while (( i < n )) && [[ "${f[i]}" != - ]]; do i=$(( i + 1 )); done
-    if ! (( n >= 5 && i + 2 < n && i + 4 >= n )); then DOCTOR_CHECK_ERROR="a line in it could not be read"; return 1; fi
-    doctor_decode_mount_name "${f[4]}"
-    DOCTOR_MOUNT_POINTS+=("$REPLY")
-    DOCTOR_MOUNT_TYPES+=("${f[i + 1]}")
-    DOCTOR_MOUNT_OPTS+=("${f[n - 1]}")
-  done
-}
-doctor_mount_is_users() {  # index → 0 when it is a FUSE mount root did not make
-  case "${DOCTOR_MOUNT_TYPES[$1]}" in fuse|fuse.*|fuseblk) ;; *) return 1 ;; esac
-  [[ ",${DOCTOR_MOUNT_OPTS[$1]}," != *,user_id=0,* ]]
-}
-doctor_mount_of() {  # path → REPLY, the index of the mount it sits on: longest prefix, later of equals
-  local i mp best=-1 best_len=-1
-  for i in "${!DOCTOR_MOUNT_POINTS[@]}"; do
-    mp="${DOCTOR_MOUNT_POINTS[i]}"
-    [[ "$mp" == / || "$1" == "$mp" || "$1" == "$mp"/* ]] || continue
-    if (( ${#mp} >= best_len )); then best=$i best_len=${#mp}; fi
-  done
-  REPLY=$best
-}
-doctor_on_users_mount() {  # path → 0 when it sits on a FUSE mount root did not make; 1 when unknown
-  doctor_load_mounts || return 1
-  doctor_mount_of "$1"
-  (( REPLY >= 0 )) && doctor_mount_is_users "$REPLY"
-}
-# Everything doctor_dnf_parents_row reports, in arrays: what another user can change and the three
-# lists its fix needs, the mounts as "folder<TAB>mount point<TAB>options", and the checks that failed
-# as "name<TAB>error".
-DOCTOR_PARENT_SHOWN=() DOCTOR_PARENT_OWN=() DOCTOR_PARENT_MODE=() DOCTOR_PARENT_ACL=()
-DOCTOR_PARENT_FUSE=() DOCTOR_PARENT_ERRORS=() DOCTOR_PARENT_NOTE=""
-doctor_dnf_parents_scan() {
-  local top="$KEMPT_DNF_PARENTS_TOP" top_l="" top_r="" d p q out rc uid gid mode type bad acl_hit i
-  if [[ -n "$top" ]]; then top_l="$(realpath -m -s -- "$top")"; top_r="$(realpath -m -- "$top")"; fi
-  local -A seen=()
-  local -a walk=() leaves=()
-  DOCTOR_PARENT_SHOWN=() DOCTOR_PARENT_OWN=() DOCTOR_PARENT_MODE=() DOCTOR_PARENT_ACL=()
-  DOCTOR_PARENT_FUSE=() DOCTOR_PARENT_ERRORS=() DOCTOR_PARENT_NOTE=""
-  for d in "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR" "$KEMPT_DNF_CACHE_DIR"; do
-    # Made absolute but not normalised: ".." is the resolver's to take, from where a link leads.
-    [[ -n "$d" ]] || continue
-    [[ "$d" == /* ]] || d="$PWD/$d"
-    leaves+=("$(realpath -m -- "$d")")
-    # Top down, so a fix that runs in this order locks each folder before the ones inside it.
-    while IFS= read -r -d '' p; do
-      if [[ "$p" == //hops ]]; then
-        DOCTOR_PARENT_ERRORS+=("$d"$'\t'"Too many levels of symbolic links")
-        continue
-      fi
-      [[ -n "${seen[$p]+x}" ]] && continue
-      seen[$p]=1
-      # The top and the folders above it are skipped.
-      if [[ -n "$top" ]]; then
-        [[ "$p" == / || "$p" == "$top_l" || "$p" == "$top_r" || "$top_l" == "$p"/* || "$top_r" == "$p"/* ]] && continue
-      fi
-      walk+=("$p")
-    done < <(doctor_dnf_path_names "$d")
-  done
-  if ! doctor_load_mounts; then
-    DOCTOR_PARENT_ERRORS+=("the mount table"$'\t'"$DOCTOR_CHECK_ERROR")
-    DOCTOR_MOUNT_POINTS=()
-  fi
-  # The folders themselves are not in the walk, but they can sit on such a mount, or hold one.
-  for p in "${walk[@]}" "${leaves[@]}"; do
-    doctor_mount_of "$p"
-    if (( REPLY >= 0 )) && doctor_mount_is_users "$REPLY"; then
-      DOCTOR_PARENT_FUSE+=("$p"$'\t'"${DOCTOR_MOUNT_POINTS[REPLY]}"$'\t'"${DOCTOR_MOUNT_OPTS[REPLY]}")
-    fi
-  done
-  for d in "${leaves[@]}"; do
-    for i in "${!DOCTOR_MOUNT_POINTS[@]}"; do
-      if [[ "${DOCTOR_MOUNT_POINTS[i]}" == "$d"/* ]] && doctor_mount_is_users "$i"; then
-        DOCTOR_PARENT_FUSE+=("${DOCTOR_MOUNT_POINTS[i]}"$'\t'"${DOCTOR_MOUNT_POINTS[i]}"$'\t'"${DOCTOR_MOUNT_OPTS[i]}")
-      fi
-    done
-  done
-  for p in "${walk[@]}"; do
-    rc=0
-    out="$(LC_ALL=C "$KEMPT_FIND" -P "$p" -prune -printf '%U %G %m %y\n' 2>&1)" || rc=$?
-    if (( rc )); then
-      doctor_first_check_error "$out"
-      if (( rc != 1 )) || [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then
-        DOCTOR_PARENT_ERRORS+=("$p"$'\t'"${DOCTOR_CHECK_ERROR:-the check failed}")
-      fi
-      continue
-    fi
-    read -r uid gid mode type <<<"$out"
-    if ! [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ && "$mode" =~ ^[0-7]+$ && -n "$type" ]]; then
-      DOCTOR_PARENT_ERRORS+=("$p"$'\t'"the check gave no answer")
-      continue
-    fi
-    bad=false
-    (( uid == 0 )) || bad=true
-    if [[ "$type" != l ]] && { (( 8#$mode & 2 )) || { (( 8#$mode & 16 )) && (( gid != 0 )); }; }; then bad=true; fi
-    q="$(doctor_shell_quote "$p")"
-    acl_hit=false
-    if [[ "$type" != l ]] && command -v "$KEMPT_GETFACL" >/dev/null 2>&1; then
-      rc=0
-      out="$(LC_ALL=C "$KEMPT_GETFACL" -P -s -n -E -p -- "$p" 2>&1)" || rc=$?
-      if (( rc )); then
-        doctor_first_check_error "$out"
-        if (( rc != 1 )) || [[ -n "$DOCTOR_CHECK_ERROR" || -z "$out" ]]; then
-          DOCTOR_PARENT_ERRORS+=("$p"$'\t'"${DOCTOR_CHECK_ERROR:-the check failed}")
-          continue
-        fi
-      else
-        rc=0
-        doctor_acl_grants_write <<<"$out" || rc=$?
-        if (( rc == 0 )); then
-          acl_hit=true
-        elif (( rc != 1 )); then
-          DOCTOR_PARENT_ERRORS+=("$p"$'\t'"its ACL entries could not be read")
-          continue
-        fi
-      fi
-    fi
-    [[ "$bad" == true ]] || $acl_hit || continue
-    DOCTOR_PARENT_SHOWN+=("$(doctor_plain_name "$p")")
-    $acl_hit && DOCTOR_PARENT_ACL+=("$q")
-    [[ "$bad" == true ]] || continue
-    DOCTOR_PARENT_OWN+=("$q")
-    # chmod follows a link, so a link is made root's and left for the reader to look at.
-    if [[ "$type" == l ]]; then
-      DOCTOR_PARENT_NOTE+=" $(doctor_plain_name "$p") is a link: check where it points with ls -ld $q before you run this."
-    else
-      DOCTOR_PARENT_MODE+=("$q")
-      # A tmpfs takes its root's mode from its mount options at every boot, 1777 by default.
-      doctor_mount_of "$p"
-      if (( REPLY >= 0 )) && [[ "${DOCTOR_MOUNT_TYPES[REPLY]}" == tmpfs && "${DOCTOR_MOUNT_POINTS[REPLY]}" == "$p" ]]; then
-        DOCTOR_PARENT_NOTE+=" $(doctor_plain_name "$p") is a tmpfs: add mode=0755 to its mount options, or this comes back at the next restart."
-      fi
-    fi
-  done
-}
-doctor_fuse_owner() {  # mount options → who made the mount, for a sentence
-  local uid="" name=""
-  [[ ",$1," =~ ,user_id=([0-9]+), ]] && uid="${BASH_REMATCH[1]}"
-  [[ -n "$uid" ]] || { printf 'another user'; return 0; }
-  name="$($KEMPT_GETENT_CMD "$uid" 2>/dev/null | cut -d: -f1)" || name=""
-  doctor_plain_name "${name:-user $uid}"
-}
-doctor_dnf_parents_row() {
-  local e p mp opts list fix=""
-  doctor_dnf_parents_scan
-  for e in "${DOCTOR_PARENT_ERRORS[@]}"; do
-    DOCTOR_CHECK_ERROR="${e#*$'\t'}"
-    doctor_could_not_check "dnf folders" "${e%%$'\t'*}" "$KEMPT_FOLDERS_HOLD"
-  done
-  local -A said=()
-  for e in "${DOCTOR_PARENT_FUSE[@]}"; do
-    IFS=$'\t' read -r p mp opts <<<"$e"
-    [[ -n "${said[$mp]+x}" ]] && continue
-    said[$mp]=1
-    doctor_fail "dnf folders: $(doctor_plain_name "$mp") is a mount made by $(doctor_fuse_owner "$opts"), and it covers $(doctor_plain_name "$p"). That user can change what dnf reads there. $KEMPT_FOLDERS_HOLD Remove it with: fusermount3 -u $(doctor_shell_quote "$mp")"
-  done
-  (( ${#DOCTOR_PARENT_SHOWN[@]} )) || return 0
-  # chown first: until then the owner can undo the rest.
-  (( ${#DOCTOR_PARENT_OWN[@]} )) && fix+=" && sudo chown -h root:root ${DOCTOR_PARENT_OWN[*]}"
-  (( ${#DOCTOR_PARENT_ACL[@]} )) && fix+=" && sudo setfacl -b ${DOCTOR_PARENT_ACL[*]}"
-  (( ${#DOCTOR_PARENT_MODE[@]} )) && fix+=" && sudo chmod go-w ${DOCTOR_PARENT_MODE[*]}"
-  list="$(printf '%s, ' "${DOCTOR_PARENT_SHOWN[@]}")"; list="${list%, }"
-  doctor_fail "dnf folders' parents: other users can change $list. They could put a folder of their own in place of dnf's state, staged updates or cache, and the dnf checks would then look at theirs. Fix it with: ${fix# && }.$DOCTOR_PARENT_NOTE Then run kempt doctor again. $KEMPT_FOLDERS_HOLD"
 }
 # PID 1 starts dnf5, so in a namespace of its own this process would read folders dnf5 does not use. A
 # user cannot read /proc/1/ns/mnt. PID 1's mount table is readable, and a different namespace shows a
@@ -4058,9 +3722,7 @@ cmd_doctor() {
   doctor_metadata_row
   doctor_last_check_row
   doctor_mount_ns_row
-  # Parents first: their fix makes it safe to run the fixes in the cache row, which delete as root.
-  doctor_dnf_parents_row
-  doctor_dnf_cache_row
+  doctor_dnf_folders_row
   doctor_config_row
   doctor_state_dir_row
   doctor_offline_rows

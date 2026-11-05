@@ -7,7 +7,7 @@ To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 A fact about another program is marked **[run]** when it was seen on a real Fedora 44 with SELinux
 enforcing, dnf5 5.4.6, polkit 127 and systemd 259, or **[source]** when it was read in that
-program's code or manual.
+program's code or manual. A claim marked **[reasoned]** was worked out and has not been run.
 
 ## What runs as root
 
@@ -186,37 +186,43 @@ These are the limits, stated and left as they are:
   before a run, systemd refuses the service and nothing starts [run].
 - **The mount namespace.** The helper reads folders in the caller's mount namespace, and dnf5 runs in
   PID 1's. A process with no extra rights cannot use that: pkexec refuses from a user namespace [run].
-  `kempt doctor` and `kempt update` stop outside PID 1's.
+  `kempt doctor` reports a run outside PID 1's.
 
 No SELinux denial appeared in any of these runs [run].
 
 ### The folders dnf5 installs from
 
-Up to 0.1.7 the helpers kept the caller's umask. `kempt doctor` checks dnf's cache, state and
-staged packages for files another user could change. A changed staged package installs as root
-without a second signature check, so the state and staged rows are failures.
+One check guards these folders, and root makes it. `kempt-apply` exits 3 while anything under dnf's
+state, staged packages or cache is not root's, or by its mode bits is writable by anyone other than
+root and its group. An ACL entry that grants write passes. rpm checks only a digest after dnf5's signature check, which is why the cache counts. A link
+is judged by its owner and never followed. `dnf-offline-clean` skips this check, because discarding
+the stage is the fix, and it installs nothing.
 
-`kempt update` looks first and stops with exit 5, before any password prompt. It walks every folder
-above them too, and looks for ACL entries that grant write and FUSE mounts another user made. It also
-stops on atomic Fedora and outside PID 1's mount namespace. `kempt doctor` gives each fix, which
-deletes a file with a second hard link, since that file may belong to someone else. There is no
+Root checks when a step starts: a live update, a stage, an arm. Nothing checks at the restart that
+installs a staged update, because Kempt does not run then. A folder changed after the arm reaches
+root's dnf5 unchecked.
+
+The CLI runs the same `find` as you, read-only. Root can read everything you can, so what you find
+root refuses over too. `kempt update` stops on such a folder with exit 5, before any password prompt,
+and `kempt check`, `kempt status` and the widget say updates are paused. Your reading can miss a
+folder only root can read, or fail altogether, and then the helper decides alone. There is no
 override.
 
-A program that calls the helper directly skips all of that, so the helper makes one short check of
-its own. `kempt-apply` exits 3 while anything under dnf's state, staged packages or cache is not
-root's, or is writable by anyone other than root and its group. rpm checks only a digest after
-dnf5's signature check, which is why the cache counts. A link is judged by its owner and never
-followed. `dnf-offline-clean` skips this check, because discarding the stage is the fix, and it
-installs nothing.
+`kempt doctor` has one row for this, and it gives the fix. Up to 0.1.7 the helpers kept the caller's
+umask, which could leave world-writable files in these folders. The fix for dnf's state deletes a
+file with a second hard link, since that file may belong to someone else. When the check itself cannot
+run, the row says so and names the error.
 
 `kempt-refresh` checks the cache the same way for both `check` and `refresh`, because root's dnf5
 parses what is in it. That narrows the hole and does not close it: Fedora's own `dnf-makecache.timer`
 has no such check [run], and any active local user can ask PackageKit for a refresh [run].
 
-Root's code no longer walks the folders above, reads ACL entries, looks for FUSE mounts or compares
-mount namespaces. `kempt update` and `kempt doctor` still do, as you, so a program that calls the
-helper directly skips them. This is a real reduction on a misconfigured machine. Whether one of
-those machines can be turned into an install through them has not been tested.
+Kempt no longer walks the folders above these, reads ACL entries or looks for FUSE mounts, as root or
+as you. A writable `/var/lib` or an ACL entry that grants write no longer stops an update, and doctor
+does not report them. This is a real reduction on a misconfigured machine, and it takes root's own
+act to make one. On such a machine a local user could plant a package and wait for any root dnf5
+run, Kempt's or not [reasoned]. Whether one of those machines can be turned into an install through these
+removed checks has not been tested.
 
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.

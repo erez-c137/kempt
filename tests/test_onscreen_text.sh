@@ -171,7 +171,6 @@ assert_eq "$(grep -cE '^libexec/kempt-apply:.*(Updates paused|could not check)' 
 HELPER_TEXT="$(grep -E '^libexec/kempt-apply:' "$TEXT" | cut -f2-)"
 assert_contains "$HELPER_TEXT" "Updates paused for safety: users other than root can change X. Run kempt doctor for the fix." "the helper's refusal keeps its shape"
 assert_contains "$HELPER_TEXT" "Kempt could not check X. Run kempt doctor." "...and the could-not-check one"
-assert_contains "$(cut -f2- "$TEXT")" "These updates were left in place. Run kempt doctor." "the clean unwind's sentence is collected"
 if command -v node >/dev/null 2>&1; then
   PAUSED="$(grep -oF 'A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.' "$UI/logic.js" | head -1)"
   assert_eq "$PAUSED" "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it." "the widget's own form"
