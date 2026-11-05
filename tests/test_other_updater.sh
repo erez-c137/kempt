@@ -250,8 +250,9 @@ rm -rf "$_mfolder"; "$KEMPT" check >/dev/null 2>&1 || true
 _hd="$KEMPT_STATE_DIR/history"; rm -rf "$_hd"; mkdir -p "$_hd"
 jq -n '{timestamp:"2026-11-04T10:00:00+02:00", surface:"offline", status:"ok", staged:256, reboot_needed:false, log:"",
         backends:{dnf:{updated:[],added:[],removed:[],status:"ok"},flatpak:{updated:[],added:[],removed:[],status:"skipped"}}}' > "$_hd/20261104T100000.json"
+rm -f "$LINK"; ln -s "$KEMPT_OFFLINE_DATADIR" "$LINK"
 srep="$("$KEMPT" status 2>&1 || true)"
-assert_contains "$srep" "staged 256 updates for a restart" "a stage reads as itself"
+assert_contains "$srep" "staged 256 updates for a restart" "an armed stage reads as itself"
 foreign_link
 srep="$("$KEMPT" status 2>&1 || true)"
 assert_contains "$srep" "staged 256 updates, but another updater has since prepared the next restart" "...and held, it says what became of the restart"
