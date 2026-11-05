@@ -89,6 +89,15 @@ assert_contains "$(cat "$TESTTMP/rc-err")" "Accepted: ask, off" "...and the warn
 assert_eq "$("$KEMPT" config set reclaim off 2>&1 >/dev/null)" "" "...and a value it accepts says nothing"
 sed -i '/^reclaim=/d' "$KEMPT_CONFIG_DIR/config"
 
+# A surface that merged into the widget is stored as the widget, and the person is told.
+assert_eq "$("$KEMPT" config set surface terminal 2>&1)" "Stored surface=popup, the widget, because terminal is no longer a choice." \
+  "config set surface terminal says what was stored"
+assert_eq "$(config_get surface)" "popup" "...and that is what was stored"
+assert_eq "$("$KEMPT" config set surface background 2>&1)" "Stored surface=popup, the widget, because background is no longer a choice." "...and the same for background"
+assert_eq "$("$KEMPT" config set surface widget 2>&1)" "" "...while a current value says nothing"
+assert_eq "$("$KEMPT" config set surface offline 2>&1)" "" "...offline included"
+sed -i '/^surface=/d' "$KEMPT_CONFIG_DIR/config"
+
 # --- config set says when it did not recognise what you wrote ------------------------------------
 # A typo used to be stored in silence: `kempt config set surfce terminal` wrote a key nothing
 # reads, and `kempt config set surface bogus` wrote a value nothing accepts, both under exit 0 with

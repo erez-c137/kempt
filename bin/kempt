@@ -3002,7 +3002,12 @@ cmd_config() {
          local v="$3"
          [[ "$2" != surface || "$(surface_canon "$v")" != popup ]] || v=popup
          config_warn_unknown "$2" "$v"
-         config_set "$2" "$v" ;;
+         config_set "$2" "$v"
+         # The two surfaces that merged into the widget are stored as it, which the person should hear.
+         case "$2=${3,,}" in
+           surface=*terminal*|surface=*background*)
+             [[ "$v" != popup ]] || echo "Stored surface=popup, the widget, because $3 is no longer a choice." ;;
+         esac ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
 }
