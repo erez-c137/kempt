@@ -464,7 +464,7 @@ discover_notifier_off() {
 }
 
 discover_notifier_on() {
-  local backup="$DISCOVER_USER_ENTRY.before-kempt" i
+  local backup="$DISCOVER_USER_ENTRY.before-kempt"
   if discover_entry_is_kempts; then
     rm -f "$DISCOVER_USER_ENTRY" || { echo "could not remove $DISCOVER_USER_ENTRY" >&2; return 1; }
     log_event "Discover's update notifier turned on"
@@ -485,15 +485,15 @@ discover_notifier_on() {
   # Off leaves KDE's setting alone, so on says what that setting does now.
   discover_unattended && echo "Discover's automatic updates resume too, because its setting is still on."
   discover_running && return 0
+  if ! command -v "$KEMPT_DISCOVER_START" >/dev/null 2>&1; then
+    echo "Could not start it now. It starts when you log in again."
+    return 0
+  fi
   # Detached so it outlives the command and the widget, and setsid -f says nothing about the result.
   # No lock is held here. Bash sets no FD_CLOEXEC, so a lock taken before this line would stay held
   # by the notifier for the whole session.
   setsid -f "$KEMPT_DISCOVER_START" --application org.kde.discover.notifier </dev/null >/dev/null 2>&1 || true
-  for ((i = 0; i < 30; i++)); do
-    if discover_running; then echo "Started it for this session."; return 0; fi
-    sleep 0.1
-  done
-  echo "Could not start it now. It starts when you log in again."
+  echo "Starting it for this session."
 }
 
 discover_notifier_status() {  # [--json]

@@ -24,7 +24,6 @@ stub() {  # name body
 stub pgrep "[[ -e $TESTTMP/running ]]"
 stub pkill "[[ -e $TESTTMP/running ]] && rm -f $TESTTMP/running"
 stub kstart ": > $TESTTMP/running"
-stub dud "exit 0"
 export KEMPT_DISCOVER_PGREP="$TESTTMP/pgrep" KEMPT_DISCOVER_PKILL="$TESTTMP/pkill" KEMPT_DISCOVER_START="$TESTTMP/kstart"
 reset() {
   rm -rf "${SYS:?}/$ENTRY" "$XDG_CONFIG_HOME/autostart" "$KEMPT_STATE_DIR" "$CALLS" "$TESTTMP/running"
@@ -81,14 +80,16 @@ reset; system_entry
 attempt on
 assert_eq "$rc" "0" "on succeeds"
 assert_contains "$out" "is on" "...and says it is on"
-assert_contains "$out" "Started it for this session" "...and that it started, once pgrep finds it"
+assert_contains "$out" "Starting it for this session." "...and that it is starting"
 assert_eq "$(is "$USER_ENTRY")" "no" "on removes the file Kempt wrote"
 wait_for_call "kstart --application org.kde.discover.notifier" \
   && echo "ok: on starts the notifier through kstart --application" \
   || { echo "FAIL: kstart not called - got: $(cat "$CALLS" 2>/dev/null)"; _fail=1; }
 assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Discover's update notifier turned on" "the change is in kempt log"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -e "$TESTTMP/running" ]] && break; sleep 0.1; done
 rm -f "$CALLS"
-"$KEMPT" discover-notifier on >/dev/null
+out="$("$KEMPT" discover-notifier on)"
+assert_not_contains "$out" "Starting it" "a notifier already running is not said to start"
 sleep 0.3
 assert_eq "$(grep -c kstart "$CALLS" || true)" "0" "a notifier already running is not started again"
 
@@ -105,10 +106,10 @@ assert_eq "$rc" "0" "config set right after on does not wait for the notifier's 
 kill "$(cat "$TESTTMP/lingers.pid")" 2>/dev/null || true
 rm -f "$TESTTMP/running" "$TESTTMP/lingers.pid"
 
-# A starter that starts nothing, or none at all: never a claim that it started.
-out="$(KEMPT_DISCOVER_START="$TESTTMP/dud" "$KEMPT" discover-notifier on)"; rc=$?
-assert_eq "$rc" "0" "when nothing starts it, on still succeeds"
-assert_not_contains "$out" "Started it" "...and never claims it started"
+# No starter at all: never a claim that it is starting.
+out="$(KEMPT_DISCOVER_START="$TESTTMP/no-such-kstart" "$KEMPT" discover-notifier on)"; rc=$?
+assert_eq "$rc" "0" "with no kstart, on still succeeds"
+assert_not_contains "$out" "Starting it" "...and never claims it is starting"
 assert_contains "$out" "Could not start it now. It starts when you log in again." "...and says when it will"
 
 # The kill pattern is the binary at the start of a command line, nothing that merely names it.

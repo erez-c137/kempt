@@ -902,7 +902,7 @@ it. The same text in a comment or a value does not count.
 
 **`on`** deletes that file only if it carries Kempt's mark, so an edit made inside Kempt's file goes
 with it. A `.before-kempt` copy kept by 0.2.0 comes back to its old name, or stays and is named if a
-newer file is there. Then Kempt starts the notifier and says so once it runs. If Discover's own
+newer file is there. Then Kempt starts the notifier for this session, and if `kstart` is missing says it starts at your next login. If Discover's own
 setting for automatic updates is still on, `on` says those resume too, and the widget warns about
 them again.
 
