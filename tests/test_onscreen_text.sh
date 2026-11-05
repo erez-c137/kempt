@@ -121,7 +121,7 @@ assert_eq "$(grep -c '^main.qml:.*stopped waiting for the update to report back'
 python3 - "$REPO_ROOT" >> "$TEXT" <<'PY'
 import os, re, sys
 CALLS = re.compile(r'(?:\b(?:notify\s+"Kempt"|preflight_abort|doctor_(?:ok|info|warn|fail)'
-                   r'|log_warn\s+"\$log"|refuse_unsafe|echo)\s+|\breason_override=)"((?:[^"\\]|\\.)*)"')
+                   r'|log_warn\s+"\$log"|refuse|echo)\s+|\breason_override=)"((?:[^"\\]|\\.)*)"')
 VARS = re.compile(r"^(KEMPT_AUTH_\w+|KEMPT_STAGED_RECIPE)='([^']*)'", re.M)
 # KEMPT_BUSY_TRY_AGAIN="...", notify_tail="...", tail_advice="...": a sentence or its ending.
 # KEMPT_CONFIG_KEYS is the list of config key names, typed as they are, so it is not text.
@@ -164,14 +164,13 @@ assert_eq "$(grep -c '^bin/kempt:' "$TEXT" | awk '{print ($1 > 100)}')" "1" "the
 assert_eq "$(grep -cE 'Try again in a few minutes|Restart after it finishes' "$TEXT")" "2" \
   "sentences kept in KEMPT_ variables and in *_tail/*_advice endings are collected"
 
-assert_eq "$(grep -cE '^libexec/kempt-apply:.*(Updates paused|could not check|atomic Fedora)' "$TEXT" | awk '{print ($1 >= 3)}')" "1" \
+assert_eq "$(grep -cE '^libexec/kempt-apply:.*(Updates paused|could not check)' "$TEXT" | awk '{print ($1 >= 2)}')" "1" \
   "the root helper's refusal sentences are collected"
 
 # The exact words, one sentence each, and the widget's short enough for its one-line row.
 HELPER_TEXT="$(grep -E '^libexec/kempt-apply:' "$TEXT" | cut -f2-)"
-assert_contains "$HELPER_TEXT" "Updates paused for safety: X Run kempt doctor for the fix." "the helper's refusal keeps its shape"
-assert_contains "$HELPER_TEXT" "Kempt could not check X (X). Run kempt doctor." "...and the could-not-check one"
-assert_contains "$HELPER_TEXT" "Kempt does not update atomic Fedora (Kinoite, Silverblue, bootc image mode); use Discover, rpm-ostree or bootc upgrade." "...and the atomic one"
+assert_contains "$HELPER_TEXT" "Updates paused for safety: users other than root can change X. Run kempt doctor for the fix." "the helper's refusal keeps its shape"
+assert_contains "$HELPER_TEXT" "Kempt could not check X. Run kempt doctor." "...and the could-not-check one"
 assert_contains "$(cut -f2- "$TEXT")" "These updates were left in place. Run kempt doctor." "the clean unwind's sentence is collected"
 if command -v node >/dev/null 2>&1; then
   PAUSED="$(grep -oF 'A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.' "$UI/logic.js" | head -1)"

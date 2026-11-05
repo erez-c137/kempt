@@ -303,7 +303,7 @@ assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" "..
 # A typo'd flag must never be treated as "run with the configured defaults".
 assert_exit 2 "unknown update option rejected" "$KEMPT" update --bogus
 
-# auto_accept=false lets dnf5 ask, and only a person at a terminal can answer. With nobody there
+# auto_accept=false asks a person, and only a person at a terminal can answer. With nobody there
 # the command refuses and changes nothing, unless a press in the widget already answered.
 : > "$WORLD/apply-calls"
 "$KEMPT" config set auto_accept false
@@ -322,10 +322,106 @@ assert_eq "$(jq -r .reboot_needed "$h2")" "false" "no-reboot-needed run complete
 assert_eq "$(jq -r .surface "$h2")" "popup" "auto_accept=false leaves the surface alone"
 assert_eq "$(grep -c '^APPLY dnf-upgrade.* -y' "$WORLD/apply-calls")" "1" "...and a press in the widget sends -y"
 : > "$WORLD/apply-calls"
-KEMPT_ASSUME_TTY=1 KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no" "$KEMPT" update </dev/null >/dev/null 2>&1
-assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "1" "auto_accept=false at a terminal still upgrades"
-assert_eq "$(grep -c '^APPLY dnf-upgrade.* -y' "$WORLD/apply-calls")" "0" "...and lets dnf5 ask (no -y)"
+# At a terminal: dnf5 cannot ask from a service, so without -y it shows what it would do and stops,
+# and only a yes given here runs it with -y.
+cat > "$TESTTMP/apply-asks" <<EOF
+#!/usr/bin/env bash
+echo "APPLY \$@" >> "$WORLD/apply-calls"
+if [[ " \$* " == *" -y "* ]]; then echo "the update runs"; exit 0; fi
+if [[ -e "$TESTTMP/preview-fails" ]]; then echo "Failed to download metadata"; exit 1; fi
+if [[ -e "$TESTTMP/preview-empty" ]]; then echo "Nothing to do."; exit 0; fi
+echo "Upgrading: vim"; echo "Is this ok [y/N]: Operation aborted by the user."; exit 1
+EOF
+chmod +x "$TESTTMP/apply-asks"
+asked() {  # answer-or-nothing surface → the helper calls, one a line; rc in asked_rc, output in asked_out
+  : > "$WORLD/apply-calls"; asked_rc=0
+  asked_out="$(KEMPT_ASSUME_TTY=1 KEMPT_APPLY_HELPER="$TESTTMP/apply-asks" KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no" \
+    "$KEMPT" update --no-flatpak --surface="$2" <<<"$1" 2>&1)" || asked_rc=$?
+  "$KEMPT" unstage >/dev/null 2>&1 || true
+}
+calls() { grep -E "^APPLY $1" "$WORLD/apply-calls" | sed 's/^APPLY //; s/ --exclude=[^ ]*//g' | tr '\n' ';'; }
+asked y popup
+assert_eq "$(calls dnf-upgrade)" "dnf-upgrade;dnf-upgrade -y;" "auto_accept=false at a terminal: first what it would do, then with -y on a yes"
+assert_contains "$asked_out" "Upgrading: vim" "...the person sees what it would do"
+assert_contains "$asked_out" "the update runs" "...and the update"
+assert_eq "$asked_rc" "0" "...and a yes ends well"
+asked n popup
+assert_eq "$(calls dnf-upgrade)" "dnf-upgrade;" "a no: nothing with -y"
+assert_contains "$asked_out" "Answered no, so nothing was changed." "...and it says so"
+asked "" popup
+assert_eq "$(calls dnf-upgrade)" "dnf-upgrade;" "no answer at all is a no"
+touch "$TESTTMP/preview-fails"; asked y popup; rm -f "$TESTTMP/preview-fails"
+assert_eq "$(calls dnf-upgrade)" "dnf-upgrade;" "a first run that failed asks nothing and goes no further"
+assert_contains "$asked_out" "Failed to download metadata" "...and shows why"
+touch "$TESTTMP/preview-empty"; asked y popup; rm -f "$TESTTMP/preview-empty"
+assert_eq "$(calls dnf-upgrade)" "dnf-upgrade;" "nothing to do asks nothing"
+assert_eq "$asked_rc" "0" "...and is no failure"
+asked y offline
+assert_eq "$(calls dnf-offline-stage)" "dnf-offline-stage;dnf-offline-stage -y;" "a stage asks the same way"
+asked n offline
+assert_eq "$(calls dnf-offline-stage)" "dnf-offline-stage;" "...and a no stores nothing"
+assert_eq "$(calls dnf-offline-arm)" "" "...and arms nothing"
 "$KEMPT" config set auto_accept true
+asked "" popup
+assert_eq "$(calls dnf-upgrade)" "dnf-upgrade -y;" "auto_accept on: straight to -y, with nothing asked"
+
+# Ctrl-C: dnf5 runs on, so there is no result to report and no failure to record.
+cat > "$TESTTMP/apply-watch-stopped" <<EOF
+#!/usr/bin/env bash
+echo "kempt-apply: stopped watching. An update that has started carries on to the end, and dnf5 history list shows how it ended." >&2
+exit 130
+EOF
+chmod +x "$TESTTMP/apply-watch-stopped"
+hist_before="$(ls "$KEMPT_STATE_DIR/history/" | wc -l)"
+: > "$WORLD/notifications"
+for tty in "" 1; do
+  rc=0; ctrlc_out="$(KEMPT_ASSUME_TTY=$tty KEMPT_APPLY_HELPER="$TESTTMP/apply-watch-stopped" "$KEMPT" update --no-flatpak --surface=popup 2>&1 </dev/null)" || rc=$?
+  assert_eq "$rc" "130" "the watching stopped (terminal='$tty'): kempt update ends with 130"
+done
+assert_contains "$ctrlc_out" "carries on to the end" "...and the person reads what happens to the update"
+assert_not_contains "$ctrlc_out" "Update failed" "...and is not told it failed"
+assert_eq "$(ls "$KEMPT_STATE_DIR/history/" | wc -l)" "$hist_before" "...and no run is recorded as ended"
+assert_eq "$(tail -n 1 "$KEMPT_STATE_DIR/events.log" | grep -c 'stopped watching')" "1" "...and the event log says the watching stopped"
+assert_eq "$(wc -l < "$WORLD/notifications")" "0" "...and no notification says it did"
+if flock -n "$KEMPT_STATE_DIR/lock" true 2>/dev/null; then echo "ok: ...and the lock is free for the next run"; else echo "FAIL: lock still held"; _fail=1; fi
+# Ctrl-C reaches every process of the terminal's group, tee too. Its line must still get through.
+cat > "$TESTTMP/apply-wait-for-int" <<EOF
+#!/usr/bin/env bash
+trap 'sleep 0.3; echo "the words after Ctrl-C" >&2; exit 130' INT
+: > "$TESTTMP/apply-waiting"
+for _ in {1..100}; do sleep 0.1; done
+exit 1
+EOF
+chmod +x "$TESTTMP/apply-wait-for-int"
+ctrlc_group="$(KEMPT_ASSUME_TTY=1 KEMPT_APPLY_HELPER="$TESTTMP/apply-wait-for-int" python3 - "$KEMPT" "$TESTTMP/apply-waiting" <<'PY'
+import os, signal, subprocess, sys, time
+def fresh():
+    for s in (signal.SIGINT, signal.SIGQUIT, signal.SIGHUP, signal.SIGTERM):
+        signal.signal(s, signal.SIG_DFL)
+p = subprocess.Popen([sys.argv[1], "update", "--no-flatpak", "--surface=popup"], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True, preexec_fn=fresh)
+for _ in range(300):
+    if os.path.exists(sys.argv[2]):
+        break
+    time.sleep(0.1)
+time.sleep(0.3)
+os.killpg(p.pid, signal.SIGINT)
+print(p.communicate(timeout=30)[0].decode(errors="replace"))
+print("rc=%d" % p.returncode)
+PY
+)"
+assert_contains "$ctrlc_group" "the words after Ctrl-C" "Ctrl-C to the whole terminal group: the helper's last words still reach the person"
+assert_contains "$ctrlc_group" "rc=130" "...and kempt update ends with 130"
+
+# A next run while dnf5 goes on: the fixed unit name refuses, in words a person can use.
+cat > "$TESTTMP/apply-busy" <<EOF
+#!/usr/bin/env bash
+echo "Failed to start transient service unit: Unit kempt-apply-dnf-upgrade.service was already loaded or has a fragment file." >&2
+exit 1
+EOF
+chmod +x "$TESTTMP/apply-busy"
+busy_out="$(KEMPT_APPLY_HELPER="$TESTTMP/apply-busy" "$KEMPT" update --no-flatpak --surface=popup 2>&1 </dev/null)" || true
+assert_contains "$busy_out" "the update started earlier is still running, so nothing new was started" "a run over one still going says so"
 
 # An unknown surface must not silently mean offline.
 surferr="$("$KEMPT" update --surface=bogus 2>&1 >/dev/null)"
@@ -340,7 +436,7 @@ assert_eq "$(jq -r .surface "$hs")" "popup" "unknown surface falls back to the w
 "$KEMPT" update --surface=offline >/dev/null
 grep -q 'dnf-offline-stage' "$WORLD/apply-calls" && echo "ok: offline stages the transaction" || { echo "FAIL: offline stage"; _fail=1; }
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && { echo "FAIL: offline also upgraded live"; _fail=1; } || echo "ok: offline did not upgrade live"
-# auto_accept off: a stage asked for at a terminal stays a stage, without -y so dnf5 asks first.
+# auto_accept off: a stage asked for at a terminal stays a stage, without -y first, so the person is asked.
 # Without a terminal the stage still runs, with -y, because nobody can answer.
 pty_run() { python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$@"; }
 "$KEMPT" config set auto_accept false
@@ -349,7 +445,7 @@ pty_run "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 </dev/nul
 assert_eq "$(grep -c '^APPLY dnf-offline-stage' "$WORLD/apply-calls")" "1" \
   "auto_accept=false at a terminal: --surface=offline stages"
 assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "0" "...and never upgrades live"
-assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "...and lets dnf5 ask (no -y)"
+assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "...and has gone no further than showing it, with no yes given"
 : > "$WORLD/apply-calls"
 rc=0; "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 </dev/null || rc=$?
 assert_eq "$rc" "5" "auto_accept=false with no terminal: no stage either"
@@ -1361,53 +1457,6 @@ assert_eq "$busy_rc" 3 "a second update while one runs exits 3"
 assert_eq "$busy_err" "another kempt update is running" "...saying only that another update is running"
 assert_exit 1 "...without asking the root helper anything first" -- test -e "$TESTTMP/refresh-calls"
 kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
-
-# Another user's update, or the widget's, holds no lock this user can see. The refresh helper then
-# refuses with exit 5 and its update-running sentence, and the pre-flight stops the run with the same
-# plain message instead of a warning, before the lock and before anything is installed.
-cat > "$TESTTMP/refresh-busy-update" <<'STUB'
-#!/usr/bin/env bash
-echo "kempt-refresh: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
-exit 5
-STUB
-chmod +x "$TESTTMP/refresh-busy-update"
-: > "$WORLD/apply-calls"
-busy_rc=0; busy_err="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-busy-update" "$KEMPT" update --no-flatpak 2>&1 >/dev/null)" || busy_rc=$?
-assert_eq "$busy_rc" 3 "the refresh helper's update-running answer stops the update with exit 3"
-assert_eq "$busy_err" "another kempt update is running" "...saying only that another update is running, no warning"
-assert_eq "$(grep -c 'APPLY' "$WORLD/apply-calls")" 0 "...and nothing is installed"
-assert_exit 0 "...and the lock is left free" -- flock -n "$KEMPT_STATE_DIR/lock" true
-# The helper's 15-minute line is information, never why a check failed: the warning names the
-# real failure, and a check that answered says nothing at all.
-cat > "$TESTTMP/refresh-longrun-fail" <<'STUB'
-#!/usr/bin/env bash
-echo "kempt-refresh: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
-echo "Failed to download metadata for repo 'fedora'" >&2
-[[ "$1" == check ]] && exit 1
-exit 0
-STUB
-cat > "$TESTTMP/refresh-longrun-only" <<'STUB'
-#!/usr/bin/env bash
-echo "Failed to download metadata for repo 'fedora'" >&2
-echo "kempt-refresh: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
-[[ "$1" == check ]] && exit 1
-exit 0
-STUB
-cat > "$TESTTMP/refresh-longrun-ok" <<STUB
-#!/usr/bin/env bash
-echo "kempt-refresh: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
-[[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
-exit 0
-STUB
-chmod +x "$TESTTMP"/refresh-longrun-*
-for stub in refresh-longrun-fail refresh-longrun-only; do
-  lr_err="$(KEMPT_REFRESH_HELPER="$TESTTMP/$stub" "$KEMPT" update --no-flatpak 2>&1 >/dev/null)" || true
-  assert_contains "$lr_err" "warning: could not check for session-critical updates: Failed to download metadata for repo 'fedora'" \
-    "$stub: the pre-flight warning names the real failure"
-  assert_eq "$(grep -c '15 minutes' <<<"$lr_err")" 0 "$stub: ...and never the 15-minute line"
-done
-lr_err="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-longrun-ok" "$KEMPT" update --no-flatpak 2>&1 >/dev/null)" || true
-assert_eq "$(grep -cE 'warning|15 minutes' <<<"$lr_err")" 0 "a check that answered after the 15-minute line warns about nothing"
 
 # ...and a lock whose holder was SIGKILLed must not freeze updates forever (the restic lock that
 # silently froze retention for 8 days). With flock there is nothing to clear: the kernel drops it

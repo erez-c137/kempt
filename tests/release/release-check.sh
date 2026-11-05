@@ -128,6 +128,10 @@ for pair in kempt-refresh:/usr/libexec/kempt-refresh kempt-apply:/usr/libexec/ke
 done
 [[ -f /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy ]] \
   && ok "the polkit policy is installed" || bad "no polkit policy"
+[[ -f /usr/share/polkit-1/rules.d/49-kempt.rules ]] \
+  && ok "the polkit rule is installed" || bad "no polkit rule"
+[[ ! -e /etc/polkit-1/rules.d/49-kempt.rules ]] \
+  && ok "no rule from the old opt-in is left" || bad "the old opt-in's rule survived"
 is "...declaring both actions, refresh and apply" \
    "$(grep -c '<action id=' /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy)" "2"
 
@@ -184,6 +188,8 @@ dnf -y remove kempt-plasmoid kempt >/dev/null 2>&1
 [[ ! -e /usr/libexec/kempt-apply ]] && ok "the root helpers are gone" || bad "a root helper survived"
 [[ ! -e /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy ]] \
   && ok "the polkit action is gone" || bad "the polkit action survived"
+[[ ! -e /usr/share/polkit-1/rules.d/49-kempt.rules ]] \
+  && ok "the polkit rule is gone" || bad "the polkit rule survived"
 left="$(find /usr /etc \( -path '/etc/yum.repos.d' -o -path '/usr/share/doc/kempt-*' \) -prune -o \
           \( -iname '*kempt*' -o -path '*/kempt/*' \) -print 2>/dev/null)"
 is "nothing named for Kempt is left under /usr or /etc" "$left" ""

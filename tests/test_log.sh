@@ -307,28 +307,6 @@ STUB
     "...and the check still answers from the cached metadata (exit $rc)"
 done
 
-# A refresh the helper refused because a Kempt update is running (exit 5, either busy sentence) is
-# not a failure: the person's own update is under way. No "refresh failed", the failure marker is
-# left as it was, and the 3h window is not stamped, so the next check fetches.
-for sentence in "dnf5 was not started, because a Kempt update is running. Nothing changed." \
-                "dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed."; do
-  cat > "$TESTTMP/refresh-busy" <<STUB
-#!/usr/bin/env bash
-[[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
-echo "kempt-refresh: $sentence" >&2
-exit 5
-STUB
-  chmod +x "$TESTTMP/refresh-busy"
-  rm -f "$KEMPT_STATE_DIR/last_refresh" "$KEMPT_STATE_DIR/last_refresh_dnf"
-  echo "an earlier failure" > "$KEMPT_STATE_DIR/refresh_dnf_failed"
-  : > "$EV"
-  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-busy" "$KEMPT" check >/dev/null 2>&1 || true
-  assert_eq "$(events_like ' refresh failed')" "0" "a refresh refused while Kempt is busy is not recorded as failed"
-  assert_eq "$(cat "$KEMPT_STATE_DIR/refresh_dnf_failed")" "an earlier failure" "...and leaves the failure marker as it was"
-  assert_exit 1 "...and does not stamp the refresh window" -- test -e "$KEMPT_STATE_DIR/last_refresh_dnf"
-done
-rm -f "$KEMPT_STATE_DIR/refresh_dnf_failed"
-
 # A refresh that never answers, which is what an authentication dialog nobody is at looks like:
 # a background check cannot answer one, so it waits out the whole timeout. The number was
 # hardcoded at 120 until now, so no test could reach this branch without waiting two minutes -
@@ -368,22 +346,6 @@ KEMPT_FLATPAK_REMOTES_CMD=true KEMPT_FLATPAK_REFRESH_CMD=false "$KEMPT" check >/
 assert_eq "$(events_like ' refresh flatpak')" "0" "with no Flatpak remote, no line claims a Flatpak download"
 assert_not_contains "$("$KEMPT" log 2>&1)" "Flatpak lists downloaded" "...and the plain log does not say it"
 export KEMPT_SKIP_REFRESH=1
-
-# ==================================================================================================
-# The passwordless grant: the setting with the largest security consequence Kempt can change, and
-# the only one that used to leave no trace of having been attempted.
-# ==================================================================================================
-: > "$EV"
-# `install -o root` cannot succeed as an ordinary user, which is the realistic unprivileged
-# outcome and exactly what the rc in the line is for.
-assert_exit 1 "enable-passwordless fails unprivileged" \
-  env KEMPT_RULES_DST="$TESTTMP/pw.rules" "$KEMPT" enable-passwordless
-assert_eq "$(text_of "$(last_event)")" "passwordless enable rc=1" \
-  "...and the attempt is recorded with the exit status it ended on"
-: > "$EV"
-assert_exit 0 "disabling something never enabled is a clean no-op" \
-  env KEMPT_RULES_DST="$TESTTMP/pw.rules" "$KEMPT" disable-passwordless
-assert_eq "$(text_of "$(last_event)")" "passwordless disable rc=0" "...and is recorded as rc 0"
 
 # ==================================================================================================
 # kempt log itself.
@@ -428,7 +390,6 @@ plain_in=(
   "reclaim changed (unstable), nothing removed" "reclaim changed (new), nothing removed"
   "reclaim needs authorization, nothing removed" "reclaim failed rc=1: error: x"
   "reclaim failed (flatpak did not answer)" "reclaim refused (running as root)" "reclaim refused (reclaim=off)"
-  "passwordless enable rc=0" "passwordless enable rc=1" "passwordless disable rc=0" "passwordless disable rc=126"
   "discover-notifier off" "discover-notifier on" "discover-notifier keep" "config set surface=popup (was unset)"
   "hold dnf:kernel-core" "unhold dnf:kernel-core"
   "run start surface=bogus"
@@ -449,12 +410,10 @@ plain_in=(
   "offline marker dropped (a release upgrade (44) replaced our stage)"
   "offline marker kept (a new stage arrived while the check ran)"
   "offline marker cleared (rebuild failed, stage discarded)" "harvest applied (the result could not be recorded)"
-  "unstage refused (a Fedora release upgrade (44) is stored)" "passwordless enable rc=2"
+  "unstage refused (a Fedora release upgrade (44) is stored)"
   "dnf outcome read from history (transaction 10 ok, helper rc=1)"
   "dnf outcome read from history (transaction 10 Error, helper rc=0)"
-  "offline stage not started (another Kempt run is still in progress)"
-  "offline stage not armed (another Kempt run is still in progress)"
-  "check skipped (a Kempt update is running)")
+  "check skipped (a Kempt update is running)" "stopped watching")
 for t in "${plain_in[@]}"; do printf '2026-01-01T00:00:00+00:00 cli %s\n' "$t" >> "$EV"; done
 cp "$EV" "$TESTTMP/ev.before"
 plain_out="$("$KEMPT" log -n 500)"

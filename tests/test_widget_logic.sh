@@ -903,14 +903,6 @@ holds_out="$(KEMPT_CONFIG_DIR="$TESTTMP/hcfg" KEMPT_STATE_DIR="$TESTTMP/hstate" 
 assert_eq "$(HOLDS="$holds_out" js 'L.holdsOf(process.env.HOLDS).map(function (h) { return h.id; })')" \
   '["dnf:vim-common","flatpak:org.gimp.GIMP"]' "holdsOf parses what the real kempt holds prints"
 
-# --- lastLinesOf: the result line under the passwordless buttons -------------------------------
-assert_eq "$(js 'L.lastLinesOf("one\ntwo\nthree", 1)')" "three" "the last line is the verdict"
-assert_eq "$(js 'L.lastLinesOf("one\ntwo\nthree", 2)')" "two three" "a short tail joins with a space"
-assert_eq "$(js 'L.lastLinesOf("only", 2)')" "only" "fewer lines than asked for is fine"
-assert_eq "$(js 'L.lastLinesOf("a\n\n\nb\n\n", 2)')" "a b" "blank lines do not count towards the tail"
-assert_eq "$(js 'L.lastLinesOf("", 2)')" "" "nothing said, nothing shown"
-assert_eq "$(js 'L.lastLinesOf(null, 2)')" "" "and a missing string is not an error"
-
 # --- firstLineOf ------------------------------------------------------------------------------
 assert_eq "$(js 'L.firstLineOf("  hello  \nworld")')" "hello" "the first line comes back trimmed"
 assert_eq "$(js 'L.firstLineOf("\n\n  real line\nmore")')" "real line" "leading blank lines are skipped"
@@ -3397,7 +3389,7 @@ assert_eq "$(js 'L.checkArgs(true, true)')" " check --refresh" "...a fetch wins,
 cli_refresh_s="$(sed -n 's/^KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-\([0-9]*\)}"$/\1/p' "$REPO_ROOT/lib/common.sh")"
 assert_eq "$(js "L.CHECK_TIMEOUT_MS > L.CHECK_BODY_MS + 3 * ${cli_refresh_s:-999} * 1000")" "true" \
   "every check waits longer than the three refresh arms (${cli_refresh_s:-?} s each) and the check itself"
-helper_bound="$(sed -n 's|^  refresh) run_dnf5 -p RuntimeMaxSec=\([0-9]*\) -p TimeoutStopSec=\([0-9]*\) -- makecache --refresh ;;$|\2 \1|p' \
+helper_bound="$(sed -n 's|^ *-p RuntimeMaxSec=\([0-9]*\) -p TimeoutStopSec=\([0-9]*\) --setenv.*$|\2 \1|p' \
   "$REPO_ROOT/libexec/kempt-refresh")"
 assert_eq "${helper_bound#* }" "${cli_refresh_s:-missing}" \
   "...and the root helper stops dnf5's makecache after the same ${cli_refresh_s:-?} s"

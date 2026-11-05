@@ -28,7 +28,6 @@ FAILSET = os.path.join(p.sandbox, "failset")   # ...and to write
 # Without a slow seam here every write answers inside one event-loop turn, and a page that clears
 # its unsaved flag on the dispatching line looks identical to one that clears it on the callback.
 SLOWSET = os.path.join(p.sandbox, "slowset")
-PWSLOW = os.path.join(p.sandbox, "pwslow")     # ...and the passwordless action, which waits on a human
 for d in (VALUES, FAILGET, FAILSET, SLOWSET):
     os.makedirs(d)
 
@@ -86,9 +85,6 @@ case "$1" in
     esac ;;
   holds)  cat %(SB)s/holds; exit 0 ;;
   unhold) grep -vxF "$2" %(SB)s/holds > %(SB)s/h.tmp; mv %(SB)s/h.tmp %(SB)s/holds; exit 0 ;;
-  enable-passwordless)  [[ -e %(PW)s ]] && sleep 3
-                        echo "some polkit chatter"; echo "Passwordless updates enabled"; exit 0 ;;
-  disable-passwordless) echo "Passwordless updates disabled"; exit 0 ;;
   discover-notifier)
     case "$2" in
       status) cat %(DS)s; exit 0 ;;
@@ -97,7 +93,7 @@ case "$1" in
               exit 0 ;;
     esac ;;
 esac
-""" % {"DS": DNSTATUS, "DF": DNFAIL, "DW": DNSLOW, "FG": FAILGET, "FS": FAILSET, "SS": SLOWSET, "PW": PWSLOW, "V": VALUES, "SB": p.sandbox})
+""" % {"DS": DNSTATUS, "DF": DNFAIL, "DW": DNSLOW, "FG": FAILGET, "FS": FAILSET, "SS": SLOWSET, "V": VALUES, "SB": p.sandbox})
 
 # AppletConfiguration.qml's Apply wiring, transcribed. Nothing invented: the connect is the one at
 # its line 197-199, and settingValueChanged() is its line 105 with the two hooks this page does not
@@ -637,20 +633,6 @@ p.check("a hostile hold id reaches unhold as ONE argument", p.argv("unhold"), ["
 p.check("...and its injected command never ran",
         os.path.exists(os.path.join(p.sandbox, "PWNED")), False)
 
-p.clear_calls()
-ev6('page.runPasswordless("enable")')
-p.wait_for(ev6, "page.passwordlessBusy", False)
-p.check("the enable button runs the CLI's enable verb",
-        p.calls_matching("enable-passwordless"), ["enable-passwordless"])
-p.check("...and shows the command's own last words",
-        ev6("page.passwordlessResult"), "some polkit chatter Passwordless updates enabled")
-p.check("...and is not an unsaved change either", ev6("page.unsavedChanges"), False)
-ev6('page.runPasswordless("disable")')
-p.wait_for(ev6, "page.passwordlessBusy", False)
-p.check("the disable button runs the disable verb",
-        p.calls_matching("disable-passwordless"), ["disable-passwordless"])
-p.check("...with its own result line", ev6("page.passwordlessResult"), "Passwordless updates disabled")
-
 # An interval set below the dialog's floor is shown, not silently raised - and the arrows can
 # still reach a round number from there (stepSize 5, not 15: 5 -> 20 -> 35 never lands on 60).
 setval("refresh_interval_min", "5")
@@ -758,36 +740,6 @@ p.check("...and the retry, once it lands, is what finally clears it",
 p.check("...having written the value that was dropped", stored("include_flatpak"), "false")
 p.check("...without rewriting the key that had already succeeded",
         p.calls_matching("config set refresh_interval_min"), [])
-
-# ==================================================================================================
-# A settings write is never stuck behind the passwordless action.
-# runPasswordless waits on a HUMAN in an authentication dialog, and carries a 120-second timeout to
-# match. Sharing the page's one queue meant an Apply pressed meanwhile went to the back of it: the
-# write was real and would eventually land, but it could land two minutes later. Its own executor
-# is the fix - the two touch different files, so nothing was being serialised except the waiting.
-# ==================================================================================================
-for k, v in DEFAULTS:
-    setval(k, v)
-open(PWSLOW, "w").close()      # ...and now the stub waits, the way the polkit dialog does
-page10, ev10 = build()
-p.clear_calls()
-ev10('page.runPasswordless("enable")')
-p.pump(50)
-p.check("the passwordless action is in flight", ev10("page.passwordlessBusy"), True)
-p.check("...on a queue of its own", ev10("pwExecutor.current !== null"), True)
-p.check("...leaving the settings queue completely free",
-        ev10("cfgExecutor.current === null && cfgExecutor.queue.length === 0"), True)
-ev10("includeFlatpak.checked = false")
-ev10("includeFlatpak.toggled()")
-ev10("page.saveConfig()")
-p.wait_idle(ev10, "cfgExecutor")
-p.check("an Apply pressed during it writes straight away", stored("include_flatpak"), "false")
-p.check("...and the page reports itself saved as soon as that write lands",
-        ev10("page.unsavedChanges"), False)
-p.check("...all while the passwordless action is STILL running", ev10("page.passwordlessBusy"), True)
-p.wait_for(ev10, "page.passwordlessBusy", False, timeout_ms=15000)
-p.check("...which then finishes normally, with its own last words",
-        ev10("page.passwordlessResult"), "some polkit chatter Passwordless updates enabled")
 
 # ==================================================================================================
 # Every write this page dispatches outlives the dialog that dispatched it.

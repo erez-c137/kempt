@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 05:15+0200\n"
+"POT-Creation-Date: 2026-11-05 05:41+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -341,14 +341,6 @@ msgid "Could not remove the hold on %1."
 msgstr ""
 
 #: plasmoid/contents/ui/configGeneral.qml
-msgid "Done."
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "That did not complete (exit %1)."
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
 msgid "Reading your settings…"
 msgstr ""
 
@@ -489,26 +481,6 @@ msgstr ""
 
 #: plasmoid/contents/ui/configGeneral.qml
 msgid "Turn On Discover's Update Checks"
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Password prompts:"
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Updates normally ask for your password once per run. You can allow Kempt's update action to run without one. That applies only to this action, and only while you are logged in at this machine."
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Allow without password…"
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Require a password…"
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Kempt cannot read whether this is currently on: the rule it writes lives in a directory only root can list. Use the buttons to set it either way."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js

@@ -56,8 +56,8 @@ stuck probes pile up until the machine runs out of memory.
 restart, say so. Before adding code that reacts to another program, file the problem upstream.
 
 **6. The root helpers stay small and get a real run.** `libexec/kempt-refresh` and
-`libexec/kempt-apply` have a fixed line limit, to be set. Before a release they get a real run on
-Fedora with SELinux enforcing.
+`libexec/kempt-apply` have a fixed limit: 170 lines between them. Before a release they get a real
+run on Fedora with SELinux enforcing.
 
 ## Running things
 
@@ -65,6 +65,7 @@ Fedora with SELinux enforcing.
 tests/run_tests.sh                  # the whole bash suite; lists what it skipped at the end
 bash tests/test_doctor.sh           # one file (they are mode 0644, so run them with bash)
 tests/live/run-offline-gate.sh      # the container test, several minutes, needs podman
+tests/live/bus-check.sh             # root in a VM you can lose: does the helper tell the truth when %pre disturbs the bus
 bash -n bin/kempt lib/common.sh     # what CI lints, plus shellcheck
 ```
 

@@ -74,10 +74,6 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .B kempt config set
 .I key value
 .br
-.B kempt enable\-passwordless
-.br
-.B kempt disable\-passwordless
-.br
 .B kempt discover\-notifier
 .BR off " | " on " | " keep " | " status
 .RB [ \-\-json ]
@@ -309,13 +305,6 @@ stored anyway, so a newer widget can use it.
 is stored as
 .BR popup .
 .TP
-.B enable\-passwordless
-Install a polkit rule that lets your active local session install dnf updates without a password.
-It asks for an administrator's password once.
-.TP
-.B disable\-passwordless
-Remove that rule. Removing a rule that was never installed succeeds.
-.TP
 .BR "discover\-notifier off" " | " on " | " keep " | " status " [" \-\-json ]
 Turn Discover's own update notifier off or back on for you alone, without a password.
 .B off
@@ -425,8 +414,11 @@ The two polkit actions. Each names one helper path, and
 .B kempt doctor
 fails when it is not the one this CLI uses.
 .TP
-.I /etc/polkit-1/rules.d/49-kempt.rules
-Present only while passwordless mode is on.
+.I /usr/share/polkit-1/rules.d/49-kempt.rules
+Lets a
+.B wheel
+user at the computer update with no password. Anyone else there is asked for an administrator's
+password, and nobody can start an update over SSH.
 .TP
 .I /usr/share/plasma/plasmoids/io.github.erez_c137.kempt/
 The Plasma widget.
@@ -468,12 +460,6 @@ only: another program held the package lock.
 .TP
 .B 8
 Run as root. Run Kempt as your own user, and it asks for a password when it needs one.
-.PP
-.B disable\-passwordless
-passes on
-.BR pkexec 's
-code when it cannot remove the rule: 126 when the password dialog was dismissed, 127 when
-authorization was refused.
 .SH SEE ALSO
 .BR dnf5 (8),
 .BR flatpak (1),

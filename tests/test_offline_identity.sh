@@ -360,17 +360,34 @@ assert_eq "$(strict "$MARKER_REPLACED")" "$(printf 'verdict:applied 8\nstill run
 # That command is taken from the ROOT HELPER here rather than written out by hand, because the
 # helper is what dnf5 sees. A CLI that stopped agreeing with the helper about the command it runs
 # would quietly lose every live attribution, and this is the assertion that would not let it.
-# The helper hands dnf5 to systemd-run, so the command dnf5 runs is what follows the `--`, argv[0]
-# included: dnf5 records /usr/bin/dnf5 when that is how it was started (seen on dnf5 5.4.3).
-LIVE_CMD="$(KEMPT_APPLY_ECHO=1 bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y)"
-LIVE_CMD="${LIVE_CMD#* -- }"
+# The helper's stand-in dnf5 records its argv, argv[0] included: dnf5 records /usr/bin/dnf5 when that is
+# how it was started (seen on dnf5 5.4.3 and 5.4.1). Its tree stands in for /usr/bin.
+LIVE_ROOT="$TESTTMP/live-root"; mkdir -p "$LIVE_ROOT/usr/bin" "$LIVE_ROOT/run"
+# Enough of PID 1 for the argv: dnf5's output in the named file, then the stop step.
+cat > "$LIVE_ROOT/usr/bin/systemd-run" <<'STANDIN'
+#!/bin/bash -p
+out="" stop=""
+while [[ "$1" != -- ]]; do
+  case "$1" in
+    StandardOutput=file:*) out="${1#*:}" ;;
+    ExecStopPost=*) stop="${1#*=}" ;;
+  esac
+  shift
+done
+shift
+"$@" > "$out"; export EXIT_CODE=exited EXIT_STATUS=$?
+eval "$stop"
+STANDIN
+printf '#!/bin/bash -p\necho "/usr/bin/dnf5 $*"\n' > "$LIVE_ROOT/usr/bin/dnf5"
+chmod +x "$LIVE_ROOT/usr/bin/systemd-run" "$LIVE_ROOT/usr/bin/dnf5"
+LIVE_CMD="$(KEMPT_HELPER_ROOT="$LIVE_ROOT" bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y)"
 assert_eq "$LIVE_CMD" "/usr/bin/dnf5 upgrade -y" "premise: the root helper runs the command dnf5 records"
 # ...and the excludes, where the CLI puts them. cmd_update builds `/usr/bin/dnf5 upgrade "${yflag[@]}"
 # "${excl[@]}"` and hands the helper the same two arrays; dnf5 records argv verbatim, so a helper
 # that moved --exclude ahead of -y would match nothing and lose the attribution of every run on a
 # box that holds a package - silently, and only on those boxes. Nothing else compares the two.
-_excl_cmd="$(KEMPT_APPLY_ECHO=1 bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y --exclude=nano --exclude=zsh)"
-assert_eq "${_excl_cmd#* -- }" \
+_excl_cmd="$(KEMPT_HELPER_ROOT="$LIVE_ROOT" bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y --exclude=nano --exclude=zsh)"
+assert_eq "$_excl_cmd" \
   "/usr/bin/dnf5 upgrade -y --exclude=nano --exclude=zsh" "premise: ...with the held packages excluded in that order"
 
 LIVE_LIST="$TESTTMP/live-list.json"
@@ -478,8 +495,8 @@ mv "$TESTTMP/live-info-10.json" "$TESTTMP/live-info/dnf-history-info-10.json"
 
 
 # --- the helper could not tell, and dnf5's history can -------------------------------------------
-# A run whose helper exits non-zero after dnf5 finished: systemd-run lost its line to PID 1, or a
-# package's setup step printed something alarming. When the history names this run's transaction
+# A run whose helper exits non-zero after dnf5 finished, or a package's setup step printed something
+# alarming. When the history names this run's transaction
 # and records it as Ok, the run is recorded as the success it was, and the log says where the
 # result came from. A `>>> ` line is a package's setup step talking, so it is never the reason.
 sed -e 's/^exit 0$/echo ">>> Running %post scriptlet: demo-1.0"; echo ">>> Remote peer disconnected"; exit 1/' \
@@ -516,11 +533,10 @@ live_lost_run
 sed -i 's/exit 5$/exit 1/' "$TESTTMP/live-apply-lost"
 assert_eq "$(jq -r .status "$HH")" "failed" "...and so does a run the helper turned away as busy"
 assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "outcome read from history" "...which reads nothing from history"
-# Only an exit that can follow a dnf5 that ran is overridden: 1 (dnf5's failure, or the helper's
-# own when systemd lost the result), 255 (killed) and 128 and up (systemd-run stopped by a
-# signal). 2, 3, 4 and 5 are the helper turning the run away, and 126 and 127 are pkexec's: nothing
+# Only an exit that can follow a dnf5 that ran is overridden: 1 (dnf5's failure), 255 (killed) and
+# 128 and up (stopped by a signal). 2 and 3 are the helper turning the run away, and 126 and 127 are pkexec's: nothing
 # ran, so the Ok entry is another run's.
-for rc in 2 4 126 127; do
+for rc in 2 126 127; do
   sed -i "s/exit 1\$/exit $rc/" "$TESTTMP/live-apply-lost"
   live_lost_run
   sed -i "s/exit $rc\$/exit 1/" "$TESTTMP/live-apply-lost"
@@ -567,11 +583,6 @@ assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$RE
 printf '%s\n' ">>> Running %post scriptlet: demo-1.0" ">>> Remote peer disconnected: error" "Complete!" > "$TESTTMP/reason.log"
 assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log")" \
   "Complete!" "...and \"Remote peer disconnected\" never does"
-# The helper's 15-minute line is information, not why a run failed: never the last-line fallback.
-printf '%s\n' "== System (dnf) ==" "Upgrading demo-1.0" \
-  "kempt-apply: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." > "$TESTTMP/reason.log"
-assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log")" \
-  "Upgrading demo-1.0" "the helper's 15-minute line is never the failure reason"
 
 # A transaction PackageKit ran has no command line, and dnf5 lists it with command_line null. That
 # is another command, not a history of another shape: one such entry must not blind either reader.

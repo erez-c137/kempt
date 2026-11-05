@@ -362,11 +362,6 @@ The lowest value it offers is 15 minutes.
 **Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default) or **Never**. It is greyed
 out without Flatpak, or when Flatpak apps are left out of updates.
 
-**Password prompts** has **Allow without password…** and **Require a password…**. Each asks for
-your password and shows the result under the buttons. Which is active cannot be shown: only
-root can read the polkit rules. What the first one allows is in
-[security.md](security.md#passwordless-mode).
-
 **Discover** shows only when Discover's update notifier is installed. It says whether the notifier
 is on, with **Turn Off Discover's Update Checks**, or turned off by Kempt, with
 **Turn On Discover's Update Checks**, which acts at once, without **Apply**. When a startup file of your
@@ -396,7 +391,6 @@ Each button runs a command described in [usage.md](usage.md).
 | **Check Installation** | `kempt doctor` |
 | **Free Up Space** | `kempt reclaim -y --expect=<digest>` |
 | **Turn Off Discover's Update Checks**, **Turn On Discover's Update Checks**, closing the mild message | `kempt discover-notifier off`, `on`, `keep` |
-| **Allow without password…**, **Require a password…** | `kempt enable-passwordless`, `kempt disable-passwordless` |
 | **Copy Command** for a service, on the Startup report | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |
 | Opening the widget while it says a service runs again | `kempt startup ack --expect=<digest>` |

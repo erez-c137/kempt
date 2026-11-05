@@ -58,7 +58,7 @@ Requires:       polkit
 # The root helpers start dnf5 through systemd-run.
 Requires:       /usr/bin/systemd-run
 Requires:       util-linux-core
-# getfacl: kempt doctor and kempt-apply look for ACL entries in dnf's folders, which give other
+# getfacl: kempt doctor and the check before a run look for ACL entries in dnf's folders, which give other
 # users access the mode bits do not show. setfacl is in the fix doctor prints.
 Requires:       acl
 # `dnf5 needs-restarting` is the WHOLE of the reboot answer, and it lives in dnf5-plugins, not in
@@ -146,11 +146,6 @@ ln -s %{_datadir}/%{name}/bin/kempt %{buildroot}%{_bindir}/kempt
 # checkout. Verified by installing the package without them: `kempt --version` printed
 # "kempt unknown".
 install -p -m 0644 VERSION %{buildroot}%{_datadir}/%{name}/VERSION
-# `kempt enable-passwordless` renders this template into /etc/polkit-1/rules.d. Without it that
-# command has nothing to render and fails on the day someone runs it, not before.
-install -p -D -m 0644 polkit/49-kempt.rules.in \
-    %{buildroot}%{_datadir}/%{name}/polkit/49-kempt.rules.in
-
 # lib/ and backends/ are SOURCED, never executed. rpmlint rejects a 0644 file carrying a shebang,
 # and 0755 would advertise an entry point that does nothing when you run it. The shebang stays in
 # the checkout, where shellcheck and editors read the dialect off it; the installed copy is a
@@ -172,10 +167,11 @@ install -p -D -m 0755 libexec/kempt-flatpak-unused \
 install -p -D -m 0755 libexec/kempt-refresh %{buildroot}%{_libexecdir}/kempt-refresh
 install -p -D -m 0755 libexec/kempt-apply   %{buildroot}%{_libexecdir}/kempt-apply
 
-# polkit action only. The passwordless RULE is generated per user by `kempt enable-passwordless`
-# into /etc/polkit-1/rules.d, names a specific username, and is the admin's file. Not packaged.
+# polkit action and the fixed rule. The rule is the package's, so an upgrade or removal carries it.
 install -p -D -m 0644 polkit/io.github.erez_c137.kempt.policy \
     %{buildroot}%{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
+install -p -D -m 0644 polkit/49-kempt.rules \
+    %{buildroot}%{_datadir}/polkit-1/rules.d/49-kempt.rules
 
 # The plasmoid, in the KPackage layout: metadata.json at the root next to contents/.
 install -d %{buildroot}%{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt
@@ -256,6 +252,19 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 ! grep -rq '/usr/local/libexec' %{buildroot}%{_datadir}/%{name}/lib/common.sh \
     %{buildroot}%{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
 
+%triggerun -- kempt < 0.3.0
+# Up to 0.2.0, `kempt enable-passwordless` wrote this file. The packaged rule replaces it, and a rule
+# left here would keep granting whoever it named. It goes once, on the upgrade from such a version,
+# and only if it is word for word one of the two forms that command wrote, whatever user it named.
+# Anything else in this path is an admin's own override of the packaged rule, and stays.
+f=/etc/polkit-1/rules.d/49-kempt.rules
+[ -f "$f" ] && [ ! -L "$f" ] || exit 0
+case "$(sed -E -e 's|^(// Kempt passwordless updates for )[a-z_][a-z0-9._-]* - |\1@USER@ - |' \
+    -e 's|(subject\.user == ")[a-z_][a-z0-9._-]*(")|\1@USER@\2|' "$f" | sha256sum)" in
+  3c98df529de172d8086c38974eb7fa2b59e57f0ead00746c41c5f319cda1353d*|7bc8a303352743f7241bb52a715f38fd4d7b37e635241fc434f2271c9694ae7f*) rm -f "$f" ;;
+esac
+exit 0
+
 %files
 %license LICENSE
 # The user-facing documents chosen at the end of %%install, with docs/ kept as a directory so
@@ -266,6 +275,7 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 %{_libexecdir}/kempt-refresh
 %{_libexecdir}/kempt-apply
 %{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
+%{_datadir}/polkit-1/rules.d/49-kempt.rules
 %{_mandir}/man1/kempt.1*
 
 %files plasmoid

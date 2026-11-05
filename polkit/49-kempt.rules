@@ -1,0 +1,10 @@
+// Kempt updates: a wheel user at the desk needs no password, as Discover gives any active local user
+// through PackageKit. Over SSH, polkit's own default still answers no, and anyone else at the desk
+// still needs an admin password. Scoped to the apply action only. The refresh action is no-dialog by
+// policy and has no upgrade verb.
+polkit.addRule(function(action, subject) {
+    if (action.id == "io.github.erez_c137.kempt.apply" &&
+        subject.active && subject.local && subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+});
