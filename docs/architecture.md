@@ -574,8 +574,10 @@ action. A cheap verb must never share an action with a dangerous one.
   It handles dnf only. `flatpak update` asks polkit for itself and runs as the user.
 
 Both helpers validate every argument before running anything, accept no free-form arguments, and
-pin `PATH` and `LC_ALL`. Each runs dnf5 in place under a systemd scope, so its output and exit status are the
-helper's own, and it outlives a closed terminal or a logout. For a live upgrade, the status dnf5's history records
+pin `PATH` and `LC_ALL`. Each has PID 1 start dnf5 as a transient service, and copies its output from root-only
+files to the caller. The service records how dnf5 ended, which becomes the helper's exit status, so dnf5 inherits
+nothing from the caller and outlives a closed terminal, a logout or a dead caller. For a live upgrade, the status
+dnf5's history records
 for the run's own transaction settles a disagreement with the helper's exit status, in either
 direction. The full model, including who needs no
 password, is in [security.md](security.md).

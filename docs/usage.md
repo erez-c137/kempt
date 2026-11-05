@@ -653,7 +653,7 @@ Its wording is fixed, so you can search it:
 | `run start surface=<surface>` | A run is about to change the system. |
 | `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |
-| `stopped watching` | You pressed Ctrl-C during an update. The update carries on, and `dnf5 history list` shows how it ended. |
+| `stopped watching` | You pressed Ctrl-C during a run. An update that had started carries on, and `dnf5 history list` shows how it ended. |
 | `run failed rc=<n>: <reason>` | A run failed. The reason is the first log line that names the failure. |
 | `dnf outcome read from history (transaction <id> <status>, helper rc=<n>)` | The root helper and dnf5's history disagreed about the run's transaction. The history's status decides. |
 | `offline staged <n>` | An update was staged for the next restart. |

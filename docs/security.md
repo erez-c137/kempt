@@ -50,11 +50,11 @@ later) and `dnf5 makecache --refresh`.
 
 The CLI gives a check or refresh 120 seconds, because nobody is there to answer a dialog during a
 background check. That limit runs as you, so it cannot stop dnf5 once it runs as root. For that,
-`kempt-refresh` starts dnf5 in a scope with `RuntimeMaxSec=120`, and systemd sends SIGTERM after 120
-seconds and SIGKILL 10 seconds later. The numbers are fixed in the helper and never come from the
-caller. A plain process under that property ended at its limit with exit 143 [run]. Against a
-repository that stopped answering, a refresh ended at 120 seconds with exit 0 and "Metadata cache
-created", so a stuck fetch is not always reported as a failure [run]. A refresh that does fail goes
+`kempt-refresh` starts dnf5 as a service with `RuntimeMaxSec=120`, and systemd sends SIGTERM after
+120 seconds and SIGKILL 10 seconds later. The numbers are fixed in the helper and never come from the
+caller. A program in dnf5's place that never ended stopped at 120 seconds, and the helper exited with
+137 [run]. Against a repository that stopped answering, a refresh ended at 120 seconds with exit 0
+and "Metadata cache created", so a stuck fetch is not always reported as a failure [run]. A refresh that does fail goes
 no further than a warning, and the check goes on with the cached metadata. Apply calls have no
 timeout.
 
@@ -100,7 +100,7 @@ builds the command itself. Anything unexpected exits 2 **before** any privileged
 
 | Verb | Accepted arguments | Validation |
 | --- | --- | --- |
-| `dnf-upgrade`, `dnf-offline-stage` | `-y`, `--exclude=<name>` | `<name>` must match `^[A-Za-z0-9][A-Za-z0-9._+-]*$` |
+| `dnf-upgrade`, `dnf-offline-stage` | `-y`, `--exclude=<name>` | `<name>` must match `^[A-Za-z0-9][A-Za-z0-9._+-]*$`. A version form fits it too, and dnf5 applies it: `--exclude=tVer-3-1.noarch` skipped the newest version and took an older one [run] |
 | `dnf-offline-arm` | none | Any argument at all exits 2 |
 | `dnf-offline-clean` | none | Any argument at all exits 2 |
 
@@ -121,32 +121,74 @@ throws away updates that were still waiting to install.
 
 ### How dnf5 starts
 
-A helper validates its arguments and then replaces itself: `exec systemd-run --scope`, which runs
-`env -i`, which runs dnf5. No process stays behind to wait, so dnf5's output is live and its exit
-status is the helper's own, a failed `%pre` included [run].
+A helper validates its arguments and then asks PID 1 to run dnf5 as a transient system service, with
+`systemd-run --collect --service-type=exec --unit=kempt-apply-<verb>`, or `kempt-refresh-<verb>`.
+dnf5's parent is PID 1, so nothing about the caller reaches it. It has no terminal and no session,
+and it runs in `system.slice` as `system_u:system_r:rpm_t:s0`, the domain it had in 0.2.0 [run].
 
-The scope moves dnf5 out of your session and into `system.slice`, and HUP is ignored. So dnf5
-finished its work when the terminal closed during the download and during the transaction, and when
-`loginctl terminate-user` ended the session, from the session itself and from a user scope, as the
-widget runs [run]. Once the caller is gone, nothing reports the result except dnf5's own history.
+These are the service's own and not the caller's: timers, the controlling terminal, the session, the
+signal mask and ignored signals, the umask (0022), the working directory (`/`), open files, the
+environment (`PATH`, `LC_ALL`, `HOME` and what systemd sets for any service), resource limits, OOM
+score, nice value, scheduling class, I/O priority, CPU affinity, timer slack, personality, cgroup,
+SELinux domain and mount namespace. These were replayed against real dnf5 with the update at a chosen
+moment in a package script [run]:
 
-pkexec passes on the caller's umask, limits, working directory, signal settings and cgroup, and a
-refresh needs no password, so another account could set them. Before dnf5 starts, a helper resets
-the umask to 0022, the directory to `/`, the environment to `PATH`, `LC_ALL` and `HOME`, every
-ignored signal to its default, and the limits: core files off, stack 8 MB, 4096 open files, and no
-ceiling on file size, CPU time or memory [run]. So no caller can make root write files others can
-change.
+| What a caller did before pkexec | What happened to dnf5 |
+| --- | --- |
+| Armed a real, virtual or CPU timer | Finished. A real timer ended only the caller |
+| Sent Ctrl-C, Ctrl-\ or Ctrl-Z through a terminal it owns | Finished. On the first two the helper said so and left |
+| Stopped reading a full pipe, closed it, or pointed output at `/dev/full` | Finished, and the rpm lock was free for the next update |
+| Set `oom_score_adj=1000`, then used up the memory | Finished. Its score was 0, and the kernel killed the memory eater and the helper |
+| Set scheduling class, I/O priority, CPU affinity, personality or limits | None of them reached dnf5 |
 
-Some things it cannot reset, and a caller's choice reaches dnf5: the nice value, CPU affinity and OOM
-score [run]. The blocked-signal mask read the same with and without one set by the caller, so it was
-not seen to pass through [run]. A process running as you can start an update that is slow, or that
-the kernel kills first under memory pressure. Failing that way leaves what any interrupted dnf5
-leaves. dnf5 also runs in the caller's mount namespace, so `kempt doctor` and `kempt update` stop
-outside PID 1's. A process with no extra rights cannot change its own namespace and keep pkexec:
-pkexec refuses from a user namespace [run].
+Closing the terminal during the download or the transaction, `loginctl terminate-user` from the
+session and from a user scope, and root killing the helper outright all left dnf5 to finish [run].
 
-dnf5 runs as `unconfined_t`, as it does when typed under `sudo`, and not as `rpm_t` as it did when
-PID 1 started it. No SELinux denial appeared in a full run [run].
+dnf5's output goes to files in a folder only root can reach, made with `mktemp -d /run/kempt.XXXXXXXX`,
+and two children of the helper copy those files to the caller. A stuck reader stops a copy and never
+dnf5, though the helper stays until the reader goes. Output arrives as dnf5 writes it, a failed
+`%pre` included [run]. Other accounts could not list, read or write the folder, make one of that name
+beside it, or stop the service, and a `wheel` account over SSH could not either [run].
+
+The unit name is fixed per verb, so a second run while one is going fails at once with nothing
+started [run]. Other accounts could not take the name, and the caller's own user manager holding it
+had no effect [run]. Root masking the name, or dnf5's binary being missing, is a refused start: the
+helper exits 1 at once with systemd's sentence and removes the folder [run].
+
+The service's last step writes how dnf5 ended into the folder, and deletes it. The helper holds that
+file open, sees the folder go, and reads the answer from the file it still holds. It does not use
+`systemd-run --wait`, which hears over the message bus: when a package's `%pre` re-executed a user
+manager, `--wait` hung after dnf5 had finished, and when `%pre` restarted `dbus-broker`, `--wait`
+returned 0 after a second while dnf5 ran on [run]. `tests/live/bus-check.sh` keeps both cases.
+
+dnf5 that exited gives its own status. Anything else makes the helper exit 137: root killing dnf5, and
+the kernel's OOM killer, both did so, with the folder gone [run]. The CLI then asks dnf5's history,
+which settles it both ways. A transaction killed partway reported failed with the packages that had
+really moved. One killed after the transaction, whose history read Ok, reported its packages as updated
+with exit 0, and the event log says the answer came from history [run].
+
+Ctrl-C stops the watching and not dnf5. The helper says that the update carries on and exits 130, the
+CLI records `stopped watching`, and the rpm lock stays held until dnf5 ends. A stop anybody can aim at
+a chosen moment is what this design removes, so there is none. When the caller is gone, nothing
+reports the result except dnf5's own history, and Kempt's history has no entry for that run [run].
+
+These are the limits, stated and left as they are:
+
+- **The last step cannot start.** With `/usr/bin/sh` gone when dnf5 ends, the folder stays with an
+  empty record, and the helper waits until Ctrl-C, which leaves with the same words [run]. A later run
+  is not blocked by it. Producing this took root moving the shell away, so the helper has no branch for
+  it.
+- **A power cut, or a helper killed before the service starts.** A folder stays in `/run` until the
+  next restart, which clears `/run`. It blocks nothing, because each run makes its own [run].
+- **Root deleting the folder mid-run.** The helper reports at once with no record, so the CLI can say
+  an update failed that then finishes. dnf5's history has the truth [run].
+- **`/run` full.** If it fills during a run, dnf5 still finished and reported 0 [run]. If it is full
+  before a run, systemd refuses the service and nothing starts [run].
+- **The mount namespace.** The helper reads folders in the caller's mount namespace, and dnf5 runs in
+  PID 1's. A process with no extra rights cannot use that: pkexec refuses from a user namespace [run].
+  `kempt doctor` and `kempt update` stop outside PID 1's.
+
+No SELinux denial appeared in any of these runs [run].
 
 ### The folders dnf5 installs from
 
@@ -164,13 +206,17 @@ A program that calls the helper directly skips all of that, so the helper makes 
 its own. `kempt-apply` exits 3 while anything under dnf's state, staged packages or cache is not
 root's, or is writable by anyone other than root and its group. rpm checks only a digest after
 dnf5's signature check, which is why the cache counts. A link is judged by its owner and never
-followed. The helper does not check the folders above, ACL entries or FUSE mounts, which need root
-to set up. `dnf-offline-clean` skips this check, because discarding the stage is the fix, and it
+followed. `dnf-offline-clean` skips this check, because discarding the stage is the fix, and it
 installs nothing.
 
 `kempt-refresh` checks the cache the same way for both `check` and `refresh`, because root's dnf5
 parses what is in it. That narrows the hole and does not close it: Fedora's own `dnf-makecache.timer`
 has no such check [run], and any active local user can ask PackageKit for a refresh [run].
+
+Root's code no longer walks the folders above, reads ACL entries, looks for FUSE mounts or compares
+mount namespaces. `kempt update` and `kempt doctor` still do, as you, so a program that calls the
+helper directly skips them. An attempt to turn any of them into an install failed on a stock machine
+[run], but they are a real reduction on a misconfigured one.
 
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.
@@ -282,8 +328,10 @@ smaller than sudo, but it is more than nothing.
 `--exclude` is how your holds reach dnf5, and the helper cannot tell a caller who typed a password
 from one who did not, so it cannot refuse the flag to one of them. Used this way, it can keep a
 security fix off the machine for as long as the process keeps doing it. A process running as you can
-do the same by editing your holds. dnf5's history shows the excluded names in its command line, and
-an account outside `wheel` read them there [run].
+do the same by editing your holds. `--exclude` lasts one run: `kempt check` still lists the update, and
+a later plain run installs it [run]. dnf5's history shows the excluded names in its command line, and
+an account outside `wheel` read them there [run]. A run that ends in "Nothing to do" writes no history
+row, but `/var/log/dnf5.log` has its arguments, and any account can read that file [run].
 
 Updating Flatpak apps is outside that bound, because the helper has no Flatpak verb. Flatpak's own
 policy grants it to an active local session with no password, with or without Kempt.
