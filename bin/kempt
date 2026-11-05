@@ -1510,6 +1510,7 @@ cmd_update() {
           log_event "offline restage failed (stage left in place, another updater has prepared the next restart)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then
           reason_override="the earlier updates were removed and could not be prepared again"
+          log_event "offline stage discarded (rebuild failed)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           if clean_refused_over_folders "$log"; then
             reason_override="could not replace the prepared updates. $(clean_left_words "$log")"

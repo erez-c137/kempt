@@ -118,6 +118,11 @@ world ready dnf5; sed -i "s/^status = .*/status = 'ready'/" "$TOML"; check
 silent c04q; never c04q
 assert_not_contains "$(jq -r '.offline_stage_problem // "none"' "$STATE_FILE")" "lost" "c04q: quoting it does not know is never lost"
 
+# A record with a status and no format version is a format this build has not seen.
+world ready dnf5; sed -i '/^state_version/d' "$TOML"; check
+assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" unknown "no state_version: cannot tell"
+assert_eq "$(jq -r '.offline_staged // "none"' "$STATE_FILE")" none "no state_version: not published as ready"
+
 # --- something else armed: it is what dnf5 holds that is described
 world ready dnf5; sed -i "s/^rpmdb_cookie = .*/rpmdb_cookie = \"$(printf 'a%.0s' {1..64})\"/" "$TOML"
 cat > "$TX" <<'JSON'
@@ -208,6 +213,13 @@ assert_contains "$("$KEMPT" status)" "no restart will install them now" "lost: s
 assert_contains "$("$KEMPT" doctor 2>&1)" "kempt update --surface=offline" "lost: doctor offers it"
 : > "$WORLD/notifications"; check
 silent lost-again
+
+# A notification that did not show is not remembered: the person hears at the next check that can.
+world ready none; export KEMPT_NOTIFY="$TESTTMP/notify-fails"; mk notify-fails 'exit 1'
+check
+assert_not_contains "$(cat "$SHOWN")" "told=" "lost, notification failed: not remembered as told"
+export KEMPT_NOTIFY="$TESTTMP/notify-stub"; check
+assert_contains "$(said)" "no longer install" "lost: told at the next check that can show it"
 
 # status reads now: the link going between checks is seen before the next check
 world ready dnf5; check

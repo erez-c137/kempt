@@ -659,6 +659,7 @@ Its wording is fixed, so you can search it:
 | `offline staged <n>` | An update was staged for the next restart. |
 | `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
+| `offline stage discarded (<why>)` | A rebuild failed, or the stored stage would have installed what is now held. |
 | `offline stage left in place (another updater has prepared the next restart)` | Nothing was left to stage, and the old stage was kept, because removing it would cancel the other updater's restart update. |
 | `restart result: transaction <id> <status> (<counts>)` | After a restart, dnf5's history had a new row for a stage. The history entry says `offline (applied on reboot)` or `offline (restart did not finish)`. |
 | `restart result not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | The history entry could not be saved. The run itself is unaffected. |
