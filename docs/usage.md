@@ -911,7 +911,7 @@ whether automatic updates are on in Discover's settings. `--json` prints `instal
 `running`, `by_kempt` and `unattended`, plus `entry` when the file keeping it off is not Kempt's.
 
 **`seen`** records that the widget has shown its warning about Discover's automatic updates, and
-changes nothing else. The widget runs it.
+takes that warning out of the state file. The widget runs it.
 
 | Exit | When |
 | --- | --- |

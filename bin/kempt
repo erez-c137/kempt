@@ -3299,10 +3299,8 @@ cmd_discover_notifier() {
               log_event "Discover's update notifier kept as it is"
               echo "Discover's update notifier stays as it is."
             else "discover_notifier_$1"; fi ;;
-    # The widget drew the warning about Discover's automatic updates. The next check drops it from
-    # the state.
     seen)   [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
-            { kempt_init_dirs && : > "$DISCOVER_UNATTENDED_ANSWERED_FILE"; } 2>/dev/null || true ;;
+            discover_notifier_seen ;;
     status) [[ $# -eq 1 || ( $# -eq 2 && "$2" == --json ) ]] || { echo "unknown option: $2" >&2; exit 2; }
             discover_notifier_status "${2:-}" ;;
     *) echo "usage: kempt discover-notifier off | on | keep | status [--json] | seen" >&2; exit 2 ;;

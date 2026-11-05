@@ -280,8 +280,26 @@ assert_eq "$(state .discover_unattended_warn)" "true" "...whatever mode Kempt ru
 "$KEMPT" discover-notifier keep >/dev/null
 check_state
 assert_eq "$(state .discover_unattended_warn)" "true" "...and whether or not the earlier offer was answered"
+# What the widget shows from this state, once popupClosed has reset its three flags (main.qml).
+serious_after_close() {
+  node -e 'const L = require(process.argv[1]);
+    const s = L.parseState(require("fs").readFileSync(process.argv[2], "utf8"));
+    const opts = {discoverWarningKept: false, discoverWarningAckSent: false, discoverWarningGone: false};
+    process.stdout.write(String(L.viewModel(s, false, "", opts).discoverSerious));' \
+    "$REPO_ROOT/plasmoid/contents/ui/logic.js" "$KEMPT_STATE_DIR/state.json"
+}
+if command -v node >/dev/null 2>&1; then
+  assert_eq "$(serious_after_close)" "true" "before seen, the widget shows the serious warning"
+else
+  echo "SKIP: node is not installed, so the widget's reading of the state after seen was not tested"
+fi
 "$KEMPT" discover-notifier seen
 assert_exit 0 "seen marks the warning drawn" -- test -e "$KEY"
+assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "...and takes it out of the state at once"
+assert_eq "$(state .discover_unattended)" "true" "...and nothing else"
+if command -v node >/dev/null 2>&1; then
+  assert_eq "$(serious_after_close)" "false" "...so closing and opening the widget does not show it again before the next check"
+fi
 check_state
 assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "...so the next check owes it no longer"
 assert_eq "$(state .discover_unattended)" "true" "...while the setting is still reported"

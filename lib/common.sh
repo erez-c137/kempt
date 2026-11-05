@@ -426,6 +426,21 @@ discover_unattended_warn_pending() {
   discover_unattended || { rm -f "$DISCOVER_UNATTENDED_ANSWERED_FILE" 2>/dev/null || true; return 1; }
   ! on_ostree && [[ ! -e "$DISCOVER_UNATTENDED_ANSWERED_FILE" ]] && discover_unattended_active
 }
+# The widget drew the warning. The marker stops later checks owing it. The state says so now too,
+# because the next open of the popup comes before the next check, up to a day away. state.lock is
+# all this write needs: it changes one key, and nothing it reads comes from a user file.
+discover_notifier_seen() {
+  { kempt_init_dirs && : > "$DISCOVER_UNATTENDED_ANSWERED_FILE"; } 2>/dev/null || true
+  local out lfd
+  state_lock_open
+  out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.discover_unattended_warn)' "$STATE_FILE" 2>/dev/null)" || out=""
+  if [[ -n "$out" ]]; then
+    _KEMPT_STATE_LOCK_HELD=1
+    printf '%s\n' "$out" | write_state 2>/dev/null || true
+    _KEMPT_STATE_LOCK_HELD=""
+  fi
+  state_lock_close
+}
 # The offer, as state.json carries it: while the notifier starts with the session, unanswered.
 discover_offer_pending() { ! on_ostree && [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] && discover_enabled; }
 
