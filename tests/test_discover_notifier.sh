@@ -128,7 +128,7 @@ own="$(cat "$USER_ENTRY")"
 attempt off
 assert_eq "$rc" "1" "off over the person's own file refuses"
 assert_contains "$out" "Kempt did not write $USER_ENTRY, so nothing changed." "...and names the file"
-assert_contains "$out" "Add Hidden=true to it, or delete it and run kempt discover-notifier off" "...and says what to do"
+assert_contains "$out" "Add Hidden=true to its [Desktop Entry] group, or delete it and run kempt discover-notifier off" "...and says what to do"
 assert_eq "$(cat "$USER_ENTRY")" "$own" "...leaving it as it was"
 assert_eq "$(stat -c %a "$USER_ENTRY")" "600" "...with its permissions"
 assert_eq "$(is "$BACKUP")" "no" "...with no copy beside it"

@@ -447,7 +447,7 @@ discover_offer_pending() { ! on_ostree && [[ ! -e "$DISCOVER_ANSWERED_FILE" ]] &
 discover_notifier_off() {
   if discover_enabled; then
     if [[ -e "$DISCOVER_USER_ENTRY" || -L "$DISCOVER_USER_ENTRY" ]] && ! discover_entry_is_kempts; then
-      echo "Kempt did not write $DISCOVER_USER_ENTRY, so nothing changed. Add Hidden=true to it, or delete it and run kempt discover-notifier off." >&2
+      echo "Kempt did not write $DISCOVER_USER_ENTRY, so nothing changed. Add Hidden=true to its [Desktop Entry] group, or delete it and run kempt discover-notifier off." >&2
       return 1
     fi
     { mkdir -p "$(dirname "$DISCOVER_USER_ENTRY")" \

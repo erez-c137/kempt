@@ -896,7 +896,7 @@ without a password. When it is not installed, `off`, `on` and `keep` say so and 
 **`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true` and a
 line marking it as Kempt's, so the notifier stops starting at login, and stops the running one. If
 a file of your own is there, Kempt leaves it alone, changes nothing and names it: add `Hidden=true`
-to that file, or delete it and run `off` again.
+to that file's `[Desktop Entry]` group, or delete it and run `off` again.
 
 **`on`** deletes that file only if it carries Kempt's mark, so an edit made inside Kempt's file goes
 with it. A `.before-kempt` copy kept by 0.2.0 comes back to its old name, or stays and is named if a
