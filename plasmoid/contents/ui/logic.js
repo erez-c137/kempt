@@ -813,7 +813,7 @@ function reclaimRefsOf(reclaim) {
 // reclaimMessageOf(state.reclaim) -> the offer's one line.
 function reclaimMessageOf(reclaim) {
     if (!reclaimOffered(reclaim)) return "";
-    return i18n("%1 can be freed. No installed app uses these Flatpak runtimes.", formatDownload(reclaimBytesOf(reclaim)));
+    return i18n("Up to %1 can be freed. No installed app uses these Flatpak runtimes.", formatDownload(reclaimBytesOf(reclaim)));
 }
 
 // reclaimRefLineOf({ref, eol}) -> "org.kde.Platform 5.15-23.08", the id and branch of a

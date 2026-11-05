@@ -633,7 +633,7 @@ p.pump(120)
 p.check("the reclaim offer is on screen", lev("reclaimMessage.visible"), True)
 p.check("...and announces its own sentence",
         lev("reclaimMessage.Accessible.name"),
-        "~1.5 GB can be freed. No installed app uses these Flatpak runtimes.")
+        "Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes.")
 p.check("...as the alert every message is",
         lev("reclaimMessage.Accessible.role === Accessible.AlertMessage"), True)
 p.check("Free Up Space is named by its label, which is what the message's button hands over",
@@ -645,7 +645,7 @@ lev("reclaimMessage.showingWhat = true")
 p.pump(60)
 p.check("Show Runtimes puts one line per runtime under it, and the name read out says them too",
         lev("reclaimMessage.Accessible.name"),
-        "~1.5 GB can be freed. No installed app uses these Flatpak runtimes.\n"
+        "Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes.\n"
         "org.kde.Platform 5.15-23.08 (no longer supported)\n"
         "org.freedesktop.Platform.GL.default 23.08")
 lev("reclaimMessage.showingWhat = false")

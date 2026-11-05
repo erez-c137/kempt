@@ -146,10 +146,10 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    same message says so as a warning, one time, right under what is waiting for the restart. An
    image-based Fedora, which is told to use Discover, gets neither. The **Discover** row in settings
    turns the checks back on.
-9. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
+9. **"Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
    is at least 1 GB to free. **Show Runtimes** lists the runtimes, and **Free Up Space** removes
    them, without a password. It removes only runtimes you saw and that are still unused. The widget
-   then says what was freed and what remained, or Flatpak's reason if it refused. Closing it hides it
+   then says how many went and what remained, after Flatpak's reason if it refused. Closing it hides it
    until Plasma restarts.
 
 **Check Installation** checks Kempt's own files and settings without a password. A message under

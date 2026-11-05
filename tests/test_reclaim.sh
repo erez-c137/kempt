@@ -197,7 +197,7 @@ assert_eq "$rc" "5" "with no flatpak nothing is removed"
 rc=0; reclaim || rc=$?
 assert_eq "$rc|$(args)" "5|(no removal)" "no -y and no terminal to ask at is never a silent yes"
 assert_contains "$(said_out)" "$KDE (no longer supported)" "...the list is still shown"
-assert_contains "$(said_out)" "Removing them frees about 2.0 GB." "...with its size"
+assert_contains "$(said_out)" "Up to 2.0 GB can be freed." "...with its size"
 rc=0; reclaim --list || rc=$?
 assert_eq "$rc|$(args)" "0|(no removal)" "--list only lists"
 rc=0; reclaim --bogus || rc=$?
@@ -256,8 +256,8 @@ assert_eq "$rc|$(args)|$(said_out)" "0|(no removal)|Nothing to remove." "a named
 # --- the result comes from the list read afterwards -----------------------------------------------
 reset; only > "$AFTER"
 rc=0; reclaim -y || rc=$?
-assert_eq "$rc|$(said_out | tail -1)|$(said_err)" "0|Freed about 2.0 GB.|" "all gone is freed, on stdout, with exit 0"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Unused runtimes: Freed about 2.0 GB." "...and an event line"
+assert_eq "$rc|$(said_out | tail -1)|$(said_err)" "0|Removed 5 runtimes.|" "all gone is a count, on stdout, with exit 0"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Unused runtimes: Removed 5 runtimes." "...and an event line"
 assert_eq "$(block)" '{"refs":[],"bytes":0}' "...and the closing check takes the offer away"
 assert_eq "$(ls "$KEMPT_STATE_DIR/history" 2>/dev/null | wc -l)" "0" "...and a removal writes no history entry"
 # Flatpak failed and nothing went: its reason, and no word of success.
@@ -267,20 +267,20 @@ assert_eq "$rc" "1" "flatpak failing is exit 1"
 assert_contains "$(said_err)" "Nothing was removed." "...it says nothing went"
 assert_contains "$(said_err)" "Still installed: $(tr '\n' ' ' <<<"$ALL5" | sed 's/ $//')." "...and what remained"
 assert_contains "$(said_err)" "Flatpak stopped with exit code 1: $ERR" "...and flatpak's reason"
-assert_not_contains "$(said_out)$(said_err)" "Freed" "...and never that anything was freed"
+assert_not_contains "$(said_out)$(said_err)" "Removed" "...and never that anything went"
 assert_eq "$(said_err | wc -l)" "1" "...in one line, the one the widget shows"
 # Flatpak said yes and nothing went: the command running is no success.
 reset
 rc=0; reclaim -y || rc=$?
 assert_eq "$rc" "1" "flatpak saying yes with nothing gone is not a success"
 assert_contains "$(said_err)" "Nothing was removed." "...it says so"
-assert_not_contains "$(said_out)" "Freed" "...and claims nothing"
+assert_not_contains "$(said_out)" "Removed" "...and claims nothing"
 # Part went: flatpak stopped with some gone.
 reset; only "$KDE" > "$AFTER"
 rc=0; UNINSTALL_RC=1 reclaim -y || rc=$?
 assert_eq "$rc" "1" "part gone and flatpak failing is exit 1"
-assert_contains "$(said_err)" "Freed about 1.1 GB. Still installed: $KDE. Flatpak stopped with exit code 1" \
-  "...with what was freed, counted from the refs really gone, and what remained"
+assert_contains "$(said_err)" "Removed 4 runtimes. Still installed: $KDE. Flatpak stopped with exit code 1" \
+  "...with what went, counted from the refs really gone, and what remained"
 # Flatpak said yes and left one.
 reset; only "$KDE" > "$AFTER"
 rc=0; reclaim -y || rc=$?
@@ -289,30 +289,31 @@ assert_contains "$(said_err)" "Still installed: $KDE." "...and says which"
 # Another tool removes something during ours: not counted as ours.
 reset; only "$P24" > "$AFTER"
 rc=0; reclaim -y -- "$KDE" || rc=$?
-assert_eq "$rc|$(said_out | tail -1)" "0|Freed about 900 MB." "what another tool removed meanwhile is not counted"
+assert_eq "$rc|$(said_out | tail -1)" "0|Removed 1 runtime." "what another tool removed meanwhile is not counted"
 # Back in use by the time of the list afterwards: not removed, and still installed.
 reset; in_use "$KDE" | jq '.unused = []' > "$AFTER"
 rc=0; reclaim -y || rc=$?
 assert_eq "$rc" "1" "a ref flatpak was given that is now on the used side is not a success"
 assert_contains "$(said_err)" "Still installed: $KDE." "...it is still installed"
-assert_contains "$(said_err)" "Freed about 1.1 GB." "...and it is not counted as gone"
-# All gone, though flatpak failed: the freed space is real, and so is the failure.
+assert_contains "$(said_err)" "Removed 4 runtimes." "...and it is not counted as gone"
+# All gone, though flatpak failed: the removal is real, and so is the failure.
 reset; only > "$AFTER"
 rc=0; UNINSTALL_RC=1 reclaim -y || rc=$?
 assert_eq "$rc" "1" "all gone with flatpak failing is still exit 1"
-assert_contains "$(said_err)" "Freed about 2.0 GB. Flatpak stopped with exit code 1" "...and says both"
+assert_contains "$(said_err)" "Removed 5 runtimes. Flatpak stopped with exit code 1" "...and says both"
 # The list afterwards cannot be read: Kempt does not know, flatpak's exit status or not.
 for frc in 0 1; do
   reset; only > "$AFTER"; touch "$STUBS/unused.fail.3"
   rc=0; UNINSTALL_RC=$frc reclaim -y || rc=$?
   assert_eq "$rc" "1" "with the list afterwards unreadable (flatpak exit $frc) it is exit 1"
   assert_contains "$(said_err)" "cannot say what was removed" "...and it cannot say what went"
-  assert_not_contains "$(said_out)" "Freed" "...and claims nothing"
+  assert_not_contains "$(said_out)" "Removed" "...and claims nothing"
 done
-# No size: a count, from the list.
-reset; only > "$AFTER"; : > "$DU_TABLE.bak"; cp "$DU_TABLE" "$DU_TABLE.bak"; : > "$DU_TABLE"
+# No size: the removal does not need one, and no size is claimed.
+reset; only > "$AFTER"; cp "$DU_TABLE" "$DU_TABLE.bak"; : > "$DU_TABLE"
 rc=0; reclaim -y || rc=$?
-assert_eq "$rc|$(said_out | tail -1)" "0|Removed 5 runtimes." "a size that cannot be worked out is a count of what went"
+assert_eq "$rc|$(said_out | tail -1)" "0|Removed 5 runtimes." "a size that cannot be worked out stops nothing"
+assert_not_contains "$(said_out)" "can be freed" "...and is not claimed"
 reset; only "$KDE" "$P24" "$GL" "runtime/org.freedesktop.Platform.Locale/x86_64/24.08" > "$AFTER"
 rc=0; reclaim -y -- runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra || rc=$?
 assert_eq "$rc|$(said_out | tail -1)" "0|Removed 1 runtime." "...one of them in the singular"

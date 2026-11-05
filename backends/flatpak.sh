@@ -178,7 +178,8 @@ flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when th
     | {unused: [.unused[] | {ref, deploy_dir, eol}], used: [.used[] | {ref, deploy_dir}]}' <<<"$out" 2>/dev/null
 }
 
-# Bytes each unused ref would free, as TSV ref<TAB>bytes. Non-zero when there is no estimate: a du
+# The most each unused ref would free, as TSV ref<TAB>bytes: du counts apparent size, and less comes
+# back on compressed btrfs, Fedora's default (207 MB said, 163 MB by df on a test machine). Non-zero when there is no estimate: a du
 # that fails, times out or leaves a directory out. Nothing to size prints nothing and succeeds.
 flatpak_unused_sizes() {  # $1 = listing JSON → TSV; non-zero when unknown
   local listing="$1" out dirs=()

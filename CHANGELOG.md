@@ -37,6 +37,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **The widget's words can be translated.** Every sentence is whole in one `i18n()` call, with counts in `i18np`, so a translator can reorder it. `Messages.sh` writes the template in `po/`, and the package compiles any `po/<lang>.po` into the widget. No language is translated yet.
 - **The settings picture says it is from 0.2.0.** It still shows settings that have since gone.
+- **Free Up Space says how many runtimes went, not how much space.** The offer now says "Up to", because the measured size overstates what comes back on compressed btrfs, Fedora's default.
 
 ### Removed
 

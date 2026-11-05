@@ -2978,8 +2978,8 @@ assert_eq "$(js 'L.reclaimOffered(null)')" "false" "no block, no offer"
 assert_eq "$(js 'L.reclaimOffered("x")')" "false" "...and a block of the wrong type is ignored"
 
 assert_eq "$(js "L.reclaimMessageOf($RC_OFFER)")" \
-  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
-  "the line says how much, with the download footer's ~, and why it is safe"
+  "Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
+  "the line says at most how much, with the download footer's ~, and why it is safe"
 
 assert_eq "$(js "L.reclaimRefLineOf({ref:'runtime/org.freedesktop.Platform.GL.default/x86_64/24.08',eol:null})")" \
   "org.freedesktop.Platform.GL.default 24.08" "a ref reads as its id and branch"
@@ -2999,7 +2999,7 @@ RC_STATE="{schema:1,status:\"ok\",actionable:0,held_total:0,last_check:\"2026-09
 assert_eq "$(js "L.viewModel($RC_STATE,false).messageSlots")" '["reclaim"]' \
   "a state with an offer puts the message in the stack"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimMessage")" \
-  "~1.5 GB can be freed. No installed app uses these Flatpak runtimes." "...with its line"
+  "Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes." "...with its line"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimLines")" \
   '["org.kde.Platform 5.15-23.08 (no longer supported)","org.freedesktop.Platform.GL.default 24.08"]' \
   "...one line per runtime for Show Runtimes"
@@ -3015,8 +3015,8 @@ assert_eq "$(js 'L.viewModel(S("live"),false).reclaimMessage')" "" \
 
 # --- reclaimSaid: what the widget says after Free Up Space ---------------------------------------
 # The widget runs `kempt reclaim -y -- <refs>` and repeats what the CLI said.
-assert_eq "$(js "JSON.stringify(L.reclaimSaid(0, 'Removing them frees about 1.5 GB.\\nFreed about 1.5 GB.\\n', ''))")" \
-  '{"ok":true,"text":"Freed about 1.5 GB."}' "a removal says the CLI's last line"
+assert_eq "$(js "JSON.stringify(L.reclaimSaid(0, 'Up to 1.5 GB can be freed.\\nRemoved 1 runtime.\\n', ''))")" \
+  '{"ok":true,"text":"Removed 1 runtime."}' "a removal says the CLI's last line"
 assert_eq "$(js "JSON.stringify(L.reclaimSaid(0, '', ''))")" '{"ok":true,"text":"Nothing to remove."}' \
   "a CLI that said nothing is nothing to remove"
 assert_eq "$(js "JSON.stringify(L.reclaimSaid(1, '', 'Nothing was removed. Still installed: a.\\nmore\\n'))")" \

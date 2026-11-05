@@ -1739,7 +1739,7 @@ p.check("...and the button says what it does, for the eye and for a screen reade
 open(CHECKSRC, "w").write(RC_GONE)
 open(RECLAIMST, "w").write(RC_GONE)
 open(RECLAIMOUT, "w").write("No installed app uses these Flatpak runtimes:\n  org.kde.Platform 5.15\n"
-                            "Removing them frees about 1.5 GB.\nFreed about 1.5 GB.\n")
+                            "Up to 1.5 GB can be freed.\nRemoved 1 runtime.\n")
 p.clear_calls()
 lev("reclaimMessage.actions[0].trigger()")
 p.check("a press is pending until the CLI answers, and the button is disabled meanwhile",
@@ -1754,7 +1754,7 @@ p.check("...presses while it is pending start nothing: exactly one reclaim",
 p.check("...which removes only the set shown",
         p.argv("reclaim"), ["reclaim", "-y", "--", "runtime/org.kde.Platform/x86_64/5.15-23.08"])
 p.check("...and says how much it freed, in the CLI's words", ev("root.actionDone"),
-        "Freed about 1.5 GB.")
+        "Removed 1 runtime.")
 p.check("...as the thing that just happened, not as a failure",
         [ev("root.reportFailed"), lev("reportMessage.visible")], [False, True])
 p.check("...and the offer is gone after the re-check", lev("reclaimMessage.visible"), False)

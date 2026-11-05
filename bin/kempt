@@ -44,9 +44,9 @@ reclaim_bytes_of() {  # sizes TSV, refs one per line → bytes
 # refs are gone. On failure the one line goes to stderr, where the widget reads it.
 # 9>&- keeps check.lock's descriptor out of flatpak. The update lock (fd 8) is inherited on purpose:
 # if kempt is killed, no update starts until flatpak exits.
-reclaim_remove() {  # sizes refs(sorted, one per line) → 0, or 1 when anything is left to say
-  local sizes="$1" out rc=0 after err gone left freed n said
-  local -a refs; readarray -t refs <<<"$2"
+reclaim_remove() {  # refs(sorted, one per line) → 0, or 1 when anything is left to say
+  local out rc=0 after err gone left n said
+  local -a refs; readarray -t refs <<<"$1"
   # shellcheck disable=SC2086  # the seam carries its own arguments
   out="$(timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD -- "${refs[@]}" </dev/null 2>&1 9>&-)" || rc=$?
   [[ -z "$out" ]] || printf '%s\n' "$out"
@@ -60,12 +60,10 @@ reclaim_remove() {  # sizes refs(sorted, one per line) → 0, or 1 when anything
     echo "$said" >&2; log_event "Unused runtimes: $said"
     return 1
   fi
-  gone="$(comm -23 <(printf '%s\n' "$2") <(reclaim_all_refs "$after"))"
-  left="$(comm -12 <(printf '%s\n' "$2") <(reclaim_all_refs "$after"))"
+  gone="$(comm -23 <(printf '%s\n' "$1") <(reclaim_all_refs "$after"))"
+  left="$(comm -12 <(printf '%s\n' "$1") <(reclaim_all_refs "$after"))"
   n=0; [[ -z "$gone" ]] || n="$(wc -l <<<"$gone")"
-  freed="$(reclaim_bytes_of "$sizes" "$gone")"
   if [[ $n -eq 0 ]]; then said="Nothing was removed."
-  elif [[ "$freed" != 0 ]]; then said="Freed about $(human_bytes "$freed")."
   elif [[ $n -eq 1 ]]; then said="Removed 1 runtime."
   else said="Removed $n runtimes."
   fi
@@ -2313,7 +2311,7 @@ cmd_reclaim() {
     echo "Nothing was removed. Flatpak is not installed." >&2
     exit 5
   fi
-  local listing shown sizes="" bytes=0 fresh refs rc=0
+  local listing shown sizes bytes=0 fresh refs rc=0
   local no_list="Flatpak did not answer when asked what is unused. Nothing was removed."
   listing="$(flatpak_unused_list 2>/dev/null)" || { echo "$no_list" >&2; exit 1; }
   shown="$(reclaim_unused_refs "$listing")"
@@ -2325,7 +2323,7 @@ cmd_reclaim() {
   jq -r --arg shown "$shown" '($shown | split("\n")) as $s | .unused[] | select(.ref | IN($s[]))
     | "  \(.ref)" + (if .eol != null then " (no longer supported)" else "" end)' <<<"$listing"
   if sizes="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then bytes="$(reclaim_bytes_of "$sizes" "$shown")"; fi
-  [[ "$bytes" == 0 ]] || echo "Removing them frees about $(human_bytes "$bytes")."
+  [[ "$bytes" == 0 ]] || echo "Up to $(human_bytes "$bytes") can be freed."
   [[ -z "$list" ]] || return 0
   if [[ -z "$yes" ]]; then
     # No -y and nobody to ask: never a silent yes.
@@ -2347,7 +2345,7 @@ cmd_reclaim() {
   if [[ -z "$refs" ]]; then
     echo "Nothing to remove."
   else
-    reclaim_remove "$sizes" "$refs" || rc=$?
+    reclaim_remove "$refs" || rc=$?
   fi
   # state.json is the widget's only channel: the offer goes when this rewrites it. Still under the
   # update lock, then check.lock, the order cmd_update takes them in.

@@ -392,7 +392,7 @@ No installed app uses these Flatpak runtimes:
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra
   runtime/org.kde.Platform/x86_64/5.15-23.08 (no longer supported)
-Removing them frees about 1.5 GB.
+Up to 1.5 GB can be freed.
 Remove them? [y/N]
 ```
 
@@ -405,7 +405,7 @@ Remove them? [y/N]
 What it removes:
 
 - **Only what Flatpak calls unused.** An extension another installed runtime still uses stays. The
-  size is an estimate.
+  size is an upper limit: on compressed btrfs, Fedora's default, less comes back.
 - **Only by name.** Kempt reads the list again just before removing and passes only the runtimes on
   both lists, so Flatpak adds nothing of its own.
 - **An extension of a just installed app can go.** Flatpak refuses to remove a runtime an installed
@@ -417,7 +417,7 @@ What it removes:
 It never asks for a password. Removing needs an administrator (on Fedora, a member of the `wheel`
 group) logged in at the desktop. Otherwise Flatpak refuses, and Kempt shows its reason.
 
-The result comes from the list read afterwards: what was freed, and what is still installed. A
+The result comes from the list read afterwards: how many runtimes went, and what is still installed. A
 removal writes an event line and no history entry.
 
 | Exit | When |
