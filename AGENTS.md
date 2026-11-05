@@ -65,6 +65,7 @@ run on Fedora with SELinux enforcing.
 tests/run_tests.sh                  # the whole bash suite; lists what it skipped at the end
 bash tests/test_doctor.sh           # one file (they are mode 0644, so run them with bash)
 tests/live/run-offline-gate.sh      # the container test, several minutes, needs podman
+tests/live/bus-check.sh             # root in a VM you can lose: does the helper tell the truth when %pre disturbs the bus
 bash -n bin/kempt lib/common.sh     # what CI lints, plus shellcheck
 ```
 
