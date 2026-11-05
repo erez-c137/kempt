@@ -1551,7 +1551,7 @@ cmd_update() {
       # The helper refuses a live upgrade over dnf5's folders. Nothing ran.
       if [[ $live_rc -eq $KEMPT_APPLY_REFUSED ]]; then
         reason_override="$(refusal_words "$log" "nothing was installed" "$(apply_unsafe_words "dnf's folders")")"
-        log_event "The update was refused: other users can change dnf's folders"
+        log_event "The update was refused by Kempt's system helper"
       fi
     fi
     # Asked whatever the run's status: a failed transaction dnf5 recorded is still the transaction
@@ -3055,8 +3055,8 @@ startup_mute_cmd() {  # mute|unmute unit [--user]
   [[ $rc -ne 0 ]] || startup_patch_state || true
   writer_unlock
   [[ $rc -eq 0 ]] || { echo "kempt: could not write $STARTUP_MUTES_FILE" >&2; exit 1; }
-  if [[ "$verb" == mute ]]; then log_event "Stopped mentioning $unit until it starts"
-  else log_event "Mentioning $unit again"; fi
+  if [[ "$verb" == mute ]]; then log_event "Stopped mentioning $key until it starts"
+  else log_event "Mentioning $key again"; fi
 }
 
 startup_ack() {
