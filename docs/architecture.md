@@ -446,9 +446,9 @@ surface is `offline (restart did not finish)`. PackageKit's rows carry no comman
 Kempt's to announce. A history that does not answer says nothing, and the next check asks again.
 
 `~/.local/state/kempt/stage-shown` is the only thing remembered, and it is about the screen, not the
-machine: the last row reported, and which stored transaction a problem was told about, recorded once
-the notification really showed. Deleting it costs at most one repeat, and rows older than two days are
-not reported without it.
+machine: the last row reported, recorded before its report goes out, and which stored transaction a
+problem was told about, recorded once that notification really showed. Deleting it costs at most one
+repeat, and rows older than two days are not reported without it.
 
 **Another updater.** Discover's notifier, through PackageKit, can point `/system-update` at its
 own prepared update, leaving dnf5's state at `ready`. A stage behind that symlink is not armed. The

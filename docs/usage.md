@@ -269,29 +269,26 @@ To update anyway, use `kempt update --surface=widget` in a terminal, unless othe
 folders: then the message names the folder, and `kempt doctor` has the fix. While the restart is held, the
 risky-transaction prompt offers only `[u]` and `[a]`.
 
-**When the staged update will not install.** A restart may have skipped it, or a dnf command of
-your own removed the restart trigger. The next check tells you once:
+**When the staged update will not install.** Something on the computer cancelled it, usually
+PackageKit after a package change. The next check tells you once:
 
 ```
-Your prepared updates can no longer install on a restart. To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean.
+Your prepared updates will no longer install on a restart, because something cancelled them. To prepare them again, run kempt update --surface=offline or press Install on Next Restart in Kempt
 ```
 
-Kempt says nothing if your dnf command installed every staged update.
+Staging again downloads nothing. Kempt says nothing if your dnf command installed every staged update.
 
 **A live update replaces the stage.** A staged update is built against the installed packages, so
 when a live `kempt update` changes any rpm, Kempt discards the stage, which could only fail at boot.
 A Flatpak-only run leaves it alone.
 
-**Other tools.** If `dnf-automatic`, GNOME Software or a terminal `dnf5 upgrade` changes packages
-while an update is staged, Kempt leaves the stage alone and records it once. If something replaces
-the staged update, the next check tells you once. After the restart, Kempt reports only its own
-transaction from dnf5's history. If that did not run, the history entry and the notification say
-`restart (staged update did not run)`. If another updater installed the staged packages or newer
-ones, the history shows `staged update (installed by another updater)`. If only some of them
-moved to a newer version, the history shows `staged update (partly installed outside Kempt)` with
-those packages at the versions on the box. A downgrade, or a package the stage would only remove, does
-not count. If Kempt cannot tell, it adds no history entry and the normal list shows
-what is pending.
+**Other tools.** When `dnf-automatic`, GNOME Software or a terminal `dnf5 upgrade` changes packages
+while an update is staged, the stage usually cannot run: dnf5 refuses it at boot, and PackageKit
+removes its trigger within seconds. The next check tells you once, as above. If that tool installed
+the same updates, Kempt says nothing, and `kempt doctor` explains the copy left behind. After a
+restart, Kempt reports dnf5's own `--offline` rows from its history, one notification and one history
+entry for each. PackageKit's rows carry no command line, so Kempt does not report them. If Kempt
+cannot tell what the next restart will do, it says that.
 
 **A restart that stops part way.** A package's script can fail during the restart, and dnf5 then
 stops with the earlier packages installed. Kempt says how many of the updates it staged went in, and
