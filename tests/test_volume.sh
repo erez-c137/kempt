@@ -83,7 +83,7 @@ assert_eq "$(jq -s 'length' "$state")" "1" "...as exactly one JSON document, whi
 assert_eq "$(jq -r '.backends.dnf.actionable' "$state")" "$N" "...counting every one of them"
 assert_eq "$(jq -r '.status' "$state")" "ok" "...and calls the check a success, because it was"
 # The failure this file exists for did not only lose the answer, it lost the record of trying.
-grep -q 'check' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Check' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...with the check in the event log, so a failure here could never be silent" \
   || { echo "FAIL: no check event logged"; _fail=1; }
 

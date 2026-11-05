@@ -55,7 +55,6 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .B kempt log
 .RB [ \-n
 .IR N ]
-.RB [ \-\-raw ]
 .br
 .B kempt doctor
 .br
@@ -249,13 +248,10 @@ entries, or
 A damaged entry is left out and named on stderr.
 .TP
 .BR log " [" \-n " " \c
-.IR N "] [" \c
-.BR \-\-raw ]
+.IR N ]
 Print the last
 .I N
-(30) events as sentences, newest last;
-.B \-\-raw
-prints them as stored.
+(30) events as sentences, newest last.
 It answers "did the change I just made land?"
 .TP
 .B doctor

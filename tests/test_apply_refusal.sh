@@ -90,7 +90,7 @@ assert_eq "$(calls dnf-offline-clean)" "0" "...and cleans nothing"
 assert_eq "$(last_error)" \
   "nothing was prepared, because the stored offline transaction could not be read and preparing updates would replace it. See: kempt doctor" \
   "...and says nothing was staged, and why"
-grep -q 'offline stage refused by the root helper' "$KEMPT_STATE_DIR/events.log" \
+grep -q "Staging was refused by Kempt's system helper" "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log records the refusal" || { echo "FAIL: no refusal event"; _fail=1; }
 no_clean_advice "...and does not advise a clean"
 
@@ -183,7 +183,7 @@ KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-live-unsafe"
 assert_eq "$rc" "1" "a live update refused over an unsafe dnf folder fails the run"
 assert_eq "$(last_error)" "nothing was installed, because other users can change files in $UNSAFE. See: kempt doctor" \
   "...and the reason names the folder and the doctor"
-grep -q 'live update refused by the root helper' "$KEMPT_STATE_DIR/events.log" \
+grep -q "The update was refused by Kempt's system helper" "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log records the refusal" || { echo "FAIL: no live refusal event"; _fail=1; }
 grep -q 'See: kempt doctor' "$WORLD/notifications" \
   && echo "ok: ...and the notification points at the doctor" || { echo "FAIL: notification"; _fail=1; cat "$WORLD/notifications"; }

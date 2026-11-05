@@ -257,7 +257,7 @@ assert_contains "$(tail -n 1 "$WORLD/apply-calls" 2>/dev/null)" "APPLY dnf-upgra
 assert_eq "$(jq -r .status "$HH")" "ok" "the helper exits 1, the history records this run's transaction as Ok: the run is a success"
 assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "10" "...naming that transaction"
 assert_eq "$(jq -r '.error // ""' "$HH")" "" "...with no failure reason"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "dnf outcome read from history (transaction 10 ok, helper rc=1)" \
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "The update succeeded, as dnf's history records (transaction 10)" \
   "...and the event log says where the result came from"
 
 jq '(.[] | select(.id == 10) | .status) = "Error"' "$TESTTMP/live-list-after.json" > "$TESTTMP/live-list-error.json"
@@ -265,7 +265,7 @@ LIVE_AFTER="$TESTTMP/live-list-error.json"; live_lost_run
 LIVE_AFTER="$TESTTMP/live-list-after.json"
 assert_eq "$(jq -r .status "$HH")" "failed" "...but a transaction the history records as failed stays a failed run"
 assert_not_contains "$(jq -r '.error // ""' "$HH")" "Remote peer disconnected" "...whose reason is not a package's setup-step line"
-assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "outcome read from history" "...and nothing was read from history"
+assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "as dnf's history records" "...and nothing was read from history"
 jq '[.[0] | .id = 11] + .' "$TESTTMP/live-list-after.json" > "$TESTTMP/live-list-twice-lost.json"
 LIVE_AFTER="$TESTTMP/live-list-twice-lost.json"; live_lost_run
 LIVE_AFTER="$TESTTMP/live-list-after.json"
@@ -275,7 +275,7 @@ sed -i 's/exit 1$/exit 5/' "$TESTTMP/live-apply-lost"
 live_lost_run
 sed -i 's/exit 5$/exit 1/' "$TESTTMP/live-apply-lost"
 assert_eq "$(jq -r .status "$HH")" "failed" "...and so does a run the helper turned away as busy"
-assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "outcome read from history" "...which reads nothing from history"
+assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "as dnf's history records" "...which reads nothing from history"
 # Only an exit that can follow a dnf5 that ran is overridden: 1 (dnf5's failure), 255 (killed) and
 # 128 and up (stopped by a signal). 2 and 3 are the helper turning the run away, and 126 and 127 are pkexec's: nothing
 # ran, so the Ok entry is another run's.
@@ -284,7 +284,7 @@ for rc in 2 126 127; do
   live_lost_run
   sed -i "s/exit $rc\$/exit 1/" "$TESTTMP/live-apply-lost"
   assert_eq "$(jq -r .status "$HH")" "failed" "...and so does a helper exit of $rc, which ran nothing"
-  assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "outcome read from history" "...$rc: nothing read from history"
+  assert_not_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "as dnf's history records" "...$rc: nothing read from history"
 done
 for rc in 255 143; do
   sed -i "s/exit 1\$/exit $rc/" "$TESTTMP/live-apply-lost"
@@ -302,7 +302,7 @@ LIVE_AFTER="$TESTTMP/live-list-after.json"
 assert_eq "$(jq -r .status "$HH")" "failed" "the helper exits 0, the history records this run's transaction as Error: the run failed"
 assert_eq "$(jq -r '.transaction_id // "absent"' "$HH")" "10" "...naming that transaction"
 assert_contains "$(jq -r '.error // ""' "$HH")" "dnf5 recorded this update as failed" "...with a plain reason"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "dnf outcome read from history (transaction 10 Error, helper rc=0)" \
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "The update failed, as dnf's history records (transaction 10: Error)" \
   "...and the event log says where the result came from"
 jq '(.[] | select(.id == 10)) |= del(.status)' "$TESTTMP/live-list-after.json" > "$TESTTMP/live-list-nostatus.json"
 LIVE_AFTER="$TESTTMP/live-list-nostatus.json"; live_run

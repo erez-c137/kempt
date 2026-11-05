@@ -6,8 +6,8 @@
 # changed, state.json says what is pending now. None of them records that a SETTING was changed,
 # a package was held, or a check ran - so "did the change I just made in the widget land?" had no
 # answer anywhere on the box. That question is the whole reason this file exists, so the
-# assertions below are mostly about exact TEXT: a vocabulary a person can grep, one line per
-# thing that happened, and a `via` column that separates "I clicked that" from "something else".
+# assertions below are mostly about exact TEXT: one plain line per thing that happened, and a
+# `via` column that separates "I clicked that" from "something else".
 #
 # The fake world is the same shape test_update.sh uses: stub helpers on the privileged seams, a
 # TSV the installed-package lookup reads, and an apply stub that "upgrades" by swapping which TSV
@@ -67,7 +67,7 @@ export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"
 # Neither flatpak arm is privileged, so neither has a root helper to stub - both are driven
 # through their own command seams. `true` is a fetch that worked; the section below swaps in
 # `false`. The update seam is `true` for the same reason: a flatpak run that succeeded and changed
-# nothing, which is what this file's event-vocabulary assertions want out of that half.
+# nothing, which is what this file's event assertions want out of that half.
 export KEMPT_FLATPAK_REFRESH_CMD="true"
 export KEMPT_FLATPAK_UPDATE_CMD="true"
 export KEMPT_SKIP_REFRESH=1
@@ -75,8 +75,7 @@ export KEMPT_SKIP_REFRESH=1
 events()      { cat "$EV" 2>/dev/null || true; }
 events_like() { grep -c "$1" "$EV" 2>/dev/null || true; }   # how many lines carry this text
 last_event()  { tail -1 "$EV" 2>/dev/null || true; }
-# The event text without its timestamp and via column, which is what the vocabulary assertions
-# are about. cut -d' ' -f3-, so a text containing spaces survives intact.
+# The event text without its timestamp and via column, which is what the assertions are about. cut -d' ' -f3-, so a text containing spaces survives intact.
 text_of()     { cut -d' ' -f3- <<<"$1"; }
 
 # ==================================================================================================
@@ -100,7 +99,7 @@ assert_eq "$(jq -r '.last_check' "$KEMPT_STATE_DIR/state.json" \
              | grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[+-][0-9]{2}:[0-9]{2}$')" \
   "1" "...the same shape state.json's timestamps use"
 assert_eq "$(awk '{print $2}' <<<"$line")" "cli" "a command run from a shell is recorded as cli"
-assert_eq "$(text_of "$line")" "config set surface=popup (was unset)" \
+assert_eq "$(text_of "$line")" "Setting surface changed to widget (was not set)" \
   "...and the text names the key, the new value and what it replaced"
 
 # KEMPT_VIA is the widget's stamp and nothing else: two answers, so the log can separate "I
@@ -108,7 +107,7 @@ assert_eq "$(text_of "$line")" "config set surface=popup (was unset)" \
 KEMPT_VIA=widget "$KEMPT" config set surface offline
 assert_eq "$(awk '{print $2}' <<<"$(last_event)")" "widget" \
   "KEMPT_VIA=widget is recorded as widget"
-assert_eq "$(text_of "$(last_event)")" "config set surface=offline (was popup)" \
+assert_eq "$(text_of "$(last_event)")" "Setting surface changed to offline (was widget)" \
   "...and the old value is the one the previous write left"
 KEMPT_VIA=something-else "$KEMPT" config set surface popup
 assert_eq "$(awk '{print $2}' <<<"$(last_event)")" "cli" \
@@ -117,14 +116,14 @@ assert_eq "$(awk '{print $2}' <<<"$(last_event)")" "cli" \
 assert_eq "$(stat -c %a "$EV")" "600" "the file is 0600 from the moment it exists"
 
 # ==================================================================================================
-# One line per call site, in the documented words.
+# One line per call site.
 # ==================================================================================================
 : > "$EV"
 "$KEMPT" hold dnf:vim-common
-assert_eq "$(text_of "$(last_event)")" "hold dnf:vim-common" "hold records the backend:name pair"
+assert_eq "$(text_of "$(last_event)")" "Held dnf:vim-common" "hold records the backend:name pair"
 assert_eq "$(grep -c '' "$EV")" "1" "...as exactly one line"
 "$KEMPT" unhold dnf:vim-common
-assert_eq "$(text_of "$(last_event)")" "unhold dnf:vim-common" "unhold records the same pair"
+assert_eq "$(text_of "$(last_event)")" "No longer held: dnf:vim-common" "unhold records the same pair"
 assert_eq "$(grep -c '' "$EV")" "2" "...also as exactly one line"
 # A rejected hold changed nothing, so it must leave nothing behind - and it must still exit 2.
 assert_exit 2 "an invalid hold name still exits 2" "$KEMPT" hold 'dnf:*'
@@ -134,9 +133,15 @@ assert_eq "$(grep -c '' "$EV")" "2" "...and writes no event, because nothing was
 "$KEMPT" check >/dev/null
 state="$KEMPT_STATE_DIR/state.json"
 assert_eq "$(text_of "$(last_event)")" \
-  "check ok actionable=$(jq -r .actionable "$state") held=$(jq -r .held_total "$state")" \
+  "Checked: $(jq -r .actionable "$state") updates to install" \
   "a successful check records the numbers the badge is about to show"
 assert_eq "$(grep -c '' "$EV")" "1" "...as exactly one line"
+printf '#!/usr/bin/env bash\n[[ "$1" == check ]] && { printf "bash.x86_64 5.3.10-1.fc44 updates\\ncurl.x86_64 8.18.0-9.fc44 updates\\n"; exit 100; }\nexit 0\n' > "$TESTTMP/refresh-two"
+chmod +x "$TESTTMP/refresh-two"
+"$KEMPT" hold dnf:curl
+KEMPT_REFRESH_HELPER="$TESTTMP/refresh-two" KEMPT_FLATPAK_REMOTE_CMD=true "$KEMPT" check >/dev/null
+assert_eq "$(text_of "$(last_event)")" "Checked: 1 update to install, 1 held" "...one update is singular, and held ones are counted"
+"$KEMPT" unhold dnf:curl
 
 # ==================================================================================================
 # A run, end to end.
@@ -146,18 +151,16 @@ assert_eq "$(grep -c '' "$EV")" "1" "...as exactly one line"
 "$KEMPT" config set auto_accept true >/dev/null
 : > "$EV"
 assert_exit 0 "a successful detached run exits 0" "$KEMPT" update
-assert_eq "$(events | grep -c '^.* run start ')" "1" "...recording exactly one run start"
-assert_eq "$(text_of "$(events | grep ' run start ' | tail -1)")" "run start surface=popup" \
-  "...which names the surface it ran on"
+assert_eq "$(events | grep -c ' Update started$')" "1" "...recording exactly one start"
 hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
-assert_eq "$(text_of "$(events | grep ' run done ' | tail -1)")" \
-  "run done rc=0 updated=$(jq -r '[.backends[].updated | length] | add' "$hist") reboot=needed" \
-  "...and one run done carrying the update count and the reboot verdict"
+assert_eq "$(text_of "$(events | grep ' Update finished: ' | tail -1)")" \
+  "Update finished: $(jq -r '[.backends[].updated | length] | add' "$hist") updated, restart needed" \
+  "...and one finish carrying the update count and the reboot verdict"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
 : > "$EV"
 "$KEMPT" update >/dev/null
-assert_eq "$(text_of "$(events | grep ' run done ' | tail -1)")" \
-  "run done rc=0 updated=0 reboot=no" "a run that changed nothing says so, reboot verdict and all"
+assert_eq "$(text_of "$(events | grep ' Update finished: ' | tail -1)")" \
+  "Update finished: 0 updated" "a run that changed nothing says so, reboot verdict and all"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"
 
 # ==================================================================================================
@@ -168,10 +171,12 @@ cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 
 : > "$EV"
 "$KEMPT" update --surface=offline >/dev/null
-assert_eq "$(text_of "$(events | grep ' offline staged ' | tail -1)")" "offline staged 3" \
-  "a staged run records the count of what dnf5 stored"
-assert_eq "$(events_like ' run done ')" "0" \
-  "...and NOT run done: nothing has been applied, the reboot will do that"
+assert_eq "$(events_like ' Update started to stage for the next restart$')" "1" \
+  "a run that stages says so as it starts"
+assert_eq "$(text_of "$(events | grep ' Staged ' | tail -1)")" "Staged 3 updates for a restart" \
+  "...and records the count of what dnf5 stored"
+assert_eq "$(events_like ' Update finished: ')" "0" \
+  "...and NOT that it finished: nothing has been applied, the reboot will do that"
 
 # The restart: dnf5's transaction is gone, and its history has a row the check reports, once.
 export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
@@ -182,11 +187,11 @@ printf '#!/usr/bin/env bash\ncase "$*" in *"history list"*) cat "%s" ;; *) cat "
 : > "$EV"
 KEMPT_DNF_HISTORY_CMD="$TESTTMP/hstub" "$KEMPT" check >/dev/null
 KEMPT_DNF_HISTORY_CMD="$TESTTMP/hstub" "$KEMPT" check >/dev/null
-assert_eq "$(events_like 'restart result: transaction 9 Ok')" "1" \
+assert_eq "$(events_like 'After the restart: transaction 9 Ok')" "1" \
   "the check after the reboot reports it, and says so once"
 report_hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
-assert_eq "$(text_of "$(events | grep ' restart result: ' | tail -1)")" \
-  "restart result: transaction 9 Ok ($(bash -c "source '$REPO_ROOT/lib/common.sh'; run_counts_phrase '$report_hist'"))" \
+assert_eq "$(text_of "$(events | grep ' After the restart: ' | tail -1)")" \
+  "After the restart: transaction 9 Ok ($(bash -c "source '$REPO_ROOT/lib/common.sh'; run_counts_phrase '$report_hist'"))" \
   "...carrying the same counts phrase the notification carries"
 
 # ==================================================================================================
@@ -233,7 +238,7 @@ export KEMPT_APPLY_HELPER="$TESTTMP/apply-declined"
 : > "$EV"; : > "$WORLD/notifications"
 # --no-flatpak so exactly one privileged call is made, and the counts below are exact.
 assert_exit 1 "a run whose authentication was refused exits 1" "$KEMPT" update --no-flatpak
-assert_eq "$(text_of "$(events | grep ' run failed ' | tail -1)")" "run failed rc=1: $FRIENDLY" \
+assert_eq "$(text_of "$(events | grep ' Update failed ' | tail -1)")" "Update failed (exit code 1): $FRIENDLY" \
   "the event line says it in plain words, with the run's own exit status"
 runlog="$(ls -1t "$KEMPT_STATE_DIR/logs"/*.log | awk 'NR==1')"
 assert_eq "$(grep -c 'Not authorized' "$runlog")" "1" \
@@ -258,7 +263,7 @@ export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-declined"
 assert_eq "$(jq -r '.status' "$state")" "stale" "a check whose authentication was refused is stale"
 assert_eq "$(jq -r '.error' "$state")" "dnf check failed: $FRIENDLY" \
   "...and state.json names the backend and then says it in plain words"
-assert_eq "$(text_of "$(last_event)")" "check stale dnf check failed: $FRIENDLY" \
+assert_eq "$(text_of "$(last_event)")" "Check failed: dnf check failed: $FRIENDLY" \
   "...with the event line carrying exactly the same reason"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
 
@@ -269,16 +274,14 @@ export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
 unset KEMPT_SKIP_REFRESH
 : > "$EV"
 "$KEMPT" check >/dev/null
-assert_eq "$(events_like ' refresh ok')" "1" "a metadata refresh that worked is recorded"
-# One line per arm attempted. The dnf arm keeps its exact old words and the flatpak arm names
-# itself, so a reader can tell WHICH half of the refresh failed - and so every grep already
-# written against ` refresh ok` keeps meaning what it meant.
-assert_eq "$(events_like ' refresh flatpak ok')" "1" "the flatpak summary fetch is its own line"
+assert_eq "$(events_like ' Package lists downloaded')" "1" "a metadata refresh that worked is recorded"
+# One line per arm attempted, so a reader can tell WHICH half of the refresh failed.
+assert_eq "$(events_like ' Flatpak lists downloaded')" "1" "the flatpak summary fetch is its own line"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-declined"
 rm -f "$KEMPT_STATE_DIR/last_refresh"     # the 3h window, reopened
 : > "$EV"
 "$KEMPT" check >/dev/null 2>&1 || true
-assert_eq "$(events_like ' refresh failed')" "1" "...and one that did not is recorded too"
+assert_eq "$(events_like ' Package lists could not be downloaded')" "1" "...and one that did not is recorded too"
 
 # kempt-refresh stops a stalled makecache itself, as root, and `timeout` then exits 124, or 137
 # after its SIGKILL. Either is a failed refresh, and the check goes on with the cached metadata.
@@ -292,7 +295,7 @@ STUB
   rm -f "$KEMPT_STATE_DIR/last_refresh"
   : > "$EV"
   KEMPT_REFRESH_HELPER="$TESTTMP/refresh-timed-out" "$KEMPT" check >/dev/null 2>&1 || true
-  assert_eq "$(events_like ' refresh failed')" "1" "a refresh the helper stopped (exit $rc) is recorded as failed"
+  assert_eq "$(events_like ' Package lists could not be downloaded')" "1" "a refresh the helper stopped (exit $rc) is recorded as failed"
   assert_eq "$(jq -r .status "$KEMPT_STATE_DIR/state.json")" "ok" \
     "...and the check still answers from the cached metadata (exit $rc)"
 done
@@ -309,7 +312,7 @@ rm -f "$KEMPT_STATE_DIR/last_refresh"
 t0=$(date +%s)
 KEMPT_REFRESH_HELPER="$TESTTMP/refresh-hangs" KEMPT_REFRESH_TIMEOUT=1 "$KEMPT" check >/dev/null 2>&1 || true
 elapsed=$(( $(date +%s) - t0 ))
-assert_eq "$(events_like ' refresh failed')" "1" "a refresh that never answers is recorded as failed"
+assert_eq "$(events_like ' Package lists could not be downloaded')" "1" "a refresh that never answers is recorded as failed"
 [[ $elapsed -lt 15 ]] \
   && echo "ok: ...and the check gives up on it rather than waiting for it (${elapsed}s)" \
   || { echo "FAIL: the check waited ${elapsed}s for a refresh that was never going to answer"; _fail=1; }
@@ -321,20 +324,19 @@ assert_eq "$(jq -r .status "$KEMPT_STATE_DIR/state.json")" "stale" \
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-declined"
 # The arms fail independently: a dnf refresh nobody authorised must not cancel a flatpak fetch
 # that needs no authorisation at all.
-assert_eq "$(events_like ' refresh flatpak ok')" "1" "a declined dnf refresh still lets flatpak fetch"
+assert_eq "$(events_like ' Flatpak lists downloaded')" "1" "a declined dnf refresh still lets flatpak fetch"
 export KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub"
 rm -f "$KEMPT_STATE_DIR/last_refresh"
 : > "$EV"
 KEMPT_FLATPAK_REFRESH_CMD=false "$KEMPT" check >/dev/null
-assert_eq "$(events_like ' refresh flatpak failed')" "1" "a flatpak summary fetch that failed is recorded"
-assert_eq "$(events_like ' refresh ok')" "1" "...and says nothing about the dnf arm's own verdict"
+assert_eq "$(events_like ' Flatpak lists could not be downloaded')" "1" "a flatpak summary fetch that failed is recorded"
+assert_eq "$(events_like ' Package lists downloaded')" "1" "...and says nothing about the dnf arm's own verdict"
 # No Flatpak remote at all (offline or not): nothing was downloaded, so no line says Flatpak lists
 # were, and nothing says the fetch failed either.
 rm -f "$KEMPT_STATE_DIR/last_refresh"
 : > "$EV"
 KEMPT_FLATPAK_REMOTES_CMD=true KEMPT_FLATPAK_REFRESH_CMD=false "$KEMPT" check >/dev/null
-assert_eq "$(events_like ' refresh flatpak')" "0" "with no Flatpak remote, no line claims a Flatpak download"
-assert_not_contains "$("$KEMPT" log 2>&1)" "Flatpak lists downloaded" "...and the plain log does not say it"
+assert_eq "$(events_like ' Flatpak lists')" "0" "with no Flatpak remote, no line claims a Flatpak download"
 export KEMPT_SKIP_REFRESH=1
 
 # ==================================================================================================
@@ -347,104 +349,20 @@ assert_eq "$("$KEMPT" log -n 5 | wc -l)" "5" "-n takes a count"
 assert_eq "$(text_of "$("$KEMPT" log -n 1)")" "Setting surface changed to s40 (was s39)" \
   "...counting back from the newest, which is printed last"
 assert_eq "$("$KEMPT" log -n 500 | wc -l)" "40" "asking for more than exist shows all of them"
-assert_eq "$(text_of "$("$KEMPT" log -n 1 --raw)")" "config set surface=s40 (was s39)" \
-  "--raw prints the line as events.log stores it"
-assert_eq "$("$KEMPT" log -n 500 --raw)" "$(cat "$EV")" "...every line verbatim"
-
-# The display is plain words; the file keeps its vocabulary. One line per family, each of which
-# must come out changed and with none of the file's key=value words.
+# A line an older version wrote, or one that is no event at all, prints as stored. So does a last
+# line with no newline after it.
 : > "$EV"
-plain_in=(
-  "check ok actionable=78 held=2" "check ok actionable=1 held=0" "check stale dnf check failed: x"
-  "check shared last_check=2026-01-01T00:00:00+00:00" "refresh ok" "refresh failed" "refresh flatpak ok"
-  "refresh flatpak failed" "refresh skipped (on battery)" "refresh anyway (the connection is metered)"
-  "refresh anyway (on battery)"
-  "run start surface=popup" "run did not start: x" "run done rc=0 updated=7 reboot=needed"
-  "run failed rc=1: authentication cancelled" "offline staged 12" "offline restage (holds: a)"
-  "offline restage failed (previous stage intact)" "offline stage dropped (superseded by live update)"
-   "offline stage found nothing to stage"
-  "restart result: transaction 8 Ok (3 updated)"
-  "restart result not written (state directory unwritable?)"
-  "history entry not written (state directory unwritable?)" "unstage discarded the staged update"
-  "unstage refused (another updater has prepared the next restart)" "unstage refused by the root helper"
-  "unstage found nothing staged"  "unstage failed rc=126"
-  "unstage left a transaction behind (status ready)" "reclaim removed 2 runtimes (2000000 bytes) rc=0"
-  "reclaim found nothing to remove" "reclaim changed (digest), nothing removed"
-  "reclaim changed (unstable), nothing removed" "reclaim changed (new), nothing removed"
-  "reclaim needs authorization, nothing removed" "reclaim failed rc=1: error: x"
-  "reclaim failed (flatpak did not answer)" "reclaim refused (running as root)" "reclaim refused (reclaim=off)"
-  "discover-notifier off" "discover-notifier on" "discover-notifier keep" "config set surface=popup (was unset)"
-  "hold dnf:kernel-core" "unhold dnf:kernel-core"
-  "run start surface=bogus"
-  "startup failed after the update: bluetooth.service" "startup failed after the last restart: a.service, b.service"
-  "startup recovered: bluetooth.service" "startup muted system:cups.service" "startup unmuted user:foo.service"
-  "offline staged 4 (NOT recorded: the state directory could not be written)"
-  "offline stage refused by the root helper" "live update refused by the root helper" "offline stage discarded (rebuild failed)" "offline stage discarded (the stored one would have installed what is now held)"
-  "offline stage found nothing to stage (every pending update is held)"
-  "offline stage left in place (another updater has prepared the next restart)"
-  "notification shown: Updates are ready and install on the next restart"
-  "notification not shown (no desktop session): Update failed: no network"
-  "offline restage failed (stage left in place, another updater has prepared the next restart)"
-  "unstage refused (a Fedora release upgrade (44) is stored)"
-  "dnf outcome read from history (transaction 10 ok, helper rc=1)"
-  "dnf outcome read from history (transaction 10 Error, helper rc=0)"
-  "check skipped (a Kempt update is running)" "stopped watching")
-for t in "${plain_in[@]}"; do printf '2026-01-01T00:00:00+00:00 cli %s\n' "$t" >> "$EV"; done
-cp "$EV" "$TESTTMP/ev.before"
-plain_out="$("$KEMPT" log -n 500)"
-assert_eq "$(wc -l <<<"$plain_out")" "${#plain_in[@]}" "every line of the sample is shown"
-unchanged=""; codey=""; i=0
-while IFS= read -r line; do
-  shown="$(text_of "$line")"
-  [[ "$shown" != "${plain_in[$i]}" ]] || unchanged+="${plain_in[$i]}; "
-  grep -qE '(actionable|held|updated|surface|rc|last_check|reclaim|count)=| - |\b(harvest|popup|unstage|offline|marker|superseded|baseline)\b|root helper|NOT ' <<<"$shown" \
-    && codey+="$shown; "
-  i=$(( i + 1 ))
-done <<<"$plain_out"
-assert_eq "${unchanged%; }" "" "every family in the sample is shown in plain words"
-assert_eq "${codey%; }" "" "...with none of the file's code words"
-# The sample has to keep up with the code: every kind of line a log_event call writes (its text up
-# to the first expansion) needs a line here, so a new kind cannot ship without a sentence.
-missing=""
-while IFS= read -r head; do
-  [[ -n "$head" ]] || continue
-  found=""
-  for t in "${plain_in[@]}"; do [[ "$t" == "$head"* ]] && { found=1; break; }; done
-  [[ -n "$found" ]] || missing+="$head; "
-done < <(grep -rhoE 'log_event "[^"]*' "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_ROOT/backends" \
-           | sed -e 's/^log_event "//' -e 's/\$.*//' -e 's/ *$//' | sort -u)
-assert_eq "${missing%; }" "" "every kind of event the code writes is in the sample"
-assert_contains "$plain_out" "cli Running again: bluetooth.service" "a recovery reads as the notification does"
-assert_contains "$plain_out" "cli Staged update dropped (a live update replaced it)" "a superseded stage says why"
-assert_contains "$plain_out" "cli Notified: Updates are ready and install on the next restart" \
-  "a notification that showed says what it said"
-assert_contains "$plain_out" "cli Notification not shown (no desktop session): Update failed: no network" \
-  "...and one that did not says why"
-# A staging line is a past event: "for the next restart" read as current long after that stage was
-# installed or discarded.
-assert_contains "$plain_out" "cli Staged 12 updates for a restart"$'\n' "a staging line says what the run did"
-assert_contains "$plain_out" "cli Staged 4 updates for a restart, but not recorded, because the state directory could not be written" \
-  "...and keeps why it was not recorded"
-assert_eq "$(cmp -s "$EV" "$TESTTMP/ev.before" && echo same)" "same" "showing the log leaves events.log as it was"
-assert_contains "$plain_out" "cli Checked: 78 updates to install, 2 held" "a check reads as what the badge shows"
-assert_contains "$plain_out" "cli Checked: 1 update to install"$'\n' "...one update is singular, and no held is left out"
-assert_contains "$plain_out" "cli After the restart: transaction 8 Ok (3 updated)" "a restart install reads as one"
-assert_contains "$plain_out" "cli Update started in the widget" "a run in the widget says so"
-assert_contains "$plain_out" "cli Setting surface changed to widget (was not set)" "a setting change names widget, not the stored word"
-assert_contains "$plain_out" "cli Removed 2 unused runtimes, 2 MB" "a removal gives its size in a unit"
-# A last line with no newline after it is still shown, and control characters never reach the
-# terminal: ESC, BEL, a carriage return and an OSC title sequence are taken out, in both views.
-printf '2026-01-01T00:00:00+00:00 cli refresh ok' >> "$EV"
-assert_eq "$(text_of "$("$KEMPT" log -n 1)")" "Package lists downloaded" "a last line without a newline is shown"
+printf '2026-01-01T00:00:00+00:00 cli run done rc=0 updated=7 reboot=needed\nnot an event line\n' >> "$EV"
+printf '2026-01-01T00:00:00+00:00 cli no newline' >> "$EV"
+assert_eq "$("$KEMPT" log -n 3)" "$(cat "$EV")" "older lines and odd lines print as stored"
+# Control characters never reach the terminal: ESC, BEL, a carriage return and an OSC title
+# sequence are taken out.
 : > "$EV"
-printf '2026-01-01T00:00:00+00:00 cli hold dnf:a\033[31mb\a\rc\033]0;title\007\n' >> "$EV"
-ctl="$("$KEMPT" log -n 1; "$KEMPT" log -n 1 --raw; { "$KEMPT" doctor 2>/dev/null || true; } | grep 'Held dnf' || true)"
+printf '2026-01-01T00:00:00+00:00 cli Held dnf:a\033[31mb\a\rc\033]0;title\007\n' >> "$EV"
+ctl="$("$KEMPT" log -n 1; { "$KEMPT" doctor 2>/dev/null || true; } | grep 'Held dnf' || true)"
 assert_eq "$(LC_ALL=C grep -c $'[\x01-\x08\x0b-\x1f\x7f]' <<<"$ctl")" "0" \
-  "no control character reaches the terminal from kempt log, --raw or doctor"
+  "no control character reaches the terminal from kempt log or doctor"
 assert_contains "$ctl" "Held dnf:a[31mbc]0;title" "...and the rest of the line is still shown"
-cp "$TESTTMP/ev.before" "$EV"
-printf 'not an event line\n' >> "$EV"
-assert_eq "$("$KEMPT" log -n 1)" "not an event line" "a line that is not an event is shown as it is"
 : > "$EV"; for i in $(seq 1 40); do "$KEMPT" config set surface "s$i" >/dev/null; done
 
 assert_exit 2 "a zero count is a usage error" "$KEMPT" log -n 0
@@ -462,7 +380,7 @@ for i in $(seq 1 2500); do printf '2026-01-01T00:00:00+00:00 cli seed %s\n' "$i"
 "$KEMPT" config set surface popup >/dev/null      # the 2501st line
 assert_eq "$(grep -c '' "$EV")" "2000" "past 2500 lines the file is rewritten to the last 2000"
 assert_eq "$(text_of "$(head -1 "$EV")")" "seed 502" "...keeping the NEWEST 2000, oldest first"
-assert_eq "$(text_of "$(last_event)")" "config set surface=popup (was s40)" \
+assert_eq "$(text_of "$(last_event)")" "Setting surface changed to widget (was s40)" \
   "...with the event that tripped it still at the end"
 assert_eq "$(stat -c %a "$EV")" "600" "...and the rewrite keeps the file 0600"
 # One line under the threshold nothing moves: the rewrite runs once every 500 events, not on

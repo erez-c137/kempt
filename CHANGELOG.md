@@ -40,6 +40,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **`kempt log --raw` and the log's second set of words.** `events.log` now holds the sentences `kempt log` prints, so what you search is what you read. Lines from older versions print as stored. A script that searches the log for the old words, such as `run failed` or `check ok`, stops matching. A run's line drops where it ran, and the dnf history line drops the helper's exit code.
 - **`kempt enable-passwordless`, `kempt disable-passwordless` and the widget's Password prompts row.** The fixed rule replaces them. Upgrading from before 0.3.0 removes the rule an earlier version generated in `/etc/polkit-1/rules.d`, once, and an account outside `wheel` that had turned it on is asked again. A file there that an earlier version did not generate stays, on that upgrade and every later one.
 - **The root helpers' own checks of parent folders, ACL entries, FUSE mounts and the mount namespace, and their refusal on atomic Fedora.** `kempt update` and `kempt doctor` still make them before asking for anything. The helpers keep a short check that the folders dnf5 installs from belong to root.
 - **"dnf5 has been running for 15 minutes", and the plain sentence when a check meets another account's update.** A check that runs out behind another account's update now says the check failed. dnf5 waits for the running update, and the update is not harmed.

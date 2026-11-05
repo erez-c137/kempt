@@ -372,7 +372,7 @@ done
 assert_contains "$ctrlc_out" "carries on to the end" "...and the person reads what happens to the update"
 assert_not_contains "$ctrlc_out" "Update failed" "...and is not told it failed"
 assert_eq "$(ls "$KEMPT_STATE_DIR/history/" | wc -l)" "$hist_before" "...and no run is recorded as ended"
-assert_eq "$(tail -n 1 "$KEMPT_STATE_DIR/events.log" | grep -c 'stopped watching')" "1" "...and the event log says the watching stopped"
+assert_eq "$(tail -n 1 "$KEMPT_STATE_DIR/events.log" | grep -c 'Stopped watching')" "1" "...and the event log says the watching stopped"
 assert_eq "$(wc -l < "$WORLD/notifications")" "0" "...and no notification says it did"
 if flock -n "$KEMPT_STATE_DIR/lock" true 2>/dev/null; then echo "ok: ...and the lock is free for the next run"; else echo "FAIL: lock still held"; _fail=1; fi
 # Ctrl-C reaches every process of the terminal's group, tee too. Its line must still get through.
@@ -477,7 +477,7 @@ assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0
   "an armed stage is not immediately thrown away again"
 # The SAME count the event line carries: both answer "how many updates is the person waiting for",
 # and two different numbers on two surfaces for one transaction is a bug report waiting to happen.
-staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
+staged_ev="$(grep ' Staged [0-9?]' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* Staged \([^ ]*\) .*/\1/')"
 assert_eq "$(last_staged)" "$staged_ev" \
   "the history entry carries the same staged count the event line reports"
 
@@ -591,7 +591,7 @@ armhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$armhist")" "failed" "...and the history entry says the run failed"
 assert_eq "$(jq -r .error "$armhist")" "the updates were downloaded, but could not be set to install on the next restart" \
   "...naming the step that failed, not the first error-shaped line in the log"
-grep -q 'run failed rc=1: the updates were downloaded, but could not be set to install on the next restart' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Update failed (exit code 1): the updates were downloaded, but could not be set to install on the next restart' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event log carries the same reason" || { echo "FAIL: arm failure event line"; _fail=1; }
 grep -q 'Update failed: ' "$WORLD/notifications" \
   && echo "ok: a detached user is told the staging did not take" || { echo "FAIL: arm failure notification"; _fail=1; }
@@ -653,7 +653,7 @@ KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$mid_hel
 assert_eq "$armrc" "1" "an arm that fails behind another updater's symlink still fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and the clean that would remove that symlink is never run"
-assert_eq "$(tail -n 4 "$KEMPT_STATE_DIR/events.log" | grep -c 'offline stage left in place (another updater has prepared the next restart)')" "1" \
+assert_eq "$(tail -n 4 "$KEMPT_STATE_DIR/events.log" | grep -c 'Staged update left in place (another updater has prepared the next restart)')" "1" \
   "...and the log says why the stored one stayed"
 afhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$afhist")" \
@@ -710,7 +710,7 @@ stage_link_off
 assert_eq "$strc" "1" "a rebuild whose stage fails fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and does NOT clean away the previous transaction dnf5 left armed"
-grep -q 'offline restage failed (previous stage intact)' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Rebuilding the staged update failed (previous stage intact)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log says the previous stage is intact" \
   || { echo "FAIL: no restage-failed event"; _fail=1; }
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
@@ -750,7 +750,7 @@ sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$sthist")" \
   "could not replace the prepared updates, and the earlier ones are gone. Another updater has prepared the next restart. Try again after that restart" \
   "...and the reason says the old stage is gone and the restart installs the other update"
-grep -q 'offline restage failed (stage left in place, another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Rebuilding the staged update failed (stage left in place, another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the log says why nothing was cleaned" || { echo "FAIL: no event for the skipped clean"; _fail=1; }
 
 # --- a stage with nothing in it is not a failed stage --------------------------------------------
@@ -770,12 +770,12 @@ assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" 
   "...and nothing is armed, because there is nothing to arm"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and nothing is cleaned up, because nothing was made"
-grep -q 'offline staged ?' "$KEMPT_STATE_DIR/events.log" \
-  && { echo "FAIL: the log says 'offline staged ?' for a run that staged nothing"; _fail=1; } \
+grep -q 'Staged ? updates' "$KEMPT_STATE_DIR/events.log" \
+  && { echo "FAIL: the log says 'Staged ? updates' for a run that staged nothing"; _fail=1; } \
   || echo "ok: ...and no staged-count line contradicts it in the same second"
-grep -q 'offline stage found nothing to stage (every pending update is held)' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Nothing to stage (every pending update is held)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event names the reason, so the log does not read as a fault" \
-  || { echo "FAIL: no nothing-to-stage event"; _fail=1; grep 'offline' "$KEMPT_STATE_DIR/events.log" | tail -3; }
+  || { echo "FAIL: no nothing-to-stage event"; _fail=1; grep 'Nothing\|Staged' "$KEMPT_STATE_DIR/events.log" | tail -3; }
 grep -q 'Every waiting update is held, so the next restart has nothing to install' "$WORLD/notifications" \
   && echo "ok: ...and the user is told their holds did it, not that Kempt failed" \
   || { echo "FAIL: wrong notification"; _fail=1; cat "$WORLD/notifications"; }
@@ -829,10 +829,10 @@ assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" 
   "...and the old transaction is NOT armed again"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "1" \
   "...it is cleaned away, so the held package does not install on the next restart"
-tail -n +$(( nd_ev + 1 )) "$KEMPT_STATE_DIR/events.log" | grep -q 'offline restage' \
+tail -n +$(( nd_ev + 1 )) "$KEMPT_STATE_DIR/events.log" | grep -q 'Staged update rebuilt' \
   && { echo "FAIL: an empty stage over a stored one was logged as a restage"; _fail=1; } \
   || echo "ok: ...and the log does not call it a restage"
-grep -q 'offline stage discarded' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Staged update discarded' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...the log says the stored one was discarded" \
   || { echo "FAIL: no discarded event"; _fail=1; }
 grep -q 'Every waiting update is held, so the next restart has nothing to install. The updates prepared earlier were removed' "$WORLD/notifications" \
@@ -856,7 +856,7 @@ assert_eq "$ndrc" "0" "an empty stage behind another updater's symlink is not a 
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and the clean that would remove that symlink is never run"
 assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" "...nor the arm"
-grep -q 'offline stage left in place (another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Staged update left in place (another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the log says why the stored one stayed" \
   || { echo "FAIL: no event for the stage left in place"; _fail=1; }
 assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Every waiting update is held, so the next restart has nothing to install" \
@@ -941,9 +941,9 @@ export KEMPT_OFFLINE_LINK="$link_was"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 "$KEMPT" hold dnf:librepo >/dev/null 2>&1
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-grep -q 'offline restage (holds: librepo)' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Staged update rebuilt (holds: librepo)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: a rebuild over a conflicting hold records the hold it was for" \
-  || { echo "FAIL: no restage event - got: $(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" || true) restage lines"; _fail=1; }
+  || { echo "FAIL: no restage event - got: $(grep -c 'Staged update rebuilt' "$KEMPT_STATE_DIR/events.log" || true) restage lines"; _fail=1; }
 "$KEMPT" unhold dnf:librepo >/dev/null 2>&1
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 "$KEMPT" check >/dev/null
@@ -966,7 +966,7 @@ stage_ln="$(grep -n 'APPLY dnf-offline-stage' "$WORLD/timeline" | awk 'NR==1' | 
   || { echo "FAIL: check-before-stage (check=${check_ln:-none} stage=${stage_ln:-none})"; _fail=1; }
 assert_eq "$(last_staged)" "3" \
   "the count comes from what dnf5 stored, not from the state file it found"
-staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
+staged_ev="$(grep ' Staged [0-9?]' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* Staged \([^ ]*\) .*/\1/')"
 assert_eq "$staged_ev" "3" "...and so does the count on the event line"
 
 # A check that cannot answer must not stop the stage. Losing a number is not worth refusing to
@@ -996,7 +996,7 @@ chmod +x "$TESTTMP/refresh-stub.checknothing"
 stale_out="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.checknothing" \
   "$KEMPT" update --surface=offline --no-flatpak 2>/dev/null)" || true
 assert_eq "$(last_staged)" "3" "a check that found nothing gives way to the transaction's count"
-staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
+staged_ev="$(grep ' Staged [0-9?]' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* Staged \([^ ]*\) .*/\1/')"
 assert_eq "$staged_ev" "3" "...on the event line too"
 assert_contains "$stale_out" "staged 3 updates for a restart" "...and in the run's summary"
 
@@ -1055,18 +1055,18 @@ grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && { echo "FAIL: [s] upgraded l
 # ...and the route the recommendation offers must be one that EXISTS. `[s]tage offline` sets the
 # surface from inside this prompt, so a refusal placed before the recommendation is bypassed by
 # Kempt's own advice: answering `s` with a Fedora release upgrade stored reached dnf5, cancelled
-# gigabytes of downloaded upgrade, recorded it in the event log as an ordinary `offline restage`,
+# gigabytes of downloaded upgrade, recorded it in the event log as an ordinary rebuilt stage,
 # and told the user their updates would install on the next restart. The identical run started with
 # --surface=offline was refused. Two things close it: the option is not offered, and the gate now
 # runs after the prompt that can change the surface.
 : > "$WORLD/apply-calls"
 : > "$WORLD/notifications"
-relup_ev_before="$(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true)"
+relup_ev_before="$(grep -c 'Staged update rebuilt' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true)"
 release_upgrade_staged
 sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" 2>&1)" || true
 assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" \
   "answering [s] with a release upgrade stored never reaches dnf5"
-assert_eq "$(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true)" \
+assert_eq "$(grep -c 'Staged update rebuilt' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true)" \
   "$relup_ev_before" "...and Kempt does not record the destruction as its own restage"
 case "$sout" in
   *"Staging is not available"*) echo "ok: ...because the prompt does not offer a route that is refused" ;;
@@ -1301,7 +1301,7 @@ export KEMPT_RETRY_DELAY=0
 rm -f "$KEMPT_STATE_DIR"/logs/*.log   # per-second log names: this run's retries only
 # Exit 7, not 1: a script can tell "something else has the lock, try later" from a broken run.
 assert_exit 7 "a busy rpm lock exits 7 after the retries" "$KEMPT" update --no-flatpak
-grep -q 'run failed rc=7: another program is using the package system' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Update failed (exit code 7): another program is using the package system' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log names the same rc and reason" \
   || { echo "FAIL: the event log does not say rc=7 with the busy reason"; _fail=1; }
 assert_eq "$(grep -c 'Retrying' "$(ls -t "$KEMPT_STATE_DIR"/logs/* | awk 'NR==1')")" "2" "two retries logged"
@@ -1418,7 +1418,7 @@ PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=widget --no-flatpak >/dev/nu
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
   && echo "ok: a live rpm change discards the stage it invalidated" \
   || { echo "FAIL: the superseded stage was left armed and doomed"; _fail=1; }
-grep -q 'offline stage dropped (superseded by live update)' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Staged update dropped (a live update replaced it)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the drop is recorded - it is the only trace the stage ever left" \
   || { echo "FAIL: no event for the dropped stage"; _fail=1; }
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
@@ -1510,7 +1510,7 @@ case "$relout" in
   *"dnf5 offline clean"*) echo "ok: ...and how to get rid of it if that is what the person wants" ;;
   *) echo "FAIL: no remedy offered"; _fail=1 ;;
 esac
-grep -q 'run did not start' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Update did not start' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the refusal is in the event log, not only on a terminal nobody saw" \
   || { echo "FAIL: no event for the refusal"; _fail=1; }
 # ...and a state write DOES happen. It is the only thing that takes the widget out of its updating
@@ -1642,10 +1642,10 @@ grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" \
 grep -qE 'NOTIFY Kempt .*(updated|no package changes)' "$WORLD/notifications" \
   && echo "ok: ...and the notification still carries what actually changed" \
   || { echo "FAIL: no counts in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
-grep -q 'history entry not written' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Update history not saved' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the loss is recorded rather than passed over in silence" \
   || { echo "FAIL: nothing says the entry was lost"; _fail=1; }
-grep -q 'run done rc=0' "$KEMPT_STATE_DIR/events.log" \
+grep -q ' Update finished: ' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the run reaches its own end, which it used to die before" \
   || { echo "FAIL: no run-done event"; _fail=1; }
 # The post-run check is what releases the widget. Nothing else does.
@@ -1670,7 +1670,7 @@ cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 rm -f "$KEMPT_STATE_DIR"/logs/*.log "$KEMPT_STATE_DIR/state.json"
 push_history_back
 { ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null || true; } | sort > "$TESTTMP/hist-logro-before.txt"
-logro_end="$(grep -cE 'run done rc=0|run failed rc=1' "$KEMPT_STATE_DIR/events.log" || true)"
+logro_end="$(grep -cE ' Update finished: |Update failed \(exit code 1\)' "$KEMPT_STATE_DIR/events.log" || true)"
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=widget >/dev/null 2>&1 || true
 chmod 644 "$KEMPT_STATE_DIR"/logs/*.log 2>/dev/null || true
@@ -1682,7 +1682,7 @@ assert_eq "$(jq -r '.backends.dnf.updated | length > 0' "$logro_hist" 2>/dev/nul
   "...with the packages that moved"
 # flatpak's output has nowhere to go, so apply_with_retry never starts it and the entry says it
 # failed - which is true, and is not the same as the run dying.
-assert_eq "$(grep -cE 'run done rc=0|run failed rc=1' "$KEMPT_STATE_DIR/events.log" || true)" "$(( logro_end + 1 ))" \
+assert_eq "$(grep -cE ' Update finished: |Update failed \(exit code 1\)' "$KEMPT_STATE_DIR/events.log" || true)" "$(( logro_end + 1 ))" \
   "...and the run reaches its own end"
 assert_exit 0 "...and the closing check still rewrites the state the widget waits on" \
   -- test -s "$KEMPT_STATE_DIR/state.json"
@@ -1701,15 +1701,15 @@ fi
 exit 0
 STUB
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
-before_done="$(grep -c 'run done rc=0' "$KEMPT_STATE_DIR/events.log" || true)"
-before_lost="$(grep -c 'history entry not written' "$KEMPT_STATE_DIR/events.log" || true)"
+before_done="$(grep -c ' Update finished: ' "$KEMPT_STATE_DIR/events.log" || true)"
+before_lost="$(grep -c 'Update history not saved' "$KEMPT_STATE_DIR/events.log" || true)"
 rc=0
 TMPDIR="$RUN_TMP" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || rc=$?
 chmod 700 "$RUN_TMP"
 assert_eq "$rc" "0" "a run whose temp directory fills after the update is still a successful run"
-assert_eq "$(grep -c 'run done rc=0' "$KEMPT_STATE_DIR/events.log")" "$(( before_done + 1 ))" \
+assert_eq "$(grep -c ' Update finished: ' "$KEMPT_STATE_DIR/events.log")" "$(( before_done + 1 ))" \
   "...and reaches its own end instead of dying on a temp file"
-assert_eq "$(grep -c 'history entry not written' "$KEMPT_STATE_DIR/events.log" || true)" "$(( before_lost + 1 ))" \
+assert_eq "$(grep -c 'Update history not saved' "$KEMPT_STATE_DIR/events.log" || true)" "$(( before_lost + 1 ))" \
   "...saying what it could not keep"
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 
@@ -1804,7 +1804,7 @@ assert_eq "$(jq -r .error "$fpb_hist")" \
 grep -q 'another program is using Flatpak' "$WORLD/notifications" \
   && echo "ok: ...and the notification says the same" \
   || { echo "FAIL: the notification does not carry the Flatpak busy sentence"; _fail=1; }
-grep -q 'run failed rc=7: another program is using Flatpak' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Update failed (exit code 7): another program is using Flatpak' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and so does the event log, with rc=7" \
   || { echo "FAIL: the event log does not say rc=7 with the Flatpak busy reason"; _fail=1; }
 
@@ -2058,7 +2058,7 @@ assert_eq "$UF_RC" "1" "a busy system installation and a failed per-user update 
 assert_contains "$(jq -r .error "$UH")" "another program is using Flatpak" "...the reason still names the busy lock"
 assert_contains "$(jq -r .error "$UH")" "Another part of the update failed too" "...and says something else failed"
 assert_not_contains "$(jq -r .error "$UH")" "Try again" "...in place of telling the person to try again"
-grep -q 'run failed rc=1: another program is using Flatpak.*Another part of the update failed too' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Update failed (exit code 1): another program is using Flatpak.*Another part of the update failed too' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log says rc=1 with the same reason" \
   || { echo "FAIL: the event log does not say rc=1 with the combined reason"; _fail=1; }
 # ...and the same when the per-user apps cannot be listed after the run.

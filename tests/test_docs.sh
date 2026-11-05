@@ -2,8 +2,7 @@
 # Documentation defects that a reader sees and a diff does not.
 #
 # A Markdown table broken by a blank line still renders, but the rows below the break show as
-# literal text full of pipes. A missing log vocabulary row
-# shows in no diff, so each gets a test instead of a convention.
+# literal text full of pipes, and that shows in no diff, so it gets a test instead of a convention.
 #
 # Nothing here needs jq, a package manager or a desktop: it reads the tree it is standing in. The
 # prose check needs python3.
@@ -27,37 +26,6 @@ while IFS= read -r f; do
   fi
 done < <(find "$REPO_ROOT" -name '*.md' -not -path '*/.git/*' -not -path '*/internal/*' | sort)
 assert_eq "${broken%$'\n'}" "" "no Markdown table is split in two by a blank line"
-
-# --- every event line has a row in the `kempt log` vocabulary table ------------------------------
-# docs/usage.md's log section says "The vocabulary is fixed, so the file is worth grepping". That is
-# a promise about the CODE, so this derives the list from the code and asks the table about it -
-# It was already false for five families when this was
-# written, and it went false again for seven more the day `kempt unstage` was added, in both cases
-# with nothing to notice.
-#
-# The key is the first two words of each line's LITERAL prefix: the text before the first variable,
-# which is the part a person greps for and the part that must never appear from nowhere. So this
-# binds the VOCABULARY rather than whole sentences - a new variant inside a documented family
-# ("offline marker kept" beside "offline marker cleared") passes, a new family does not. Binding
-# whole sentences is not possible from here: most of them are half shell expansion.
-LOGSEC="$(awk '/^## log$/ { f = 1; next } f && /^## / { exit } f' "$REPO_ROOT/docs/usage.md")"
-assert_eq "$([[ -n "$LOGSEC" ]] && echo found || echo missing)" "found" \
-  "docs/usage.md still has a '## log' section"
-
-undocumented_events=""
-while IFS= read -r ev; do
-  [[ -n "$ev" ]] || continue
-  grep -qF "$ev" <<<"$LOGSEC" || undocumented_events+="$ev; "
-done < <(
-  # `[^"$]+` stops at the first variable, so what is captured is only the fixed text. Both files,
-  # because log_event is called from the library as well as the CLI.
-  grep -ohE 'log_event "[^"$]+' "$REPO_ROOT/bin/kempt" "$REPO_ROOT/lib/common.sh" \
-  | sed 's/^log_event "//' \
-  | awk 'NF >= 2 { print $1 " " $2; next } NF == 1 { print $1 }' \
-  | sort -u
-)
-assert_eq "${undocumented_events%; }" "" \
-  "every log_event line has a row in the kempt log vocabulary table"
 
 # --- the release check is named where somebody will look for it ---------------------------------
 # A check nobody can find is never run. The script exists, it is executable, and the three

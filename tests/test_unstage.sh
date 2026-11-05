@@ -80,7 +80,7 @@ assert_eq "$rc" "0" "unstage over an armed stage succeeds"
 assert_eq "$(calls dnf-offline-clean)" "1" "...through the helper verb that already existed"
 assert_eq "$out" "Discarded the updates waiting for the next restart. That restart installs nothing." \
   "...and says plainly what it did, and what that means"
-logged 'unstage discarded the staged update' \
+logged 'Staged update discarded' \
   && echo "ok: ...and the event log records it" || { echo "FAIL: no unstage event"; _fail=1; }
 
 # --- discarded means the transaction is really gone --------------------------------------
@@ -111,7 +111,7 @@ grep -q 'Fedora 45 upgrade' "$TESTTMP/err" \
   && echo "ok: ...and the message names the upgrade it protected" \
   || { echo "FAIL: the refusal does not name the release upgrade"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
 no_clean_advice "...and never advises the command that would delete it"
-logged 'unstage refused' \
+logged 'Discard refused' \
   && echo "ok: ...and the refusal is in the event log" || { echo "FAIL: no refusal event"; _fail=1; }
 
 # --- and refused as root, which is the case the CLI cannot see -------------------------------------

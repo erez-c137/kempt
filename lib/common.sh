@@ -225,164 +225,14 @@ kempt_init_dirs() {
 # --- the event log ---
 # The question the other three files cannot answer: logs/, history/ and state.json say what the
 # package manager printed, what a run changed and what is pending, and nothing records that a
-# setting was changed, a package held, or a check ran at all. One line per thing Kempt did,
-# appended, read back with `kempt log`.
+# setting was changed, a package held, or a check ran at all. One plain sentence per thing Kempt
+# did, appended, read back with `kempt log`. Nothing parses these lines, so each call site words
+# its own.
 #
 # Best-effort by construction, and that is a contract, not a shrug. It returns 0 whatever happens,
 # because a log line is never worth changing the exit status of the command that emitted it, and it
 # blocks for at most 5 seconds on events.lock. A state directory that cannot be written simply gets
 # no events.
-# --- the event log, in plain words ----------------------------------------------------------------
-# events.log keeps its fixed vocabulary on disk: tests, scripts and the widget read it, and
-# docs/usage.md lists every line. `kempt log` and doctor's last events show each line in plain words
-# instead. A line this does not know is shown as written. Sets EVENT_PLAIN rather than printing, so
-# a long log costs no subshell per line.
-event_count_phrase() {  # n singular plural → "1 update" | "3 updates" | "? updates"
-  if [[ "$1" == 1 ]]; then EVENT_COUNT="1 $2"; else EVENT_COUNT="$1 $3"; fi
-}
-event_where_phrase() {  # surface → where a run went, in the widget's settings words
-  case "$1" in
-    terminal) EVENT_WHERE="in a terminal window" ;;  # a line an older version logged
-    popup) EVENT_WHERE="in the widget" ;;
-    background) EVENT_WHERE="in the widget" ;;  # a line an older version logged
-    offline) EVENT_WHERE="to stage for the next restart" ;;
-    *) EVENT_WHERE="somewhere Kempt does not know ($1)" ;;
-  esac
-}
-event_plain() {  # event text → EVENT_PLAIN
-  local t="$1" rest
-  EVENT_PLAIN="$t"
-  case "$t" in
-    "check ok "*)
-      if [[ "$t" =~ ^check\ ok\ actionable=([0-9]+|\?)\ held=([0-9]+|\?)$ ]]; then
-        event_count_phrase "${BASH_REMATCH[1]}" "update to install" "updates to install"
-        EVENT_PLAIN="Checked: $EVENT_COUNT"
-        [[ "${BASH_REMATCH[2]}" == 0 ]] || EVENT_PLAIN+=", ${BASH_REMATCH[2]} held"
-      fi ;;
-    "check stale "*) EVENT_PLAIN="Check failed: ${t#check stale }" ;;
-    "notification shown: "*) EVENT_PLAIN="Notified: ${t#notification shown: }" ;;
-    "notification not shown ("*"): "*)
-      rest="${t#notification not shown (}"
-      EVENT_PLAIN="Notification not shown (${rest%%): *}): ${rest#*): }" ;;
-    "startup failed after the "*": "*) rest="${t#startup failed after the }"
-      EVENT_PLAIN="Didn't start after the ${rest%%: *}: ${rest#*: }" ;;
-    "startup recovered: "*) EVENT_PLAIN="Running again: ${t#startup recovered: }" ;;
-    "startup muted "*:*) EVENT_PLAIN="Stopped mentioning ${t#startup muted *:} until it starts" ;;
-    "startup unmuted "*:*) EVENT_PLAIN="Mentioning ${t#startup unmuted *:} again" ;;
-    "check skipped "*) EVENT_PLAIN="Not checked ${t#check skipped }" ;;
-    "check shared last_check="*) EVENT_PLAIN="Check used the answer of the check at ${t#check shared last_check=}" ;;
-    "refresh ok") EVENT_PLAIN="Package lists downloaded" ;;
-    "refresh failed") EVENT_PLAIN="Package lists could not be downloaded" ;;
-    "refresh flatpak ok") EVENT_PLAIN="Flatpak lists downloaded" ;;
-    "refresh flatpak failed") EVENT_PLAIN="Flatpak lists could not be downloaded" ;;
-    "refresh skipped "*) EVENT_PLAIN="Package lists not downloaded ${t#refresh skipped }" ;;
-    "refresh anyway "*) EVENT_PLAIN="Downloading package lists anyway ${t#refresh anyway }" ;;
-    "run start surface="*)
-      event_where_phrase "${t#run start surface=}"; EVENT_PLAIN="Update started $EVENT_WHERE" ;;
-    "run did not start: "*) EVENT_PLAIN="Update did not start: ${t#run did not start: }" ;;
-    "stopped watching") EVENT_PLAIN="Stopped watching. An update that had started carries on" ;;
-    "run done "*)
-      if [[ "$t" =~ ^run\ done\ rc=0\ updated=([0-9]+|\?)\ reboot=(needed|no)$ ]]; then
-        EVENT_PLAIN="Update finished: ${BASH_REMATCH[1]} updated"
-        if [[ "${BASH_REMATCH[2]}" == needed ]]; then EVENT_PLAIN+=", restart needed"; fi
-      fi ;;
-    "run failed rc="*)
-      if [[ "$t" =~ ^run\ failed\ rc=([0-9]+):\ (.*)$ ]]; then
-        EVENT_PLAIN="Update failed (exit code ${BASH_REMATCH[1]}): ${BASH_REMATCH[2]}"
-      fi ;;
-    "offline staged "*)
-      rest="${t#offline staged }"
-      if [[ "$rest" =~ ^([0-9]+|\?)(.*)$ ]]; then
-        event_count_phrase "${BASH_REMATCH[1]}" "update" "updates"
-        rest="${BASH_REMATCH[2]}"
-        EVENT_PLAIN="Staged $EVENT_COUNT for a restart"
-        if [[ "$rest" =~ ^\ \(NOT\ recorded:\ (.*)\)$ ]]; then
-          EVENT_PLAIN+=", but not recorded, because ${BASH_REMATCH[1]}"
-        else
-          EVENT_PLAIN+="$rest"
-        fi
-      fi ;;
-    "offline restage failed"*) EVENT_PLAIN="Rebuilding the staged update failed${t#offline restage failed}" ;;
-    "offline restage"*) EVENT_PLAIN="Staged update rebuilt${t#offline restage}" ;;
-    "offline stage found nothing to stage"*) EVENT_PLAIN="Nothing to stage${t#offline stage found nothing to stage}" ;;
-    "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
-    "live update refused by the root helper") EVENT_PLAIN="The update was refused: other users can change dnf's folders" ;;
-    "dnf outcome read from history ("*" ok, "*) EVENT_PLAIN="The update succeeded, as dnf's history records" ;;
-    "dnf outcome read from history"*) EVENT_PLAIN="The update failed, as dnf's history records" ;;
-    "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
-    "restart result: "*) EVENT_PLAIN="After the restart: ${t#restart result: }" ;;
-    "restart result not written"*) EVENT_PLAIN="Restart result not saved${t#restart result not written}" ;;
-    "history entry not written"*) EVENT_PLAIN="Update history not saved${t#history entry not written}" ;;
-    "unstage discarded the staged update") EVENT_PLAIN="Staged update discarded" ;;
-    "unstage found nothing staged") EVENT_PLAIN="Discard: nothing was staged" ;;
-    "unstage refused by the root helper") EVENT_PLAIN="Discard was refused by Kempt's system helper" ;;
-    "unstage refused"*) EVENT_PLAIN="Discard refused${t#unstage refused}" ;;
-    "unstage failed rc="*) EVENT_PLAIN="Discard failed (exit code ${t#unstage failed rc=})" ;;
-    "unstage left a transaction behind"*) EVENT_PLAIN="Discard left the staged update in place${t#unstage left a transaction behind}" ;;
-    "reclaim removed "*)
-      if [[ "$t" =~ ^reclaim\ removed\ ([0-9]+)\ runtimes\ \(([0-9]+|\?)\ bytes\)\ rc=([0-9]+|\?)(.*)$ ]]; then
-        local rn="${BASH_REMATCH[1]}" rb="${BASH_REMATCH[2]}" rrc="${BASH_REMATCH[3]}" rtail="${BASH_REMATCH[4]}"
-        event_count_phrase "$rn" "unused runtime" "unused runtimes"
-        EVENT_PLAIN="Removed $EVENT_COUNT"
-        if [[ "$rb" != "?" ]]; then EVENT_PLAIN+=", $(human_bytes "$rb" 2>/dev/null || echo "$rb bytes")"; fi
-        [[ "$rrc" == 0 ]] || EVENT_PLAIN+=", Flatpak exit code $rrc"
-        rtail="${rtail/, in use: /, including extensions an app uses: }"
-        EVENT_PLAIN+="$rtail"
-      fi ;;
-    "reclaim found nothing to remove") EVENT_PLAIN="Unused runtimes: nothing to remove" ;;
-    "reclaim changed (digest), nothing removed") EVENT_PLAIN="Unused runtimes: nothing removed, the list changed" ;;
-    "reclaim changed (unstable), nothing removed")
-      EVENT_PLAIN="Unused runtimes: nothing removed, some became unused less than an hour ago" ;;
-    "reclaim changed (new), nothing removed")
-      EVENT_PLAIN="Unused runtimes: nothing removed, one was installed during the update" ;;
-    "reclaim needs authorization, nothing removed") EVENT_PLAIN="Unused runtimes: nothing removed, an administrator is needed" ;;
-    "reclaim failed (flatpak did not answer)") EVENT_PLAIN="Unused runtimes: Flatpak did not answer" ;;
-    "reclaim failed rc="*)
-      if [[ "$t" =~ ^reclaim\ failed\ rc=([0-9]+|\?)(.*)$ ]]; then
-        EVENT_PLAIN="Unused runtimes: removal failed (exit code ${BASH_REMATCH[1]})${BASH_REMATCH[2]}"
-      fi ;;
-    "reclaim refused (running as root)") EVENT_PLAIN="Unused runtimes: refused, Kempt ran as root" ;;
-    "reclaim refused (reclaim=off)") EVENT_PLAIN="Unused runtimes: refused, the reclaim setting is off" ;;
-    "discover-notifier off") EVENT_PLAIN="Discover's update notifier turned off" ;;
-    "discover-notifier on") EVENT_PLAIN="Discover's update notifier turned on" ;;
-    "discover-notifier keep") EVENT_PLAIN="Discover's update notifier kept as it is" ;;
-    "config set "*)
-      if [[ "$t" =~ ^config\ set\ ([a-z][a-z0-9_]+)=(.*)\ \(was\ (.*)\)$ ]]; then
-        local k="${BASH_REMATCH[1]}" v="${BASH_REMATCH[2]}" o="${BASH_REMATCH[3]}"
-        if [[ "$k" == surface ]]; then v="$(surface_word "$v")"; o="$(surface_word "$o")"; fi
-        [[ "$o" != unset ]] || o="not set"
-        EVENT_PLAIN="Setting $k changed to $v (was $o)"
-      fi ;;
-    "hold "*) EVENT_PLAIN="Held ${t#hold }" ;;
-    "unhold "*) EVENT_PLAIN="No longer held: ${t#unhold }" ;;
-  esac
-  # A stage a live update made obsolete, in words.
-  EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update)/(a live update replaced it)}"
-  EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update, /(a live update replaced it, and }"
-  # A notification the line records, in words.
-  [[ "$EVENT_PLAIN" != *" - announced" ]] || EVENT_PLAIN="${EVENT_PLAIN% - announced}, and you were notified"
-  [[ "$EVENT_PLAIN" != *" - not announced" ]] \
-    || EVENT_PLAIN="${EVENT_PLAIN% - not announced}, but the notification could not be shown"
-}
-
-# Event lines with the control characters taken out (tab and newline stay), so an escape sequence
-# or carriage return written into events.log cannot reach the terminal that shows it.
-events_safe() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
-
-# Event lines from stdin, in plain words. A line that is not `<timestamp> <via> <text>` is printed
-# as it is.
-events_plain() {  # [prefix]; stdin: events.log lines
-  local ts via text
-  while IFS=' ' read -r ts via text || [[ -n "$ts" ]]; do
-    if [[ -n "$text" ]]; then
-      event_plain "$text"
-      printf '%s%s %s %s\n' "${1:-}" "$ts" "$via" "$EVENT_PLAIN"
-    else
-      printf '%s%s\n' "${1:-}" "$ts${via:+ $via}"
-    fi
-  done
-}
-
 log_event() {  # text
   local via=cli
   # The widget prefixes every command it runs with KEMPT_VIA=widget (plasmoid main.qml and
@@ -423,6 +273,10 @@ log_event_write() {  # via text locked
     tail -n 2000 "$EVENTS_FILE" | atomic_write "$EVENTS_FILE" || return 0
   fi
 }
+
+# Event lines with the control characters taken out (tab and newline stay), so an escape sequence
+# or carriage return written into events.log cannot reach the terminal that shows it.
+events_safe() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
 
 # Byte-for-byte equality of two readable files, with coreutils alone. `cmp` is diffutils, which is
 # NOT on a minimal Fedora image (a container, a server install): there it exits 127, which every
@@ -845,7 +699,7 @@ discover_notifier_off() {
     return 1
   fi
   discover_mark_answered
-  log_event "discover-notifier off"
+  log_event "Discover's update notifier turned off"
   echo "Discover's update notifier is off, and stays off when you log in again."
   [[ -n "$moved" ]] && echo "Your earlier entry is kept at $moved"
   discover_stop_running
@@ -864,12 +718,12 @@ discover_notifier_on() {
   case "$kind" in
     kempt)
       rm -f "$user" || { echo "could not remove $user" >&2; return 1; }
-      log_event "discover-notifier on" ;;
+      log_event "Discover's update notifier turned on" ;;
     edited)
       aside="$(discover_free_name "$user.kempt-edited")"
       mv "$user" "$aside" || { echo "could not move $user aside, so nothing changed" >&2; return 1; }
       echo "Kempt's entry had changed since Kempt wrote it. Your version is kept at $aside"
-      log_event "discover-notifier on" ;;
+      log_event "Discover's update notifier turned on" ;;
   esac
   if [[ -e "$backup" || -L "$backup" ]]; then
     if [[ -e "$user" || -L "$user" ]]; then
@@ -908,7 +762,7 @@ discover_notifier_keep() {
     return 0
   fi
   discover_mark_answered
-  log_event "discover-notifier keep"
+  log_event "Discover's update notifier kept as it is"
   echo "Discover's update notifier stays as it is."
 }
 
@@ -1184,7 +1038,9 @@ config_set() {  # key value
   writer_unlock
   # Only a write that happened is an event, and the caller's exit status is the WRITE's - never
   # log_event's, which is always 0, and never the lock's.
-  [[ $rc -eq 0 ]] && log_event "config set $1=$2 (was ${old:-unset})"
+  local shown="$2" was="${old:-not set}"
+  if [[ "$1" == surface ]]; then shown="$(surface_word "$2")"; was="$(surface_word "$was")"; fi
+  [[ $rc -eq 0 ]] && log_event "Setting $1 changed to $shown (was $was)"
   return $rc
 }
 
@@ -1449,9 +1305,9 @@ notify() {  # title body
   fi
   body="${body//$'\n'/ }"
   if [[ "$NOTIFY_SHOWN" == true ]]; then
-    log_event "notification shown: ${body:0:200}"
+    log_event "Notified: ${body:0:200}"
   else
-    log_event "notification not shown ($why): ${body:0:200}"
+    log_event "Notification not shown ($why): ${body:0:200}"
   fi
   return 0
 }
@@ -1790,11 +1646,11 @@ startup_observe() {
        notes: ((if ($tell | length) == 0 then []
                 elif ($tell | length) == 1 then [$tell[0] | {body: "\(.description) didn'"'"'t start after the \($when). It stopped with an error. \(kind) (\(.unit)). To see why, run: kempt startup"}]
                 else [{body: "\($tell | length) services didn'"'"'t start after the \($when): \([$tell[].description] | phrase). To see why, run: kempt startup"}] end
-                | map(. + {event: "startup failed after the \($when): \([$tell[].unit] | join(", "))", keys: [$tell[] | key]}))
+                | map(. + {event: "Did not start after the \($when): \([$tell[].unit] | join(", "))", keys: [$tell[] | key]}))
               + (if ($told | length) == 0 then []
                  elif ($told | length) == 1 then [$told[0] | {body: "\(.description) is running again. \(kind) (\(.unit))."}]
                  else [{body: "\($told | length) services are running again: \([$told[].description] | phrase)."}] end
-                 | map(. + {event: "startup recovered: \([$told[].unit] | join(", "))", keys: [$told[] | key]})))}' 2>/dev/null)" || out=""
+                 | map(. + {event: "Running again: \([$told[].unit] | join(", "))", keys: [$told[] | key]})))}' 2>/dev/null)" || out=""
   if [[ "$out" != \{* ]]; then writer_unlock; return 0; fi
   local new_st wrote=1 clear
   new_st="$(jq -c '.state' <<<"$out")"
@@ -2496,7 +2352,7 @@ log_refresh_skip() {  # reason
   if (( now - last >= 0 && now - last < 86400 )); then return 0; fi
   kempt_init_dirs 2>/dev/null || true
   touch "$REFRESH_SKIP_FILE" 2>/dev/null || true
-  log_event "refresh skipped ($1)"
+  log_event "Package lists not downloaded ($1)"
   return 0
 }
 
@@ -2558,12 +2414,12 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
   # An override is logged every time, because each one spent power or data somebody asked to spend.
   if on_battery; then
     if [[ "$anyway" != anyway ]]; then REFRESH_SKIPPED=battery; log_refresh_skip "on battery"; return 0; fi
-    log_event "refresh anyway (on battery)"
+    log_event "Downloading package lists anyway (on battery)"
   fi
   if metered_connection; then
     # shellcheck disable=SC2034  # read by cmd_check in bin/kempt, which sources this file
     if [[ "$anyway" != anyway ]]; then REFRESH_SKIPPED=metered; log_refresh_skip "the connection is metered"; return 0; fi
-    log_event "refresh anyway (the connection is metered)"
+    log_event "Downloading package lists anyway (the connection is metered)"
   fi
   # ONE gate, two arms. Both backends are refresh-then-read-cache, so both fetch here and neither
   # carries its own interval, power or metering rule - a second gate would be a second policy to
@@ -2583,10 +2439,10 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
       ok=1
       touch "$LAST_REFRESH_DNF_FILE" || true
       rm -f "$REFRESH_DNF_FAILED_FILE" || true
-      log_event "refresh ok"
+      log_event "Package lists downloaded"
     else
       refresh_error_line "$errf" "$rc" > "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || true
-      log_event "refresh failed"
+      log_event "Package lists could not be downloaded"
     fi
     rm -f "$errf"
   fi
@@ -2602,9 +2458,9 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
     # 2 is no Flatpak remote at all: nothing was downloaded, so no line claims a download, and no
     # stamp postpones the fetch a remote added later needs.
     case "$fp_rc" in
-      0) ok=1; log_event "refresh flatpak ok" ;;
+      0) ok=1; log_event "Flatpak lists downloaded" ;;
       2) ;;
-      *) log_event "refresh flatpak failed" ;;
+      *) log_event "Flatpak lists could not be downloaded" ;;
     esac
   fi
   # Stamped when ANY arm succeeded, never per-arm and never only on a clean sweep. The marker

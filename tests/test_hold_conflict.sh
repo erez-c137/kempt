@@ -118,7 +118,7 @@ assert_eq "$warn" "$(printf '%s\n%s\n' \
   "$KEMPT_STAGED_RECIPE")" \
   "holding a package the stage contains says so, and says what to do about it"
 assert_eq "$(holds_for dnf)" "librepo" "...and the hold is recorded all the same"
-assert_eq "$(events_tail)" "hold dnf:librepo (staged update still contains it)" \
+assert_eq "$(events_tail)" "Held dnf:librepo (staged update still contains it)" \
   "...and the event log carries the conflict, not just the hold"
 
 # Same command with a terminal on stdin and with none. There is no prompt to be interactive about,
@@ -131,7 +131,7 @@ assert_eq "$tty_warn" "$warn" "interactive and non-interactive say exactly the s
 # allowed to produce silence, and here it does: bash is pending, holding it is perfectly sensible,
 # and it has nothing to do with the stage.
 assert_eq "$(hold_stderr hold dnf:bash)" "" "a hold on a package the stage does not contain is silent"
-assert_eq "$(events_tail)" "hold dnf:bash" "...and its event line carries no conflict either"
+assert_eq "$(events_tail)" "Held dnf:bash" "...and its event line carries no conflict either"
 
 # Flatpak. The offline surface stages dnf and nothing else, so a flatpak hold can never conflict
 # with an armed transaction - and the filter is explicit rather than left to come out empty by
@@ -146,7 +146,7 @@ tx_broken() { KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$@"; }
 assert_eq "$(tx_broken "$KEMPT" hold dnf:tar 2>&1 >/dev/null || true)" \
   "The staged update was built before this hold and may still install tar on the next restart. Rebuilding applies all current holds."$'\n'"$KEMPT_STAGED_RECIPE" \
   "an unreadable list cannot deny anything, so the generic warning fires, recipe and all"
-assert_eq "$(events_tail)" "hold dnf:tar" \
+assert_eq "$(events_tail)" "Held dnf:tar" \
   "...and an unconfirmed conflict is not recorded as one"
 assert_eq "$(hold_stderr hold dnf:curl)" "" \
   "...and with the list readable again, the transaction answers"
@@ -173,7 +173,7 @@ export KEMPT_OFFLINE_TOML="$TESTTMP/built-without.toml"
 assert_eq "$(hold_stderr unhold dnf:curl)" \
   "The staged update was built without curl, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
   "releasing a hold the stage was built around says the stage will not install it"
-assert_eq "$(events_tail)" "unhold dnf:curl (staged update was built without it)" \
+assert_eq "$(events_tail)" "No longer held: dnf:curl (staged update was built without it)" \
   "...and the event log says which stage it means"
 assert_eq "$(holds_for dnf | wc -l)" "0" "...and the hold really is gone"
 

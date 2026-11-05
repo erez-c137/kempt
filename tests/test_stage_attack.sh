@@ -420,7 +420,7 @@ world gone none; rpm_is "$NEW"; mkdir -p "$KEMPT_STATE_DIR/history"; chmod 500 "
 row 36 Ok 'dnf5 upgrade --offline -y'; check
 chmod 700 "$KEMPT_STATE_DIR/history"
 assert_contains "$(said)" "installed during the restart" "history unwritable: still told"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log" 2>/dev/null)" "restart result not written" "history unwritable: the log says so"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log" 2>/dev/null)" "Restart result not saved" "history unwritable: the log says so"
 assert_eq "$(jq -r .offline_staged "$STATE_FILE")" null "history unwritable: state still published"
 
 # --- what 0.2.0 left: gone on the first check, with a stage still armed and reported correctly

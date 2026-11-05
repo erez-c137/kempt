@@ -464,8 +464,8 @@ takes the one newer entry that ran the helper's command (`/usr/bin/dnf5 upgrade`
 `--exclude=` per hold). That gives `transaction_id` and the report. Two matches, or no answer, is cannot tell.
 
 **Superseding.** dnf5 refuses a stage once the rpm database has moved. So a live `kempt update` that
-moved the rpm set discards the stage (`dnf-offline-clean`) and logs `offline stage dropped (superseded
-by live update)`, except over a release upgrade or behind another updater's link. A Flatpak-only run
+moved the rpm set discards the stage (`dnf-offline-clean`) and logs `Staged update dropped (a live update
+replaced it)`, except over a release upgrade or behind another updater's link. A Flatpak-only run
 leaves the stage alone. After rpm changes by other tools, dnf5 refuses the stale transaction at boot
 and the system boots normally.
 

@@ -384,11 +384,18 @@ reclaim_record() {  # via digest
   n="$(jq -r 'length' <<<"$RECLAIM_GONE" 2>/dev/null)" || n="?"
   [[ -z "${RECLAIM_IN_USE:-}" ]] || in_use="$(jq -r 'join(" ")' <<<"$RECLAIM_IN_USE" 2>/dev/null)" || in_use=""
   case "$RECLAIM_RESULT" in
-    removed)    log_event "reclaim removed $n runtimes (${RECLAIM_BYTES:-?} bytes) rc=${RECLAIM_RC:-0}${RECLAIM_PARTIAL:+, not all of them}${in_use:+, in use: $in_use}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
-    nothing)    log_event "reclaim found nothing to remove" ;;
-    changed)    log_event "reclaim changed ($RECLAIM_WHY), nothing removed" ;;
-    needs_auth) log_event "reclaim needs authorization, nothing removed" ;;
-    *)          log_event "reclaim failed rc=${RECLAIM_RC:-?}${RECLAIM_PARTIAL:+, what was removed is unknown}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
+    removed)
+      local noun=runtimes size="" code=""
+      [[ "$n" != 1 ]] || noun=runtime
+      [[ -z "${RECLAIM_BYTES:-}" ]] || size=", $(human_bytes "$RECLAIM_BYTES")"
+      [[ "${RECLAIM_RC:-0}" == 0 ]] || code=", Flatpak exit code $RECLAIM_RC"
+      log_event "Removed $n unused $noun$size$code${RECLAIM_PARTIAL:+, not all of them}${in_use:+, including extensions an app uses: $in_use}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
+    nothing)    log_event "Unused runtimes: nothing to remove" ;;
+    changed)
+      if [[ "$RECLAIM_WHY" == unstable ]]; then log_event "Unused runtimes: nothing removed, some became unused less than an hour ago"
+      else log_event "Unused runtimes: nothing removed, the list changed"; fi ;;
+    needs_auth) log_event "Unused runtimes: nothing removed, an administrator is needed" ;;
+    *)          log_event "Unused runtimes: removal failed (exit code ${RECLAIM_RC:-?})${RECLAIM_PARTIAL:+, what was removed is unknown}${RECLAIM_ERROR:+: $RECLAIM_ERROR}" ;;
   esac
 }
 
@@ -447,10 +454,9 @@ cmd_check() {
   local shared
   if [[ -n "$coalesce" ]] && shared="$(state_checked_since "$requested_at")"; then
     # The state that check wrote IS the answer. Nothing is written and nothing is reported (that
-    # check did both), and the event is its own word: `check shared` asked no backend, so it is not
-    # a `check ok` and nothing counting checks counts it.
+    # check did both), and the event line says so: this check asked no backend.
     printf '%s\n' "$shared"
-    log_event "check shared last_check=$(jq -r '.last_check' <<<"$shared" 2>/dev/null)"
+    log_event "Check used the answer of the check at $(jq -r '.last_check' <<<"$shared" 2>/dev/null)"
     # state_checked_since adopts only an ok state today; --strict does not rely on that.
     # A failed per-user listing leaves status ok, so the scopes are asked as well.
     if [[ -n "$strict" ]] \
@@ -486,7 +492,7 @@ cmd_check() {
     # when another check holds the lock above, and say why in one event line.
     rm -f "$errf" "$dnf_sz" "$fp_sz" "$fp_scopes_f"
     echo "warning: a Kempt update is running; serving previous state" >&2
-    log_event "check skipped (a Kempt update is running)"
+    log_event "Not checked (a Kempt update is running)"
     jq -e -n '[inputs][0] | select(type == "object")' "$STATE_FILE" 2>/dev/null || true
     [[ -z "$strict" ]] || return 1
     return 0
@@ -678,18 +684,19 @@ cmd_check() {
   # `return 1` keeps a failed write a failed check for a caller with errexit off.
   printf '%s\n' "$state" | write_state || { [[ -z "$wlocked" ]] || writer_unlock; return 1; }
   [[ -z "$wlocked" ]] || writer_unlock
-  # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
+  # One line per check. The lock-timeout return above records
   # nothing on purpose: it served a previous answer and looked at nothing.
   if [[ "$status" == "ok" ]]; then
-    local counts
-    counts="$(jq -r '"actionable=\(.actionable) held=\(.held_total)"' <<<"$state" 2>/dev/null)" \
-      || counts="actionable=? held=?"
-    log_event "check ok $counts"
+    local said
+    said="$(jq -r '"Checked: \(.actionable) update\(if .actionable == 1 then "" else "s" end) to install"
+                   + (if .held_total > 0 then ", \(.held_total) held" else "" end)' <<<"$state" 2>/dev/null)" \
+      || said="Checked"
+    log_event "$said"
     # --strict: the apps for you only that could not be listed are not a current answer either,
     # though the check stays ok and keeps their previous items.
     if [[ -n "$strict" && "$fp_scopes" == *'"failed"'* ]]; then return 1; fi
   else
-    log_event "check $status $error"
+    log_event "Check failed: $error"
     [[ -z "$strict" ]] || return 1
   fi
 }
@@ -788,7 +795,7 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
     [[ $rc -eq 0 ]] && return 0
     # Ctrl-C. dnf5 runs on as a service whatever this terminal does, so there is no result to report
     # yet, and calling the run failed would be untrue. The helper has said so; dnf5's history has the rest.
-    if [[ $rc -eq 130 ]]; then log_event "stopped watching"; exit 130; fi
+    if [[ $rc -eq 130 ]]; then log_event "Stopped watching. An update that had started carries on"; exit 130; fi
     if tail -c +$(( before_sz + 1 )) "$log" | grep -qiE "$lock_re"; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
@@ -829,7 +836,7 @@ preflight_abort() {  # message
   # and a refusal that leaves no trace is indistinguishable from a button that does not work.
   # init first: this runs before cmd_update takes the lock, so the state directory may not exist.
   kempt_init_dirs 2>/dev/null || true
-  log_event "run did not start: $1" 2>/dev/null || true
+  log_event "Update did not start: $1" 2>/dev/null || true
   # Then a check, and it is not a nicety: a state.json write is the ONLY thing that takes the widget
   # out of its updating state, and this path writes no history entry and runs no post-run check.
   # Without it a press of Update Now spins until the popup's three-hour guard fires - on an
@@ -893,8 +900,8 @@ refusal_words() {  # log what fallback-reason → sentence
 }
 
 log_nothing_to_stage() {  # held dnf names, or nothing
-  if [[ -n "$1" ]]; then log_event "offline stage found nothing to stage (every pending update is held)"
-  else log_event "offline stage found nothing to stage"; fi
+  if [[ -n "$1" ]]; then log_event "Nothing to stage (every pending update is held)"
+  else log_event "Nothing to stage"; fi
 }
 
 # The root helper refuses dnf's verbs while these folders are unsafe, and asking it first means a
@@ -1049,7 +1056,7 @@ recommend_offline_if_risky() {
         fams="$(sed 's/[-.].*//' <<<"$risky_list" | sort -u)"
         local fam_n; fam_n="$(wc -l <<<"$fams")"
         # Kept, not sent: the lock and the pre-flights come after this, and any of them can still
-        # stop the run. cmd_update sends it at "run start", when the install is really happening.
+        # stop the run. cmd_update sends it as the run starts, when the install is really happening.
         # No restart advice while a release upgrade is stored: a restart could install that.
         local tail_advice=". Restart after it finishes."
         [[ "$relup_blocks" == true ]] && tail_advice="."
@@ -1176,7 +1183,7 @@ reconcile_stage_after_live_run() {
   [[ $moved -eq 1 ]] || return 0
   apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
   if [[ $clean_rc -eq 0 ]]; then
-    log_event "offline stage dropped (superseded by live update)"
+    log_event "Staged update dropped (a live update replaced it)"
   elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]] && clean_refused_over_folders "$log"; then
     log_warn "$log" "warning: this update superseded the staged transaction. $(clean_left_words "$log")"
   else
@@ -1201,10 +1208,6 @@ cmd_update() {
   fi
   local auto; auto="$(config_get auto_accept)"
   surface="$(resolve_surface "$surface")"
-  # Asked for a stage, whatever the next lines turn this run into. The gate for another updater's
-  # restart below answers this, not what the run became.
-  local wanted_stage=false
-  [[ "$surface" == offline ]] && wanted_stage=true
   # Somebody at a terminal sees the output and can answer the questions. KEMPT_ASSUME_TTY stands in
   # for the terminal in tests.
   local at_terminal=false
@@ -1275,6 +1278,7 @@ cmd_update() {
       esac
     fi
   fi
+  local wanted_stage=false
   [[ "$surface" == offline ]] && wanted_stage=true
   refuse_run_behind_other_updater
   local dnf_apply_skipped=false
@@ -1310,7 +1314,8 @@ cmd_update() {
 
   # Recorded here and not a line earlier: everything above can still decline to run without
   # touching the system. Past this point the system changes.
-  log_event "run start surface=$surface"
+  if [[ "$surface" == offline ]]; then log_event "Update started to stage for the next restart"
+  else log_event "Update started"; fi
   [[ -n "$risky_advice" ]] && notify "Kempt" "$risky_advice"
 
   # dnf
@@ -1388,7 +1393,7 @@ cmd_update() {
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
       reason_override="$(refusal_words "$log" "nothing was prepared" "$(apply_refusal_reason) and preparing updates would replace it")"
-      log_event "offline stage refused by the root helper"
+      log_event "Staging was refused by Kempt's system helper"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
       # every pending update held, or nothing pending at all. Arming then fails with "No offline
@@ -1422,11 +1427,11 @@ cmd_update() {
         if [[ "$nothing_foreign" == true ]]; then
           staged_nothing=true; dnf_status="ok"
           log_nothing_to_stage "$held_dnf"
-          log_event "offline stage left in place (another updater has prepared the next restart)"
+          log_event "Staged update left in place (another updater has prepared the next restart)"
         elif [[ $clean_rc -eq 0 ]]; then
           staged_nothing=true; stage_discarded=true; dnf_status="ok"
           log_nothing_to_stage "$held_dnf"
-          log_event "offline stage discarded (the stored one would have installed what is now held)"
+          log_event "Staged update discarded (the stored one would have installed what is now held)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
           if clean_refused_over_folders "$log"; then
@@ -1456,7 +1461,7 @@ cmd_update() {
           # The download is stored and will not install: dnf5 makes /system-update only when it
           # is absent. The words match apply_refusal_reason's for the same link.
           reason_override="the updates were downloaded, but another updater has prepared the next restart, so they will not install then. Try again after the restart"
-          log_event "offline stage left in place (another updater has prepared the next restart)"
+          log_event "Staged update left in place (another updater has prepared the next restart)"
         else
           apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
         fi
@@ -1479,10 +1484,10 @@ cmd_update() {
       else
         # Staged and armed.
         dnf_status="ok"
-        # A rebuild that worked. `offline staged N` below reports the new transaction; this line
+        # A rebuild that worked. The "Staged N updates" line below reports the new transaction; this line
         # reports that there was an old one, and what it was replaced for.
         if [[ "$had_stage" == true ]]; then
-          log_event "offline restage${prev_conflict:+ (holds: $(printf '%s\n' "$prev_conflict" | names_phrase))}"
+          log_event "Staged update rebuilt${prev_conflict:+ (holds: $(printf '%s\n' "$prev_conflict" | names_phrase))}"
         fi
       fi
     else
@@ -1497,7 +1502,7 @@ cmd_update() {
           # remove that symlink too and cancel the other updater's restart install, so nothing is
           # unwound, and the sentence says what the next restart does.
           reason_override="could not replace the prepared updates. The earlier ones are unchanged, but another updater has prepared the next restart, so they will not install then"
-          log_event "offline restage failed (previous stage intact)"
+          log_event "Rebuilding the staged update failed (previous stage intact)"
         elif [[ "$(stage_read)" == armed ]]; then
           # dnf5 failed BEFORE replacing the previous transaction: a download that cannot complete
           # leaves the armed one untouched, toml and symlink included. Nothing to unwind, and a
@@ -1506,15 +1511,15 @@ cmd_update() {
           # /system-update and leaves the toml at `ready`, and that stage installs on no restart.
           # It is stale, and takes the clean below like any other leftover.
           reason_override="could not replace the prepared updates. The earlier ones are unchanged and still install on the next restart"
-          log_event "offline restage failed (previous stage intact)"
+          log_event "Rebuilding the staged update failed (previous stage intact)"
         elif [[ "$(offline_link_state)" == other ]]; then
           # dnf5 replaced the previous transaction before failing. The clean would remove another
           # updater's /system-update and cancel its restart install.
           reason_override="could not replace the prepared updates, and the earlier ones are gone. Another updater has prepared the next restart. Try again after that restart"
-          log_event "offline restage failed (stage left in place, another updater has prepared the next restart)"
+          log_event "Rebuilding the staged update failed (stage left in place, another updater has prepared the next restart)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then
           reason_override="the earlier updates were removed and could not be prepared again"
-          log_event "offline stage discarded (rebuild failed)"
+          log_event "Staged update discarded (rebuild failed)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           if clean_refused_over_folders "$log"; then
             reason_override="could not replace the prepared updates. $(clean_left_words "$log")"
@@ -1546,7 +1551,7 @@ cmd_update() {
       # The helper refuses a live upgrade over dnf5's folders. Nothing ran.
       if [[ $live_rc -eq $KEMPT_APPLY_REFUSED ]]; then
         reason_override="$(refusal_words "$log" "nothing was installed" "$(apply_unsafe_words "dnf's folders")")"
-        log_event "live update refused by the root helper"
+        log_event "The update was refused by Kempt's system helper"
       fi
     fi
     # Asked whatever the run's status: a failed transaction dnf5 recorded is still the transaction
@@ -1565,11 +1570,11 @@ cmd_update() {
       # Either way the log says where the answer came from.
       if [[ "$live_status" == Ok ]] && (( live_rc == 1 || live_rc >= 128 )); then
         dnf_status="ok"; status="$live_was_status"; run_failed_otherwise="$live_was_failed"
-        log_event "dnf outcome read from history (transaction $live_txid ok, helper rc=$live_rc)"
+        log_event "The update succeeded, as dnf's history records (transaction $live_txid)"
       elif [[ $live_rc -eq 0 && "$live_status" != Ok && "$live_status" != unknown ]]; then
         dnf_status="failed"; status="failed"
         [[ -n "$reason_override" ]] || reason_override="dnf5 recorded this update as failed in its history, though the update seemed to finish"
-        log_event "dnf outcome read from history (transaction $live_txid $live_status, helper rc=$live_rc)"
+        log_event "The update failed, as dnf's history records (transaction $live_txid: $live_status)"
       fi
     fi
   fi
@@ -1650,7 +1655,7 @@ cmd_update() {
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
 
   # How many updates this stage holds, from dnf5's own list when it can be read: the check beforehand
-  # ran on metadata the stage may have refreshed. The run's `offline staged N` event line reports it.
+  # ran on metadata the stage may have refreshed. The run's "Staged N updates" event line reports it.
   local staged="" staged_names
   if [[ "$surface" == offline && "$dnf_status" == ok && "$staged_nothing" != true ]]; then
     if staged_names="$(offline_txjson_names)" && [[ -n "$staged_names" ]]; then
@@ -1778,34 +1783,34 @@ cmd_update() {
     # "the run itself", not "the update": on the offline surface nothing has been installed - a
     # transaction was staged, and it installs on the next restart. This line is printed on both.
     log_warn "$log" "warning: the run finished, but it could not be added to the history"
-    log_event "history entry not written (state directory unwritable?)"
+    log_event "Update history not saved (state directory unwritable?)"
     rm -f "$hist"
     hist="$hist_tmp"     # possibly empty; every reader below already tolerates that
   fi
 
-  # A successful OFFLINE run gets its own event line rather than "run done": nothing has been
+  # A successful OFFLINE run gets its own event line rather than "Update finished": nothing has been
   # applied yet, and the check after the restart is what reports it.
   if [[ "$status" == "ok" ]]; then
     if [[ "$surface" == "offline" ]]; then
-      # Not when nothing was staged: "offline staged ?" over a run that logged "found nothing to
-      # stage" is two lines contradicting each other about the same second.
+      # Not when nothing was staged: "Staged ? updates" over a run that logged "Nothing to stage"
+      # is two lines contradicting each other about the same second.
       if [[ "$staged_nothing" != true ]]; then
-        log_event "offline staged ${staged:-?}"
+        local noun=updates
+        [[ "$staged" != 1 ]] || noun=update
+        log_event "Staged ${staged:-?} $noun for a restart"
       fi
     else
       local upd
       upd="$(jq -r '[.backends[].updated | length] | add // 0' "$hist" 2>/dev/null)" || upd="?"
-      log_event "run done rc=0 updated=$upd reboot=$([[ "$reboot" == true ]] && echo needed || echo no)"
+      log_event "Update finished: $upd updated$([[ "$reboot" != true ]] || echo ", restart needed")"
     fi
   else
     # The same rc this command exits with (the return at the bottom).
-    log_event "run failed rc=$run_rc: $reason"
+    log_event "Update failed (exit code $run_rc): $reason"
   fi
 
-  # The same stage, for the warning and the notification: only on a run that succeeded.
-  local stage_blocked=false
+  # The same stage, for the warning: only on a run that succeeded.
   if [[ "$status" == ok && "$stage_link_other" == true ]]; then
-    stage_blocked=true
     log_warn "$log" "warning: another updater has prepared the next restart, so the updates staged here will not install then. See: kempt doctor"
   fi
 
@@ -1841,7 +1846,7 @@ cmd_update() {
       else
         notify "Kempt" "No updates are waiting, so the next restart has nothing to install$discarded_tail"
       fi
-    elif [[ "$stage_blocked" == true ]]; then
+    elif [[ "$status" == ok && "$stage_link_other" == true ]]; then
       notify "Kempt" "Updates are ready, but another updater has prepared the next restart, so they will not install then"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       local discover_tail=""
@@ -2308,7 +2313,7 @@ stage_write_entry() {  # surface status error report-json txid → sets STAGE_EN
       + (if $fb == "" then {} else {failed_before: ($fb | fromjson)} end)' > "$hist" 2>/dev/null; then
     rm -f "$hist" "$rep_f"
     echo "warning: the restart's result could not be written into Kempt's history" >&2
-    log_event "restart result not written (state directory unwritable?)"
+    log_event "Restart result not saved (state directory unwritable?)"
     return 0
   fi
   rm -f "$rep_f"
@@ -2343,7 +2348,7 @@ stage_report_row() {  # id status
   stage_write_entry "$surface" "$status" "$error" "$report" "$1"
   local phrase=""
   [[ -z "$STAGE_ENTRY" ]] || phrase="$(run_counts_phrase "$STAGE_ENTRY")"
-  log_event "restart result: transaction $1 $2${phrase:+ ($phrase)}"
+  log_event "After the restart: transaction $1 $2${phrase:+ ($phrase)}"
   if [[ "$2" == Ok ]]; then
     notify "Kempt" "Your prepared updates were installed during the restart${phrase:+: $phrase}"
   else
@@ -2524,7 +2529,7 @@ cmd_hold() {
   fi
   # The suffix is only ever appended to a CONFIRMED conflict: the generic warning is a caveat, not
   # a finding, and the event log must not record it as one.
-  log_event "hold $b:$n$note"
+  log_event "Held $b:$n$note"
 }
 cmd_unhold() {
   [[ "${1:-}" == *:* ]] || { echo "use dnf:<pkg> or flatpak:<app.id>" >&2; exit 2; }
@@ -2538,7 +2543,7 @@ cmd_unhold() {
     unhold_staged_warning "$n" >&2
     note=" (staged update was built without it)"
   fi
-  log_event "unhold $b:$n$note"
+  log_event "No longer held: $b:$n$note"
 }
 # Refuses a stray argument like every other command: `kempt holds --json` silently printing the
 # plain list is how a script gets written against an option that does not exist.
@@ -2563,7 +2568,7 @@ cmd_unstage() {
   local relup
   if relup="$(offline_release_upgrade)"; then
     echo "Nothing was discarded, because that would also cancel the Fedora ${relup##* } upgrade. See: kempt doctor" >&2
-    log_event "unstage refused (a Fedora release upgrade ($relup) is stored)"
+    log_event "Discard refused (a Fedora release upgrade ($relup) is stored)"
     exit 5
   fi
   # The update lock, for the race it exists for: a stage in flight is building the very transaction
@@ -2576,7 +2581,7 @@ cmd_unstage() {
   # Nothing stored, which is not a failure and needs no root, so it raises no authentication dialog.
   if [[ "$status" == absent ]]; then
     echo "Nothing is waiting for the next restart, so there is nothing to discard."
-    log_event "unstage found nothing staged"
+    log_event "Discard: nothing was staged"
     cmd_check >/dev/null 2>&1 || true
     return 0
   fi
@@ -2586,7 +2591,7 @@ cmd_unstage() {
   # for the restart that runs it.
   if [[ "$(offline_link_state)" == other ]]; then
     echo "Nothing was discarded. Another updater has prepared the next restart, and discarding now would cancel its update too. Try again after that restart." >&2
-    log_event "unstage refused (another updater has prepared the next restart)"
+    log_event "Discard refused (another updater has prepared the next restart)"
     exit 5
   fi
   # NOT through apply_with_retry: that tees into a run log this command does not have, and this is
@@ -2605,12 +2610,12 @@ cmd_unstage() {
     else
       echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
     fi
-    log_event "unstage refused by the root helper"
+    log_event "Discard was refused by Kempt's system helper"
     exit 5
   fi
   if [[ $rc -ne 0 ]]; then
     echo "These updates could not be discarded. See: kempt doctor" >&2
-    log_event "unstage failed rc=$rc"
+    log_event "Discard failed (exit code $rc)"
     exit 1
   fi
   # Asked again rather than assumed from rc 0: a helper can exit 0 having changed less than it meant to.
@@ -2619,12 +2624,12 @@ cmd_unstage() {
     local left="dnf5 still reports a stored transaction (status \"$status\")"
     [[ "$status" != unknown ]] || left="the stored transaction is still there and cannot be read"
     echo "These updates were not fully discarded: $left. See: kempt doctor" >&2
-    log_event "unstage left a transaction behind (status ${status/#unknown/could not be read})"
+    log_event "Discard left the staged update in place (status ${status/#unknown/could not be read})"
     cmd_check >/dev/null 2>&1 || true
     exit 1
   fi
   echo "Discarded the updates waiting for the next restart. That restart installs nothing."
-  log_event "unstage discarded the staged update"
+  log_event "Staged update discarded"
   # state.json is the widget's only channel, so a discarded stage stops being advertised in the
   # panel exactly when this rewrites it.
   cmd_check >/dev/null 2>&1 || true
@@ -2718,7 +2723,7 @@ cmd_reclaim() {
   kempt_init_dirs
   if reclaim_as_root; then
     echo "Nothing was removed. Run kempt reclaim as yourself, not as root: as root, Flatpak does not see your own apps and could remove a runtime one of them needs." >&2
-    log_event "reclaim refused (running as root)"
+    log_event "Unused runtimes: refused, Kempt ran as root"
     exit 5
   fi
   if ! is_true "$(config_get include_flatpak)"; then
@@ -2745,14 +2750,14 @@ cmd_reclaim() {
   # reclaim=off refuses any removal before anything is listed; --list still shows what could go.
   if [[ -z "$list" && "$(reclaim_mode)" == off ]]; then
     echo "Nothing was removed. Removing unused runtimes is turned off (reclaim is off)." >&2
-    log_event "reclaim refused (reclaim=off)"
+    log_event "Unused runtimes: refused, the reclaim setting is off"
     exit 5
   fi
   local listing classified sizes_tsv bytes="" digest
   if ! listing="$(flatpak_unused_list 2>/dev/null)" \
      || ! classified="$(reclaim_classify "$listing" 2>/dev/null)"; then
     echo "Flatpak did not answer when asked what is unused. Nothing was removed." >&2
-    log_event "reclaim failed (flatpak did not answer)"
+    log_event "Unused runtimes: Flatpak did not answer"
     exit 1
   fi
   if [[ "$(jq -r 'length' <<<"$classified")" == 0 ]]; then
@@ -2767,7 +2772,7 @@ cmd_reclaim() {
       local via_e=cli
       [[ "${KEMPT_VIA:-}" == widget ]] && via_e=widget
       reclaim_last_write "$via_e" changed '[]' "" "$expect"
-      log_event "reclaim changed (digest), nothing removed"
+      log_event "Unused runtimes: nothing removed, the list changed"
       cmd_check >/dev/null 2>&1 || true
       { flock -u 9; exec 9>&-; } 2>/dev/null || true
       release_lock
@@ -2797,7 +2802,7 @@ cmd_reclaim() {
     else
       echo "Nothing was removed. Some of these became unused less than an hour ago, and Kempt waits an hour in case something is still being installed." >&2
     fi
-    log_event "reclaim changed (unstable), nothing removed"
+    log_event "Unused runtimes: nothing removed, some became unused less than an hour ago"
     exit 6
   fi
   if [[ -z "$yes" ]]; then
@@ -3050,7 +3055,8 @@ startup_mute_cmd() {  # mute|unmute unit [--user]
   [[ $rc -ne 0 ]] || startup_patch_state || true
   writer_unlock
   [[ $rc -eq 0 ]] || { echo "kempt: could not write $STARTUP_MUTES_FILE" >&2; exit 1; }
-  log_event "startup ${verb}d $key"
+  if [[ "$verb" == mute ]]; then log_event "Stopped mentioning $key until it starts"
+  else log_event "Mentioning $key again"; fi
 }
 
 startup_ack() {
@@ -3102,25 +3108,21 @@ doctor_startup_row() {
   fi
 }
 
-# `kempt log` - the event log, newest last, in plain words (events_plain). The file keeps its
-# fixed vocabulary, one fact per line, for grep; --raw prints those lines as they are.
+# `kempt log` - the end of the event log, newest last. Lines from older versions print as stored.
 cmd_log() {
-  local n=30 raw=""
+  local n=30
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -n) [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] \
-            || { echo "usage: kempt log [-n N] [--raw]  (N >= 1)" >&2; exit 2; }
+            || { echo "usage: kempt log [-n N]  (N >= 1)" >&2; exit 2; }
           n="$2"; shift 2 ;;
-      --raw) raw=1; shift ;;
-      *)  echo "unknown option: $1" >&2; echo "usage: kempt log [-n N] [--raw]" >&2; exit 2 ;;
+      *)  echo "unknown option: $1" >&2; echo "usage: kempt log [-n N]" >&2; exit 2 ;;
     esac
   done
   # No file yet is the ordinary state of a fresh install, not an error - same answer shape as
   # `kempt summary` on a box with no runs: a sentence on STDOUT and exit 0.
   [[ -s "$EVENTS_FILE" ]] || { echo "No events recorded yet."; return 0; }
-  if [[ -n "$raw" ]]; then tail -n "$n" "$EVENTS_FILE" | events_safe
-  else tail -n "$n" "$EVENTS_FILE" | events_safe | events_plain
-  fi
+  tail -n "$n" "$EVENTS_FILE" | events_safe
 }
 
 # --- kempt doctor ---
@@ -4035,7 +4037,7 @@ doctor_recent_events() {
   echo
   echo "Recent events (kempt log):"
   if [[ -s "$EVENTS_FILE" ]]; then
-    tail -n 5 "$EVENTS_FILE" | events_safe | events_plain "  "
+    tail -n 5 "$EVENTS_FILE" | events_safe | sed 's/^/  /'
   else
     echo "  none"
   fi
@@ -4176,8 +4178,7 @@ EOF
 EOF
     ;;
     log) cat <<'EOF'
-  log [-n N] [--raw]    recent events: what Kempt did, when, and from where (default 30).
-                        --raw prints the lines as events.log stores them
+  log [-n N]            recent events: what Kempt did, when, and from where (default 30).
 EOF
     ;;
     doctor) cat <<'EOF'

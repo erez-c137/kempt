@@ -116,7 +116,7 @@ is "dnf5 says ready" "$(toml_status)" "ready"
 [[ -L "$LINK" ]] && ok "/system-update symlink stands" || bad "no /system-update symlink"
 is "the count is dnf5's own" "$(jq -r .offline_staged.count "$STATE/state.json")" "$(jq '[.rpms[] | select(.action=="Upgrade" or .action=="Install")] | length' "$TXJSON")"
 is "...and Kempt wrote no record of its own" "$(ls "$STATE" | grep -c 'offline_staged\|offline-partial')" "0"
-has "event: offline staged" "$(events)" "offline staged"
+has "event: staged" "$(events)" "for a restart"
 has "notification: ready" "$(notes)" "are ready"
 NAME=$(txnames | sed -n 1p); OTHER=$(txnames | sed -n 2p)
 echo "  staged: $(txnames | tr '\n' ' ')"
@@ -148,7 +148,7 @@ is "the rebuild downloads nothing new" "$(comm -13 <(printf '%s\n' "$rpms_before
 is "dnf5 says ready again" "$(toml_status)" "ready"
 lacks_name "the held package is no longer in dnf5's transaction" "$(txnames)" "$NAME"
 has "dnf5's own record carries the exclusion" "$(toml_key cmd_line)" "--exclude=$NAME"
-has "event: offline restage names the hold" "$(events)" "offline restage (holds: $NAME)"
+has "event: the rebuild names the hold" "$(events)" "Staged update rebuilt (holds: $NAME)"
 "$K" check > /tmp/s3.json 2>/dev/null
 is "no conflict left" "$(jq -c '.offline_staged.holds_conflict' /tmp/s3.json)" "[]"
 err=$("$K" unhold "dnf:$NAME" 2>&1 >/dev/null)
@@ -188,7 +188,7 @@ is "the previous transaction is still armed" "$(toml_status)" "ready"
 [[ -L "$LINK" ]] && ok "the boot symlink still stands" || bad "the boot symlink is gone"
 lacks_name "...and it is the same stage, still without $OTHER" "$(txnames)" "$OTHER"
 is "no clean was run against it: dnf5's record is the same file" "$(stat -c %Y "$TOML")" "$at5"
-has "event: restage failed, previous stage intact" "$(events)" "offline restage failed (previous stage intact)"
+has "event: restage failed, previous stage intact" "$(events)" "Rebuilding the staged update failed (previous stage intact)"
 has "notification says the previous one still installs" "$(notes)" "The earlier ones are unchanged and still install"
 cp "$REPOS_BAK"/*.repo "$REPOS_DIR"/
 
@@ -227,7 +227,7 @@ is "a fresh stage is armed again" "$(toml_status)" "ready"
 touch /tmp/gate-destroy-old; : > /tmp/gate-notifications
 "$K" update --surface=offline --no-flatpak > /tmp/s6c.out 2>&1; rc=$?
 [[ "$rc" != 0 ]] && ok "the rebuild fails" || bad "the rebuild did not fail"
-has "event: the destroyed stage was discarded" "$(events)" "offline stage discarded (rebuild failed)"
+has "event: the destroyed stage was discarded" "$(events)" "Staged update discarded (rebuild failed)"
 is "transaction gone" "$(toml_status)" "absent"
 [[ -L "$LINK" ]] && bad "boot symlink still standing" || ok "boot symlink gone"
 has "notification says what was lost" "$(notes)" "the earlier updates were removed and could not be prepared again"
@@ -272,7 +272,7 @@ before_n=$(ls -1 "$STATE/history" 2>/dev/null | wc -l)
 is "a stage with nothing in it exits 0" "$nrc" "0"
 is "...and dnf5 stored no transaction" "$(toml_status)" "absent"
 is "...so nothing promises one" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
-has "the event names the reason" "$(events)" "nothing to stage"
+has "the event names the reason" "$(events)" "Nothing to stage"
 has "...and so does the notification" "$(notes)" "has nothing to install"
 hasnt "...which does not blame the arm" "$(notes)" "could not be set to install"
 hasnt "...and does not promise a restart" "$(notes)" "install on the next restart"
