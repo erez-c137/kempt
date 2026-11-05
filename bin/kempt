@@ -1208,10 +1208,6 @@ cmd_update() {
   fi
   local auto; auto="$(config_get auto_accept)"
   surface="$(resolve_surface "$surface")"
-  # Asked for a stage, whatever the next lines turn this run into. The gate for another updater's
-  # restart below answers this, not what the run became.
-  local wanted_stage=false
-  [[ "$surface" == offline ]] && wanted_stage=true
   # Somebody at a terminal sees the output and can answer the questions. KEMPT_ASSUME_TTY stands in
   # for the terminal in tests.
   local at_terminal=false
@@ -1282,6 +1278,7 @@ cmd_update() {
       esac
     fi
   fi
+  local wanted_stage=false
   [[ "$surface" == offline ]] && wanted_stage=true
   refuse_run_behind_other_updater
   local dnf_apply_skipped=false
@@ -1812,10 +1809,8 @@ cmd_update() {
     log_event "Update failed (exit code $run_rc): $reason"
   fi
 
-  # The same stage, for the warning and the notification: only on a run that succeeded.
-  local stage_blocked=false
+  # The same stage, for the warning: only on a run that succeeded.
   if [[ "$status" == ok && "$stage_link_other" == true ]]; then
-    stage_blocked=true
     log_warn "$log" "warning: another updater has prepared the next restart, so the updates staged here will not install then. See: kempt doctor"
   fi
 
@@ -1851,7 +1846,7 @@ cmd_update() {
       else
         notify "Kempt" "No updates are waiting, so the next restart has nothing to install$discarded_tail"
       fi
-    elif [[ "$stage_blocked" == true ]]; then
+    elif [[ "$status" == ok && "$stage_link_other" == true ]]; then
       notify "Kempt" "Updates are ready, but another updater has prepared the next restart, so they will not install then"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       local discover_tail=""
