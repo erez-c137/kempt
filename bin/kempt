@@ -69,7 +69,8 @@ reclaim_remove() {  # refs(sorted, one per line) → 0, or 1 when anything is le
   fi
   [[ -z "$left" ]] || said+=" Still installed: $(tr '\n' ' ' <<<"$left" | sed 's/ $//')."
   said+="$err"
-  log_event "Unused runtimes: $said"
+  # The refs, so a person can look up what to reinstall.
+  log_event "Unused runtimes: $said${gone:+ Gone: ${gone//$'\n'/ }.}"
   if [[ $rc -eq 0 && -z "$left" ]]; then echo "$said"; return 0; fi
   echo "$said" >&2
   return 1

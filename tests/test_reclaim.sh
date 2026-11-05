@@ -257,7 +257,7 @@ assert_eq "$rc|$(args)|$(said_out)" "0|(no removal)|Nothing to remove." "a named
 reset; only > "$AFTER"
 rc=0; reclaim -y || rc=$?
 assert_eq "$rc|$(said_out | tail -1)|$(said_err)" "0|Removed 5 runtimes.|" "all gone is a count, on stdout, with exit 0"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Unused runtimes: Removed 5 runtimes." "...and an event line"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Unused runtimes: Removed 5 runtimes. Gone: $(tr '\n' ' ' <<<"$ALL5" | sed 's/ $//')." "...and an event line that names them"
 assert_eq "$(block)" '{"refs":[],"bytes":0}' "...and the closing check takes the offer away"
 assert_eq "$(ls "$KEMPT_STATE_DIR/history" 2>/dev/null | wc -l)" "0" "...and a removal writes no history entry"
 # Flatpak failed and nothing went: its reason, and no word of success.
@@ -281,6 +281,7 @@ rc=0; UNINSTALL_RC=1 reclaim -y || rc=$?
 assert_eq "$rc" "1" "part gone and flatpak failing is exit 1"
 assert_contains "$(said_err)" "Removed 4 runtimes. Still installed: $KDE. Flatpak stopped with exit code 1" \
   "...with what went, counted from the refs really gone, and what remained"
+assert_not_contains "$(tail -1 "$KEMPT_STATE_DIR/events.log" | sed 's/.* Gone: //')" "$KDE" "...and the event line names only what went"
 # Flatpak said yes and left one.
 reset; only "$KDE" > "$AFTER"
 rc=0; reclaim -y || rc=$?

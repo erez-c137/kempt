@@ -418,7 +418,8 @@ It never asks for a password. Removing needs an administrator (on Fedora, a memb
 group) logged in at the desktop. Otherwise Flatpak refuses, and Kempt shows its reason.
 
 The result comes from the list read afterwards: how many runtimes went, and what is still installed. A
-removal writes an event line and no history entry.
+removal writes an event line naming what went, so you can look up what to reinstall, and no history
+entry.
 
 | Exit | When |
 | --- | --- |
