@@ -286,6 +286,7 @@ event_plain() {  # event text → EVENT_PLAIN
     "run start surface="*)
       event_where_phrase "${t#run start surface=}"; EVENT_PLAIN="Update started $EVENT_WHERE" ;;
     "run did not start: "*) EVENT_PLAIN="Update did not start: ${t#run did not start: }" ;;
+    "stopped watching") EVENT_PLAIN="Stopped watching. An update that had started carries on" ;;
     "run done "*)
       if [[ "$t" =~ ^run\ done\ rc=0\ updated=([0-9]+|\?)\ reboot=(needed|no)$ ]]; then
         EVENT_PLAIN="Update finished: ${BASH_REMATCH[1]} updated"

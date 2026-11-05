@@ -413,7 +413,7 @@ plain_in=(
   "unstage refused (a Fedora release upgrade (44) is stored)"
   "dnf outcome read from history (transaction 10 ok, helper rc=1)"
   "dnf outcome read from history (transaction 10 Error, helper rc=0)"
-  "check skipped (a Kempt update is running)")
+  "check skipped (a Kempt update is running)" "stopped watching")
 for t in "${plain_in[@]}"; do printf '2026-01-01T00:00:00+00:00 cli %s\n' "$t" >> "$EV"; done
 cp "$EV" "$TESTTMP/ev.before"
 plain_out="$("$KEMPT" log -n 500)"
