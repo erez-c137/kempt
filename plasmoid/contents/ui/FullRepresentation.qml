@@ -944,7 +944,7 @@ PlasmaExtras.Representation {
                     // The tooltip is the disclosure, not a hint. Accessible.description carries the
                     // identical words because a polkit dialog takes the focus the moment this is
                     // pressed: a screen-reader user who has not heard the cost by then hears it never.
-                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again.")
+                    tooltip: i18n("Removes the updates waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again.")
                     Accessible.description: tooltip
                     visible: popup.vm.stagedShowDiscard
                     enabled: visible && !popup.plasmoidItem.actionPending

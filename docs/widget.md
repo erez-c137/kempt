@@ -38,7 +38,7 @@ Click the icon. Here, two updates are pending, a restart is owed and you hold `k
 update leaves the kernel out:
 
 ```
- 2 updates available                                 [refresh] [gear]   <- header
+ 2 updates                                           [refresh] [gear]   <- header
  --------------------------------------------------------------------
  (!) Restart to finish updating.          [Restart…]      [x]   <- messages
 
@@ -62,7 +62,7 @@ update leaves the kernel out:
 
 The header reads one of:
 
-- `3 updates available`. The count has no cap.
+- `3 updates`. The count has no cap. A risky set adds what it holds: `3 updates, including a new kernel`.
 - `Last check failed` when a check failed and nothing is waiting.
 - `Up to date`, `Up to date · 2 held` when every pending update is held, or
   `Up to date · apps for you only not checked` when the apps installed for you alone could not be
@@ -79,10 +79,10 @@ The header reads one of:
   check failed`. Only the last offers **Check Installation**.
 - `Could not read the update state`, usually because the widget is older than the program.
 
-**Check for Updates**, the circular arrow, fetches fresh package lists, then checks. On battery or
+**Check for Updates**, the circular arrow, downloads fresh update info, then checks. On battery or
 a metered connection it checks without fetching. After a failed check, a message says so
-(message 2), the footer adds `last check failed`, and this button's tooltip gives the reason, such
-as `dnf check failed: repo 'updates' unavailable`. While a check or update runs, it is greyed out
+(message 2), the footer adds `last check failed` unless the header already says it, and this
+button's tooltip says which half failed, such as `The check failed for System.` While a check or update runs, it is greyed out
 with a spinner. A screen reader reads its answer, and the panel icon says it when the widget is
 closed. It is also in the right-click and **More actions** menus.
 
@@ -104,12 +104,12 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    and **Copy Command**. Either one shows alone. See
    [install.md](install.md#installing-from-the-kde-store-first).
 2. **What just happened:** `Updated 4 packages in 2 s.`, `No packages changed.`,
-   `The update failed: <the reason>.`, or why a button press failed. After an answer to message 9,
+   `The update failed: <the reason>.`, or why a button press failed. After an answer to message 8,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
-   check that worked. If the press got no fresh lists, it says why, until the next check. On battery
-   or a metered connection it offers **Check Anyway**, which fetches them once, now. If another
-   check held the lock until the press gave up, it says `Another check was running. Press Download
-   Anyway again.`
+   check that worked. If the press got no fresh update info, it says why, until the next check. On
+   battery or a metered connection it offers **Check Anyway**, which checks online once, now. If
+   another check held the lock until the press gave up, it says `Another check was running. Press
+   Check Anyway again.`
 
    **Show Log** opens the log of a run that failed. **Check Installation** appears when the
    message says to run `kempt doctor`. A run's summary goes when you close the widget or a check
@@ -119,44 +119,44 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 3. **Why Kempt cannot go ahead**, one cause at a time. On an image-based Fedora such as Kinoite, it
    says to use Discover, and **Update Now** is hidden. With a system folder other users can change,
    updates are paused. With a Fedora release upgrade stored, **Install on Next Restart** is off.
-   The last two have **Check Installation**, which names the folder or gives the upgrade's commands.
-5. **What the next restart will install**, when updates are ready. See
+   With both, one sentence says the next restart installs the upgrade and updates are paused. The
+   last two have **Check Installation**, which names the folder or gives the upgrade's commands.
+4. **What the next restart will install**, when updates are ready. See
    [When updates are ready](#when-updates-are-ready).
-6. **A service did not start after the update.** *"Bluetooth failed to start after the
+5. **A service did not start after the update.** *"Bluetooth failed to start after the
    update. System service: bluetooth.service."* Several get a heading and a message each.
    **Startup Report** opens the report, where **Copy Command** copies its `systemctl status`
-   command. **Mute Until It
-   Starts** stops Kempt mentioning it until it starts cleanly again. Services that were already
+   command. **Mute Until It Starts** stops Kempt mentioning it until it starts cleanly again. Services that were already
    failing before the update are listed quietly below. When one runs again, a line says so once,
    ranked under the restart message. The panel count and icon never include this.
-7. **Restart to finish updating.**, with **Restart…** and a close button. See
+6. **Restart to finish updating.**, with **Restart…** and a close button. See
    [About the restart](#about-the-restart).
-8. **"This update includes a kernel. The safest way is to install it on the next restart, so
-   nothing changes under the running desktop."** Another version also names the NVIDIA driver.
-   Without a kernel, it names the session packages in the update: `This update touches 20 packages
-   your running session depends on (dbus, glibc, kf6, mesa, …). The safest way is to install them
-   on the next restart.` Its button is **Install on Next Restart**. It is hidden while updates are
-   ready. When you press **Update Now**, it asks first. The
-   message moves to the top (below a Check Installation result), starts *"Nothing is installed
-   yet."*, ends *"Install on the next restart, or now?"* and adds **Install Now**. **Install on Next
-   Restart** gets the keyboard focus. While a Fedora
-   release upgrade is stored, it does not ask, and **Update Now** updates live.
-9. **"Discover also checks for updates, and that can cancel updates waiting for your next
+7. **"The next restart is the safest time to install a new kernel."** Another version also names
+   the NVIDIA driver. Without a kernel, it names the parts of your desktop that would change: `The
+   next restart is the safest time to change parts your desktop is using (the system message bus,
+   the core system library).` Its button is **Install on Next Restart**. It is hidden while updates
+   are ready. When you press **Update Now**, it asks first. The message moves to the top (below a
+   Check Installation result) and adds **Install Now**. **Install on Next Restart** gets the
+   keyboard focus, and a screen reader hears *"Nothing is installed yet."* first. While a Fedora
+   release upgrade is stored, it does not ask, and **Update Now** updates live. While updates are
+   paused, it does not ask either, because the run would be refused.
+8. **"Discover also checks for updates, and that can cancel updates waiting for your next
    restart."** It shows while Discover's notifier starts with your session.
    **Turn Off Discover's Update Checks** turns it off for you. Closing the message changes nothing.
    Either answer hides the message for good. When Discover is set to install updates by itself, the
    same message says so as a warning, one time, right under what is waiting for the restart. An
    image-based Fedora, which is told to use Discover, gets neither. The **Discover** row in settings
    turns the checks back on.
-10. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
-    is at least 1 GB to free. **Show Runtimes** lists the
-    runtimes, and **Free Up Space** removes them, without a password. It removes only the list you
-    saw. If the list changed, or removing needs an administrator, nothing is removed and the widget
-    says so. Closing it hides it until the list changes or Plasma restarts.
+9. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
+   is at least 1 GB to free. **Show Runtimes** lists the runtimes, and **Free Up Space** removes
+   them, without a password. It removes only the list you saw. If the list changed, or removing
+   needs an administrator, nothing is removed and the widget says so. Closing it hides it until the
+   list changes or Plasma restarts.
 
 **Check Installation** checks Kempt's own files and settings without a password. A message under
 the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it found,
-or says it found none. **Show Full Report** shows the whole report, which you can select and copy.
+or says it found none. Under a stored Fedora upgrade, it quotes the upgrade's line instead, with
+how to finish or remove it. **Show Full Report** shows the whole report, which you can select and copy.
 **Copy Command** copies `kempt doctor`, the command that makes it. This message shows even when two
 others are up. It goes when you close it, close the widget, ask for a check, or start an update.
 
@@ -167,14 +167,16 @@ restart. Apps update now. The message is usually green, with its own **Restart�
 restart message has none:
 
 ```
- (=) 5 updates are ready and install on the next restart.   [Restart…]
+ 5 updates ready for the next restart                     <- header
+ (=) They install the next time you restart.             [Restart…]
 ```
 
 Updates that come out after that, and apps waiting to update, are not in it. The message then
-adds `2 other updates are left out.`
+adds `2 other updates wait until after that.`
 
 A dnf command of your own, such as `sudo dnf install`, cancels updates that are ready. Within about a
-minute the message goes and Kempt says so once. **Install on Next Restart** prepares them again.
+minute the message goes. Kempt tells you once, at the first check that can show a notification, so
+someone away from their desktop hears it when they are back. **Install on Next Restart** prepares them again.
 
 If you hold a package that is already in those updates, the message turns into a warning,
 because there is no way to edit them and the restart would still install it:
@@ -210,7 +212,7 @@ reuses the download.
 
 **Discard Updates** has this tooltip:
 
-> Removes the update waiting for the next restart, so the restart installs nothing. May ask for
+> Removes the updates waiting for the next restart, so the restart installs nothing. May ask for
 > your password. It deletes the packages it downloaded, so installing again downloads them again.
 
 If the updates changed after the message was drawn, nothing is discarded and the widget says so. While a Fedora release upgrade is stored, the button is not there.
@@ -218,16 +220,15 @@ If the updates changed after the message was drawn, nothing is discarded and the
 If another updater has prepared the next restart, the message warns and offers **Restart…**:
 
 ```
- (!) Another updater has taken your next restart, so these updates will not
-     install then.
+ (!) Another updater has prepared your next restart, so these updates will not
+     install then. Try again after that restart.
 ```
 
-With nothing of Kempt's waiting, the message says `Another updater has prepared your next restart.`
-and **Install on Next Restart** is gone until you have restarted. **Update Now** runs live, even
+With nothing of Kempt's waiting, the message says `Another updater has prepared your next restart,
+so restart when you are ready.` and **Install on Next Restart** is gone until you have restarted. **Update Now** runs live, even
 when Kempt is set to install on the next restart. With system updates waiting it asks first:
 
-> Another updater has prepared the next restart. If you update now, the update it prepared may no
-> longer install.
+> Updating now may stop another updater's prepared update from installing.
 
 Flatpak apps alone do not ask. Nor does Update Now while updates are paused, because the run would
 be refused.
@@ -273,7 +274,7 @@ succeeds it reads `No successful check yet`. It can add:
 
 - ` · last check failed`.
 - ` · apps for you only not checked`, when the apps installed for you alone could not be listed.
-- ` · lists 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
+- ` · update info 2 days old`, after 24 hours, or sooner when the message about a missed fetch is
   not showing.
 - ` · 1 held`
 - ` · ~140 MB`, the estimated download, when known, something is pending, and no updates are ready.
@@ -285,7 +286,7 @@ the changes. Below a megabyte it reads `< 1 MB`.
 **Update Now** runs updates wherever **Run updates in** says. With **On the next
 restart** and system updates pending, it reads **Install on Next Restart**. A press shows a
 spinner until Kempt answers. It hides when nothing is pending, updates are ready, or its question
-is open. Kernel or desktop updates make it ask first (message 8), unless a release upgrade is
+is open. Kernel or desktop updates make it ask first (message 7), unless a release upgrade is
 stored.
 
 ### While an update runs

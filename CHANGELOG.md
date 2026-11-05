@@ -27,6 +27,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Failures and notifications about updates waiting for the next restart say downloaded, prepared or ready**, not staged, and the widget draws them without "See: kempt doctor" beside its **Check Installation** button. `kempt summary` and other terminal text keep the word for now.
 - Shorter widget sentences. The count goes in the header and the sentence under it says when: "They install the next time you restart." The header no longer says "available". The kernel recommendation reads "The next restart is the safest time to install a new kernel.", it names only parts with a plain name, and a failed check no longer says "just now" or repeats "last check failed" in the footer.
 - One word for each thing in the widget. The other updater's stage is always "prepared", the footer says "update info 3 days old", the buttons are **Check Anyway** and **Discard Updates**, and tooltips no longer name dnf or flatpak. A failed check's tooltip says which half failed in the popup's words rather than quoting the tool's error.
+- The widget page describes the messages as they now read, with the list numbered in order.
 
 ### Removed
 

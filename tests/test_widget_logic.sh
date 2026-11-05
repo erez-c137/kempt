@@ -3301,7 +3301,7 @@ assert_eq "$(js 'L.COPY.stagedDiscardAction')" "Discard Updates" \
 # The tooltip is the disclosure: this deletes dnf5's downloaded packages. Stated as what happens next
 # time rather than as a warning, because the cost is only paid by someone who stages again.
 assert_eq "$(js 'L.COPY.stagedDiscardTooltip')" \
-  "Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again." \
+  "Removes the updates waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again." \
   "copy: ...disclosing the authorization and the downloads, which is what makes it consent"
 # One sentence per outcome, for the run that said nothing itself. Each says what happened and what
 # can be done about it; none of them is silence.

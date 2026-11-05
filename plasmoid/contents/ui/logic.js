@@ -300,7 +300,7 @@ var COPY = {
     stageBlocked: "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart.",
 
     // The same restart with nothing of Kempt's behind it. The short form is what `kempt status`
-    // prints, and what the Update Now question opens with.
+    // prints.
     restartHeld: "Another updater has prepared the next restart",
     restartHeldBanner: "Another updater has prepared your next restart, so restart when you are ready.",
     restartHeldFooter: "another updater has prepared the next restart",
@@ -342,7 +342,7 @@ var COPY = {
     // the transaction. Said as what happens NEXT time rather than as a
     // warning, because that cost is only paid by somebody who stages again.
     stagedDiscardTooltip:
-        "Removes the update waiting for the next restart, so the restart installs nothing. "
+        "Removes the updates waiting for the next restart, so the restart installs nothing. "
         + "May ask for your password. It deletes the packages it downloaded, so installing again "
         + "downloads them again.",
     // One sentence per outcome, for the run that said nothing for itself - discardStagedMessage
