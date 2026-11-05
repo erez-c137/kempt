@@ -3044,7 +3044,7 @@ doctor_dnf_folders_row() {
   local d fix
   for d in "$KEMPT_DNF_CACHE_DIR" "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR"; do
     if ! doctor_scan_tree "$d"; then
-      doctor_fail "dnf folders: Kempt could not check $(doctor_plain_name "$d") ($DOCTOR_CHECK_ERROR). Root checks again before any update, and refuses if it cannot check either."
+      doctor_fail "dnf folders: Kempt could not check $(doctor_plain_name "$d") ($DOCTOR_CHECK_ERROR). Root checks again before an update or a stage, but not at the restart, and refuses if it cannot check either."
     elif [[ -n "$DOCTOR_TREE_HIT" ]]; then
       case "$d" in
         "$KEMPT_DNF_CACHE_DIR") fix="$(doctor_dnf_cache_fix)" ;;
