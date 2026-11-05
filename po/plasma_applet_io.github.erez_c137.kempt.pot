@@ -1,0 +1,1250 @@
+# The words of the Kempt widget.
+# This file is distributed under the same license as the kempt package.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: kempt\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-05 05:15+0200\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: plasmoid/contents/config/config.qml
+msgid "General"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "System updates install during the next restart. Apps update now."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "System updates install during the next restart."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Holding %1"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "No longer holding %1"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/main.qml
+msgid "Check for Updates"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Checks for updates now, instead of waiting for the timer."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Configure Kempt…"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Check interval, where updates run, and the packages you hold."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Check Installation"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Restart to finish updating."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Restart…"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Discard Updates"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Removes the updates waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Turn Off Discover's Update Checks"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Turning off Discover's update checks should stop that."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Nothing is installed yet. %1"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+#: plasmoid/contents/ui/main.qml
+msgid "Install on Next Restart"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Install Now"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "Update Now"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Installs the update now, while your desktop is running."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Show Log"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Check Anyway"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Checks online now over this metered connection."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Checks online now on battery power."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Checking Kempt's installation…"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Show Full Report"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+#: plasmoid/contents/ui/StartupPage.qml plasmoid/contents/ui/logic.js
+msgid "Copy Command"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Full report"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+#: plasmoid/contents/ui/StartupPage.qml plasmoid/contents/ui/main.qml
+msgid "Startup Report"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Shows what failed, and the command to see why."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Freeing Up Space…"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Free Up Space"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Removes the Flatpak runtimes listed under Show Runtimes."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Show Runtimes"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Kempt skips these. Other updaters still see them."
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Hide details of the last update"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Show details of the last update"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "Preparing updates for the next restart…"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "Updating…"
+msgstr ""
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Not Updating? Check Again"
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Back"
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Returns to the list of updates."
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Refresh"
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Reads the startup list again."
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgctxt "@action:button a service's name follows"
+msgid "Copy Command: %1"
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Mute Until It Starts"
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Muting…"
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgctxt "@action:button a service's name follows"
+msgid "Muting…: %1"
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgctxt "@action:button a service's name follows"
+msgid "Mute Until It Starts: %1"
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Kempt stops mentioning it until it starts cleanly again."
+msgstr ""
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Reading what starts with the computer…"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "%1 %2"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml plasmoid/contents/ui/logic.js
+msgid "new"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Security update."
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "For you only."
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Installs version %1."
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgctxt "@info:accessible a version, said as a sentence"
+msgid "%1."
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Updates from %1 to %2."
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml plasmoid/contents/ui/logic.js
+msgid "Held"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "For you only"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Security"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "from %1 to %2"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Skip installing %1"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Stop skipping %1"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Stop holding %1"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Hold %1 at %2"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Kempt offers the update again for both copies, the system one and the one for you only."
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Kempt skips both copies, the system one and the one for you only, until you stop holding it."
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt offers its update again."
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Kempt skips it on every update until you stop holding it."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt did not answer in time. The setting may not have changed. Try again."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not save %1."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not read the Kempt settings."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml plasmoid/contents/ui/main.qml
+msgid "%1 is running again, so there is nothing to mute."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml plasmoid/contents/ui/main.qml
+msgid "Could not mute %1."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not stop muting %1."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml plasmoid/contents/ui/main.qml
+msgid "Kempt did not answer in time. The hold may not have changed. Try again."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not remove the hold on %1."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Done."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "That did not complete (exit %1)."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Reading your settings…"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Updates:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Include Flatpak apps"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Flatpak is not installed."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Unused Flatpak runtimes:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Ask me first"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Never"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgctxt "@info:whatsthis a radio button's setting, then its option"
+msgid "%1 %2"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Only applies when Flatpak apps are included in updates."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Only applies when Flatpak is installed."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Run updates in:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "In this widget"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "On the next restart"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Check every:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Check every"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "%1 minute"
+msgid_plural "%1 minutes"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Services:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Tell me when something stops starting after an update"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt only looks. It never turns anything on or off, and the update count never includes this."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Held:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Loading…"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Nothing is being held."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Muted:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Nothing is muted."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Stop Muting %1"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt mentions it again if it still does not start."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Stopped muting %1."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Undo"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Mutes %1 again."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover also checks for updates, with its own count."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover's update checks are off."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover's update checks are turned off by a startup file: %1. Delete that file to turn them back on."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover's update checks are turned off by a startup file. Delete that file to turn them back on."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Turn On Discover's Update Checks"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Password prompts:"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Updates normally ask for your password once per run. You can allow Kempt's update action to run without one. That applies only to this action, and only while you are logged in at this machine."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Allow without password…"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Require a password…"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt cannot read whether this is currently on: the rule it writes lives in a directory only root can list. Use the buttons to set it either way."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Apps"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "System"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Flatpak runtimes"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "< 1 MB"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "~%1 MB"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "~%1 GB"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 (new build)"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the Linux kernel"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the service manager"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the core system library"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the system message bus"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "graphics drivers"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the desktop toolkit"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "KDE framework libraries"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the Plasma desktop"
+msgstr ""
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the window manager"
+msgstr ""
+
+#. TRANSLATORS: A list of package names goes into a longer sentence as this. %2 is the names and %1 how many more.
+#: plasmoid/contents/ui/logic.js
+msgid "%2 and %1 more"
+msgid_plural "%2 and %1 more"
+msgstr[0] ""
+msgstr[1] ""
+
+#. TRANSLATORS: A list of package names goes into a longer sentence as this.
+#: plasmoid/contents/ui/logic.js
+msgid "%1 and %2"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The next restart is the safest time to change parts your desktop is using (%1)."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The next restart is the safest time to install a new kernel and NVIDIA driver."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The next restart is the safest time to install a new kernel."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 update, including a new kernel"
+msgid_plural "%1 updates, including a new kernel"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 update, including parts your desktop is using"
+msgid_plural "%1 updates, including parts your desktop is using"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "They install the next time you restart."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "It installs the next time you restart."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 failed to start after the update."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 failed to start after the last restart."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 and %2 failed to start after the update."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 and %2 failed to start after the last restart."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 services failed to start after the update, including %2 and %3."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 services failed to start after the last restart, including %2 and %3."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Session service: %1."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "System service: %1."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Already failing before the update: %1."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Already failing before the last restart: %1."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt did not answer in time. Press Refresh to try again."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not gather the startup list: %1"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not gather the startup list (exit %1)."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not read the startup list."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 can be freed. No installed app uses these Flatpak runtimes."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 (no longer supported)"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updates ready for the next restart"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 update ready for the next restart"
+msgid_plural "%1 updates ready for the next restart"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 other update waits until after that."
+msgid_plural "%1 other updates wait until after that."
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "You held %1 after these updates were prepared, so it still installs. Discard them and install again to skip it."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "You held %2 and 1 more after these updates were prepared, so they still install. Discard them and install again to skip them."
+msgid_plural "You held %2 and %1 more after these updates were prepared, so they still install. Discard them and install again to skip them."
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "You added holds after these updates were prepared, so held packages may still install. Discard them and install again to apply your holds."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "never"
+msgstr ""
+
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
+#: plasmoid/contents/ui/logic.js
+msgid "just now"
+msgstr ""
+
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
+#: plasmoid/contents/ui/logic.js
+msgid "1 min ago"
+msgid_plural "%1 min ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
+#: plasmoid/contents/ui/logic.js
+msgid "1 hour ago"
+msgid_plural "%1 hours ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
+#: plasmoid/contents/ui/logic.js
+msgid "1 day ago"
+msgid_plural "%1 days ago"
+msgstr[0] ""
+msgstr[1] ""
+
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
+#: plasmoid/contents/ui/logic.js
+msgid "update info 1 day old"
+msgid_plural "update info %1 days old"
+msgstr[0] ""
+msgstr[1] ""
+
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
+#: plasmoid/contents/ui/logic.js
+msgid "update info 1 hour old"
+msgid_plural "update info %1 hours old"
+msgstr[0] ""
+msgstr[1] ""
+
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
+#: plasmoid/contents/ui/logic.js
+msgid "update info 1 min old"
+msgid_plural "update info %1 min old"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt skips the online check on battery, so this may be out of date."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt skips the online check on a metered connection, so this may be out of date."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not reach the update servers, so this may be out of date."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt did not download fresh update info, so this may be out of date."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed, so this may be out of date."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt did not download fresh update info, so this is from %1."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed, so this is from %1."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The update failed."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The update failed: %1"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The update failed: %1."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Every waiting update is held, so the next restart has nothing to install."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "No updates are waiting, so the next restart has nothing to install."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updates are ready and install on the next restart."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "No packages changed."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updated 1 package in %2 s."
+msgid_plural "Updated %1 packages in %2 s."
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updated 1 package."
+msgid_plural "Updated %1 packages."
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "An update is already running."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Could not start the update (exit %1)."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "These updates are gone. The next restart installs nothing."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Nothing was discarded. Press Check Installation to find out why."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "An update is running, so nothing was discarded. Try again when it has finished."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "These updates could not be discarded (exit %1). Press Check Installation to find out why."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt did not answer in time, so your answer may not be saved. Try again."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt found a problem with its installation: %2"
+msgid_plural "Kempt found %1 problems with its installation. The first: %2"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt checked its installation and found no problems."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt stopped waiting for the installation check. Try again in a minute."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not check its installation. The full report has the error."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not check its installation (exit %1)."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Could not free the space (exit %1)."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Nothing to remove. Every installed Flatpak runtime is in use."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %1 · the next restart has nothing to install"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %1 · another updater has prepared the next restart"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %1 · ready for the next restart"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update failed %1 · no package changes"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %1 · no package changes"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update failed %2 · 1 package"
+msgid_plural "Last update failed %2 · %1 packages"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %2 · 1 package"
+msgid_plural "Last update %2 · %1 packages"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check did not finish in time."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Check Installation can find out why."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not reach the update servers"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Check your network connection."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The package lists have not been downloaded yet"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Plug in, then press Check for Updates."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Switch to an unmetered connection, then press Check for Updates."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The download failed. The error is below."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Fetching package lists is turned off."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Press Check for Updates to download them."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check did not finish. The counts shown are from the last check."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed. The counts shown are from the last check."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "No successful check yet."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "a moment ago"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The counts are from %1."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed for System and Apps."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed for System."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed for Apps."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 update"
+msgid_plural "%1 updates"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last check failed · %1 held"
+msgid_plural "Last check failed · %1 held"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Up to date · %1 held"
+msgid_plural "Up to date · %1 held"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last check failed · apps for you only not checked"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Up to date · apps for you only not checked"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last check failed"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Up to date"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "This computer installs updates through Discover, not Kempt."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "A Fedora %1 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "A Fedora %1 upgrade installs on the next restart, so other updates cannot wait for that restart."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "A Fedora %1 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt's engine is not installed"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt's engine will not run"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "No update data yet"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Cannot check for updates"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Cannot read the update state"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt cannot check for updates"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Could not read the update state"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "the last check failed"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "the update state could not be read"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Nothing can check for updates yet."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid ""
+"To install the engine on Fedora, run:\n"
+"sudo dnf copr enable erez-c137/kempt\n"
+"sudo dnf install kempt-plasmoid\n"
+"For other ways to install it, see github.com/erez-c137/kempt."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Copy Commands"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Press Check Installation to find the problem."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The engine is installed but cannot start, so nothing can check for updates."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "no data until the first check finishes"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Could not reach the update servers"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Open Kempt to see why"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 security update"
+msgid_plural "%1 security updates"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 held"
+msgid_plural "%1 held"
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 to download"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last successful check %1"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "No successful check yet"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "apps for you only not checked"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "restart pending"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The first check has not finished."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "No updates found the last time Kempt could check."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Apps installed for you only could not be checked."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Everything is up to date"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Checked %1"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "last check failed"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updating now may stop another updater's prepared update from installing."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Another updater has prepared your next restart, so restart when you are ready."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Discover also checks for updates, and that can cancel updates waiting for your next restart."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates."
+msgstr ""
+
+#: plasmoid/contents/ui/main.qml
+msgid "Another check was running. Press Check Anyway again."
+msgstr ""
+
+#: plasmoid/contents/ui/main.qml
+msgid "These updates changed since this was offered. Nothing was discarded."
+msgstr ""
+
+#: plasmoid/contents/ui/main.qml
+msgid "Could not change the hold on %1."
+msgstr ""
+
+#: plasmoid/contents/ui/main.qml
+msgid "Could not open the restart prompt."
+msgstr ""
+
+#: plasmoid/contents/ui/main.qml
+msgid "That run did not record a log file."
+msgstr ""
+
+#: plasmoid/contents/ui/main.qml
+msgid "Could not open %1: %2"
+msgstr ""
+
+#: plasmoid/contents/ui/main.qml
+msgid "Could not open %1."
+msgstr ""
+
+#: plasmoid/contents/ui/main.qml
+msgid "Kempt stopped waiting for the update to report back. It may still be running, so keep the computer on."
+msgstr ""

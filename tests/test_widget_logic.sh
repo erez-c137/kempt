@@ -71,6 +71,10 @@ if ! command -v node >/dev/null 2>&1; then
 fi
 
 # js <expression> -> its value on stdout (strings raw, everything else as JSON).
+# Every sentence the widget can show, one per line: the extraction template's msgids.
+POT="$REPO_ROOT/po/plasma_applet_io.github.erez_c137.kempt.pot"
+widget_text() { grep -E '^msgid(_plural)? ' "$POT"; }
+
 # In scope: L = logic.js's exports, S(name) = parseState of tests/fixtures/state-<name>.json,
 # V(name, updating) = the view model derived from that fixture.
 js() {
@@ -313,8 +317,6 @@ assert_eq "$(js "$calm_empty.emptyStateText")" "No updates found the last time K
 clean='L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false)'
 assert_eq "$(js "$clean.emptyStateText")" "Everything is up to date" \
   "an up-to-date box says so in the placeholder, with no full stop"
-assert_eq "$(js "$clean.emptyStateText")" "$(js 'L.COPY.everythingUpToDate')" \
-  "...in the copy table's own words, not a second copy of them"
 # The popup must never say the same thing twice in the same breath: the header already carries
 # "Up to date", so the placeholder underneath has to be a DIFFERENT sentence: never both at once
 # with the same words.
@@ -369,7 +371,6 @@ assert_eq "$(js "$cli_err.badgeVisible")" "false" "...and it badges nothing"
 assert_eq "$(js "$cli_err.headerText")" "Kempt cannot check for updates" "the popup header names the problem"
 assert_eq "$(js "$cli_err.emptyStateText")" "The check failed" "the popup headline is plain words"
 assert_eq "$(js "$cli_err.problemDetail")" "kempt: command not found" "...with the CLI's own words under it"
-assert_eq "$(js "$cli_err.problemHint !== L.COPY.checkNetworkHint")" "true" "...which are not about the network"
 assert_eq "$(js "$cli_err.tooltipSub")" "Open Kempt to see why" "...and the tooltip gives a short reason"
 assert_eq "$(js "$cli_err.remedyCommand")" "kempt doctor" "...and points at the command that diagnoses it"
 assert_eq "$(js 'L.viewModel(null,false,"").iconState')" "unknown" \
@@ -456,7 +457,7 @@ assert_eq "$(js 'L.logTailOf("  Upgrading        : bash-5.3-1.fc44.x86_64       
   "$(printf '  Upgrading        : bash-5.3-1.fc44.x86_64 31/62\n  Verifying  x 1/2\nplain  text')" \
   "the log tail keeps dnf's trailing counter on its line"
 assert_eq "$(js 'L.logTailOf(undefined)')" "" "...and an absent tail is empty"
-assert_eq "$(js 'L.viewModel(null,false,L.COPY.checkTimedOut).emptyStateText + "|" + L.viewModel(null,false,L.COPY.checkTimedOut).problemDetail')" \
+assert_eq "$(js 'L.viewModel(null,false,"The check did not finish in time.").emptyStateText + "|" + L.viewModel(null,false,"The check did not finish in time.").problemDetail')" \
   "The check did not finish in time.|" "the widget's own timeout sentence is already plain, with nothing under it"
 # The CLI names `kempt doctor` itself when the root helpers are missing (lib/common.sh
 # explain_helper_error). That text arrives in the state, so the remedy must be offered from there
@@ -480,17 +481,12 @@ assert_eq "$(js 'V("live",false).remedyCommand')" "" "a healthy box is told to r
 # work, because kempt is exactly what is missing. That is the first impression every store-first
 # user gets. It is a SETUP STEP rather than a failure, and this is the view model saying so.
 eng='L.viewModel(null,false,"",{engineFault:"missing"})'
-assert_eq "$(js "$eng.engineFaultMessage")" \
-  "$(js 'L.COPY.engineMissing + "\n" + L.COPY.engineMissingInstall')" \
-  "the message is its own field: what is true, then what to type"
 assert_eq "$(js "$eng.engineFaultMessage.indexOf(\"\\n\") > 0")" "true" "...on two lines"
 assert_eq "$(js "$eng.iconState")" "unknown" \
   "a box that has not been set up yet is unknown, never error: nothing is broken"
 assert_eq "$(js "$eng.badgeVisible")" "false" "...and it badges nothing"
 assert_eq "$(js "$eng.headerText")" "Kempt's engine is not installed" "the header names what is missing"
 assert_eq "$(js "$eng.headerText.indexOf(\"sh:\")")" "-1" "...and never quotes the shell at the user"
-assert_eq "$(js "$eng.tooltipSub")" "$(js 'L.COPY.engineMissing')" \
-  "the tooltip says the same thing, in the copy table's words"
 assert_eq "$(js "$eng.tooltipMain")" "Kempt's engine is not installed" "...under the header as its title"
 assert_eq "$(js "$eng.engineFaultMessage.indexOf(\"not installed\")")" "-1" \
   "...and the message under the header does not repeat it"
@@ -501,12 +497,6 @@ assert_eq "$(js "$eng.emptyStateText")" "" \
   "...and the placeholder stands down, because the message carries the whole answer"
 # The two commands a Fedora user has to type, complete and verbatim. A half-quoted command line is
 # worse than no command line: it fails in a way the reader has to debug.
-assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("sudo dnf copr enable erez-c137/kempt") >= 0')" "true" \
-  "the install line carries the copr command in full"
-assert_eq "$(js 'L.COPY.engineMissingInstall.split("\n").indexOf("sudo dnf install kempt-plasmoid") >= 0')" "true" \
-  "...and the install command in full: the widget package, which pulls in the engine and replaces the store copy"
-assert_eq "$(js 'L.COPY.engineMissingInstall.indexOf("github.com/erez-c137/kempt") >= 0')" "true" \
-  "...and where everybody who is not on Fedora goes"
 # The pasteable form behind the Copy Commands button: ONE line, chained with &&, so one paste in
 # one terminal does the whole install. Pinned verbatim - a clipboard payload that fails somewhere
 # is worse than retyping - and drift-guarded against the display string: both must name the same
@@ -516,7 +506,7 @@ assert_eq "$(js "$eng.engineFaultCopyText")" \
   "the copy payload is the two commands, chained, verbatim"
 assert_eq "$(js 'L.viewModel(null,false,"",{}).engineFaultCopyText')" "" \
   "no missing engine, nothing to copy"
-assert_eq "$(js "$eng.engineFaultCopyText.split(\" && \").every(function (c) { return L.COPY.engineMissingInstall.indexOf(c) >= 0; })")" \
+assert_eq "$(js "$eng.engineFaultCopyText.split(\" && \").every(function (c) { return 'To install the engine on Fedora, run:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\nFor other ways to install it, see github.com/erez-c137/kempt.'.indexOf(c) >= 0; })")" \
   "true" "every command the button copies is a command the message shows"
 assert_eq "$(js "$eng.engineFaultActionLabel")" "Copy Commands" \
   "...and the button says Commands, because it copies two"
@@ -541,9 +531,6 @@ assert_eq "$(js 'V("live",false).engineFaultMessage')" "" "a box whose engine an
 # message. Kempt's own argv bug produced this exact 126 on any box more than about 1,200 packages
 # behind (tests/test_volume.sh), which made the wrong sentence the one those users actually saw.
 brk='L.viewModel(null,false,"",{engineFault:"unrunnable"})'
-assert_eq "$(js "$brk.engineFaultMessage")" \
-  "$(js 'L.COPY.engineUnrunnable + "\n" + L.COPY.engineUnrunnableFix')" \
-  "an engine that will not run says so, and says what to do about it"
 assert_eq "$(js "$brk.engineFaultMessage.indexOf(\"not installed\")")" "-1" \
   "...and never says it is not installed, because it is"
 assert_eq "$(js "$brk.engineFaultMessage.indexOf(\"dnf install\")")" "-1" \
@@ -555,8 +542,6 @@ assert_eq "$(js "$brk.engineFaultActionLabel")" "Copy Command" \
   "...and says Command, singular, because that is what it copies"
 assert_eq "$(js "$brk.tooltipMain")" "Kempt's engine will not run" \
   "the tooltip title is the header"
-assert_eq "$(js "$brk.tooltipSub")" "$(js 'L.COPY.engineUnrunnable')" \
-  "...with the message under it, in the copy table's words"
 assert_eq "$(js "$brk.engineFaultMessage.indexOf(\"will not run\")")" "-1" \
   "...and the message does not repeat the header"
 assert_eq "$(js "$brk.emptyStateText")" "" "the placeholder stands down, as it does for a missing one"
@@ -571,8 +556,6 @@ assert_eq "$(js "$eng.iconState")" "unknown" "...and an absent one still does no
 assert_eq "$(js "$brk.messageSlots")" '["engineFault"]' "...and it replaces the whole stack"
 # `kempt doctor` is itself a kempt subcommand, so on this box it may not start either. Its own error
 # then says why, on the report page, so the line only needs to name the button.
-assert_eq "$(js 'L.COPY.engineUnrunnableFix')" "Press Check Installation to find the problem." \
-  "the repair line names the button and promises nothing more"
 
 # --- a Fedora release upgrade staged outside Kempt -----------------------------------------------
 # dnf5 keeps ONE stored transaction for a release upgrade and for an ordinary offline update alike,
@@ -802,13 +785,8 @@ assert_eq "$(js "$(risky_vm popup).messageSlots")" '[]' "closed, nothing is draw
 assert_contains "$(js "$(risky_vm popup).headerText")" ", including a new kernel" "...and the status line says what the set holds"
 assert_eq "$(js 'L.viewModel(S("risky-heavy"), true, "", {surface: "popup", riskyChoiceOpen: true}).messageSlots.indexOf("question")')" \
   "-1" "...and nothing is asked over a run already under way"
-assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true}').questionMessage")" "$(js 'L.COPY.kernelRestart')" \
-  "the question gives the reason"
 assert_eq "$(js "$(risky_vm popup '{riskyChoiceOpen: true}').questionHeld")" "false" "...and is not the other updater's"
 assert_eq "$(js "$(risky_vm popup).questionMessage")" "" "...and says nothing until asked"
-assert_eq "$(js 'L.COPY.installNow')" "Install Now" "the second answer is Install Now"
-assert_eq "$(js 'L.COPY.installNowTooltip')" "Installs the update now, while your desktop is running." \
-  "...with a tooltip, as its sibling has"
 
 # --- the one offer to turn off Discover's notifier ------------------------------------------------
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).messageSlots')" '["discover"]' \
@@ -824,17 +802,9 @@ assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), f
   "it waits until the widget has looked for the CLI's answered marker"
 assert_eq "$(js 'L.messageStack({restart: true, discover: "mild", reclaim: true})')" '["restart","discover"]' \
   "it waits below the restart and above the reclaim offer"
-assert_eq "$(js 'L.COPY.discoverMild')" "Discover also checks for updates, and that can cancel updates waiting for your next restart." \
-  "its sentence, which says why"
-assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).discoverMessage === L.COPY.discoverMild')" "true" \
+assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).discoverMessage === "Discover also checks for updates, and that can cancel updates waiting for your next restart."')" "true" \
   "...which is what the message carries"
 assert_eq "$(js 'L.viewModel(Object.assign(S("live"), {discover_offer: true}), false, "", {}).discoverSerious')" "false" "...not the serious one"
-assert_eq "$(js '[L.COPY.discoverOff, L.COPY.discoverOn].join("|")')" \
-  "Turn Off Discover's Update Checks|Turn On Discover's Update Checks" "...its button, and the way back in Settings"
-for _lit in discoverOff discoverOffTip discoverOn discoverStatusOn discoverStatusOff discoverStatusOwn discoverStatusOwnNoPath; do
-  assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" \
-    "$(case $_lit in discoverOff) echo 2 ;; *) echo 1 ;; esac)" "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
-done
 # What Settings shows, from `kempt discover-notifier status --json`.
 dn() { js "JSON.stringify(L.discoverSettingOf('$1'))"; }
 assert_eq "$(dn '{"installed":true,"enabled":true,"running":true,"by_kempt":false}')" '{"state":"on","verb":"off"}' \
@@ -846,8 +816,6 @@ assert_eq "$(dn '{"installed":true,"enabled":false,"running":false,"by_kempt":fa
   "Settings: off by the person's own entry, with no button, since on cannot undo it, and the file to delete"
 assert_eq "$(dn '{"installed":true,"enabled":false,"running":false,"by_kempt":false}')" '{"state":"own","verb":"","path":""}' \
   "...with no path when status gives none"
-assert_eq "$(js 'L.COPY.discoverStatusOwn')" "Discover's update checks are turned off by a startup file: %1. Delete that file to turn them back on." \
-  "...and the line says how to undo it"
 assert_eq "$(dn '{"installed":false,"enabled":false,"running":false,"by_kempt":false}')" 'null' "Settings: not installed, nothing shown"
 assert_eq "$(dn 'not json')" 'null' "...and nothing for an answer that is not JSON"
 
@@ -856,7 +824,7 @@ assert_eq "$(dn 'not json')" 'null' "...and nothing for an answer that is not JS
 # "Update Now" reads as installing right away, so the button takes the restart choice's own words.
 assert_eq "$(js 'L.updateButtonOf("offline", 4, true).text')" "Install on Next Restart" \
   "with updates set to run on the next restart, the footer button says so"
-assert_eq "$(js 'L.updateButtonOf("offline", 4, true).text === L.COPY.installOnNextRestart')" "true" \
+assert_eq "$(js 'L.updateButtonOf("offline", 4, true).text === "Install on Next Restart"')" "true" \
   "...in the same words as the restart choice"
 assert_eq "$(js 'L.updateButtonOf("offline", 4, true).tooltip')" \
   "System updates install during the next restart. Apps update now." \
@@ -1090,7 +1058,6 @@ assert_eq "$(js "V('live').rows.filter(function (r) { return r.security; }).leng
 assert_contains "$(js "V('security').tooltipSub")" "3 security updates" "the tooltip counts them"
 assert_eq "$(js "var t = V('security').tooltipSub; t.indexOf('3 security updates') > t.indexOf('curl')")" "true" \
   "...after the pending names"
-assert_eq "$(js "L.COPY.securityToken + '|' + L.COPY.securityCountOne")" "Security|1 security update" "the copy, with its singular"
 ONE_SEC="$(jq -c '.security = {count:1, packages:["curl"]}' "$FIXTURES/state-security.json")"
 assert_contains "$(js "L.viewModel($ONE_SEC,false).tooltipSub")" "1 security update" "one is singular"
 STAGED_SEC="$(jq -c '.offline_staged = {staged_at:"2026-08-25T11:00:00+03:00", count:7, armed:true}' "$FIXTURES/state-security.json")"
@@ -1172,144 +1139,18 @@ assert_eq "$(js "JSON.stringify(L.startupMutedOf('{\"notify\":true,\"muted\":[{\
   '[{"unit":"plasma-foo.service","scope":"user","name":"Plasma Foo"}]' "the settings page lists the muted services by name"
 assert_eq "$(js "JSON.stringify(L.startupMutedOf('{}'))")" '[]' "...an empty answer (setting off) lists none"
 assert_eq "$(js "JSON.stringify(L.startupMutedOf('not json'))")" '[]' "...and neither does garbage"
-assert_eq "$(js '[L.COPY.startupCopyCommand, L.COPY.startupMute, L.COPY.startupMuteTooltip].join("|")')" \
-  "Copy Command|Mute Until It Starts|Kempt stops mentioning it until it starts cleanly again." "the two buttons and the mute's tooltip"
-assert_eq "$(js '[L.COPY.startupSetting, L.COPY.startupSettingNote, L.COPY.startupStopMuting].join("|")')" \
-  "Tell me when something stops starting after an update|Kempt only looks. It never turns anything on or off, and the update count never includes this.|Stop Muting %1" \
-  "the setting, its note, and the settings button"
 
-# --- the Startup page: `kempt startup --all --json`, as the page draws it ---------------------------
-# Times are UTC in the JSON and local on the page, worded as the CLI words them. Tokyo has no
-# summer time, so these hold all year; noon on 20 Oct there is 03:00 UTC.
-SP_NOW='Date.parse("2026-10-20T03:00:00Z")'
-# An autostart unit is named app-<id>@autostart.service, which the docs test's address scan reads
-# as an email address, so the @ is spliced in.
-AT='@'
-spjs() { TZ=Asia/Tokyo js "$1"; }
-sp() {  # JSON object literal, expression over the page `p`
-  spjs "var p = L.startupPageOf(JSON.stringify($1), $SP_NOW); p.$2"
-}
-SP_FAILED='{scope:"user", unit:"app-imsettings\\x2dstart'"$AT"'autostart.service", description:"imsettings-start", state:"failed", result:"exit-code", log:"Current desktop is not supported.", status_command:"systemctl --user status '"'"'app-imsettings\\x2dstart'"$AT"'autostart.service'"'"'"}'
-SP_SYS='{scope:"system", unit:"bluetooth.service", description:"Bluetooth service", state:"failed", result:"exit-code", log:null, status_command:"systemctl status bluetooth.service"}'
-SP_TIMER_OK='{scope:"system", unit:"fstrim.timer", activates:"fstrim.service", description:"Discard unused blocks", last:"2026-10-19T16:25:00Z", next:"2026-10-20T13:56:00Z", result:"success"}'
-SP_TIMER_BAD='{scope:"user", unit:"backup.timer", activates:"backup.service", description:"Nightly backup", last:"2026-10-20T15:00:00Z", next:"2026-10-22T00:00:00Z", result:"exit-code"}'
-SP_STARTS='[
-  {scope:"system", kind:"service", unit:"NetworkManager.service", description:"Network Manager", package:"NetworkManager", skipped:false},
-  {scope:"system", kind:"service", unit:"NetworkManager-wait-online.service", description:"Network Manager Wait Online", package:"NetworkManager", skipped:false},
-  {scope:"system", kind:"service", unit:"bluetooth.service", description:"Bluetooth service", package:"bluez", skipped:false},
-  {scope:"system", kind:"service", unit:"mine.service", description:"My own thing", package:null, skipped:false},
-  {scope:"system", kind:"service", unit:"vboxservice.service", description:"VirtualBox Guest Service", package:"virtualbox-guest-additions", skipped:true},
-  {scope:"system", kind:"service", unit:"hv.service", description:"Hyper-V KVP", package:"hyperv-daemons", skipped:true},
-  {scope:"user", kind:"autostart", unit:"app-kdeconnectd'"$AT"'autostart.service", description:"KDE Connect", package:"kdeconnectd", skipped:false},
-  {scope:"user", kind:"service", unit:"wireplumber.service", description:"Multimedia Service Session Manager", package:"wireplumber", skipped:false},
-  {scope:"user", kind:"script", unit:"hello.sh", description:"hello.sh", package:null, skipped:false}]'
-SP_FULL="{schema:1, boot_id:'b', generated_at:'2026-10-20T03:00:00Z', notes:[],
-  failed:{units:[$SP_FAILED, $SP_SYS], journal_denied:false, journal_available:true},
-  changed:{since:'2026-10-18T09:00:00Z', added:[{scope:'user', unit:'syncthing.service', description:'Syncthing'}], removed:[{scope:'system', unit:'cups.service'}]},
-  starts:$SP_STARTS,
-  schedule:{timers:[$SP_TIMER_OK, $SP_TIMER_BAD],
-    cron:[{source:'crontab', schedule:'55 23 * * *', user:null, command:'/home/u/bin/backup.sh >> /home/u/log 2>&1', last:null},
-          {source:'/etc/cron.d/raid', schedule:'*/30 * * * *', user:'root', command:'PATH=/usr/bin /usr/sbin/raid-check', last:null},
-          {source:'cron.daily', schedule:'daily', user:null, command:'logrotate', last:'2026-10-19T22:12:00Z'}],
-    at:[{id:'7', when:'2026-10-20T13:56:00Z'}], notes:['crond_down']},
-  boot_time:{ready_sec:6.117, userspace_sec:180.996, total_sec:199.596,
-    usual:{ready_sec:5.2, userspace_sec:40.4, boots:9},
-    slowest:{unit:'systemd-fsck@dev-disk-by\\\\x2duuid-6.service', description:'File System Check', sec:92.362}, recent:[]}}"
-
-assert_eq "$(spjs "[L.startupWhenOf('2026-10-20T13:56:00Z', $SP_NOW), L.startupWhenOf('2026-10-20T15:00:00Z', $SP_NOW), L.startupWhenOf('2026-10-22T00:00:00Z', $SP_NOW)]")" \
-  '["today 22:56","tomorrow 00:00","22 Oct 09:00"]' "times read local: today, tomorrow, then the date, as the CLI says them"
-# Tomorrow is the next calendar day, not 24 hours on: the day a clock changes is 23 or 25 hours.
-assert_eq "$(TZ=Europe/Berlin js "[L.startupWhenOf('2026-03-29T08:00:00Z', Date.parse('2026-03-28T22:30:00Z')),
-  L.startupWhenOf('2026-10-26T08:00:00Z', Date.parse('2026-10-24T22:30:00Z')),
-  L.startupWhenOf('2026-10-25T21:00:00Z', Date.parse('2026-10-24T22:30:00Z'))]")" \
-  '["tomorrow 10:00","tomorrow 09:00","today 22:00"]' "...and tomorrow stays tomorrow across both clock changes"
-assert_eq "$(spjs "[L.startupWhenOf('2026-10-19T14:59:00Z', $SP_NOW), L.startupWhenOf('2027-01-01T01:00:00Z', $SP_NOW)]")" \
-  '["yesterday 23:59","1 Jan 10:00"]' "...yesterday says so, and next year is a date"
-assert_eq "$(spjs "[L.startupWhenOf('2026-10-19T14:59:00Z', $SP_NOW), L.startupWhenOf('2026-10-18T14:59:00Z', $SP_NOW)]")" \
-  '["yesterday 23:59","18 Oct 23:59"]' "...and the day before yesterday is a date"
-assert_eq "$(sp "{schema:1, notes:[], schedule:{timers:[], at:[], notes:[], cron:[{source:'cron.daily', schedule:'daily', user:null, command:'a', last:'2026-10-19T14:59:00Z'}, {source:'cron.daily', schedule:'daily', user:null, command:'b', last:'2026-10-18T14:59:00Z'}]}}" 'scheduleLines.slice(1).map(function (l) { return l.text; })')" \
-  '["a: every day, last run yesterday","b: every day, last run 18 Oct"]' "...as is a cron job's last day"
-assert_eq "$(spjs "[L.startupWhenOf('soon', $SP_NOW), L.startupWhenOf(null, $SP_NOW), L.startupWhenOf(42, $SP_NOW)]")" \
-  '["soon","",""]' "...a time Kempt cannot read is shown as it came, and a missing one is nothing"
-assert_eq "$(spjs '[0.4, 6.117, 59.6, 180.996, 3600, 3725].map(L.startupDurationOf)')" \
-  '["under 1 s","6 s","1 min","3 min 1 s","1 h","1 h 2 min"]' "durations as the CLI words them"
-
-assert_eq "$(sp "$SP_FULL" 'ok')" "true" "a whole page reads"
-assert_eq "$(sp "$SP_FULL" 'failed.map(function (f) { return [f.title, f.log, f.command]; })')" \
-  '[["imsettings-start (when you log in)","Its log says: Current desktop is not supported.","systemctl --user status '"'"'app-imsettings\\x2dstart'"$AT"'autostart.service'"'"'"],["Bluetooth service","Stopped with an error (exit-code)","systemctl status bluetooth.service"]]' \
-  "didn't start: the name, (when you log in) for a login item, its log line or the result, and the command to copy"
-assert_eq "$(sp "$SP_FULL" 'changedTitle')" "Changed since the last update (18 Oct 18:00)" "changes since the last update, dated"
-assert_eq "$(sp "$SP_FULL" 'changed')" '["Now starts: Syncthing (syncthing.service), when you log in","No longer starts: cups.service"]' \
-  "...each one a line, by its description, else (an older CLI) its name"
-assert_eq "$(sp "{schema:1, changed:{since:'<b>x</b> later', added:[{scope:'system', unit:'a.service'}], removed:[]}}" 'changedTitle')" \
-  "Changed since the last update" "...and a since that is not a time is left out of the heading, which is not plain text"
-assert_eq "$(sp "$SP_FULL" 'timerFailures')" '["Nightly backup (backup.timer): last run tomorrow 00:00, next 22 Oct 09:00"]' \
-  "a timer whose last run failed is listed in full"
-assert_eq "$(sp "$SP_FULL" 'startsSummary')" "5 services, 2 login items" "what starts: counted, skipped ones apart"
-assert_eq "$(sp "$SP_FULL" 'skippedLine')" "2 more are set to start but are skipped on this computer." "...and the skipped ones in one line"
-assert_eq "$(sp "$SP_FULL" 'startsLines.map(function (l) { return l.indent + (l.heading ? "#" : " ") + l.text; })')" \
-  '["0#At startup","1#Not from a package","2 My own thing","1 Bluetooth service (bluez)","1#NetworkManager","2 Network Manager","2 Network Manager Wait Online","0#When you log in","1#Not from a package","2 hello.sh (autostart script)","1 KDE Connect (kdeconnectd)","1 Multimedia Service Session Manager (wireplumber)"]' \
-  "...listed on request: what no package owns first, then by package"
-assert_eq "$(sp "{schema:1, notes:[], starts:[{scope:'system', kind:'service', unit:'a.service', description:'A', package:'p', skipped:false}]}" 'startsLines')" \
-  '[{"text":"A (p)","indent":0,"heading":false}]' "...with no scope heading when only one scope starts anything"
-assert_eq "$(sp "$SP_FULL" 'scheduleSummary')" "2 timers, 3 cron jobs, 1 waiting at job" "the schedule, counted"
-assert_eq "$(sp "$SP_FULL" 'scheduleNotes')" '["These cron jobs do not run while crond is stopped."]' "...with its notes always shown"
-assert_eq "$(sp "$SP_FULL" 'scheduleLines.map(function (l) { return (l.heading ? "#" : "") + l.text; })')" \
-  '["#Timers","Discard unused blocks (fstrim.timer): last run today 01:25, next today 22:56","#Your timers","Nightly backup (backup.timer): last run tomorrow 00:00, next 22 Oct 09:00, the last run failed","#Cron","backup.sh: every day at 23:55 (your crontab)","raid-check: every 30 minutes (/etc/cron.d/raid, as root)","logrotate: every day, last run today","#Waiting at jobs","today 22:56 (job 7)"]' \
-  "...and listed on request, cron by the program it runs"
-assert_eq "$(sp "$SP_FULL" 'bootLine')" \
-  "Ready in 6 s; all services by 3 min 1 s. Usually ready in 5 s; all services by 40 s. Longest step: the disk check, 1 min 32 s." \
-  "startup time against the usual, and the longest step when this start was slow"
-assert_eq "$(sp "{schema:1, notes:[], boot_time:{ready_sec:6, userspace_sec:41, total_sec:null, usual:{ready_sec:5, userspace_sec:40, boots:4}, slowest:{unit:'x.service', description:'X', sec:9}, recent:[]}}" 'bootLine')" \
-  "Ready in 6 s; all services by 41 s. Usually ready in 5 s; all services by 40 s." "...and no longest step for a start as quick as usual"
-assert_eq "$(sp "{schema:1, notes:[], boot_time:{ready_sec:null, userspace_sec:41, total_sec:null, usual:null, slowest:null, recent:[]}}" 'bootLine')" \
-  "All services by 41 s." "...or with no usual yet"
-
-assert_eq "$(sp "{schema:1, notes:[], schedule:{timers:[{scope:'system', unit:'n.timer', description:'N', last:null, next:'2026-10-20T13:56:00Z', result:'exit-code'}], cron:[], at:[], notes:[]}}" 'ok, [p.timerFailures, p.scheduleLines[1].text]')" \
-  '[[],"N (n.timer): next today 22:56"]' "a timer that never ran claims no result"
-assert_eq "$(sp "{schema:1, notes:[], boot_time:{ready_sec:6, userspace_sec:60, total_sec:null, usual:{ready_sec:5, userspace_sec:40, boots:4}, slowest:{unit:'sys-devices-pci0000:00-virtio1-block-vda-vda3.device', description:'waiting for vda3', sec:15}, recent:[]}}" 'bootLine')" \
-  "Ready in 6 s; all services by 1 min. Usually ready in 5 s; all services by 40 s. Longest step: waiting for vda3, 15 s." \
-  "the longest step by the description the CLI gives it"
-
-# Empty sections are not drawn, so each one is absent or empty.
-SP_EMPTY="{schema:1, boot_id:'b', generated_at:'x', notes:[]}"
-assert_eq "$(sp "$SP_EMPTY" 'ok, [p.ok, p.empty, p.failed.length, p.changed.length, p.timerFailures.length, p.startsSummary, p.scheduleSummary, p.bootLine, p.skippedLine]')" \
-  '[true,true,0,0,0,"","","",""]' "a page with nothing in it says so, and draws no section"
-assert_eq "$(sp "$SP_EMPTY" 'problem')" "" "...which is not a problem"
-assert_eq "$(sp "{schema:1, notes:['session_slow'], starts:[{scope:'system', kind:'service', unit:'a.service', description:'A', package:'p', skipped:true}]}" 'ok, [p.notes, p.startsSummary, p.skippedLine, p.empty]')" \
-  '[["Your session did not answer in time, so what starts when you log in is missing."],"","1 more is set to start but is skipped on this computer.",false]' \
-  "the slow session's note; only skipped entries leave just the skipped line"
-assert_eq "$(sp "{schema:1, notes:['session_missing']}" 'ok, [p.notes, p.empty]')" \
-  '[["Your session could not be reached, so what starts when you log in is missing."],false]' \
-  "a session that could not be reached has its own note"
-assert_eq "$(sp "{schema:1, notes:[], failed:{units:[$SP_SYS], journal_denied:true, journal_available:true}}" 'failedNote')" \
-  "No log lines for system services: you are not allowed to read the system journal." "the journal that cannot be read says why there is no log line"
-
-# Garbage, and strings from outside: plain text, one line each.
-for _g in "'not json'" "''" "'[1,2]'" "'{\"schema\":2}'" "undefined"; do
-  assert_eq "$(spjs "var p = L.startupPageOf($_g, $SP_NOW); [p.ok, p.problem]")" \
-    '[false,"Kempt could not read the startup list."]' "garbage ($_g) is a calm problem, never a page"
-done
-assert_eq "$(sp "{schema:1, notes:'x', failed:{units:'x'}, starts:{}, schedule:{timers:[null, 3, {unit:5}], cron:'x', at:null, notes:null}, boot_time:[]}" 'ok, [p.ok, p.failed.length, p.startsSummary, p.scheduleSummary, p.bootLine]')" \
-  '[true,0,"","",""]' "fields of the wrong type are left out, not drawn as nothing"
-assert_eq "$(sp "{schema:1, notes:[], failed:{units:[{scope:'system', unit:'x.service', description:'<b>Evil</b>\nline two\u0007', state:'failed', result:null, log:'a\tb', status_command:'systemctl status x.service\nrm -rf ~'}]}}" 'failed[0]')" \
-  '{"title":"<b>Evil</b> line two ","log":"Its log says: a b","command":""}' \
-  "control characters become spaces, markup stays text, and a command with a newline is never offered to copy"
-assert_eq "$(js "L.startupPageOutcomeOf('', 'timeout after 20000ms', 124, 0).problem")" \
+# --- the Startup Report: `kempt startup --all`, shown as the CLI prints it -------------------------
+assert_eq "$(js "JSON.stringify(L.startupPageOutcomeOf('  Runs on a schedule:\n  Timers\n\n', '', 0))")" \
+  '{"ok":true,"text":"  Runs on a schedule:\n  Timers"}' "the CLI's text is shown as printed, indents kept, without the last newline"
+assert_eq "$(js "JSON.stringify(L.startupPageOutcomeOf(' \n', '', 0))")" \
+  '{"ok":false,"problem":"Kempt could not read the startup list."}' "...and an empty answer is a calm problem"
+assert_eq "$(js "L.startupPageOutcomeOf('', 'timeout after 20000ms', 124).problem")" \
   "Kempt did not answer in time. Press Refresh to try again." "a gather that timed out says so"
-assert_eq "$(js "L.startupPageOutcomeOf('', 'kempt: could not gather the startup page\n', 1, 0).problem")" \
-  "Kempt could not gather the startup list: kempt: could not gather the startup page" "...and one that failed gives the CLI's reason"
-assert_eq "$(js "L.startupPageOutcomeOf('', '', 1, 0).problem")" "Kempt could not gather the startup list (exit 1)." "...or its exit code"
-assert_eq "$(js 'L.STARTUP_PAGE_ARGS')" " startup --all --json" "the page gathers with kempt startup --all --json"
-assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.startupPageAction")\"" {} + | wc -l | tr -d ' ')" "2" \
-  "the widget writes COPY.startupPageAction verbatim, in the menu and on a service's message"
-for _lit in startupPageBack startupPageRefresh startupPageRefreshTip startupPageShowAll startupPageHide; do
-  assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" "1" \
-    "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
-done
-assert_eq "$(js 'L.COPY.startupPageAction')" "Startup Report" "the widget's menu entry"
-assert_eq "$(js '[typeof L.COPY.startupPageSetting, typeof L.COPY.startupPageButton].join("|")')" "undefined|undefined" \
-  "...and no setting or header button left to word"
+assert_eq "$(js "L.startupPageOutcomeOf('', 'kempt: could not gather the Startup Report\n', 1).problem")" \
+  "Kempt could not gather the startup list: kempt: could not gather the Startup Report" "...and one that failed gives the CLI's reason"
+assert_eq "$(js "L.startupPageOutcomeOf('', '', 1).problem")" "Kempt could not gather the startup list (exit 1)." "...or its exit code"
+assert_eq "$(js 'L.STARTUP_PAGE_ARGS')" " startup --all" "the page gathers with kempt startup --all"
 
 # --- per-user Flatpak apps: the same id installed both ways is two rows, one marked ------------------
 UFP='{schema:1,status:"ok",actionable:2,held_total:0,backends:{flatpak:{enabled:true,items:[
@@ -1400,9 +1241,9 @@ assert_eq "$(js 'L.versionTextOf("?","1.0-1.fc44")')" "new → 1.0-1.fc44" \
   "a package that was not installed still reads new, exactly as it did before"
 assert_eq "$(js 'L.versionTextOf("3.105","3.106")')" "3.105 → 3.106" \
   "and an ordinary upgrade is untouched"
-# The word comes from the copy table, like every other string the popup draws.
-assert_eq "$(js 'L.versionTextOf("9","9").indexOf(L.COPY.newBuild) > 0')" "true" \
-  "...in the copy table's words"
+# The word is the widget's own, like every other string the popup draws.
+assert_eq "$(js 'L.versionTextOf("9","9").indexOf("new build") > 0')" "true" \
+  "...in the widget's words"
 
 # --- riskyMessageOf: what a session-critical transaction is actually told to DO -----------------
 # riskySummaryOf answers "how much of this is risky" and is unchanged (its assertions are above).
@@ -1414,15 +1255,15 @@ KN='["kernel-core","akmod-nvidia"]'
 assert_eq "$(js "L.riskyMessageOf($K)")" \
   "The next restart is the safest time to install a new kernel." \
   "a kernel in the set names the kernel, and recommends the button underneath it"
-assert_eq "$(js "L.riskyMessageOf($K)")" "$(js 'L.COPY.kernelRestart')" "...in the copy table's words"
+assert_eq "$(js "L.riskyMessageOf($K)")" "The next restart is the safest time to install a new kernel." "...in the widget's words"
 assert_eq "$(js "L.riskyMessageOf($KN)")" \
   "The next restart is the safest time to install a new kernel and NVIDIA driver." \
   "a kernel plus the NVIDIA driver names both"
-assert_eq "$(js "L.riskyMessageOf($KN)")" "$(js 'L.COPY.kernelNvidiaRestart')" "...in the copy table's words too"
+assert_eq "$(js "L.riskyMessageOf($KN)")" "The next restart is the safest time to install a new kernel and NVIDIA driver." "...in the widget's words too"
 # The two tests are shaped DIFFERENTLY on purpose, and this is what pins the difference.
 # "kernel" is a FAMILY test: kernel-core, kernel-modules and kernel.x86_64 are one decision, which
 # is precisely what familiesOf already exists to collapse (name up to the first - or .).
-assert_eq "$(js 'L.riskyMessageOf(["kernel.x86_64"])')" "$(js 'L.COPY.kernelRestart')" \
+assert_eq "$(js 'L.riskyMessageOf(["kernel.x86_64"])')" "The next restart is the safest time to install a new kernel." \
   "an arch-suffixed kernel is the same family, so the same message"
 assert_eq "$(js 'L.riskyMessageOf(["kernelcare"]).indexOf("kernel update")')" "-1" \
   "...while a package that merely STARTS with kernel is a different family and not a kernel update"
@@ -1430,7 +1271,7 @@ assert_eq "$(js 'L.riskyMessageOf(["kernelcare"]).indexOf("kernel update")')" "-
 # common: akmod-nvidia is the "akmod" family, xorg-x11-drv-nvidia is "xorg", nvidia-settings is
 # "nvidia". A family test would catch one of the three and miss the two that matter most.
 for n in akmod-nvidia xorg-x11-drv-nvidia nvidia-settings NVIDIA-settings kmod-nvidia-open; do
-  assert_eq "$(js "L.riskyMessageOf([\"kernel-core\",\"$n\"])")" "$(js 'L.COPY.kernelNvidiaRestart')" \
+  assert_eq "$(js "L.riskyMessageOf([\"kernel-core\",\"$n\"])")" "The next restart is the safest time to install a new kernel and NVIDIA driver." \
     "$n is the NVIDIA driver whatever family its name falls into"
 done
 # NVIDIA on its own is not a kernel update, and the message must not claim one. It falls back to
@@ -1448,8 +1289,7 @@ assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-
   "...naming labelled families only, the plain names left out"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
-assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /Restart when it finishes/.test(L.COPY[k]); })')" \
-  "[]" "no copy string tells anybody to restart when something unnamed finishes"
+assert_eq "$(widget_text | grep -c 'Restart when it finishes')" "0" "no copy string tells anybody to restart when something unnamed finishes"
 assert_eq "$(js 'L.riskyMessageOf([])')" "" "no risky set, no message"
 assert_eq "$(js 'L.riskyMessageOf(undefined)')" "" "...and a missing one is not an error"
 assert_eq "$(js 'L.riskyMessageOf(null)')" "" "...nor a null one"
@@ -1467,11 +1307,11 @@ DEEP_K='["alsa-lib","atk","bash","dbus-broker","kernel-core","kernel-modules"]'
 DEEP_KN='["akmod-nvidia-open","alsa-lib","atk","bash","kernel-core","kernel-modules"]'
 assert_eq "$(js "L.familiesOf($DEEP_K, 0).shown.indexOf(\"kernel\")")" "4" \
   "set guard: kernel really is the FIFTH family here, past any cap of four"
-assert_eq "$(js "L.riskyMessageOf($DEEP_K)")" "$(js 'L.COPY.kernelRestart')" \
+assert_eq "$(js "L.riskyMessageOf($DEEP_K)")" "The next restart is the safest time to install a new kernel." \
   "a kernel that sorts fifth is still a kernel update"
 assert_eq "$(js "L.familiesOf($DEEP_KN, 0).shown.indexOf(\"kernel\")")" "4" \
   "set guard: fifth here too, with the driver in the set"
-assert_eq "$(js "L.riskyMessageOf($DEEP_KN)")" "$(js 'L.COPY.kernelNvidiaRestart')" \
+assert_eq "$(js "L.riskyMessageOf($DEEP_KN)")" "The next restart is the safest time to install a new kernel and NVIDIA driver." \
   "...and the driver sentence survives the same sort order"
 
 
@@ -1842,19 +1682,19 @@ assert_eq "$(js "L.discardStagedMessage(0, 'Nothing is waiting for the next rest
 assert_eq "$(js "L.discardStagedMessage(0, 'These updates were already gone. The next restart installs nothing.\n', '')")" \
   "These updates were already gone. The next restart installs nothing." \
   "...as is a record cleared with no transaction under it"
-assert_eq "$(js "L.discardStagedMessage(0, '', '')")" "$(js 'L.COPY.stagedDiscardDone')" \
+assert_eq "$(js "L.discardStagedMessage(0, '', '')")" "These updates are gone. The next restart installs nothing." \
   "...and a run that said nothing at all still reports what happened"
 # Exit 5 is the refusal that protects a Fedora release upgrade: nothing was read and nothing was
 # changed. The CLI names the release, which is the fact that makes the refusal make sense.
 assert_eq "$(js "L.discardStagedMessage(5, '', 'Nothing was discarded. A Fedora release upgrade (45) is stored, and dnf5 keeps one stored transaction, so discarding it would cancel the upgrade. See: kempt doctor\n')")" \
   "Nothing was discarded. A Fedora release upgrade (45) is stored, and dnf5 keeps one stored transaction, so discarding it would cancel the upgrade. See: kempt doctor" \
   "a refused discard reports the CLI's reason, which names the upgrade it protected"
-assert_eq "$(js "L.discardStagedMessage(5, '', '')")" "$(js 'L.COPY.stagedDiscardRefused')" \
+assert_eq "$(js "L.discardStagedMessage(5, '', '')")" "Nothing was discarded. Press Check Installation to find out why." \
   "...and a silent refusal still says nothing was discarded, with somewhere to look"
 assert_eq "$(js "L.discardStagedMessage(3, '', 'another kempt update is running\n')")" \
   "another kempt update is running" \
   "the lock another update holds is reported in the CLI's words"
-assert_eq "$(js "L.discardStagedMessage(3, '', '')")" "$(js 'L.COPY.stagedDiscardBusy')" \
+assert_eq "$(js "L.discardStagedMessage(3, '', '')")" "An update is running, so nothing was discarded. Try again when it has finished." \
   "...and silently, as a sentence that says what to do about it"
 assert_eq "$(js "L.discardStagedMessage(1, '', 'These updates could not be discarded. See: kempt doctor\n')")" \
   "These updates could not be discarded. See: kempt doctor" \
@@ -1875,20 +1715,45 @@ assert_eq "$(js "L.discardStagedMessage(9, '', '')")" \
 # --- Check Installation: `kempt doctor`, run from the widget -------------------------------------
 # Every widget sentence that names kempt doctor names the button too. None of them sends anybody
 # to a terminal any more.
-assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /kempt doctor/.test(L.COPY[k]) && L.COPY[k].indexOf("Check Installation") < 0; })')" \
-  '["engineUnrunnableCopy"]' "every sentence naming kempt doctor also names Check Installation"
-assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /doctor in a terminal/.test(L.COPY[k]); })')" \
-  "[]" "...and none of them asks for a terminal"
-assert_eq "$(js 'L.COPY.doctorAction')" "Check Installation" "the button's label"
+assert_eq "$(widget_text | grep 'kempt doctor' | grep -vc 'Check Installation')" "0" "every sentence naming kempt doctor also names Check Installation"
+assert_eq "$(widget_text | grep -c 'doctor in a terminal')" "0" "...and none of them asks for a terminal"
 # Which messages get the button: any that tells the person to run doctor, the CLI's own included.
 assert_eq "$(js 'L.mentionsDoctor("Nothing was discarded. A Fedora release upgrade (45) is stored. See: kempt doctor")')" \
   "true" "a refusal from the CLI that ends in kempt doctor offers the button"
-assert_eq "$(js 'L.mentionsDoctor(L.COPY.stagedDiscardRefused)')" "true" "...and so does the widget's own fallback"
-assert_eq "$(js 'L.mentionsDoctor(L.COPY.stagedDiscardFailed)')" "true" "...both of them, which name the button"
+assert_eq "$(js 'L.mentionsDoctor("Nothing was discarded. Press Check Installation to find out why.")')" "true" "...and so does the widget's own fallback"
+assert_eq "$(js 'L.mentionsDoctor("These updates could not be discarded (exit 1). Press Check Installation to find out why.")')" "true" "...both of them, which name the button"
 assert_eq "$(js 'L.mentionsDoctor("Could not change the hold on bash.")')" "false" \
   "a failure that does not mention doctor offers nothing"
 assert_eq "$(js 'L.mentionsDoctor(undefined)')" "false" "...and no text offers nothing"
 assert_eq "$(js 'L.mentionsDoctor("see kempt doctors")')" "false" "...matching the command as a word"
+# In a translated widget. This stand-in alters every string and inflects the button's name inside a
+# sentence, so the button's own label is nowhere in the sentences that name it.
+translated_doctor() {
+  node -e '
+    const L = require(process.argv[1]);
+    const fill = (s, args, from) => { for (let i = from; i < args.length; i++) s = s.replace("%" + (i - from + 1), args[i]); return s; };
+    global.i18n = function (s) {
+      return "<" + fill(s === "Check Installation" ? "LABEL" : s.replace("Check Installation", "the checkup"), arguments, 1) + ">";
+    };
+    global.i18np = function (a, b, n) { return "<" + fill(n === 1 ? a : b, arguments, 2) + ">"; };
+    const unsafe = L.lastRunSubtitle({ failed: true, error: "other users can change /etc/dnf" });
+    console.log([
+      L.mentionsDoctor(unsafe), L.mentionsDoctor(L.discardStagedMessage(5, "", "")),
+      L.mentionsDoctor(L.discardStagedMessage(1, "", "")), L.mentionsDoctor("Refused. See: kempt doctor"),
+      L.mentionsDoctor(L.discardStagedMessage(3, "", "")), L.mentionsDoctor("Check Installation"),
+      L.mentionsDoctor(undefined)
+    ].join(" "));
+  ' "$REPO_ROOT/plasmoid/contents/ui/logic.js"
+}
+assert_eq "$(translated_doctor)" "true true true true false false false" \
+  "translated: the button stays for each sentence naming it and the CLI's pointer, and for nothing else"
+# A sentence that names the button either earns it here, or is one of these, which have their own.
+NAMES_BUTTON_ELSEWHERE='^msgid "(Check Installation|Check Installation can find out why\.|Press Check Installation to find the problem\.|A Fedora %1 upgrade .*)"$'
+while IFS= read -r _named; do
+  _named="${_named#msgid \"}"; _named="${_named%\"}"
+  assert_eq "$(node -e 'console.log(require(process.argv[1]).mentionsDoctor(process.argv[2]))' "$REPO_ROOT/plasmoid/contents/ui/logic.js" "${_named//%1/7}")" "true" \
+    "a sentence naming the button is on mentionsDoctor's list: $_named"
+done < <(grep '^msgid ' "$POT" | grep 'Check Installation' | grep -vE "$NAMES_BUTTON_ELSEWHERE")
 
 # Beside the button, the pointer at the command it runs goes. The button test reads the raw string.
 assert_eq "$(js 'L.withoutDoctorPointer("These updates could not be discarded. See: kempt doctor")')" \
@@ -1902,7 +1767,7 @@ doc_ok=$'info  kempt 0.1.7 (/usr/share/kempt)\nok    jq: /usr/bin/jq\n\nRecent e
 doc_one=$'info  kempt 0.1.7\nok    jq: /usr/bin/jq\nFAIL  polkit action not installed: /usr/share/polkit-1/actions/x.policy - run ./install.sh\nkempt doctor: 1 problem found\n'
 doc_two=$'FAIL  root helper (refresh) not installed: /usr/libexec/kempt/kempt-refresh - run ./install.sh\nok    jq\nFAIL  state dir not writable: /x\nkempt doctor: 2 problems found\n'
 export doc_ok doc_one doc_two
-assert_eq "$(js 'L.doctorOutcomeOf(0, process.env.doc_ok, "").summary')" "$(js 'L.COPY.doctorPassed')" \
+assert_eq "$(js 'L.doctorOutcomeOf(0, process.env.doc_ok, "").summary')" "Kempt checked its installation and found no problems." \
   "a clean report says no problems were found"
 assert_eq "$(js 'L.doctorOutcomeOf(0, process.env.doc_ok, "").failed')" "false" "...and is not a failure"
 assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_one, "").summary')" \
@@ -1930,11 +1795,11 @@ assert_eq "$(js 'L.doctorOutcomeOf(126, "", "sh: line 1: /home/u/.local/bin/kemp
   "a doctor that could not start says so in plain words, never the shell's text"
 assert_eq "$(js 'L.doctorOutcomeOf(126, "", "sh: x: Permission denied\n").report')" "sh: x: Permission denied" \
   "...and the report is that reason"
-assert_eq "$(js 'L.doctorOutcomeOf(124, "", "timeout after 60000ms").summary')" "$(js 'L.COPY.doctorTimedOut')" \
+assert_eq "$(js 'L.doctorOutcomeOf(124, "", "timeout after 60000ms").summary')" "Kempt stopped waiting for the installation check. Try again in a minute." \
   "the widget's own timeout is a sentence, not a status"
 assert_eq "$(js 'L.doctorOutcomeOf(7, "", "").summary')" "Kempt could not check its installation (exit 7)." \
   "a silent failure gives its status"
-assert_eq "$(js 'L.doctorOutcomeOf(0, "", "").summary')" "$(js 'L.COPY.doctorPassed')" \
+assert_eq "$(js 'L.doctorOutcomeOf(0, "", "").summary')" "Kempt checked its installation and found no problems." \
   "exit 0 with nothing printed is no problems found, never a status"
 assert_eq "$(js 'L.doctorOutcomeOf(1, "info  kempt 0.1.7 (/usr/share/kempt)\n", "").summary')" \
   "Kempt could not check its installation (exit 1)." \
@@ -2115,8 +1980,6 @@ assert_eq "$(js 'L.viewModel({hello:"world"},false).rows.length')" "0" "...and l
 STRIP='function (v) { delete v.restartMessageVisible; delete v.restartShowAction; delete v.tooltipSub; delete v.messageSlots; return JSON.stringify(v); }'
 assert_eq "$(js "($STRIP)(V(\"reboot-needed\",false)) === ($STRIP)(V(\"live\",false))")" \
   "true" "the additive key moves the restart surfaces and leaves the rest of the view model alone"
-assert_eq "$(js 'V("reboot-needed",false).tooltipSub.indexOf(L.COPY.restartPending) >= 0')" "true" \
-  "...and the panel tooltip gains the two words that say so"
 assert_eq "$(js 'V("reboot-needed",false).tooltipSub.replace(/(^| · )restart pending$/, "")')" \
   "$(js 'V("live",false).tooltipSub')" \
   "...appended, changing nothing else that was already in it"
@@ -2332,7 +2195,7 @@ assert_eq "$(js "L.staleAnswerOf({error:\"dnf check failed\",last_success:new Da
   "...and a time under a minute reads as a moment ago"
 # A check that answered nothing over a state we hold: main.qml shows a report and passes it here,
 # and that report is the answer, since the counts at the top did not change.
-assert_eq "$(js "L.viewModel($OK_STATE,false,\"\",{nowMs:$NOW,checkUnfinished:L.COPY.checkUnfinished}).checkAnswerText")" \
+assert_eq "$(js "L.viewModel($OK_STATE,false,\"\",{nowMs:$NOW,checkUnfinished:'The check did not finish. The counts shown are from the last check.'}).checkAnswerText")" \
   "The check did not finish. The counts shown are from the last check." \
   "a Check for Updates that never answered over held counts says so"
 assert_eq "$(js 'L.checkFailedOverOf(124)')" "The check did not finish. The counts shown are from the last check." \
@@ -2441,10 +2304,10 @@ assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(0, "", "", "Updates now run in
 assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(124, "", "timeout after 40000ms", "x"))')" \
   '{"ok":false,"text":"Kempt did not answer in time, so your answer may not be saved. Try again."}' \
   "...an answer that timed out says so in words, never the timeout text"
-assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(124, "", "timeout after 40000ms", "", L.COPY.settingTimedOut))')" \
+assert_eq "$(js 'JSON.stringify(L.answerOutcomeOf(124, "", "timeout after 40000ms", "", "Kempt did not answer in time. The setting may not have changed. Try again."))')" \
   '{"ok":false,"text":"Kempt did not answer in time. The setting may not have changed. Try again."}' \
   "...a switch in Settings that timed out says the setting may not have changed"
-assert_eq "$(js 'L.answerOutcomeOf(124, "", "timeout after 40000ms", "", L.COPY.holdTimedOut).text')" \
+assert_eq "$(js 'L.answerOutcomeOf(124, "", "timeout after 40000ms", "", "Kempt did not answer in time. The hold may not have changed. Try again.").text')" \
   "Kempt did not answer in time. The hold may not have changed. Try again." \
   "...and a hold that timed out says the hold may not have changed"
 # Every other write that takes the writers' lock waits as long: Settings' config set and unhold,
@@ -2574,7 +2437,7 @@ assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:0,armed:true}' 0 'sta
   "They install the next time you restart." \
   "...and zero takes the plural, not the singular"
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",armed:true}' 0 'stagedMessage')" \
-  "$(js 'L.COPY.stagedTail')." "...and a key that never carried a count reads the same"
+  "$(js '"They install the next time you restart"')." "...and a key that never carried a count reads the same"
 assert_eq "$(vm '{}' '' 0 'stagedMessage')" "" "nothing staged, nothing said"
 assert_eq "$(js 'L.viewModel(null,false).stagedMessage')" "" "...and no state at all says nothing either"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{},offline_staged:"yes"},false).stagedMessage')" \
@@ -2591,7 +2454,6 @@ assert_eq "$(vm '{}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "false" \
   "...and stands down when the restart message is already offering it"
 
 # --- the Discover offer while something is staged ----------------------------------------------
-assert_eq "$(js 'L.COPY.discoverMild.indexOf("—")')" "-1" "the Discover message has no long dash"
 assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", restart: true})')" '["staged","restart"]' \
   "a restart owed keeps its button over the Discover warning"
 assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", startup: true})')" '["staged","startup"]' \
@@ -2681,7 +2543,7 @@ assert_eq "$(held "$PEND" '{surface:"popup"}' stageMenuOffered)" "false" "...not
 assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",last_success:\"2026-08-26T12:00:00+03:00\",$PEND},true,\"\",{surface:\"popup\"}).stageMenuOffered")" "false" "...not during a run"
 
 # A stage already made, then held.
-assert_eq "$(held "$PEND$BLK" "$OFFL" stagedMessage)" "$(js 'L.COPY.stageBlocked')" "a blocked stage keeps its own banner"
+assert_eq "$(held "$PEND$BLK" "$OFFL" stagedMessage)" "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart." "a blocked stage keeps its own banner"
 assert_eq "$(held "$PEND$BLK" "$OFFL" stagedShowRestart)" "true" "...with Restart"
 assert_eq "$(held "$PEND$BLK,reboot_needed:true" "$OFFL" stagedShowRestart)" "false" "...unless the restart message has one"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",restart_holder:"other",actionable:3,backends:{dnf:{actionable:3}}},false,"",{reportShown:true,reportRepeatsStaged:true}).messageSlots.indexOf("report")')" "-1" \
@@ -2697,12 +2559,11 @@ assert_contains "$(js "L.lastRunText($LAST,$NOW,false)")" "ready for the next re
 # Discover's setting.
 DU='discover_unattended:true,discover_unattended_warn:true,discover_offer:true'
 assert_eq "$(free "$PEND,$DU" '{}' discoverSerious)" "true" "Discover set to update itself: warned"
-assert_eq "$(js 'L.COPY.discoverUnattended')" "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates." "...in one plain sentence"
 assert_eq "$(js 'L.messageStack({staged: true, discover: "serious", startup: true, restart: true})')" '["staged","discover"]' \
   "...ranked right after what is staged, above a service failure and a restart"
 assert_eq "$(js 'L.messageStack({discover: "serious", startup: true, restart: true})')" '["discover","startup"]' \
   "...and before everything under it with nothing staged"
-assert_eq "$(free "$PEND,$DU" '{}' 'discoverMessage === L.COPY.discoverUnattended')" "true" "...over the mild sentence"
+assert_eq "$(free "$PEND,$DU" '{}' 'discoverMessage === "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt\u0027s updates."')" "true" "...over the mild sentence"
 # Held with updates paused too: both are true, so both show, and the question has nothing to warn about.
 assert_eq "$(held "$PEND" '{}' updateAsksHeld)" "true" "held with system updates: Update Now asks"
 assert_eq "$(held "$PEND,unsafe_folder:\"/var/cache/libdnf5\"" '{}' updateAsksHeld)" "false" "...but not with updates paused, when the helper refuses the run"
@@ -2716,7 +2577,7 @@ assert_eq "$(free "$PEND,discover_unattended:true" '{}' 'messageSlots.indexOf("d
 assert_eq "$(free "$PEND,discover_unattended:true" '{discoverWarningKept:true}' discoverSerious)" "true" "...but it stays up for the open that drew it"
 assert_eq "$(free "$PEND,$DU" '{discoverWarningGone:true}' 'messageSlots.indexOf("discover")')" "-1" "...and Turn Off or close hides it at once, without the mild form coming up under it"
 assert_eq "$(free "$PEND,discover_unattended:false,discover_unattended_warn:true" '{}' 'messageSlots.indexOf("discover")')" "-1" "...and a setting reading false never warns"
-assert_eq "$(js 'L.COPY.restartHeldBanner + L.COPY.restartHeldAsk + L.COPY.discoverUnattended + L.COPY.restartHeld + L.COPY.stageBlocked' | grep -c -E '—| - |popup' || true)" "0" "the new copy has no dashes and no popup"
+assert_eq "$(js '"Another updater has prepared your next restart, so restart when you are ready." + "Updating now may stop another updater\u0027s prepared update from installing." + "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt\u0027s updates." + "Another updater has prepared the next restart" + "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart."' | grep -c -E '—| - |popup' || true)" "0" "the new copy has no dashes and no popup"
 assert_eq "$(vm '{restartDismissed:true}' "$STG,reboot_needed:true" 0 'stagedShowRestart')" "true" \
   "...and takes it back when that message is dismissed for this session"
 assert_eq "$(vm '{}' '' 0 'stagedShowRestart')" "false" "nothing staged offers no restart"
@@ -2866,7 +2727,7 @@ assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:[""],names_sou
 assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:[],names_source:"transaction"}' "$NOBK" 'stagedType')" \
   "positive" "a list that was READ and is empty is the good news it looks like"
 # The older CLI, which is the ordinary case rather than the exotic one: the widget is an installed
-# COPY and the CLI is a symlink into the checkout, so a widget newer than its engine is normal.
+# copy and the CLI is a symlink into the checkout, so a widget newer than its engine is normal.
 # Neither field present means neither judgement is available, and the banner is today's.
 assert_eq "$(sv "$ARMED" "$HELDDNF" 'stagedType')" "positive" \
   "a stage from a CLI that never published these fields renders as it always did"
@@ -2923,7 +2784,6 @@ assert_eq "$(sr "$GENERIC" "$HELDDNF")" "false" "...and by the generic one"
 assert_eq "$(js 'L.VERSION_UNKNOWN')" "?" "the sentinel the CLI writes is unchanged"
 assert_eq "$(js 'L.newestOf(undefined)')" "$(js 'L.VERSION_UNKNOWN')" \
   "...and it is still what a missing version parses to"
-assert_eq "$(js 'L.COPY.versionNew')" "new" "copy: and what the row draws in its place"
 assert_eq "$(js 'L.fromTextOf("?")')" "new" "one rule for every row: the CLI's unknown from reads new"
 assert_eq "$(js 'L.fromTextOf("1.0-1.fc44")')" "1.0-1.fc44" "...and a known version passes through untouched"
 
@@ -3146,7 +3006,7 @@ assert_eq "$(js "JSON.stringify(L.reclaimSaid(0, '', ''))")" '{"ok":true,"text":
 assert_eq "$(js "JSON.stringify(L.reclaimSaid(6, '', 'What Flatpak can remove changed since this was shown. Nothing was removed.\\nmore\\n'))")" \
   '{"ok":false,"text":"What Flatpak can remove changed since this was shown. Nothing was removed."}' \
   "a refusal is the first line of what the CLI said, not a success"
-assert_eq "$(js "L.reclaimSaid(1, '', '').text === L.COPY.reclaimFailed.replace('%1', '1') && L.reclaimSaid(1, '', '').ok === false")" "true" \
+assert_eq "$(js "L.reclaimSaid(1, '', '').text === 'Could not free the space (exit %1).'.replace('%1', '1') && L.reclaimSaid(1, '', '').ok === false")" "true" \
   "...and a failure with no words has the widget's own sentence"
 
 # The widget must outwait the engine. Killing `kempt reclaim` releases the update lock while its
@@ -3183,8 +3043,6 @@ assert_eq "$(js "L.viewModel($STALE_FTR,false,'',{nowMs:Date.parse('2026-09-05T1
   "a stale box dates its counts and says the check failed, on the one line that dates them"
 assert_eq "$(js "L.viewModel($STALE_FTR,false).staleReason")" "dnf check failed" \
   "...with the CLI's own reason still published, for the tooltip beside the button that retries"
-assert_eq "$(js 'L.COPY.lastCheckFailed')" "last check failed" \
-  "copy: the three words the footer gains while the counts above it are stale"
 STALE_NOTHING='{schema:1,status:"stale",actionable:0,held_total:0,error:"dnf check failed",last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T10:00:00+03:00",backends:{}}'
 assert_eq "$(js "L.viewModel($STALE_NOTHING,false,'',{nowMs:Date.parse('2026-09-05T12:00:00+03:00')}).headerText")" \
   "Last check failed" "a stale box with nothing waiting says so in the header"
@@ -3212,191 +3070,66 @@ assert_eq "$(js "L.viewModel($REBOOT_TIP,false).tooltipSub.indexOf('restart pend
 assert_eq "$(js "L.viewModel($FRESH_FTR,false).tooltipSub.indexOf('restart pending') >= 0")" "false" \
   "...and one that does not, does not"
 
-# --- the copy table -----------------------------------------------------------------------------
+# --- the widget's words --------------------------------------------------------------------------
 # One place where the wording is decided, so a change is one edit and a node test can pin it. The
 # QML still writes each literal itself: i18n() extracts LITERALS, and i18n(someVariable) extracts
 # nothing at all, so routing these through i18n() at runtime would ship an untranslatable widget.
-assert_eq "$(js 'L.COPY.upToDate')" "Up to date" "copy: the header in the clean state"
-assert_eq "$(js 'L.COPY.everythingUpToDate')" "Everything is up to date" "copy: the placeholder under it"
-assert_eq "$(js 'L.COPY.restartMessage')" "Restart to finish updating." "copy: the restart message"
-assert_eq "$(js 'L.COPY.restartAction')" "Restart…" "copy: the restart button"
-assert_eq "$(js 'L.COPY.restartFailed')" "Could not open the restart prompt." \
-  "copy: what a restart prompt that would not open says, in the message itself, never silently"
-assert_eq "$(js 'L.COPY.checkForUpdates')" "Check for Updates" "copy: the refresh action"
-assert_eq "$(js 'L.COPY.updateNow')" "Update Now" "copy: the primary action"
 # --- the updating pane -----------------------------------------------------------------------
 # It was the whole widget for up to three hours after a run that aborted or was closed, with no
 # list, no Update Now and a disabled Refresh.
-assert_eq "$(js 'L.COPY.updatingHere')" "Updating…" \
-  "copy: ...or nothing at all, when the output is arriving right here"
-assert_eq "$(js 'L.COPY.updatingOffline')" "Preparing updates for the next restart…" \
-  "copy: ...and staging is not updating, so it does not say updating"
-assert_eq "$(js 'L.COPY.notUpdatingCheckAgain')" "Not Updating? Check Again" \
-  "copy: the way out of a pane that is waiting for a run nobody is running any more"
-assert_eq "$(js 'L.updatingLabelOf("popup")')" "$(js 'L.COPY.updatingHere')" "the in-widget run says nothing extra"
-assert_eq "$(js '[L.resolveSurface("background"), L.updatingLabelOf("background") === L.COPY.updatingHere].join("|")')" "popup|true" \
+assert_eq "$(js 'L.updatingLabelOf("popup")')" "Updating…" "the in-widget run says nothing extra"
+assert_eq "$(js '[L.resolveSurface("background"), L.updatingLabelOf("background") === "Updating…"].join("|")')" "popup|true" \
   "a config from when background was a surface reads as the widget"
-assert_eq "$(js 'L.updatingLabelOf("offline")')" "$(js 'L.COPY.updatingOffline')" "offline is a preparation, not an update"
+assert_eq "$(js 'L.updatingLabelOf("offline")')" "Preparing updates for the next restart…" "offline is a preparation, not an update"
 # Anything else is the widget, which is what the CLI itself falls back to (resolve_surface).
-assert_eq "$(js 'L.updatingLabelOf("wat")')" "$(js 'L.COPY.updatingHere')" \
+assert_eq "$(js 'L.updatingLabelOf("wat")')" "Updating…" \
   "an unknown surface reads as the one the CLI would actually run"
-assert_eq "$(js 'L.updatingLabelOf("terminal")')" "$(js 'L.COPY.updatingHere')" "...and so does a saved terminal"
-assert_eq "$(js 'L.updatingLabelOf("")')" "$(js 'L.COPY.updatingHere')" "...and so does no answer at all"
-# ...and the word nobody outside this repo knows is gone from the copy table entirely.
-assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /surface/i.test(L.COPY[k]); })')" \
-  "[]" "no string the popup shows a person uses the word surface"
+assert_eq "$(js 'L.updatingLabelOf("terminal")')" "Updating…" "...and so does a saved terminal"
+assert_eq "$(js 'L.updatingLabelOf("")')" "Updating…" "...and so does no answer at all"
+# ...and the word nobody outside this repo knows is gone from the widget's words entirely.
+assert_eq "$(widget_text | grep -ci 'surface')" "0" "no string the popup shows a person uses the word surface"
 
-assert_eq "$(js 'L.COPY.installOnNextRestart')" "Install on Next Restart" "copy: the offline action"
-assert_eq "$(js 'L.COPY.installOnNextRestartTooltip')" \
-  "System updates install during the next restart. Apps update now." \
-  "copy: and what it does, which is the whole argument for choosing it"
-assert_eq "$(js 'L.COPY.kernelRestart')" \
-  "The next restart is the safest time to install a new kernel." \
-  "copy: the kernel sentence, which recommends the button standing under it"
-assert_eq "$(js 'L.COPY.kernelNvidiaRestart')" \
-  "The next restart is the safest time to install a new kernel and NVIDIA driver." \
-  "copy: and the one that names the driver too"
-assert_eq "$(js 'L.COPY.riskySession')" \
-  "The next restart is the safest time to change parts your desktop is using (%1)." \
-  "copy: a session-critical set with no kernel in it"
-assert_eq "$(js 'L.COPY.held')" "held" "copy: held, never \"held back\" - the CLI says Held and the command is kempt hold"
-assert_eq "$(js 'L.COPY.restartPending')" "restart pending" "copy: the two-word fact in the footer"
-assert_eq "$(js 'L.COPY.noSuccessfulCheckYet')" "No successful check yet" \
-  "copy: a box with no successful check, which is not the same claim as a box that never checked"
-assert_eq "$(js 'L.COPY.showLog')" "Show Log" "copy: the log action"
-assert_eq "$(js 'L.COPY.noPackageChanges')" "No packages changed." "copy: a run that changed nothing"
-assert_eq "$(js 'L.COPY.updateFailed')" "The update failed" "copy: a run that failed"
-assert_eq "$(js 'L.COPY.stagedOne')" "It installs the next time you restart" \
-  "copy: the staged message for exactly one update"
-assert_eq "$(js 'L.COPY.stagedRunDone')" "Updates are ready and install on the next restart." \
-  "copy: the staged message when the count is not known"
-assert_eq "$(js 'L.COPY.stagedTail')" "They install the next time you restart" \
-  "copy: the tail the counted spelling shares with it"
 # The HEADER while a transaction is armed. Three spellings, the same three the banner has and for
 # the same reasons: the count can be unknown, and one update moves the noun and the verb together.
-assert_eq "$(js 'L.COPY.stagedHeaderOne')" "1 update ready for the next restart" \
-  "copy: the header when exactly one update is staged"
-assert_eq "$(js 'L.COPY.stagedHeaderTail')" "updates ready for the next restart" \
-  "copy: ...the tail the counted spelling shares with it"
-assert_eq "$(js 'L.COPY.stagedHeaderUnknown')" "Updates ready for the next restart" \
-  "copy: ...and the spelling for a marker that never carried a count"
 # In the USER's order of events. "Staged before your hold" named the mechanism and left "Staged"
 # with no antecedent once the green banner was gone.
-assert_eq "$(js 'L.COPY.stagedConflictOne')" \
-  "You held %1 after these updates were prepared, so it still installs. Discard them and install again to skip it." \
-  "copy: the staged banner when one held package is in the transaction anyway"
-assert_eq "$(js 'L.COPY.stagedConflictMore')" \
-  "You held %1 and %2 more after these updates were prepared, so they still install. Discard them and install again to skip them." \
-  "copy: ...and when there are more of them, named first and counted after"
-assert_eq "$(js 'L.COPY.stagedConflictUnknown')" \
-  "You added holds after these updates were prepared, so held packages may still install. Discard them and install again to apply your holds." \
-  "copy: ...and when the staged list could not be read, which is a may and not a does"
 # --- discarding the staged update, from the popup instead of from a terminal --------------------
 # The CLI's own verb, all the way through: `kempt unstage` prints "Discarded the staged update",
 # docs/usage.md says discard, so the button says Discard. "Cancel Staged Update" was the other
 # candidate and it is worse in this one place: a button labelled Cancel inside a message reads as
 # "close this message", which is the one thing it does not do.
-assert_eq "$(js 'L.COPY.stagedDiscardAction')" "Discard Updates" \
-  "copy: the banner's way out of a staged update, in the CLI's own verb"
 # The tooltip is the disclosure: this deletes dnf5's downloaded packages. Stated as what happens next
 # time rather than as a warning, because the cost is only paid by someone who stages again.
-assert_eq "$(js 'L.COPY.stagedDiscardTooltip')" \
-  "Removes the updates waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again." \
-  "copy: ...disclosing the authorization and the downloads, which is what makes it consent"
 # One sentence per outcome, for the run that said nothing itself. Each says what happened and what
 # can be done about it; none of them is silence.
-assert_eq "$(js 'L.COPY.stagedDiscardDone')" \
-  "These updates are gone. The next restart installs nothing." \
-  "copy: what a discard that worked says when the CLI said nothing"
-assert_eq "$(js 'L.COPY.stagedDiscardRefused')" \
-  "Nothing was discarded. Press Check Installation to find out why." \
-  "copy: ...and a refusal, which changed nothing at all"
-assert_eq "$(js 'L.COPY.stagedDiscardBusy')" \
-  "An update is running, so nothing was discarded. Try again when it has finished." \
-  "copy: ...and the lock another update holds, with the one thing to do about it"
-assert_eq "$(js 'L.COPY.stagedDiscardFailed')" \
-  "These updates could not be discarded (exit %1). Press Check Installation to find out why." \
-  "copy: ...and a failure, carrying the status because it is the only evidence left"
-assert_eq "$(js 'L.COPY.stagedDiscardChanged')" \
-  "These updates changed since this was offered. Nothing was discarded." \
-  "copy: what a discard clicked over a stage that had already moved says instead of acting"
 # "unstage" is not the vocabulary: the CLI's remedy REMOVES the staged update.
-assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /re-?downloads?|unstage/i.test(L.COPY[k]); })')" \
-  "[]" "no copy string calls removing a staged update unstaging"
+assert_eq "$(widget_text | grep -ciE 're-?downloads?|unstage')" "0" "no string calls removing a staged update unstaging"
 # --- the pin, restated --------------------------------------------------------------------------
 # The name carries the STATE, because a `checkable: false` button exposes no checked state to
 # AT-SPI on Qt 6.11 and the alternative - the CheckBox role - would draw Breeze's sunken checked
 # background on a control sitting directly under the tray's own checked Keep Open pin. Two pairs,
 # because a package that is not installed yet has no current version to be held AT.
-assert_eq "$(js 'L.COPY.holdAt')" "Hold %1 at %2" "copy: the pin on a pending row names the version"
-assert_eq "$(js 'L.COPY.stopHolding')" "Stop holding %1" "copy: ...and on a held one, the way out"
-assert_eq "$(js 'L.COPY.skipInstalling')" "Skip installing %1" \
-  "copy: a package with no current version is SKIPPED, not held at a version it does not have"
-assert_eq "$(js 'L.COPY.stopSkipping')" "Stop skipping %1" "copy: ...and its way out"
 # The description is the CONSEQUENCE. QQC2 already hands `text` to AT-SPI as the accessible name,
 # so a description bound to `text` was the same sentence spoken twice and the one slot that could
 # explain the effect, wasted.
-assert_eq "$(js 'L.COPY.holdConsequence')" \
-  "Kempt skips it on every update until you stop holding it." \
-  "copy: what holding a package actually does, per package and Kempt-only"
-assert_eq "$(js 'L.COPY.heldConsequence')" "Kempt offers its update again." \
-  "copy: ...and what stopping does"
-assert_eq "$(js 'L.COPY.heldToken')" "Held" \
-  "copy: the state as a word on the row, because an opacity dip is a contrast REDUCTION"
-assert_eq "$(js 'L.COPY.heldKemptOnly')" "Kempt skips these. Other updaters still see them." \
-  "copy: the one line the Held heading owes a dnf user who reads versionlock into it"
-assert_eq "$(js 'L.COPY.versionRange')" "from %1 to %2" \
-  "copy: the version line in words, because the arrow goes through a screen reader's character table"
 # The two icon-only buttons in the header. Their descriptions used to be their own labels read back,
 # which is the same gate failure the pin had: `text` is what makes an icon-only button speak, and
 # the description is the slot for what pressing it does.
-assert_eq "$(js 'L.COPY.checkForUpdatesDescription')" \
-  "Checks for updates now, instead of waiting for the timer." \
-  "copy: what the refresh icon does, rather than its own name again"
-assert_eq "$(js 'L.COPY.configureDescription')" \
-  "Check interval, where updates run, and the packages you hold." \
-  "copy: ...and what is behind the gear"
 
 # The hold round trip's own three sentences. Two are ANNOUNCED rather than shown - the popup speaks
 # them through Accessible.announce when a hold lands - and the third is reported in the row that
 # failed rather than as a message at the top of the stack, where a failure used to land up to 300 px
 # from the pin that caused it.
-assert_eq "$(js 'L.COPY.holdAnnounce')" "Holding %1" \
-  "copy: what the popup says out loud when a hold lands"
-assert_eq "$(js 'L.COPY.unholdAnnounce')" "No longer holding %1" \
-  "copy: ...and when one is lifted"
-assert_eq "$(js 'L.COPY.holdFailed')" "Could not change the hold on %1." \
-  "copy: a hold that failed, said in the row it failed on"
-assert_eq "$(js 'L.COPY.configure')" "Configure Kempt…" "copy: the settings action"
-assert_eq "$(js 'L.COPY.engineMissing')" "Nothing can check for updates yet." \
-  "copy: the store-first first run says what that means, under a header that says what is missing"
-assert_eq "$(js 'L.COPY.engineMissingInstall')" \
-  "$(printf 'To install the engine on Fedora, run:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\nFor other ways to install it, see github.com/erez-c137/kempt.')" \
-  "copy: ...and the commands that fix it, complete enough to paste"
-assert_eq "$(js 'L.COPY.engineUnrunnable')" \
-  "The engine is installed but cannot start, so nothing can check for updates." \
-  "copy: an engine that is there and will not start says which of the two it is, under a header that says it will not run"
-assert_eq "$(js 'L.COPY.engineUnrunnableCopy')" "kempt doctor" \
-  "copy: ...and the one command that finds out why"
-# Nothing empty, nothing that is not a string: an undefined COPY key reaches a QML binding as a
-# blank label, which is a button with no words on it rather than an error anyone would see.
-assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return typeof L.COPY[k] !== "string" || L.COPY[k] === ""; })')" \
-  "[]" "every entry in the copy table is a non-empty string"
 # No em dashes in anything the widget shows (project style). Written as the
 # escape rather than the character so that the repo-wide grep for em dashes stays empty - a test
 # file that carries one to forbid it would trip the very check it exists to support.
-assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return L.COPY[k].indexOf("\u2014") >= 0; })')" \
-  "[]" "no copy string contains an em dash (U+2014)"
+assert_eq "$(widget_text | grep -c "$(printf '\u2014')")" "0" "no string the widget shows contains an em dash (U+2014)"
 # A real ellipsis, U+2026, on the two labels that open something else. KDE's own labels use it, and
 # three ASCII dots make a widget look foreign.
-for _k in restartAction configure; do
-  assert_eq "$(js "L.COPY.$_k.charCodeAt(L.COPY.$_k.length - 1)")" "8230" \
-    "copy: $_k ends in a real ellipsis (U+2026)"
-  assert_eq "$(js "L.COPY.$_k.indexOf(\"...\")")" "-1" "copy: ...and not in three ASCII dots"
+for _k in "Restart" "Configure Kempt"; do
+  assert_eq "$(widget_text | grep -cF "msgid \"$_k…\"")" "1" "$_k… ends in a real ellipsis (U+2026)"
 done
 # KDE's own placeholders carry no full stop ("No paired devices", "No Vaults have been set up").
-assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.length - 1)')" "e" \
-  "copy: the placeholder has no trailing full stop"
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
@@ -3759,8 +3492,6 @@ assert_contains "$(qml_block "$MQ" 'function doCheck')" 'root.checkFailNote = i1
   "...and asked for again, as a note the next check takes back"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.actionMessage = root.checkFailNote;" \
   "...shown where a failed check's note is"
-assert_eq "$(js 'L.COPY.anywayLost')" "Another check was running. Press Check Anyway again." \
-  "...in the wording the table specifies"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.recheckAnyway = false;" \
   "...and cleared with the other recheck flags"
 
@@ -3840,40 +3571,6 @@ PAGE_KEYS="$(grep -o 'setIfChanged("[a-z_]*"' "$REPO_ROOT/plasmoid/contents/ui/c
 # problem is not. The real risk the line guards is the grep above silently matching nothing, so
 # that is what it asserts; the canonical list of keys lives in tests/qml/probe_settings.py, where
 # adding one is supposed to be a deliberate edit.
-# --- every entry in the copy table is actually used ----------------------------------------------
-# The table is the SPECIFICATION for the widget's wording, and the QML repeats each literal rather
-# than reading it, because translation extraction works on literals. That duplication is deliberate
-# and it is exactly the kind that drifts: change the table, miss the .qml, and the two disagree
-# with nothing to say so - or delete the last user of an entry and leave the wording behind as a
-# spec for nothing.
-# Three ways an entry can be legitimately in use, and an entry in none of them is dead:
-#   the .qml repeats it verbatim      - the ordinary case, a button or a label
-#   the .qml reads Logic.COPY.<key>   - a message assigned at runtime, where a literal cannot go
-#   logic.js uses COPY.<key> itself   - a sentence the view model assembles and the popup binds
-# Asserting "verbatim in a .qml" alone would be wrong: 23 of the entries are rendered by logic.js
-# and correctly appear in no .qml at all.
-copy_orphans="$(node -e '
-  const fs = require("fs"), path = require("path");
-  const L = require(process.argv[1]);
-  const dir = path.dirname(process.argv[1]);
-  const qml = fs.readdirSync(dir).filter(function (f) { return /\.qml$/.test(f); })
-    .map(function (f) { return fs.readFileSync(path.join(dir, f), "utf8"); }).join("\n");
-  const js = fs.readFileSync(path.join(dir, "logic.js"), "utf8").split("\n")
-    .filter(function (l) { return !/^\s*(\/\/|\*)/.test(l); }).join("\n");
-  const dead = [];
-  Object.keys(L.COPY).forEach(function (k) {
-    const v = L.COPY[k];
-    if (typeof v !== "string") { return; }
-    if (qml.indexOf(v) >= 0) { return; }
-    if (qml.indexOf("COPY." + k) >= 0) { return; }
-    if (js.indexOf("COPY." + k) >= 0) { return; }
-    dead.push(k);
-  });
-  console.log(dead.join(" "));
-' "$REPO_ROOT/plasmoid/contents/ui/logic.js")"
-assert_eq "$copy_orphans" "" \
-  "every entry in the copy table is repeated in the QML, read by the QML, or used by logic.js"
-
 [[ -n "$PAGE_KEYS" ]] && echo "ok: the settings page writes settings this test can see" \
   || { echo "FAIL: found no setIfChanged keys in configGeneral.qml - the grep above has rotted"; _fail=1; }
 for key in $PAGE_KEYS; do
@@ -3965,27 +3662,11 @@ assert_eq "$(ui_grep 'i18n\("Stop holding %1", ' | wc -l)" "2" \
 assert_eq "$(ui_grep 'holding [^"]*back|held back' | wc -l)" "0" \
   "...and nothing in the widget tells a person their packages are being held BACK"
 
-# --- the discard action's words are the copy table's words --------------------------------------
-# COPY is the SPECIFICATION and the QML repeats each literal, because i18n() extracts literals and
-# i18n(someVariable) extracts nothing at all (see the copy table's own header). That duplication is
-# deliberate and it is exactly the kind that drifts, so the two halves are tied together here: the
-# label and the tooltip a person reads have to be character for character what the tests pinned.
-# ui_grep is deliberately NOT the tool here: it walks logic.js too, and logic.js is where these
-# literals are DECLARED - so it would answer "found it" for a QML file that never wrote them. The
-# .qml files alone are the question.
-for _lit in stagedDiscardAction stagedDiscardTooltip \
-                        reclaimAction reclaimRunning reclaimTooltip reclaimShowWhat doctorShowReport \
-            installOnNextRestartTooltip installOnNextRestartSystemTooltip \
-            startupMute startupMuting startupMuteTooltip startupSetting startupSettingNote \
-            startupStopMutingDescription startupNothingMuted; do
-  assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\")" {} + | wc -l)" "1" \
-    "the popup writes COPY.$_lit verbatim, as a literal a translator can extract"
-done
 # The tooltip is the accessible description as well, and that is the load-bearing half: a polkit
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
 # the authorization and the discard cost by then hears them never.
-assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "4" \
-  "...and Discard Updates, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
+assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "2" \
+  "...and Discard Updates and Free Up Space say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting
@@ -4001,7 +3682,7 @@ awk '/Kirigami\.InlineMessage \{/ { f = 1 } /--- the list, and what stands in fo
   "$REPO_ROOT/plasmoid/contents/ui/FullRepresentation.qml" > "$STACK"
 assert_eq "$([[ -s "$STACK" ]] && echo yes || echo no)" "yes" \
   "premise: the popup still has a message stack to scan"
-assert_eq "$(grep -cE 'Accessible.name: (text|popup.vm.stagedMessage|Logic.COPY.riskyAskLead \+ " " \+ text)$' "$STACK")" "$(grep -c 'Kirigami.InlineMessage {' "$STACK")" \
+assert_eq "$(grep -cE 'Accessible.name: (text|popup.vm.stagedMessage|i18n\("Nothing is installed yet\. %1", text\))$' "$STACK")" "$(grep -c 'Kirigami.InlineMessage {' "$STACK")" \
   "every message in the popup's stack announces its own text to a screen reader"
 # ...and the type is BOUND to the derived variant rather than declared. A hard-coded Positive here
 # is the bug this whole change exists to remove, and it is one careless edit away.
@@ -4031,14 +3712,14 @@ assert_eq "$(printf 'text: i18n("Wait...")\n' | sed 's://.*::' | grep -c '\.\.\.
 
 # --- docs/install.md quotes what the widget shows ------------------------------------------------
 # docs/install.md is where a store-first user lands, so the sentence it promises them is
-# the sentence the widget actually shows. Derived from the copy table, not typed.
+# the sentence the widget actually shows. Derived from the widget's words, not typed.
 INSTALL_DOC="$REPO_ROOT/docs/install.md"
-assert_eq "$(grep -cF "$(js 'L.COPY.engineMissing')" "$INSTALL_DOC")" "1" \
+assert_eq "$(grep -cF "Nothing can check for updates yet." "$INSTALL_DOC")" "1" \
   "docs/install.md quotes the message a widget with no engine really shows"
 while IFS= read -r _line; do
   assert_eq "$(grep -cF "$_line" "$INSTALL_DOC" | awk '{print ($1 >= 1)}')" "1" \
     "...and the install line under it, character for character: $_line"
-done < <(js 'L.COPY.engineMissingInstall'; echo)
+done < <(js '"To install the engine on Fedora, run:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\nFor other ways to install it, see github.com/erez-c137/kempt."'; echo)
 
 # The widget stages through `kempt run --surface=offline`, never a detached `kempt update`: only
 # `run` refuses up front (exit 3 while another update holds the lock) where the popup can read it.
@@ -4051,4 +3732,20 @@ assert_eq "$(grep -v '^[[:space:]]*//' "$MAINQML" | grep -c '" run --surface=off
   "...it has one staging command, through \`kempt run\`"
 
 qml_check
+# --- counts read as sentences, singular and plural --------------------------------------------------
+plural() { node -e 'const L = require(process.argv[1]); const f = new Function("L", "return " + process.argv[2]); console.log(f(L));' "$REPO_ROOT/plasmoid/contents/ui/logic.js" "$1"; }
+NOW="Date.parse('2026-11-05T12:00:00Z')"
+assert_eq "$(plural "L.relativeTime('2026-11-05T11:59:00Z', $NOW)")" "1 min ago" "one minute is singular"
+assert_eq "$(plural "L.relativeTime('2026-11-05T09:00:00Z', $NOW)")" "3 hours ago" "hours are plural, with the number"
+assert_eq "$(plural "L.relativeTime('2026-11-04T12:00:00Z', $NOW)")" "1 day ago" "one day is singular"
+assert_eq "$(plural "L.lastRunText({when: '2026-11-05T09:00:00Z', changedCount: 1}, $NOW)")" \
+  "Last update 3 hours ago · 1 package" "one package is singular, and the time still lands in its place"
+assert_eq "$(plural "L.lastRunText({when: '2026-11-05T09:00:00Z', changedCount: 12}, $NOW)")" \
+  "Last update 3 hours ago · 12 packages" "twelve are plural, the count filling %1 and the time %2"
+assert_eq "$(plural "L.lastRunText({when: '2026-11-05T09:00:00Z', changedCount: 12, failed: true}, $NOW)")" \
+  "Last update failed 3 hours ago · 12 packages" "a failed run says so in the same sentence"
+# The stand-in fills every %n in order, as Plasma's own does, and the plural count is always %1.
+assert_eq "$(node -e 'require(process.argv[1]); console.log(i18n("%2 of %1", "a", "b")); console.log(i18np("One in %2", "%1 in %2", 3, "x"))' "$REPO_ROOT/plasmoid/contents/ui/logic.js" | tr '\n' '|')" \
+  "b of a|3 in x|" "the node stand-in substitutes like the probes' one"
+
 finish

@@ -361,7 +361,7 @@ lev("updateButton.clicked()")
 p.pump(200)
 p.check("Update Now on a session-critical set opens the choice", ev("root.riskyChoiceOpen"), True)
 p.check("...with the keyboard on Install on Next Restart", focused(),
-        "elsewhere:" + str(ev("Logic.COPY.installOnNextRestart")))
+        "elsewhere:" + "Install on Next Restart")
 p.check("...visibly", lev("popup.Window.activeFocusItem.visualFocus"), True)
 # ...and Enter there stages. QQC2 activates on Space only, and the message's buttons are Kirigami's.
 stages_before = p.call_count("run --surface=offline")
@@ -411,6 +411,46 @@ p.pump(150)
 p.check("...and Return on it opens the report", lev("doctorReportView.visible"), True)
 _report_button = "popup.buttonFor(doctorMessage, doctorMessage.actions[0])"
 p.check("...and the button is drawn pressed", lev(_report_button + ".checked"), True)
+# The report walked from the keyboard, with text long enough to scroll.
+_short_report = ev("root.doctorReport")
+ev("root.doctorReport = Array(201).join('a line of the report\\n')")
+p.pump(100)
+_area = "doctorReportView.area"
+lev(_area + ".forceActiveFocus(Qt.TabFocusReason)")
+p.pump(50)
+p.check("the full report takes the keyboard, named and multi-line for a screen reader",
+        [lev(_area + ".activeFocus"), lev(_area + ".cursorVisible"), lev(_area + ".Accessible.name"),
+         lev(_area + ".Accessible.multiLine"), lev(_area + ".readOnly")],
+        [True, True, "Full report", True, True])
+_caret_on_screen = ("(function () { var f = doctorReportView.contentItem, r = " + _area + ".cursorRectangle;"
+                    " return r.y >= f.contentY && r.y + r.height <= f.contentY + f.height; })()")
+press(Qt.Key_Down)
+p.pump(30)
+_line = lev(_area + ".cursorPosition")
+p.check("Down moves a caret", _line > 0, True)
+press(Qt.Key_PageDown)
+p.pump(30)
+_after_page = lev(_area + ".cursorPosition")
+p.check("Page Down moves it more than a line, and the view follows it",
+        [_after_page > _line * 2, lev("doctorReportView.contentItem.contentY") > 0, lev(_caret_on_screen)],
+        [True, True, True])
+press(Qt.Key_PageUp)
+p.pump(30)
+p.check("Page Up moves it back", lev(_area + ".cursorPosition") < _after_page, True)
+press(Qt.Key_End, Qt.ControlModifier)
+p.pump(30)
+p.check("Ctrl+End goes to the end, the caret still on screen",
+        [lev(_area + ".cursorPosition") == lev(_area + ".length"), lev(_caret_on_screen)], [True, True])
+press(Qt.Key_Home, Qt.ControlModifier)
+p.pump(30)
+p.check("Ctrl+Home comes back, the view with it",
+        [lev(_area + ".cursorPosition"), lev("doctorReportView.contentItem.contentY")], [0, 0])
+press(Qt.Key_Tab)
+p.pump(30)
+p.check("Tab leaves it", lev(_area + ".activeFocus"), False)
+ev("root.doctorReport = " + json.dumps(_short_report))
+lev("popup.buttonFor(doctorMessage, doctorMessage.actions[0]).forceActiveFocus(Qt.TabFocusReason)")
+p.pump(50)
 press(Qt.Key_Return)
 p.pump(150)
 p.check("Return again closes it, and the button is drawn released",

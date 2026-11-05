@@ -116,8 +116,6 @@ NOTIFY_TIMEOUT=5
 # writers' lock.
 STARTUP_FILE="$KEMPT_STATE_DIR/startup.json"
 STARTUP_MUTES_FILE="$KEMPT_STATE_DIR/startup-mutes"
-# The Startup page's record of how long each boot took, newest last (startup_boot_record).
-BOOT_TIMES_FILE="$KEMPT_STATE_DIR/boot-times.json"
 # dnf5's own record of a staged offline transaction, and the other half of the marker above: the
 # marker says Kempt staged something, this says whether the transaction is still there and whether
 # it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
@@ -187,7 +185,6 @@ KEMPT_GROUPS_CMD="${KEMPT_GROUPS_CMD:-id -Gn}"
 KEMPT_CRONTAB_CMD="${KEMPT_CRONTAB_CMD:-crontab}"
 KEMPT_ATQ_CMD="${KEMPT_ATQ_CMD:-atq}"
 KEMPT_RPM_QF_CMD="${KEMPT_RPM_QF_CMD:-rpm}"
-KEMPT_SYSTEMD_ANALYZE_CMD="${KEMPT_SYSTEMD_ANALYZE_CMD:-systemd-analyze}"
 # Where cron, anacron and rc.local live, anacron's last-run stamps, and systemd's lingering flags.
 KEMPT_STARTUP_ETC="${KEMPT_STARTUP_ETC:-/etc}"
 KEMPT_ANACRON_SPOOL="${KEMPT_ANACRON_SPOOL:-/var/spool/anacron}"
@@ -1546,7 +1543,7 @@ update_running_elsewhere() {
 # container) is left out rather than read as "nothing failed".
 startup_on() { is_true "$(config_get notify_startup 2>/dev/null)"; }
 
-# Every outside call of the startup code, under `timeout -k1 5`. While the Startup page gathers,
+# Every outside call of the startup code, under `timeout -k1 5`. While the Startup Report gathers,
 # each call also fits in what is left of its budget (STARTUP_DEADLINE, in $SECONDS), and a session
 # call that times out or finds no time left marks the session slow so the page asks it nothing
 # more. A session that fails at once is then told apart as missing. The mark is a file
@@ -1925,10 +1922,10 @@ startup_patch_state() {
   return "$rc"
 }
 
-# --- the Startup page (`kempt startup --all`) ---
+# --- the Startup Report (`kempt startup --all`) ---
 # One gatherer for the terminal and the widget: what did not start this boot, what changed since
-# the last run's baseline, what starts with the computer, what runs on a schedule, and how long
-# startup took. Every outside call is a read-only query as the user through startup_timed, and a
+# the last run's baseline, what starts with the computer and what runs on a schedule.
+# Every outside call is a read-only query as the user through startup_timed, and a
 # unit name reaches a command only as an argument of its own. What a command printed reaches jq on
 # stdin or as a file, never as an argument: one argument holds 128 KB, and a long journal would
 # lose the whole section. A section with nothing in it is left out.
@@ -1955,17 +1952,6 @@ STARTUP_UTC_JQ='def utc: if type != "string" then . else
   | if $c == null then . else ($c.d + "Z" | fromdateiso8601)
       - (if $c.z == "Z" then 0 else (if $c.s == "-" then -1 else 1 end) * (($c.h | tonumber) * 3600 + ($c.m | tonumber) * 60) end)
       | todate end end;'
-# systemd's durations ("3min 996ms", "6.117s") in seconds.
-STARTUP_DUR_AWK='function dur(s,   n, a, i, v, u, t) {
-  n = split(s, a, " "); t = 0
-  for (i = 1; i <= n; i++) {
-    if (!match(a[i], /^[0-9.]+/)) continue
-    v = substr(a[i], 1, RLENGTH); u = substr(a[i], RLENGTH + 1)
-    t += v * (u == "y" ? 31557600 : u == "month" ? 2629800 : u == "w" ? 604800 : u == "d" ? 86400 \
-              : u == "h" ? 3600 : u == "min" ? 60 : u == "ms" ? 0.001 : u == "us" ? 0.000001 : 1)
-  }
-  return sprintf("%.3f", t)
-}'
 
 startup_journal_available() { command -v "${KEMPT_JOURNALCTL_CMD%% *}" >/dev/null 2>&1; }
 
@@ -2230,93 +2216,12 @@ startup_page_schedule() {
     '{timers: $t[0], cron: $c[0], at: $a[0], notes: $n}'
 }
 
-# Startup time. systemd-analyze answers only once startup has finished ("Bootup is not yet
-# finished.", rc 1, until then), so a boot is recorded the first time it answers: by a check, or by
-# the page. Until then each check asks again, which costs a few milliseconds. The slowest unit costs half a second, so only
-# the page asks for it, once per boot. The file keeps the newest 11 boots.
-startup_analyze_times() {  # → "ready userspace total" in seconds, "-" for what systemd did not say
-  startup_run "$KEMPT_SYSTEMD_ANALYZE_CMD" time | awk "$STARTUP_DUR_AWK"'
-    /\(userspace\)/ { s = $0; sub(/ \(userspace\).*/, "", s); sub(/.*(\+ | in )/, "", s); user = dur(s) }
-    /\(userspace\).* = / { s = $0; sub(/.* = /, "", s); total = dur(s) }
-    / reached after / { s = $0; sub(/.* reached after /, "", s); sub(/ in userspace.*/, "", s); ready = dur(s) }
-    END { if (user == "") exit 1; print (ready == "" ? "-" : ready) " " user " " (total == "" ? "-" : total) }'
-}
-
-startup_slowest() {  # → {unit, description, sec}, or nothing
-  local line unit desc
-  line="$(startup_run "$KEMPT_SYSTEMD_ANALYZE_CMD" blame --no-pager | awk "$STARTUP_DUR_AWK"'
-    NF >= 2 { u = $NF; $NF = ""; print u "\t" dur($0); exit }')" || true
-  [[ "$line" == *$'\t'* ]] || return 0
-  unit="${line%%$'\t'*}"
-  desc="$(startup_systemctl system show -p Description -- "$unit" | sed -n 's/^Description=//p' | head -n 1)" || desc=""
-  jq -cn --arg u "$unit" --arg d "$desc" --arg s "${line#*$'\t'}" \
-    '{unit: $u, description: (if $d == "" then $u else $d end), sec: ($s | tonumber)}'
-}
-
-startup_boot_record() {  # [slowest]
-  local cur all entry times ready user total slow
-  cur="$(current_boot_id)"
-  all="$(jq -c 'if type == "array" then . else [] end' "$BOOT_TIMES_FILE" 2>/dev/null)" || all='[]'
-  entry="$(jq -c --arg b "$cur" '[.[] | select(.boot_id == $b and has("userspace_sec"))] | last // empty' <<<"${all:-[]}")"
-  if [[ -n "$entry" ]]; then
-    [[ -n "${1:-}" ]] && ! jq -e 'has("slowest")' <<<"$entry" >/dev/null || return 0
-  else
-    times="$(startup_analyze_times)" || return 1
-    read -r ready user total <<<"$times"
-    entry="$(jq -cn --arg b "$cur" --arg at "$(date -u +%FT%TZ)" --arg r "$ready" --arg u "$user" --arg t "$total" '
-      def num: if . == "-" then null else tonumber end;
-      {boot_id: $b, at: $at, ready_sec: ($r | num), userspace_sec: ($u | num), total_sec: ($t | num)}')"
-  fi
-  if [[ -n "${1:-}" ]]; then
-    slow="$(startup_slowest)"
-    entry="$(jq -c --argjson s "${slow:-null}" '. + {slowest: $s}' <<<"$entry")"
-  fi
-  # Merged into what is there for this boot, read again under the lock: the page and a check can
-  # record the same boot at once, and the one that writes last must not drop the other's slowest.
-  writer_lock "$WRITER_LOCK_WAIT" 2>/dev/null || return 1
-  all="$(jq -c 'if type == "array" then . else [] end' "$BOOT_TIMES_FILE" 2>/dev/null)" || all='[]'
-  jq -c --argjson e "$entry" '((map(select(.boot_id == $e.boot_id)) | last // {}) + $e) as $m
-    | map(select(.boot_id != $e.boot_id)) + [$m] | .[-11:]' <<<"${all:-[]}" \
-    | atomic_write "$BOOT_TIMES_FILE" 2>/dev/null || true
-  writer_unlock
-}
-
-# The check's half, for everyone and with no setting: the page opens from the widget's menu
-# whenever someone wants it, and its "usual" needs the boots recorded before that. Once a boot is
-# in the file this reads it and asks systemd-analyze nothing; until startup has finished, each
-# check asks once more (`systemd-analyze time`, a few milliseconds). Never fails the check.
-startup_boot_record_quietly() { startup_boot_record >/dev/null 2>&1 || true; }
-
-startup_page_boot() {  # → {ready_sec, userspace_sec, total_sec, usual, slowest, recent}, or nothing
-  startup_boot_record slowest >/dev/null 2>&1 || true
-  jq -c --arg b "$(current_boot_id)" "$STARTUP_UTC_JQ"'
-    def median: sort | length as $n
-      | if $n == 0 then null elif $n % 2 == 1 then .[($n - 1) / 2] else (.[$n / 2 - 1] + .[$n / 2]) / 2 end
-      | if . == null then null else (. * 10 | round) / 10 end;
-    # A device is described by its /sys path. Its kernel name, the last part of the unit, says more.
-    def readable: if type == "object" and (.unit | type) == "string"
-                     and ((.unit | endswith(".device")) or ((.description // "") | tostring | startswith("/")))
-      then .description = "waiting for " + (.unit | sub("\\.device$"; "") | split("-") | last | gsub("\\\\x2d"; "-"))
-      else . end;
-    (if type == "array" then . else [] end | map(select(type == "object" and (.userspace_sec | type) == "number"))) as $all
-    | ([$all[] | select(.boot_id == $b)] | last) as $now | select($now != null)
-    | ([$all[] | select(.boot_id != $b)] | .[-10:]) as $prev
-    | {ready_sec: $now.ready_sec, userspace_sec: $now.userspace_sec, total_sec: ($now.total_sec // null),
-       usual: (if ($prev | length) >= 3
-               then {ready_sec: ([$prev[].ready_sec | numbers] | median),
-                     userspace_sec: ([$prev[].userspace_sec] | median), boots: ($prev | length)}
-               else null end),
-       slowest: ($now.slowest // null | readable),
-       recent: [$prev | reverse | .[:5][] | {boot_id, at: (.at | utc), ready_sec, userspace_sec, total_sec: (.total_sec // null)}]}' \
-    "$BOOT_TIMES_FILE" 2>/dev/null || true
-}
-
 # The whole page as one JSON object (docs/architecture.md has its shape). The system scope's
 # enabled list is the slowest query (systemd works out every unit file's state, ~0.4 s on a full
 # desktop even when asked for services and timers only), so it runs while the rest is gathered.
 # The gather has 8 s in all; its folder goes however it ends.
 startup_page_gather() {
-  local bg=() es eu failed schedule boot changed starts notes='[]'
+  local bg=() es eu failed schedule changed starts notes='[]'
   STARTUP_TMP="$(mktemp -d)" || return 1
   # shellcheck disable=SC2064  # the folder is known now
   trap "rm -rf -- '$STARTUP_TMP'" EXIT
@@ -2328,7 +2233,6 @@ startup_page_gather() {
   bg+=($!)
   failed="$(startup_page_failed)"
   schedule="$(startup_page_schedule)"
-  boot="$(startup_page_boot)"
   wait "${bg[@]}" || true
   es="$(cat "$STARTUP_TMP/system")"; eu="$(cat "$STARTUP_TMP/user")"
   [[ -n "$es" ]] || es=null
@@ -2341,8 +2245,7 @@ startup_page_gather() {
   elif [[ "$eu" == null && "$es" != null ]]; then notes='["session_missing"]'; fi
   jq -cn --arg boot "$(current_boot_id)" --arg at "$(date -u +%FT%TZ)" --argjson notes "$notes" \
      --slurpfile failed <(startup_file "$failed") --slurpfile changed <(startup_file "$changed") \
-     --slurpfile starts <(startup_file "$starts") --slurpfile schedule <(startup_file "$schedule") \
-     --slurpfile bt <(startup_file "$boot") '
+     --slurpfile starts <(startup_file "$starts") --slurpfile schedule <(startup_file "$schedule") '
     # What changed is described as the page describes it elsewhere, else by its name: a unit no
     # longer enabled is not asked about again.
     ([($starts[0] // [])[], ($schedule[0].timers // [])[]]
@@ -2354,8 +2257,7 @@ startup_page_gather() {
     + (if $changed[0] == null then {}
        else {changed: ($changed[0] | .added |= described | .removed |= described)} end)
     + (if $starts[0] == null then {} else {starts: $starts[0]} end)
-    + (if $schedule[0] == null then {} else {schedule: $schedule[0]} end)
-    + (if $bt[0] == null then {} else {boot_time: $bt[0]} end)'
+    + (if $schedule[0] == null then {} else {schedule: $schedule[0]} end)'
 }
 
 # --- passwordless polkit rule rendering ---
@@ -4255,8 +4157,8 @@ render_summary() {  # history-json-file → human text
 # The widget derives what it shows in plasmoid/contents/ui/logic.js, and a terminal over SSH has no
 # JavaScript to run it with. So the few rules `kempt status` needs are ported here, and
 # tests/test_status.sh holds the two copies together: for each fixture and a fixed clock, the header
-# and the numbers must match what logic.js derives, and every string below that mirrors a COPY entry
-# must equal it. Only those rules: the rest of status is this side's own wording.
+# and the numbers must match what logic.js derives, and every string below that the widget also
+# says must appear in the widget's own sentences. Only those rules: the rest of status is this side's own wording.
 # NO APOSTROPHES IN HERE: these jq programs are single-quoted bash strings, and one closes them.
 
 # Time words, as logic.js says them (formatStamp, relativeTime, metadataAgeText). $now is in whole

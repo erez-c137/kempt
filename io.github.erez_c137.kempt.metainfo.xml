@@ -56,7 +56,7 @@
       <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.2.0/docs/images/kempt-staged.png</image>
     </screenshot>
     <screenshot>
-      <caption>The settings page: where updates run and how often Kempt checks</caption>
+      <caption>The settings page in Kempt 0.2.0: where updates run and how often Kempt checks</caption>
       <image type="source" width="845" height="986">https://raw.githubusercontent.com/erez-c137/kempt/v0.2.0/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>

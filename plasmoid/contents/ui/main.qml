@@ -45,7 +45,7 @@ PlasmoidItem {
     // Loader while the row goes on saying "Hold" and accepts a second press.
     property var pendingHold: null
 
-    // The last hold that failed: {backend, name, text}. Reported IN THAT ROW - see COPY.holdFailed.
+    // The last hold that failed: {backend, name, text}. Reported IN THAT ROW.
     // Cleared by the next press and the next check: it is a fact about one press, not about the box.
     property var holdError: null
 
@@ -751,7 +751,7 @@ PlasmoidItem {
     // --- the Startup page ---------------------------------------------------------------------
     // Gathered when the page opens and on its own Refresh, and by nothing else: the journal and
     // crontab reads are the costly part, and nobody needs them unless looking. What comes back is
-    // Logic.startupPageOutcomeOf's: the page, or a problem to show in its place.
+    // Logic.startupPageOutcomeOf's: the CLI's text, or a problem to show in its place.
     property var startupPage: null
     property bool startupPageBusy: false
 
@@ -760,7 +760,7 @@ PlasmoidItem {
         startupPageBusy = true;
         startupExecutor.run(kemptCmd + Logic.STARTUP_PAGE_ARGS, Logic.STARTUP_PAGE_TIMEOUT_MS,
                             function(stdout, stderr, rc) {
-            root.startupPage = Logic.startupPageOutcomeOf(stdout, stderr, rc, Date.now());
+            root.startupPage = Logic.startupPageOutcomeOf(stdout, stderr, rc);
             root.startupPageBusy = false;
         });
     }
@@ -865,7 +865,7 @@ PlasmoidItem {
             if (vmNow.stagedStagedAt === "" || vmNow.stagedStagedAt !== offered
                     || !vmNow.stagedShowDiscard) {
                 root.actionPending = false;
-                root.actionMessage = Logic.COPY.stagedDiscardChanged;
+                root.actionMessage = i18n("These updates changed since this was offered. Nothing was discarded.");
                 return;
             }
             // `executor`, not `root.executor`: an id is resolved lexically and is NOT a property of
@@ -907,8 +907,8 @@ PlasmoidItem {
             if (rc !== 0) {
                 // In the row, not at the top of the stack - and said out loud, because a row is
                 // where the person is standing and a message 300 px away is not a report.
-                var msg = Logic.answerOutcomeOf(rc, "", stderr, "", Logic.COPY.holdTimedOut).text
-                          || Logic.COPY.holdFailed.split("%1").join(name);
+                var msg = Logic.answerOutcomeOf(rc, "", stderr, "", i18n("Kempt did not answer in time. The hold may not have changed. Try again.")).text
+                          || i18n("Could not change the hold on %1.", name);
                 root.holdError = { backend: backend, name: name, text: msg };
                 root.pendingHold = null;
                 root.holdOutcome(name, hold, false, msg);
@@ -940,7 +940,7 @@ PlasmoidItem {
         promptExecutor.run("dbus-send --session --dest=org.kde.LogoutPrompt --type=method_call"
                      + " /LogoutPrompt org.kde.LogoutPrompt.promptReboot", 10000,
                      function(stdout, stderr, rc) {
-            if (rc !== 0) root.restartError = Logic.COPY.restartFailed;
+            if (rc !== 0) root.restartError = i18n("Could not open the restart prompt.");
         });
     }
 
@@ -1508,8 +1508,6 @@ PlasmoidItem {
     // Plasmoid.contextualActions lands in the tray heading's "More actions" menu AND in the tray
     // icon's right-click menu, which is the only channel a plasmoid HAS into the tray's chrome
     // (BasicPlasmoidHeading's extraControls is hidden in the tray by its own design).
-    // The literal is repeated from Logic.COPY.checkForUpdates rather than read out of it, because
-    // translation extraction works on literals - see the note at the top of logic.js.
     PlasmaCore.Action {
         id: checkAction
         text: i18n("Check for Updates")
@@ -1521,7 +1519,6 @@ PlasmoidItem {
     // until someone asks for it. A second action also changes what the tray heading draws: one
     // action is an icon there, two are a More actions menu, which is why the popup's own refresh
     // button now shows in the tray too (FullRepresentation.qml, refreshButton).
-    // The literal is repeated from Logic.COPY.startupPageAction, as checkAction's is.
     PlasmaCore.Action {
         id: startupAction
         text: i18n("Startup Report")
@@ -1530,8 +1527,7 @@ PlasmoidItem {
     }
 
     // Install on Next Restart from the same menus, where the footer button says Update Now. The
-    // press is the same as the kernel message's. The literal is repeated from
-    // Logic.COPY.installOnNextRestart, as checkAction's is.
+    // press is the same as the kernel message's.
     PlasmaCore.Action {
         id: stageAction
         text: i18n("Install on Next Restart")

@@ -178,8 +178,8 @@ KCM.SimpleKCM {
                         Logic.ANSWER_TIMEOUT_MS, function (stdout, stderr, rc) {
             if (rc !== 0) {
                 page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "",
-                                                       Logic.COPY.settingTimedOut).text
-                                 || ("Could not save " + key + ".");
+                                                       i18n("Kempt did not answer in time. The setting may not have changed. Try again.")).text
+                                 || i18n("Could not save %1.", key);
                 // Apply stays on, so the retry is one click rather than a reopened dialog.
                 page.writeFailed = true;
                 page.unsavedChanges = true;
@@ -229,7 +229,7 @@ KCM.SimpleKCM {
                 // default, the page looks like it loaded, and the next Apply writes that default
                 // over a stored value nobody ever read.
                 page.readFailed[key] = true;
-                page.loadError = Logic.firstLineOf(stderr) || "Could not read the Kempt settings.";
+                page.loadError = Logic.firstLineOf(stderr) || i18n("Could not read the Kempt settings.");
                 return;
             }
             var v = Logic.firstLineOf(stdout);
@@ -297,8 +297,8 @@ KCM.SimpleKCM {
                         Logic.ANSWER_TIMEOUT_MS, function (stdout, stderr, rc) {
             page.holdsBusy = false;
             if (rc !== 0) {
-                page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "", Logic.COPY.holdTimedOut).text
-                                 || ("Could not remove the hold on " + id + ".");
+                page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "", i18n("Kempt did not answer in time. The hold may not have changed. Try again.")).text
+                                 || i18n("Could not remove the hold on %1.", id);
                 return;
             }
             page.loadHolds();
@@ -323,7 +323,7 @@ KCM.SimpleKCM {
             // theirs to read. A declined dialog and a real failure are both worth showing.
             var out = Logic.lastLinesOf(stdout + "\n" + stderr, 2);
             page.passwordlessResult = out !== "" ? out
-                : (rc === 0 ? "Done." : "That did not complete (exit " + rc + ").");
+                : (rc === 0 ? i18n("Done.") : i18n("That did not complete (exit %1).", String(rc)));
         });
     }
 
@@ -342,7 +342,7 @@ KCM.SimpleKCM {
         cfgExecutor.run(page.durable(kemptCmd + " discover-notifier " + verb), Logic.ANSWER_TIMEOUT_MS,
                         function (stdout, stderr, rc) {
             page.discoverBusy = false;
-            var said = Logic.answerOutcomeOf(rc, stdout, stderr, "", Logic.COPY.settingTimedOut);
+            var said = Logic.answerOutcomeOf(rc, stdout, stderr, "", i18n("Kempt did not answer in time. The setting may not have changed. Try again."));
             if (!said.ok) page.discoverResult = said.text;
             page.loadDiscover();
         });

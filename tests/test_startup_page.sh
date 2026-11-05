@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # `kempt startup --all`: what did not start this boot and why, what the last update changed about
-# startup, what starts with the computer, what runs on a schedule, and how long startup took. Every
+# startup, what starts with the computer, and what runs on a schedule. Every
 # outside command is a stub that records its calls.
 source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
@@ -71,23 +71,15 @@ for p in "$@"; do
 done
 exit $rc
 STUB
-cat > "$TESTTMP/systemd-analyze" <<'STUB'
-#!/usr/bin/env bash
-echo "${*:-time}" >> "$SD_DIR/calls-analyze"
-case "${1:-time}" in
-  time) [[ -f "$SD_DIR/analyze" ]] || { echo "Bootup is not yet finished." >&2; exit 1; }; cat "$SD_DIR/analyze" ;;
-  blame) cat "$SD_DIR/blame" 2>/dev/null ;;
-esac
-STUB
 cat > "$TESTTMP/atq" <<'STUB'
 #!/usr/bin/env bash
 cat "$SD_DIR/atq" 2>/dev/null; exit 0
 STUB
-chmod +x "$TESTTMP"/{systemctl,journalctl,crontab,rpm,systemd-analyze,atq}
+chmod +x "$TESTTMP"/{systemctl,journalctl,crontab,rpm,atq}
 echo "me wheel" > "$SD/groups"
 export KEMPT_SYSTEMCTL_CMD="$TESTTMP/systemctl" KEMPT_JOURNALCTL_CMD="$TESTTMP/journalctl" \
        KEMPT_CRONTAB_CMD="$TESTTMP/crontab" KEMPT_RPM_QF_CMD="$TESTTMP/rpm" \
-       KEMPT_SYSTEMD_ANALYZE_CMD="$TESTTMP/systemd-analyze" KEMPT_ATQ_CMD="$TESTTMP/atq" \
+       KEMPT_ATQ_CMD="$TESTTMP/atq" \
        KEMPT_GROUPS_CMD="cat $SD/groups"
 ETC="$TESTTMP/etc"; SPOOL="$TESTTMP/spool"; LINGER="$TESTTMP/linger"
 mkdir -p "$ETC" "$SPOOL" "$LINGER"
@@ -105,7 +97,7 @@ out="$(page)"
 assert_eq "$(jq -r '.schema' <<<"$out")" "1" "the page is schema 1"
 assert_eq "$(jq -r '.generated_at | test("^[0-9-]{10}T[0-9:]{8}Z$")' <<<"$out")" "true" "its times are UTC"
 assert_eq "$(jq -c '.notes' <<<"$out")" "[]" "no notes when everything answered"
-assert_eq "$(jq -c '[keys[] | select(IN("failed", "changed", "starts", "schedule", "boot_time"))]' <<<"$out")" "[]" \
+assert_eq "$(jq -c '[keys[] | select(IN("failed", "changed", "starts", "schedule"))]' <<<"$out")" "[]" \
   "with nothing to show, no section is in the answer"
 assert_eq "$(calls journalctl)" "" "nothing failed, so the journal is never read"
 assert_eq "$(calls rpm)" "" "nothing to group, so rpm is never asked"
@@ -415,139 +407,14 @@ rm -f "$SD/crontab" "$ETC/crontab" "$ETC/anacrontab"; rm -rf "$ETC"/cron.*; rm -
 assert_eq "$(page | jq -c '.schedule.notes')" '[]' "with no cron jobs and no session timers, neither note applies"
 rm -f "$SD/props-system/crond.service"; touch "$LINGER/tester"
 
-# --- startup time against the usual --------------------------------------------------------------
+# --- nothing says how long startup took ------------------------------------------------------------
 reset_calls
 rm -f "$SD"/enabled-*.json "$SD"/autostart-*.json "$SD"/timers-*.json "$SD/atq"
 rm -rf "$KEMPT_STATE_DIR/history"
-assert_eq "$(page | jq 'has("boot_time")')" "false" "while startup is still running, there is no time to show"
-assert_eq "$([[ -e "$KEMPT_STATE_DIR/boot-times.json" ]] && echo yes || echo no)" "no" "...and nothing is recorded"
-printf 'Startup finished in 13.153s (firmware) + 2.670s (loader) + 856ms (kernel) + 1.919s (initrd) + 3min 996ms (userspace) = 3min 19.596s\ngraphical.target reached after 6.117s in userspace.\n' > "$SD/analyze"
-printf '1min 32.362s systemd-fsck@dev-disk-by\\x2duuid-655f.service\n     17.721s plocate-updatedb.service\n' > "$SD/blame"
-printf 'Description=File System Check on /dev/disk/by-uuid/655f\n' > "$SD/props-system/systemd-fsck@dev-disk-by\x2duuid-655f.service"
-t="$(text)"
-assert_contains "$t" "Startup time:"$'\n'"  Ready in 6 s; all services by 3 min 1 s."$'\n'"  From power on: 3 min 20 s." \
-  "the first boot Kempt sees still shows its time"
-assert_not_contains "$t" "Usually" "...with nothing usual to compare against"
-assert_not_contains "$t" "Longest step" "...and no step singled out"
-rm -f "$KEMPT_STATE_DIR/boot-times.json"
-jq -cn '[{boot_id: "b1", at: "2026-10-15T11:00:00+03:00", ready_sec: 5, userspace_sec: 170},
-         {boot_id: "b2", at: "2026-10-16T08:00:00Z", ready_sec: 7, userspace_sec: 175},
-         {boot_id: "b3", at: "2026-10-17T08:00:00Z", ready_sec: 9, userspace_sec: 400}]' > "$KEMPT_STATE_DIR/boot-times.json"
-out="$(page)"
-assert_json_eq "$(jq -c '.boot_time | del(.recent)' <<<"$out")" \
-  '{"ready_sec":6.117,"userspace_sec":180.996,"total_sec":199.596,"usual":{"ready_sec":7,"userspace_sec":175,"boots":3},"slowest":{"unit":"systemd-fsck@dev-disk-by\\x2duuid-655f.service","description":"File System Check on /dev/disk/by-uuid/655f","sec":92.362}}' \
-  "this boot's times, the median of the boots Kempt recorded before it, and the slowest unit"
-assert_eq "$(jq -r '.boot_time.recent[-1].at' <<<"$out")" "2026-10-15T08:00:00Z" "an earlier boot's time is given in UTC"
-assert_eq "$(jq -r '[.boot_time.recent[].boot_id] | join(",")' <<<"$out")" "b3,b2,b1" "the recent boots, newest first"
-assert_eq "$(jq -r '.[-1].boot_id' "$KEMPT_STATE_DIR/boot-times.json")" "boot-now" "this boot is recorded"
-t="$(text)"
-assert_contains "$t" "Startup time:"$'\n'"  Ready in 6 s; all services by 3 min 1 s." "the text gives this boot's times"
-assert_contains "$t" "  Usually ready in 7 s; all services by 2 min 55 s." "...and the usual"
-assert_not_contains "$t" "Longest step" "close to the usual, no step is singled out"
-jq '[.[] | if .boot_id == "boot-now" then . else .userspace_sec = 110 end]' "$KEMPT_STATE_DIR/boot-times.json" > "$TESTTMP/bt" \
-  && mv "$TESTTMP/bt" "$KEMPT_STATE_DIR/boot-times.json"
-assert_contains "$(text)" "  Longest step: the disk check, 1 min 32 s." "well above the usual, the longest step is named in words"
-reset_calls
-page >/dev/null
-assert_eq "$(calls analyze)" "" "a boot already recorded is not asked again"
-assert_eq "$(jq '[.[] | select(.boot_id == "boot-now")] | length' "$KEMPT_STATE_DIR/boot-times.json")" "1" "...and recorded once"
-
-# The check records the time once per boot, without the slow blame, for everyone: the page opens
-# from the widget's menu whenever someone wants it, and "usual" needs the boots before that.
-reset_calls
-rm -f "$KEMPT_STATE_DIR/boot-times.json"
-mv "$SD/analyze" "$SD/analyze.later"
-startup_boot_record_quietly; rc=$?
-assert_eq "$rc:$([[ -e "$KEMPT_STATE_DIR/boot-times.json" ]] && echo yes || echo no)" "0:no" \
-  "a check while startup is still running records nothing, and does not fail"
-mv "$SD/analyze.later" "$SD/analyze"
-reset_calls
-startup_boot_record_quietly
-assert_eq "$(jq -c '.[0] | [.boot_id, .ready_sec, has("slowest")]' "$KEMPT_STATE_DIR/boot-times.json")" '["boot-now",6.117,false]' \
-  "a check records this boot's times, with no setting to turn on"
-assert_eq "$(calls analyze)" "time" "...with one systemd-analyze call, leaving the slowest unit to the page"
-startup_boot_record_quietly
-startup_boot_record_quietly
-assert_eq "$(calls analyze)" "time" "later checks in the same boot ask systemd-analyze nothing"
-assert_eq "$(jq '[.[] | select(.boot_id == "boot-now")] | length' "$KEMPT_STATE_DIR/boot-times.json")" "1" "...and add nothing"
-KEMPT_BOOT_ID=boot-next startup_boot_record_quietly
-assert_eq "$(calls analyze | wc -l | tr -d ' '):$(jq -r '.[-1].boot_id' "$KEMPT_STATE_DIR/boot-times.json")" "2:boot-next" \
-  "the next boot is asked once and recorded"
-jq '[.[] | select(.boot_id != "boot-next")]' "$KEMPT_STATE_DIR/boot-times.json" > "$TESTTMP/bt" \
-  && mv "$TESTTMP/bt" "$KEMPT_STATE_DIR/boot-times.json"
-
-# Until startup has finished, systemd-analyze says "Bootup is not yet finished." and exits 1. Each
-# check asks again (a few milliseconds), records nothing, and still succeeds.
-reset_calls
-mv "$SD/analyze" "$SD/analyze.later"
-KEMPT_BOOT_ID=boot-early startup_boot_record_quietly; rc1=$?
-KEMPT_BOOT_ID=boot-early startup_boot_record_quietly; rc2=$?
-mv "$SD/analyze.later" "$SD/analyze"
-assert_eq "$rc1:$rc2:$(jq '[.[] | select(.boot_id == "boot-early")] | length' "$KEMPT_STATE_DIR/boot-times.json")" "0:0:0" \
-  "while startup is not yet finished, a check records nothing and succeeds"
-assert_eq "$(calls analyze | tr '\n' ' ')" "time time " "...and each check asks systemd-analyze once more"
-
-# A systemd-analyze that hangs costs the check no more than its deadline.
-cat > "$TESTTMP/analyze-hang" <<'STUB'
-#!/usr/bin/env bash
-sleep 30
-STUB
-chmod +x "$TESTTMP/analyze-hang"
-t0=$SECONDS
-STARTUP_DEADLINE=$(( SECONDS + 1 )) KEMPT_SYSTEMD_ANALYZE_CMD="$TESTTMP/analyze-hang" KEMPT_BOOT_ID=boot-hang \
-  startup_boot_record_quietly; rc=$?
-took=$(( SECONDS - t0 ))
-assert_eq "$rc:$(( took <= 3 )):$(jq '[.[] | select(.boot_id == "boot-hang")] | length' "$KEMPT_STATE_DIR/boot-times.json")" "0:1:0" \
-  "a hanging systemd-analyze is cut off at the deadline, records nothing, and the check succeeds"
-
-# The page and a check can record the same boot at once. Whichever writes last, the page's slowest
-# unit stays: a check that read no entry for this boot, then finds the page's entry under the lock,
-# merges into it.
-cat > "$TESTTMP/analyze-race" <<'STUB'
-#!/usr/bin/env bash
-jq -c '. + [{boot_id: "boot-race", at: "2026-10-21T08:00:00Z", ready_sec: 6.117, userspace_sec: 180.996,
-             total_sec: 199.596, slowest: {unit: "x.service", description: "X", sec: 9}}]' \
-  "$KEMPT_STATE_DIR/boot-times.json" > "$KEMPT_STATE_DIR/bt.race" && mv "$KEMPT_STATE_DIR/bt.race" "$KEMPT_STATE_DIR/boot-times.json"
-cat "$SD_DIR/analyze"
-STUB
-chmod +x "$TESTTMP/analyze-race"
-KEMPT_SYSTEMD_ANALYZE_CMD="$TESTTMP/analyze-race" KEMPT_BOOT_ID=boot-race startup_boot_record_quietly
-assert_json_eq "$(jq -c '[.[] | select(.boot_id == "boot-race") | [.ready_sec, .slowest.unit]]' "$KEMPT_STATE_DIR/boot-times.json")" \
-  '[[6.117,"x.service"]]' "a check recording a boot the page has just recorded keeps its slowest unit, once"
-assert_eq "$(jq -r '.[-1].boot_id' "$KEMPT_STATE_DIR/boot-times.json")" "boot-race" "...as the newest entry"
-jq '[.[] | select(.boot_id != "boot-race")]' "$KEMPT_STATE_DIR/boot-times.json" > "$TESTTMP/bt" \
-  && mv "$TESTTMP/bt" "$KEMPT_STATE_DIR/boot-times.json"
-assert_contains "$(sed -n '/^cmd_check()/,/^}/p' "$KEMPT")" "startup_boot_record_quietly" "cmd_check calls it"
-assert_eq "$(page | jq -r '.boot_time.slowest.unit')" 'systemd-fsck@dev-disk-by\x2duuid-655f.service' \
-  "the page fills in the slowest unit later"
-
-# A device's description is its /sys path; the page names it by its kernel name instead.
-rm -f "$KEMPT_STATE_DIR/boot-times.json"
-printf '4.007s sys-devices-pci0000:00-0000:00:03.0-virtio1-block-vda-vda3.device\n' > "$SD/blame"
-printf 'Description=/sys/devices/pci0000:00/0000:00:03.0/virtio1/block/vda/vda3\n' \
-  > "$SD/props-system/sys-devices-pci0000:00-0000:00:03.0-virtio1-block-vda-vda3.device"
-assert_eq "$(page | jq -r '.boot_time.slowest.description')" "waiting for vda3" "a device is named by its kernel name"
-jq '[.[] | .slowest.description = "/sys/devices/x/vda3"]' "$KEMPT_STATE_DIR/boot-times.json" > "$TESTTMP/bt" \
-  && mv "$TESTTMP/bt" "$KEMPT_STATE_DIR/boot-times.json"
-assert_eq "$(page | jq -r '.boot_time.slowest.description')" "waiting for vda3" "...in a boot recorded before too"
-
-# The usual is a median, rounded to a tenth of a second.
-jq -cn --arg y "$(date -u -d 'yesterday 23:40' +%FT%TZ)" --arg d "$(date -u -d 'today 00:10' +%FT%TZ)" '
-  [{boot_id: "c1", at: "2026-10-15T08:00:00Z", ready_sec: 3.506, userspace_sec: 3.617},
-   {boot_id: "c2", at: "2026-10-16T08:00:00Z", ready_sec: 3.505, userspace_sec: 3.656},
-   {boot_id: "c3", at: $y, ready_sec: 3.505, userspace_sec: 3.617},
-   {boot_id: "c4", at: $d, ready_sec: 3.506, userspace_sec: 3.656}]' > "$KEMPT_STATE_DIR/boot-times.json"
-out="$(page)"
-assert_json_eq "$(jq -c '.boot_time.usual' <<<"$out")" '{"ready_sec":3.5,"userspace_sec":3.6,"boots":4}' \
-  "the usual times carry no float noise"
-t="$(text)"
-assert_contains "$t" "  Earlier starts:"$'\n'"    today 00:10: " "an earlier start today says today and its time"
-assert_contains "$t" $'\n'"    yesterday 23:40: " "...one yesterday says yesterday"
-assert_contains "$t" $'\n'"    16 Oct 08:00: " "...and an older one its date"
+assert_eq "$(page | jq 'has("boot_time")'):$(text | grep -c 'Startup time')" "false:0" "no startup time, in the JSON or the text"
 
 # Today, tomorrow and yesterday are calendar days, as in the widget: the days the clocks change
 # are 23 and 25 hours long. America/New_York changes on 8 Mar and 1 Nov 2026.
-rm -f "$SD/analyze" "$SD/blame" "$KEMPT_STATE_DIR/boot-times.json"
 us() { echo "$(date -u -d "$1" +%s)000000"; }
 jq -cn --argjson n "$(us 2026-03-08T15:00:00Z)" --argjson l "$(us 2026-11-01T00:00:00Z)" \
   '[{next: $n, last: null, unit: "a.timer", activates: "a.service"}, {next: null, last: $l, unit: "b.timer", activates: "b.service"}]' \

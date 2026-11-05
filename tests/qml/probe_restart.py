@@ -133,7 +133,7 @@ open(DBUSRC, "w").write("1")
 ev("root.promptRestart()")
 settle()
 p.check("a prompt that will not open says so", ev("root.restartError"),
-        ev("Logic.COPY.restartFailed"))
+        "Could not open the restart prompt.")
 ev("root.popupClosed()")
 p.check("...and closing the popup retires that apology, like every other transient line",
         ev("root.restartError"), "")

@@ -372,13 +372,11 @@ assert_eq "$(jq -r -n "$KEMPT_JQ_TIME"'"2026-08-25T10:59:25+0300", "2026-08-25T1
     for (const s of ["2026-08-25T10:59:25+0300", "2026-08-25T10:59Z", "nope", null]) console.log(L.formatStamp(s));' "$LOGIC")" \
   "stamps format as the widget formats them"
 
-# Every string that mirrors a COPY entry is that entry.
-assert_eq "$(jq -S -c -n "$KEMPT_JQ_STATUS"'status_copy')" \
-  "$(node -e 'const L = require(process.argv[1]);
-    const keys = JSON.parse(process.argv[2]); const o = {};
-    for (const k of keys.sort()) o[k] = L.COPY[k];
-    console.log(JSON.stringify(o));' "$LOGIC" "$(jq -c -n "$KEMPT_JQ_STATUS"'status_copy | keys')")" \
-  "the strings status shares with the widget are the widget's COPY entries"
+# Every string status shares with the widget is in the widget's own sentences.
+while IFS= read -r _shared; do
+  assert_eq "$(grep -ciF "$_shared" "$REPO_ROOT"/plasmoid/contents/ui/* | grep -vc ':0$' | sed 's/^0$/missing/;s/^[1-9].*/found/')" "found" \
+    "the widget writes status's words too: $_shared"
+done < <(jq -r -n "$KEMPT_JQ_STATUS"'status_copy | .[]')
 
 # --- status --list: every row, with its versions ----------------------------------------------------
 list() { "$KEMPT" status --list 2>&1 || true; }

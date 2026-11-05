@@ -155,16 +155,20 @@ Plasma keeps the old copy until `plasmashell --replace` or a new login.
 
 - **Rules go in `logic.js`, bindings go in QML.** Everything the widget decides lives in
   `plasmoid/contents/ui/logic.js`, so node can test it. Keep it plain, old-style JavaScript: no Qt,
-  no `i18n`, no files, no network. A decision made in a QML binding cannot be tested.
+  no files, no network. A decision made in a QML binding cannot be tested.
 - **Quote anything that came from outside.** Package names go back out on a command line through
   `Logic.shellQuote`, always. See [docs/security.md](docs/security.md#the-panel-widget).
 - **Only `Executor.qml` starts processes.** Don't put a fast periodic caller on the same queue as a
   slow one. Another Executor instance is simpler than a smarter queue.
 - **Settings belong to `kempt config`.** `contents/config/main.xml` declares no keys, so there is
   only one copy of each value.
-- **A new string goes in three places.** The text in the `COPY` table in `logic.js`. The same text
-  as an `i18n("...")` literal in the QML, so translators see it. Its type in
-  `tests/qml/probe_popup.py`.
+- **A sentence is one `i18n()` call, where it is used.** That goes for `logic.js` as much as the
+  QML. Write the whole sentence with `%1` in it, so a translator can reorder it. Never join words
+  around a value. A count takes `i18np("1 update", "%1 updates", n)`, and the count is always `%1`.
+  Don't keep `i18n()` calls in a table at load time. Then run `./Messages.sh`, which rewrites the
+  template in `po/`. `tests/test_translations.sh` fails if you forget.
+- **Translations are `po/<lang>.po` files.** The package build compiles them to
+  `contents/locale/<lang>/LC_MESSAGES/` with `./Messages.sh install`.
 
 The probes need `python3-pyside6` and the Plasma and Kirigami QML modules, which a Plasma 6
 desktop already has. Run one through its supervisor:
