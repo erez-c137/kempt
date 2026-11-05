@@ -123,10 +123,10 @@ foreign_link
 "$KEMPT" config set surface offline
 gate_refuses "the configured surface" "$KEMPT" update
 "$KEMPT" config set auto_accept false
-gate_refuses "a run with no terminal and auto_accept off" "$KEMPT" update --surface=offline </dev/null
-gate_refuses "...and the same from the configured surface" "$KEMPT" update </dev/null
+gate_refuses "a press with auto_accept off" "$KEMPT" update --answered --surface=offline </dev/null
+gate_refuses "...and the same from the configured surface" "$KEMPT" update --answered </dev/null
 # The widget's consent is to a live run, so it does not turn a stage asked for into one.
-gate_refuses "a stage asked for with the flag and auto_accept off" "$KEMPT" update --surface=offline --risky-ok </dev/null
+gate_refuses "a stage asked for with the flag and auto_accept off" "$KEMPT" update --answered --surface=offline --risky-ok </dev/null
 # ...where a terminal must not turn the stage asked for into a live run.
 : > "$WORLD/calls"; rc=0
 python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$KEMPT" update --surface=offline >/dev/null 2>&1 </dev/null || rc=$?

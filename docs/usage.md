@@ -132,7 +132,7 @@ zero updates.
 ## update
 
 ```
-kempt update [--no-flatpak] [--surface=widget|offline] [--risky-ok]
+kempt update [--no-flatpak] [--surface=widget|offline] [--risky-ok] [--answered]
 ```
 
 Runs the update now, in this process. Flags override the config file for this run.
@@ -148,9 +148,11 @@ kempt update --surface=offline    # stage it; installs on the next restart
 | `--no-flatpak` | Updates system packages only. |
 | `--surface=` | How this run installs, as **Run updates in** in the widget's settings: `widget` (**In this widget**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `widget`. |
 | `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
+| `--answered` | Says a person already chose, so `auto_accept=false` with no terminal does not refuse. `kempt run` passes it. |
 
 Typed at a terminal, a run shows live output. With `auto_accept=false`, dnf5 also asks you there.
-Anywhere else, starting the update is the answer.
+With `auto_accept=false` and no terminal, such as a script, it refuses with exit 5 and changes
+nothing. A press in the widget is the answer, and `kempt run` says so with `--answered`.
 
 What happens, in order:
 
@@ -216,7 +218,7 @@ doctor` checks it.
 | 1 | A backend failed, including the root helper refusing a folder that turned unsafe during the run. |
 | 2 | Unknown option. |
 | 3 | Another update is running, including another user's. Kempt says so before it checks anything. |
-| 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, `--surface=offline` while a Fedora release upgrade is stored or another updater holds the next restart, a run with no terminal and no `--risky-ok` that finds system updates behind that updater, or a dnf folder Kempt can see is unsafe. |
+| 5 | Nothing changed: `auto_accept=false` with no terminal and no press, an image-based Fedora, installed packages or apps that could not be read, `--surface=offline` while a Fedora release upgrade is stored or another updater holds the next restart, a run with no terminal and no `--risky-ok` that finds system updates behind that updater, or a dnf folder Kempt can see is unsafe. |
 | 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. A busy lock while rebuilding a staged update exits 1. |
 
 ### Installing on the next restart

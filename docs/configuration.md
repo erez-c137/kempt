@@ -33,7 +33,7 @@ half a minute.
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. On a computer without Flatpak, it counts as off. If you set it to `true` yourself there, `kempt doctor` warns. |
-| `auto_accept` | boolean | `true` | Answer dnf5's prompts automatically (`-y`). When off, `kempt update` typed at a terminal lets dnf5 ask you. Anywhere else, starting the update is the answer. |
+| `auto_accept` | boolean | `true` | Answer dnf5's prompts automatically (`-y`). When off, `kempt update` typed at a terminal lets dnf5 ask you. With no terminal it refuses and changes nothing. A press in the widget is the answer, so it still runs. |
 | `surface` | `popup`, `offline` | `popup` | How `kempt run` and `kempt update` install. `kempt config set surface widget` stores `popup`. A config that still names `background` or `terminal`, from an older version, reads as `popup`. An unrecognised value logs a warning and falls back to `popup`. |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
 | `notify_startup` | boolean | `true` | Whether Kempt tells you when a service that started before an update fails after it. Kempt only looks. It never turns anything on or off, and the update count never includes this. Each check asks systemd which services failed. See [kempt startup](usage.md#startup). |

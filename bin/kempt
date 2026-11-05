@@ -1397,11 +1397,13 @@ reconcile_stage_after_live_run() {
 }
 
 cmd_update() {
-  local a h surface include_fp="" risky_ok=""
+  local a h surface include_fp="" risky_ok="" answered=""
   surface="$(config_get surface)"
   for a in "$@"; do case "$a" in
     --no-flatpak) include_fp=false ;;
     --risky-ok) risky_ok=1 ;;
+    # A press in the widget: kempt run passes this, because the press was the answer.
+    --answered) answered=1 ;;
     --surface=*) surface="${a#--surface=}" ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
@@ -1421,6 +1423,10 @@ cmd_update() {
     at_terminal=true
     KEMPT_LIVE_OUTPUT=1
     export KEMPT_LIVE_OUTPUT
+  fi
+  # auto_accept=false means a person answers. With nobody here and no press, nothing may install.
+  if ! is_true "$auto" && [[ "$at_terminal" != true && -z "$answered" ]]; then
+    preflight_abort "auto_accept is off and nobody is at a terminal to answer, so nothing was changed. Type kempt update in a terminal, or set auto_accept to true."
   fi
 
   # An image-based Fedora - Silverblue, Kinoite, Bazzite, a bootc image - updates through
@@ -1526,7 +1532,8 @@ cmd_update() {
   # Empty when it cannot, and everything downstream then reports the run from its two snapshots, the
   # way it did before the lookup existed. Declared here because the live branch below is one of two.
   local live_txid="" live_keep=""
-  # auto_accept=false asks a person, so it applies only where one can answer.
+  # auto_accept=false asks a person, so it applies only where one can answer: past the refusal
+  # above, a run with no terminal is a press.
   if is_true "$auto" || [[ "$at_terminal" != true ]]; then yflag=(-y); fi
   local held_dnf; held_dnf="$(holds_for dnf)"
   while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
@@ -2168,10 +2175,10 @@ cmd_run() {
     [[ $lock_rc -eq 75 ]] && { echo "An update is already running." >&2; exit 3; }
   fi
 
-  if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$(surface_word "$surface"))"; return 0; fi
+  if [[ -n "$dry" ]]; then echo "detached: kempt update --answered$risky_arg (surface=$(surface_word "$surface"))"; return 0; fi
   local self_q surface_q
   printf -v self_q '%q' "$SELF"; printf -v surface_q '%q' "$surface"
-  setsid bash -c "$self_q update --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
+  setsid bash -c "$self_q update --answered --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
 }
 
 cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry, verbatim
@@ -4900,13 +4907,14 @@ usage_block() {  # command → its block, or nothing for a command Kempt does no
 EOF
     ;;
     update) cat <<'EOF'
-  update [--no-flatpak] [--surface=X] [--risky-ok]
+  update [--no-flatpak] [--surface=X] [--risky-ok] [--answered]
                         run the update now, in this process. The options override the config
                         for this run. --no-flatpak updates system packages only. --surface=X
                         picks where it runs: widget, or offline, which stages it for
                         the next restart. At a terminal it shows the output and asks
                         before session-critical updates. --risky-ok leaves out the
-                        session-critical notification
+                        session-critical notification. With auto_accept off and no
+                        terminal it refuses, unless --answered says the person already chose
 EOF
     ;;
     run) cat <<'EOF'

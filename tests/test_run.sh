@@ -10,24 +10,24 @@ KEMPT="$REPO_ROOT/bin/kempt"
 mkdir -p "$KEMPT_CONFIG_DIR"
 for old in background terminal; do
   printf 'surface=%s\n' "$old" > "$KEMPT_CONFIG_DIR/config"
-  assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=widget)" "a saved $old runs in the widget"
+  assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update --answered (surface=widget)" "a saved $old runs in the widget"
   assert_eq "$("$KEMPT" config get surface)" "popup" "...and reads as such"
-  assert_eq "$("$KEMPT" run --print-command --surface=$old)" "detached: kempt update (surface=widget)" \
+  assert_eq "$("$KEMPT" run --print-command --surface=$old)" "detached: kempt update --answered (surface=widget)" \
     "...and so does a script that names it"
   "$KEMPT" config set surface "$old" 2>"$TESTTMP/old.err"
   assert_eq "$(grep '^surface=' "$KEMPT_CONFIG_DIR/config")|$(cat "$TESTTMP/old.err")" "surface=popup|" \
     "...and setting it stores the widget, with no warning"
 done
 "$KEMPT" config set surface popup
-assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=widget)" "popup plan"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update --answered (surface=widget)" "popup plan"
 # --risky-ok, after Install Now in the popup, reaches the detached update and nothing else.
-assert_eq "$("$KEMPT" run --print-command --risky-ok)" "detached: kempt update --risky-ok (surface=widget)" \
+assert_eq "$("$KEMPT" run --print-command --risky-ok)" "detached: kempt update --answered --risky-ok (surface=widget)" \
   "Install Now passes --risky-ok on to a detached update"
 "$KEMPT" config set surface offline
-assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=offline)" "offline plan"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update --answered (surface=offline)" "offline plan"
 # With nobody at a terminal, auto_accept=false has nobody to ask, and the press was the answer.
 "$KEMPT" config set auto_accept false
-assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update (surface=offline)" "auto_accept=false starts the same run"
+assert_eq "$("$KEMPT" run --print-command)" "detached: kempt update --answered (surface=offline)" "auto_accept=false starts the same run"
 "$KEMPT" config set auto_accept true
 
 # A mistyped flag must never be read as "go ahead and launch": this command's normal outcome is a
@@ -46,15 +46,15 @@ assert_eq "$("$KEMPT" help | grep -ci dry)" "0" \
 # never to a stage.
 "$KEMPT" config set surface bogus
 surferr="$("$KEMPT" run --print-command 2>&1 >/dev/null)"
-assert_eq "$("$KEMPT" run --print-command 2>/dev/null)" "detached: kempt update (surface=widget)" "unknown surface falls back to the widget"
+assert_eq "$("$KEMPT" run --print-command 2>/dev/null)" "detached: kempt update --answered (surface=widget)" "unknown surface falls back to the widget"
 assert_contains "$surferr" "surface='bogus' is not a known value, so updates run in the widget" "unknown surface warns on stderr"
 
 # `widget` is the other name for the stored `popup`: a hand-written surface=widget, and
 # --surface=widget, both run detached in the widget.
 sed -i 's/^surface=.*/surface=widget/' "$KEMPT_CONFIG_DIR/config"
-assert_eq "$("$KEMPT" run --print-command 2>&1)" "detached: kempt update (surface=widget)" \
+assert_eq "$("$KEMPT" run --print-command 2>&1)" "detached: kempt update --answered (surface=widget)" \
   "a hand-written surface=widget runs in the widget, with no warning"
-assert_eq "$("$KEMPT" run --print-command --surface=Widget 2>&1)" "detached: kempt update (surface=widget)" \
+assert_eq "$("$KEMPT" run --print-command --surface=Widget 2>&1)" "detached: kempt update --answered (surface=widget)" \
   "--surface=widget is accepted as the widget"
 
 # --- --surface=<s>: one run on a named surface, whatever the setting says -----------------------
@@ -62,12 +62,12 @@ assert_eq "$("$KEMPT" run --print-command --surface=Widget 2>&1)" "detached: kem
 # up-front refusals Update Now does - the lock above all - instead of a detached `kempt update`
 # whose exit status nobody reads.
 "$KEMPT" config set surface widget
-assert_eq "$("$KEMPT" run --print-command --surface=offline)" "detached: kempt update (surface=offline)" \
+assert_eq "$("$KEMPT" run --print-command --surface=offline)" "detached: kempt update --answered (surface=offline)" \
   "--surface=offline stages detached on a box configured for the widget"
-assert_eq "$("$KEMPT" run --surface=offline --print-command)" "detached: kempt update (surface=offline)" \
+assert_eq "$("$KEMPT" run --surface=offline --print-command)" "detached: kempt update --answered (surface=offline)" \
   "...with the flags in either order"
 "$KEMPT" config set surface offline
-assert_eq "$("$KEMPT" run --print-command --surface=' Popup ')" "detached: kempt update (surface=widget)" \
+assert_eq "$("$KEMPT" run --print-command --surface=' Popup ')" "detached: kempt update --answered (surface=widget)" \
   "...a surface is read the way the setting is, trimmed and case-folded"
 # A surface named on the command line is a request, not a stored value, so a typo is refused
 # rather than quietly turned into the widget the way a mistyped setting is.

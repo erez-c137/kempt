@@ -303,17 +303,24 @@ assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls" || true)" "1" "..
 # A typo'd flag must never be treated as "run with the configured defaults".
 assert_exit 2 "unknown update option rejected" "$KEMPT" update --bogus
 
-# auto_accept=false lets dnf5 ask, and only a person at a terminal can answer. Everywhere else the
-# press or the command is the answer, and -y goes to the helper as usual.
+# auto_accept=false lets dnf5 ask, and only a person at a terminal can answer. With nobody there
+# the command refuses and changes nothing, unless a press in the widget already answered.
 : > "$WORLD/apply-calls"
 "$KEMPT" config set auto_accept false
+rc=0; norun_err="$("$KEMPT" update 2>&1 >/dev/null </dev/null)" || rc=$?
+assert_eq "$rc" "5" "auto_accept=false with stdin closed: refused"
+assert_contains "$norun_err" "nothing was changed" "...and says so"
+assert_eq "$(grep -cE '^(APPLY|FLATPAK)' "$WORLD/apply-calls" || true)" "0" "...and neither dnf nor Flatpak ran"
+rc=0; python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' bash -c '"$0" update | tee /dev/null; exit "${PIPESTATUS[0]}"' "$KEMPT" >/dev/null 2>&1 </dev/null || rc=$?
+assert_eq "$rc" "5" "auto_accept=false on a pty piped through tee: refused"
+assert_eq "$(grep -cE '^(APPLY|FLATPAK)' "$WORLD/apply-calls" || true)" "0" "...and neither dnf nor Flatpak ran"
 # dnf-reboot-no → rc 0 → no reboot needed: the everyday case, and the one the reboot-needed
 # stub above can never prove.
-KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no" "$KEMPT" update >/dev/null
+KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no" "$KEMPT" update --answered >/dev/null
 h2="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .reboot_needed "$h2")" "false" "no-reboot-needed run completes and records false"
 assert_eq "$(jq -r .surface "$h2")" "popup" "auto_accept=false leaves the surface alone"
-assert_eq "$(grep -c '^APPLY dnf-upgrade.* -y' "$WORLD/apply-calls")" "1" "...and with nobody at a terminal -y goes to the helper"
+assert_eq "$(grep -c '^APPLY dnf-upgrade.* -y' "$WORLD/apply-calls")" "1" "...and a press in the widget sends -y"
 : > "$WORLD/apply-calls"
 KEMPT_ASSUME_TTY=1 KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no" "$KEMPT" update </dev/null >/dev/null 2>&1
 assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "1" "auto_accept=false at a terminal still upgrades"
@@ -344,9 +351,12 @@ assert_eq "$(grep -c '^APPLY dnf-offline-stage' "$WORLD/apply-calls")" "1" \
 assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "0" "...and never upgrades live"
 assert_eq "$(grep -c -- ' -y' "$WORLD/apply-calls")" "0" "...and lets dnf5 ask (no -y)"
 : > "$WORLD/apply-calls"
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 </dev/null || true
+rc=0; "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 </dev/null || rc=$?
+assert_eq "$rc" "5" "auto_accept=false with no terminal: no stage either"
+assert_eq "$(grep -cE '^(APPLY|FLATPAK)' "$WORLD/apply-calls" || true)" "0" "...and nothing ran"
+"$KEMPT" update --answered --surface=offline --no-flatpak >/dev/null 2>&1 </dev/null || true
 assert_eq "$(grep -c '^APPLY dnf-offline-stage.* -y' "$WORLD/apply-calls")" "1" \
-  "auto_accept=false with no terminal: the stage runs, and -y answers for nobody"
+  "...while a press stages, with -y"
 assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "0" "...and it never upgrades live"
 "$KEMPT" config set auto_accept true
 "$KEMPT" unstage >/dev/null 2>&1 || true
