@@ -253,6 +253,24 @@ assert_contains "$(last_line)" "but no restart will install them now" "last run,
 world gone none; rpm_is "$NEW"; row 24 Ok null; jq '.[0].command_line = null' "$WORLD/hist-list.json" > "$WORLD/l" && mv "$WORLD/l" "$WORLD/hist-list.json"; check
 silent packagekit; assert_eq "$(entries)" 0 "packagekit: no entry"
 
+# --- memory: a history that does not answer writes none, or its old rows are all new at the next check
+world gone none; row 40 Ok 'dnf5 upgrade --offline -y' 400000; row 41 Ok 'dnf5 upgrade --offline -y' 300000
+KEMPT_DNF_HISTORY_CMD=/bin/false check
+assert_eq "$(sed -n '/^row=/p' "$SHOWN" 2>/dev/null)" "" "history failed on the first check: no baseline"
+silent "history failed"
+check
+silent "the history answers later, with old rows"; assert_eq "$(entries)" 0 "...and no entries for them"
+assert_eq "$(grep '^row=' "$SHOWN")" "row=41" "...and the baseline is the newest"
+# ...and a file with no valid row is no memory either.
+for junk in 'told=abc' 'row=abc'; do
+  world gone none; row 40 Ok 'dnf5 upgrade --offline -y' 400000; printf '%s\n' "$junk" > "$SHOWN"; check
+  silent "memory is only $junk"; assert_eq "$(grep '^row=' "$SHOWN")" "row=40" "...and $junk gets a baseline"
+done
+# ...while an empty history answers: a row that arrives later is new.
+world gone none; check; assert_eq "$(grep '^row=' "$SHOWN")" "row=0" "no offline rows yet: the baseline is zero"
+row 42 Ok 'dnf5 upgrade --offline -y' 400000; check
+assert_contains "$(said)" "were installed during the restart" "...so any later row is reported"
+
 # --- memory: an old restart is known, a recent one is not lost to a deleted folder
 world gone none; row 30 Ok 'dnf5 upgrade --offline -y' 400000; check
 silent old-row; assert_eq "$(entries)" 0 "old-row: no entry"

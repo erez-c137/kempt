@@ -2394,9 +2394,9 @@ stage_report_restart() {
   # What 0.2.0 and earlier kept about a stage. Nothing reads these now.
   rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR/offline-partial" \
         "$KEMPT_STATE_DIR/stage.lock" "$SNAP_DIR"/offline-pre-*.tsv 2>/dev/null || true
-  [[ -f "$STAGE_SHOWN_FILE" ]] && had_memory=true
+  # No valid row is no memory, whatever else the file holds.
   seen="$(stage_shown_get row)"
-  [[ "$seen" =~ ^[0-9]+$ ]] || seen=0
+  if [[ "$seen" =~ ^[0-9]+$ ]]; then had_memory=true; else seen=0; fi
   now="$(date +%s)"
   local listing
   if listing="$(dnf_history_json list)" && rows="$(jq -r --argjson seen "$seen" "$KEMPT_JQ_OFFLINE_ROW"'
@@ -2418,7 +2418,11 @@ stage_report_restart() {
       stage_report_row "$id" "$st"
     done <<<"$rows"
   fi
-  [[ "$had_memory" == true || -f "$STAGE_SHOWN_FILE" ]] || stage_shown_set row "$seen" || true
+  # The baseline is what a history that answered had to say. Written after a failure, it would make
+  # every old row in that history new at the next check.
+  if [[ "$answered" == true && "$had_memory" != true && ! "$(stage_shown_get row)" =~ ^[0-9]+$ ]]; then
+    stage_shown_set row "$seen" || true
+  fi
   stage_tell_problem "$answered" "$had_memory"
 }
 
