@@ -477,31 +477,10 @@ var COPY = {
     startupPageRefresh: "Refresh",
     startupPageRefreshTip: "Reads the startup list again.",
     startupPageLoading: "Reading what starts with the computer…",
-    startupPageShowAll: "Show All",
-    startupPageHide: "Hide",
     startupPageUnreadable: "Kempt could not read the startup list.",
     startupPageTimedOut: "Kempt did not answer in time. Press Refresh to try again.",
     startupPageFailed: "Kempt could not gather the startup list: %1",
-    startupPageFailedCode: "Kempt could not gather the startup list (exit %1).",
-    startupPageEmpty: "Kempt found nothing to list.",
-    startupPageSessionSlow: "Your session did not answer in time, so what starts when you log in is missing.",
-    startupPageSessionMissing: "Your session could not be reached, so what starts when you log in is missing.",
-    startupPageFailedTitle: "Didn't start this boot",
-    startupPageJournalDenied: "No log lines for system services: you are not allowed to read the system journal.",
-    startupPageNoJournal: "No log lines: journalctl is not installed.",
-    startupPageChanged: "Changed since the last update",
-    startupPageTimerFailedTitle: "Last run failed",
-    startupPageStartsTitle: "Starts with the computer",
-    startupPageScheduleTitle: "Runs on a schedule",
-    startupPageNoPackage: "Not from a package",
-    startupPageAtStartup: "At startup",
-    startupPageAtLogin: "When you log in",
-    startupPageTimers: "Timers",
-    startupPageYourTimers: "Your timers",
-    startupPageCron: "Cron",
-    startupPageAt: "Waiting at jobs",
-    startupPageCrondDown: "These cron jobs do not run while crond is stopped.",
-    startupPageLingerOff: "Your timers stop when you log out."
+    startupPageFailedCode: "Kempt could not gather the startup list (exit %1)."
 };
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
@@ -1236,326 +1215,23 @@ function startupMutedOf(text) {
     return block && typeof block === "object" ? startupEntriesOf(block.muted) : [];
 }
 
-// --- the Startup page (`kempt startup --all --json`) ------------------------------------------
-// What the page draws, worded as the CLI's text view words it (bin/kempt, startup_page_cmd), so
-// the terminal and the widget say one thing. Every string came from outside (unit files, logs,
-// crontabs): control characters become spaces and the QML shows it all as plain text. A field of
-// the wrong type is left out. The page only reads: the one thing it hands over is a command to copy.
-var STARTUP_PAGE_ARGS = " startup --all --json";
+// --- the Startup Report (`kempt startup --all`) --------------------------------------------------
+// The page shows the CLI's text as it is. The CLI turns control characters into spaces, and the
+// QML shows the text as plain text.
+var STARTUP_PAGE_ARGS = " startup --all";
 // The CLI keeps every outside call within 8 s; the rest is margin for a busy box.
 var STARTUP_PAGE_TIMEOUT_MS = 20000;
-var STARTUP_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-var STARTUP_ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
 
-function startupClean(s) {
-    return typeof s === "string" ? s.replace(/[\u0000-\u001f\u007f]/g, " ") : "";
-}
-
-function startupPad(n) { return n < 10 ? "0" + n : String(n); }
-
-function startupYmd(d) { return d.getFullYear() + "-" + d.getMonth() + "-" + d.getDate(); }
-
-function startupLocalOf(iso) {
-    if (typeof iso !== "string" || !STARTUP_ISO_RE.test(iso)) return null;
-    var ms = Date.parse(iso);
-    return isNaN(ms) ? null : new Date(ms);
-}
-
-// startupWhenOf(iso, nowMs) -> "today 22:56", "tomorrow 00:00", "yesterday 23:40" or "21 Oct 09:00",
-// in local time.
-// A string that is not a time is shown as it came; anything else is "".
-function startupWhenOf(iso, nowMs) {
-    var t = startupLocalOf(iso);
-    if (t === null) return startupClean(iso);
-    var hm = startupPad(t.getHours()) + ":" + startupPad(t.getMinutes());
-    if (startupYmd(t) === startupYmd(new Date(nowMs))) return "today " + hm;
-    // The next calendar day, not 24 hours on: the day a clock changes is 23 or 25 hours long.
-    var now = new Date(nowMs);
-    if (startupYmd(t) === startupYmd(new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1)))
-        return "tomorrow " + hm;
-    if (startupYmd(t) === startupYmd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)))
-        return "yesterday " + hm;
-    return t.getDate() + " " + STARTUP_MONTHS[t.getMonth()] + " " + hm;
-}
-
-// The date alone: "18 Oct", or "today" and "yesterday" when `sayToday`.
-function startupDayOf(iso, nowMs, sayToday) {
-    var t = startupLocalOf(iso), now = new Date(nowMs);
-    if (t === null) return typeof iso === "string" ? startupClean(iso.slice(0, 10)) : "";
-    if (sayToday && startupYmd(t) === startupYmd(now)) return "today";
-    if (sayToday && startupYmd(t) === startupYmd(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1)))
-        return "yesterday";
-    return t.getDate() + " " + STARTUP_MONTHS[t.getMonth()];
-}
-
-// startupDurationOf(seconds) -> "6 s", "3 min 1 s", "1 h 2 min", "under 1 s", or "".
-function startupDurationOf(sec) {
-    if (typeof sec !== "number" || !isFinite(sec) || sec < 0) return "";
-    if (sec < 1) return "under 1 s";
-    var s = Math.round(sec);
-    if (s < 60) return s + " s";
-    if (s < 3600) return Math.floor(s / 60) + " min" + (s % 60 > 0 ? " " + (s % 60) + " s" : "");
-    return Math.floor(s / 3600) + " h" + (s % 3600 >= 60 ? " " + Math.floor(s % 3600 / 60) + " min" : "");
-}
-
-function startupObjectsOf(v) {
-    return arrayOf(v).filter(function (e) { return e !== null && typeof e === "object" && !isArray(e); });
-}
-
-function startupBlockOf(v) {
-    return v !== null && typeof v === "object" && !isArray(v) ? v : null;
-}
-
-// The name a person knows: the description, else the unit.
-function startupTitleOf(e) {
-    var d = startupClean(e.description), u = startupClean(e.unit);
-    return d === "" || d === u ? u : d;
-}
-
-function startupNamedOf(e) {
-    var d = startupClean(e.description), u = startupClean(e.unit);
-    return d === "" || d === u ? u : d + " (" + u + ")";
-}
-
-function startupEntryOf(e) {
-    if (e.kind === "rc-local") return startupClean(e.unit);
-    if (e.kind === "script") return startupClean(e.unit) + " (autostart script)";
-    return startupTitleOf(e);
-}
-
-function startupCountOf(n, one, more) {
-    return n === 1 ? fill(one, "%1", 1) : fill(more, "%1", n);
-}
-
-// One scope's entries, as the CLI groups them: what no package owns first, then by package, with
-// a package heading only over two entries or more.
-function startupGroupedOf(list, indent) {
-    var out = [], own = [], byPkg = {}, keys = [], i, k;
-    function sorted(es) { return es.map(startupEntryOf).sort(); }
-    for (i = 0; i < list.length; i++) {
-        var pkg = typeof list[i].package === "string" && list[i].package !== "" ? list[i].package : null;
-        if (pkg === null) { own.push(list[i]); continue; }
-        k = pkg.toLowerCase();
-        if (!byPkg[k]) { byPkg[k] = []; keys.push(k); }
-        byPkg[k].push(list[i]);
-    }
-    if (own.length > 0) {
-        out.push({ text: COPY.startupPageNoPackage, indent: indent, heading: true });
-        sorted(own).forEach(function (t) { out.push({ text: t, indent: indent + 1, heading: false }); });
-    }
-    keys.sort();
-    for (i = 0; i < keys.length; i++) {
-        var es = byPkg[keys[i]], name = startupClean(es[0].package);
-        if (es.length >= 2) {
-            out.push({ text: name, indent: indent, heading: true });
-            sorted(es).forEach(function (t) { out.push({ text: t, indent: indent + 1, heading: false }); });
-        } else {
-            out.push({ text: startupEntryOf(es[0]) + " (" + name + ")", indent: indent, heading: false });
-        }
-    }
-    return out;
-}
-
-function startupTimerOf(t, nowMs, sayFailed) {
-    var parts = [];
-    if (typeof t.last === "string") parts.push("last run " + startupWhenOf(t.last, nowMs));
-    if (typeof t.next === "string") parts.push("next " + startupWhenOf(t.next, nowMs));
-    if (sayFailed && startupTimerFailed(t)) parts.push("the last run failed");
-    return startupNamedOf(t) + (parts.length > 0 ? ": " + parts.join(", ") : "");
-}
-
-// A timer that never ran has no result to report, whatever an older CLI said.
-function startupTimerFailed(t) {
-    return typeof t.last === "string" && typeof t.result === "string" && t.result !== "success";
-}
-
-// A cron command by the program it runs: no redirections, no settings, no folder.
-function startupProgramOf(cmd) {
-    var words = startupClean(cmd).replace(/[0-9]*>>?&?[ ]*[^ ]+/g, "").replace(/<[ ]*[^ ]+/g, "")
-        .split(/ +/).filter(function (w) { return w !== "" && !/^[A-Za-z_][A-Za-z0-9_]*=/.test(w); });
-    var p = (words[0] || "").replace(/.*\//, "");
-    return p === "" ? "a command" : p;
-}
-
-function startupEveryOf(period) {
-    var p = startupClean(period).replace(/^@/, "");
-    var named = { hourly: "every hour", daily: "every day", weekly: "every week", monthly: "every month",
-                  yearly: "every year", annually: "every year", "1": "every day", "7": "every week" };
-    if (named.hasOwnProperty(p)) return named[p];
-    return /^[0-9]+$/.test(p) ? "every " + p + " days" : p;
-}
-
-var STARTUP_WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
-
-// A crontab schedule in words, for the shapes people write; anything else as it is written.
-function startupScheduleOf(raw) {
-    var s = startupClean(raw), num = /^[0-9]+$/;
-    var at = { "@reboot": "at startup", "@hourly": "every hour", "@daily": "every day at 00:00",
-               "@midnight": "every day at 00:00", "@weekly": "every week", "@monthly": "every month",
-               "@yearly": "every year", "@annually": "every year" };
-    if (s.charAt(0) === "@") return at.hasOwnProperty(s) ? at[s] : s;
-    var f = s.trim().split(/ +/);
-    if (f.length !== 5) return s;
-    function hm() { return startupPad(parseInt(f[1], 10)) + ":" + startupPad(parseInt(f[0], 10)); }
-    var star = function (a, b) { for (var i = a; i < b; i++) if (f[i] !== "*") return false; return true; };
-    if (num.test(f[0]) && num.test(f[1]) && star(2, 5)) return "every day at " + hm();
-    if (num.test(f[0]) && num.test(f[1]) && star(2, 4) && /^[0-7]$/.test(f[4]))
-        return "every " + STARTUP_WEEKDAYS[parseInt(f[4], 10)] + " at " + hm();
-    if (num.test(f[0]) && num.test(f[1]) && num.test(f[2]) && star(3, 5))
-        return "every month on day " + parseInt(f[2], 10) + " at " + hm();
-    if (num.test(f[0]) && star(1, 5)) return "every hour at :" + startupPad(parseInt(f[0], 10));
-    if (/^\*\/[0-9]+$/.test(f[0]) && star(1, 5)) return "every " + f[0].slice(2) + " minutes";
-    return s;
-}
-
-function startupCronOf(c, nowMs) {
-    var source = startupClean(c.source);
-    if (/^(cron\.|anacron$)/.test(source))
-        return startupProgramOf(c.command) + ": " + startupEveryOf(c.schedule)
-            + (typeof c.last === "string" ? ", last run " + startupDayOf(c.last, nowMs, true) : "");
-    return startupProgramOf(c.command) + ": " + startupScheduleOf(c.schedule) + " ("
-        + (source === "crontab" ? "your crontab" : source)
-        + (typeof c.user === "string" ? ", as " + startupClean(c.user) : "") + ")";
-}
-
-function startupBootLineOf(b) {
-    if (b === null || typeof b.userspace_sec !== "number") return "";
-    function took(x) {
-        var all = "all services by " + startupDurationOf(x.userspace_sec);
-        return typeof x.ready_sec === "number" ? "ready in " + startupDurationOf(x.ready_sec) + "; " + all : all;
-    }
-    var now = took(b), out = [now.charAt(0).toUpperCase() + now.slice(1) + "."];
-    var usual = startupBlockOf(b.usual), slow = startupBlockOf(b.slowest);
-    if (usual !== null && typeof usual.userspace_sec === "number") {
-        out.push("Usually " + took(usual) + ".");
-        // The CLI's rule: named only when this start was clearly slower than the usual one.
-        if (slow !== null && typeof slow.sec === "number" && typeof slow.unit === "string"
-            && b.userspace_sec > usual.userspace_sec * 1.25 && b.userspace_sec > usual.userspace_sec + 10)
-            out.push("Longest step: " + (slow.unit.indexOf("systemd-fsck") === 0 ? "the disk check" : startupTitleOf(slow))
-                     + ", " + startupDurationOf(slow.sec) + ".");
-    }
-    return out.join(" ");
-}
-
-// startupPageOf(stdout, nowMs) -> everything the page draws. `ok` false (with `problem`) for an
-// answer that is not a schema-1 page. Empty sections come back empty and are not drawn.
-function startupPageOf(text, nowMs) {
-    var page = { ok: false, problem: COPY.startupPageUnreadable, empty: true, notes: [], bootLine: "",
-                 failed: [], failedNote: "", changedTitle: "", changed: [], timerFailures: [],
-                 startsSummary: "", startsLines: [], skippedLine: "",
-                 scheduleSummary: "", scheduleNotes: [], scheduleLines: [] };
-    var d;
-    try { d = JSON.parse(String(text)); } catch (e) { return page; }
-    if (startupBlockOf(d) === null || d.schema !== 1) return page;
-    page.ok = true;
-    page.problem = "";
-
-    if (arrayOf(d.notes).indexOf("session_slow") >= 0) page.notes.push(COPY.startupPageSessionSlow);
-    if (arrayOf(d.notes).indexOf("session_missing") >= 0) page.notes.push(COPY.startupPageSessionMissing);
-
-    var failed = startupBlockOf(d.failed);
-    if (failed !== null) {
-        page.failed = startupObjectsOf(failed.units).filter(function (u) { return typeof u.unit === "string"; })
-            .map(function (u) {
-                var cmd = typeof u.status_command === "string" && !/[\u0000-\u001f\u007f]/.test(u.status_command)
-                    && u.status_command.indexOf("systemctl ") === 0 ? u.status_command : "";
-                return {
-                    title: startupTitleOf(u) + (u.scope === "user" ? " (when you log in)" : ""),
-                    log: typeof u.log === "string" ? "Its log says: " + startupClean(u.log)
-                        : "Stopped with an error (" + (startupClean(u.result) || startupClean(u.state)) + ")",
-                    command: cmd
-                };
-            });
-        if (page.failed.length > 0 && failed.journal_denied === true) page.failedNote = COPY.startupPageJournalDenied;
-        else if (page.failed.length > 0 && failed.journal_available === false) page.failedNote = COPY.startupPageNoJournal;
-    }
-
-    var changed = startupBlockOf(d.changed);
-    if (changed !== null) {
-        var line = function (verb) {
-            return function (e) {
-                return verb + startupNamedOf(e) + (e.scope === "user" ? ", when you log in" : "");
-            };
-        };
-        var named = function (e) { return typeof e.unit === "string"; };
-        page.changed = startupObjectsOf(changed.added).filter(named).map(line("Now starts: "))
-            .concat(startupObjectsOf(changed.removed).filter(named).map(line("No longer starts: ")));
-        if (page.changed.length > 0)
-            page.changedTitle = COPY.startupPageChanged
-                + (startupLocalOf(changed.since) !== null ? " (" + startupWhenOf(changed.since, nowMs) + ")" : "");
-    }
-
-    var starts = startupObjectsOf(d.starts).filter(function (e) { return typeof e.unit === "string"; });
-    var on = starts.filter(function (e) { return e.skipped !== true; });
-    var skipped = starts.length - on.length;
-    if (on.length > 0) {
-        var logins = on.filter(function (e) { return e.kind === "autostart" || e.kind === "script"; }).length;
-        var services = on.length - logins;
-        page.startsSummary = [services > 0 ? startupCountOf(services, "%1 service", "%1 services") : "",
-                              logins > 0 ? startupCountOf(logins, "%1 login item", "%1 login items") : ""]
-            .filter(function (s) { return s !== ""; }).join(", ");
-        var sys = on.filter(function (e) { return e.scope !== "user"; });
-        var usr = on.filter(function (e) { return e.scope === "user"; });
-        if (sys.length > 0 && usr.length > 0) {
-            page.startsLines = [{ text: COPY.startupPageAtStartup, indent: 0, heading: true }]
-                .concat(startupGroupedOf(sys, 1), [{ text: COPY.startupPageAtLogin, indent: 0, heading: true }],
-                        startupGroupedOf(usr, 1));
-        } else {
-            page.startsLines = startupGroupedOf(on, 0);
-        }
-    }
-    if (skipped > 0)
-        page.skippedLine = skipped === 1 ? "1 more is set to start but is skipped on this computer."
-            : skipped + " more are set to start but are skipped on this computer.";
-
-    var sched = startupBlockOf(d.schedule);
-    if (sched !== null) {
-        var timers = startupObjectsOf(sched.timers).filter(function (t) { return typeof t.unit === "string"; });
-        var cron = startupObjectsOf(sched.cron).filter(function (c) { return typeof c.command === "string"; });
-        var at = startupObjectsOf(sched.at);
-        var notes = arrayOf(sched.notes);
-        page.timerFailures = timers.filter(startupTimerFailed)
-            .map(function (t) { return startupTimerOf(t, nowMs, false); });
-        page.scheduleSummary = [timers.length > 0 ? startupCountOf(timers.length, "%1 timer", "%1 timers") : "",
-                                cron.length > 0 ? startupCountOf(cron.length, "%1 cron job", "%1 cron jobs") : "",
-                                at.length > 0 ? startupCountOf(at.length, "%1 waiting at job", "%1 waiting at jobs") : ""]
-            .filter(function (s) { return s !== ""; }).join(", ");
-        if (cron.length > 0 && notes.indexOf("crond_down") >= 0) page.scheduleNotes.push(COPY.startupPageCrondDown);
-        var mine = timers.filter(function (t) { return t.scope === "user"; });
-        if (mine.length > 0 && notes.indexOf("linger_off") >= 0) page.scheduleNotes.push(COPY.startupPageLingerOff);
-        var lines = [];
-        var group = function (title, items, fmt) {
-            if (items.length === 0) return;
-            lines.push({ text: title, indent: 0, heading: true });
-            items.forEach(function (x) { lines.push({ text: fmt(x), indent: 1, heading: false }); });
-        };
-        var timerLine = function (t) { return startupTimerOf(t, nowMs, true); };
-        group(COPY.startupPageTimers, timers.filter(function (t) { return t.scope !== "user"; }), timerLine);
-        group(COPY.startupPageYourTimers, mine, timerLine);
-        group(COPY.startupPageCron, cron, function (c) { return startupCronOf(c, nowMs); });
-        group(COPY.startupPageAt, at, function (a) {
-            return (typeof a.when === "string" ? startupWhenOf(a.when, nowMs) : "unknown time")
-                + " (job " + startupClean(String(a.id)) + ")";
-        });
-        page.scheduleLines = lines;
-    }
-
-    page.bootLine = startupBootLineOf(startupBlockOf(d.boot_time));
-    page.empty = page.notes.length === 0 && page.failed.length === 0 && page.changed.length === 0
-        && page.startsLines.length === 0 && page.skippedLine === "" && page.scheduleLines.length === 0
-        && page.bootLine === "";
-    return page;
-}
-
-// startupPageOutcomeOf(stdout, stderr, rc, nowMs) -> the page, or a problem said calmly.
-function startupPageOutcomeOf(stdout, stderr, rc, nowMs) {
+// startupPageOutcomeOf(stdout, stderr, rc) -> {ok: true, text} or {ok: false, problem}.
+function startupPageOutcomeOf(stdout, stderr, rc) {
     if (isExecutorTimeout(rc, stderr)) return { ok: false, problem: COPY.startupPageTimedOut };
     if (rc !== 0) {
-        var why = startupClean(firstLineOf(stderr));
+        var why = firstLineOf(stderr);
         return { ok: false, problem: why !== "" ? fill(COPY.startupPageFailed, "%1", why)
                                                 : fill(COPY.startupPageFailedCode, "%1", rc) };
     }
-    return startupPageOf(stdout, nowMs);
+    var text = String(stdout).replace(/\s+$/, "");
+    return text !== "" ? { ok: true, text: text } : { ok: false, problem: COPY.startupPageUnreadable };
 }
 
 // --- the reclaim offer ------------------------------------------------------------------------
@@ -3276,9 +2952,6 @@ if (typeof module !== "undefined" && module.exports) {
         startupMutedOf: startupMutedOf,
         STARTUP_PAGE_ARGS: STARTUP_PAGE_ARGS,
         STARTUP_PAGE_TIMEOUT_MS: STARTUP_PAGE_TIMEOUT_MS,
-        startupWhenOf: startupWhenOf,
-        startupDurationOf: startupDurationOf,
-        startupPageOf: startupPageOf,
         startupPageOutcomeOf: startupPageOutcomeOf,
         isTrue: isTrue,
         DEFAULT_SURFACE: DEFAULT_SURFACE,

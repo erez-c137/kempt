@@ -124,11 +124,10 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 4. **What the next restart will install**, when updates are ready. See
    [When updates are ready](#when-updates-are-ready).
 5. **A service did not start after the update.** *"Bluetooth failed to start after the
-   update. System service: bluetooth.service."* Several get a heading and a message each.
-   **Startup Report** opens the report, where **Copy Command** copies its `systemctl status`
-   command. **Mute Until It Starts** stops Kempt mentioning it until it starts cleanly again. Services that were already
-   failing before the update are listed quietly below. When one runs again, a line says so once,
-   ranked under the restart message. The panel count and icon never include this.
+   update."* Several services share one message with a count. **Startup Report** opens the report,
+   where each has **Copy Command** and **Mute Until It Starts**, and services that were already
+   failing are listed under them. When one runs again, a line says so once, ranked under the
+   restart message. The panel count and icon never include this.
 6. **Restart to finish updating.**, with **Restart…** and a close button. See
    [About the restart](#about-the-restart).
 7. **"The next restart is the safest time to install a new kernel."** Another version also names
@@ -334,15 +333,14 @@ The **x** hides the message until your next Plasma login.
 
 ### The Startup report
 
-The Startup report shows `kempt startup --all`: what starts with the computer and what runs on a
-schedule. Open it with **Startup Report** in the widget's right-click menu, or in **More actions**
-inside the system tray. It reads when it opens and when you press its arrow, never in the
-background, and changes nothing.
+The Startup report opens from the message about a failed service, from **Startup Report** in the
+widget's right-click menu, or from **More actions** inside the system tray. It reads when it opens
+and when you press its arrow, never in the background, and changes nothing on the computer.
 
-It lists in full what didn't start this boot, with its log line and **Copy Command**, what changed
-since the last update, and timers whose last run failed. What starts and what runs on a schedule
-are counts, with **Show All**. One line gives startup time against the usual. Empty sections and
-removed services are left out. **Back** or Escape returns to the updates, or to a running update.
+Services that failed after an update come first, each with **Copy Command** and **Mute Until It
+Starts**. Below them is the text of `kempt startup --all`, in English, in an area you can read and
+select from the keyboard: what failed this boot, what changed since the last update, what starts
+with the computer and what runs on a schedule. Doctor's full report uses the same area. **Back** or Escape returns to the updates, or to a running update.
 
 ## Settings
 
@@ -402,7 +400,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Copy Command** for a service, on the Startup report | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |
 | Opening the widget while it says a service runs again | `kempt startup ack --expect=<digest>` |
-| **Startup Report** in the menu and on a service's message, and the arrow on the Startup report | `kempt startup --all --json` |
+| **Startup Report** in the menu and on the failed-service message, and the arrow on the Startup report | `kempt startup --all` |
 | Every setting | `kempt config set` |
 
 The widget's automatic checks run `kempt check --coalesce`.

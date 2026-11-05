@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""The startup banner: a service that stopped starting after an update.
+"""A service that stopped starting after an update: the banner and the Startup Report's top block.
 
 The node tests pin every sentence and command logic.js derives. This proves the QML routes them:
-the banner draws one message per service, Copy Command puts the right command on the clipboard,
-Mute Until It Starts reaches the CLI with the unit as ONE argument, what recovered is
-acknowledged by its digest only while the popup is open, and the panel count never moves. Then the settings page: the notify_startup round trip and the muted list.
+the banner is one sentence with one button, that button lands on the report, the report lists each
+service with its two buttons, Mute Until It Starts reaches the CLI with the unit as ONE argument,
+what recovered is acknowledged by its digest only while the widget is open, and the panel count
+never moves. Then the settings page: the notify_startup round trip and the muted list.
 """
 import json
 import os
@@ -110,31 +111,35 @@ pop.setHeight(900)
 win.show()
 p.pump(200)
 
+# Evaluated in StartupPage.qml's own context, where its ids live: the context of the page's root
+# object is the file that instantiated it, so go through a child.
+rev = p.evaluator(lev("startupPage.children[0]"))
+
 # --- the banner, and the panel it leaves alone ---------------------------------------------------
 p.check("a failed service takes the startup slot", ev("root.vm.messageSlots.indexOf('startup') >= 0"), True)
-p.check("...and the banner shows", lev("startupBanner.visible"), True)
-p.check("one service: one message, drawn, with title and body",
-        [lev("startupRepeater.count"), lev("startupRepeater.itemAt(0).visible"), lev("startupRepeater.itemAt(0).text")],
-        [1, True, "Bluetooth failed to start after the update.\n"
-            "System service: bluetooth.service."])
-p.check("...which a screen reader hears as written", lev("startupRepeater.itemAt(0).Accessible.name"),
-        lev("startupRepeater.itemAt(0).text"))
-p.check("...a warning, with its two buttons",
-        [lev("startupRepeater.itemAt(0).type === Kirigami.MessageType.Warning"),
-         lev("startupRepeater.itemAt(0).actions[0].text"), lev("startupRepeater.itemAt(0).actions[1].text")],
-        [True, "Startup Report", "Mute Until It Starts"])
-p.check("...the mute saying what it does",
-        lev("startupRepeater.itemAt(0).actions[1].tooltip"),
-        "Kempt stops mentioning it until it starts cleanly again.")
-p.check("no heading for one service", lev("startupHeading.visible"), False)
-p.check("the badge counts updates and nothing else",
-        ev("root.vm.badgeText"), "10")
+p.check("the banner is one warning, one sentence and one button",
+        [lev("startupBanner.visible"), lev("startupBanner.type === Kirigami.MessageType.Warning"),
+         lev("startupBanner.text"), lev("startupBanner.actions.length"), lev("startupBanner.actions[0].text")],
+        [True, True, "Bluetooth failed to start after the update.", 1, "Startup Report"])
+p.check("...which a screen reader hears as written", lev("startupBanner.Accessible.name"), lev("startupBanner.text"))
+p.check("the badge counts updates and nothing else", ev("root.vm.badgeText"), "10")
 
-# Writing `expanded` outside plasmashell segfaults the probe, so this is the popup already open.
+# Writing `expanded` outside plasmashell segfaults the probe, so this is the widget already open.
 ev("root.popupOnScreen = true")
-lev("startupRepeater.itemAt(0).actions[0].trigger()")
+lev("startupBanner.actions[0].trigger()")
 p.pump(200)
-p.check("Startup Report opens the report, which has the command to copy", lev("popup.startupOpen"), True)
+p.check("the banner's Startup Report lands on the report, in place of the updates",
+        [lev("popup.startupOpen"), lev("startupPage.visible"), lev("startupBanner.visible")], [True, True, False])
+p.wait_for(rev, "page.Window.activeFocusItem === backButton", True)
+p.check("...with the keyboard on Back, which says what failed",
+        rev("backButton.Accessible.description"),
+        "Returns to the list of updates.\nBluetooth failed to start after the update.")
+p.check("...and the service on top, with title, body and its two buttons, and no heading for one",
+        [rev("failedRepeater.count"), rev("failedRepeater.itemAt(0).label.text"),
+         rev("failedRepeater.itemAt(0).copyButton.text"), rev("failedRepeater.itemAt(0).muteButton.text"),
+         rev("failedHeading.visible")],
+        [1, "Bluetooth failed to start after the update.\nSystem service: bluetooth.service.",
+         "Copy Command", "Mute Until It Starts", False])
 lev("popup.closeStartup()")
 p.pump(200)
 ev("root.popupOnScreen = false")
@@ -165,103 +170,63 @@ serve(announced=[BT])
 ev("root.doCheck()")
 settle()
 
-# --- Mute Until It Starts ------------------------------------------------------------------------
+# --- the Startup Report's top block, and Mute Until It Starts ---------------------------------------
 serve(announced=[BT, USR, dict(BT, unit=ESCAPED, description="File System Check"),
                  dict(BT, unit=HOSTILE, description="Hostile")],
       already=[{"unit": "im.service", "scope": "user", "description": "Input Method starter"}])
 ev("root.doCheck()")
 settle()
-p.check("a unit name the CLI would refuse gets no message, so three services: a heading with the count, one message each",
-        [lev("startupHeading.text"), lev("startupRepeater.count")],
+ev("root.popupOnScreen = true")
+lev("startupBanner.actions[0].trigger()")
+p.pump(200)
+ROW = "failedRepeater.itemAt(%d)"
+p.check("a unit name the CLI would refuse gets no row, so three services: a heading with the count, one row each",
+        [rev("failedHeading.text"), rev("failedRepeater.count")],
         ["3 services failed to start after the update, including Bluetooth and plasma-foo.service.", 3])
+p.check("...the banner saying the same one sentence", lev("startupBanner.text"), rev("failedHeading.text"))
+p.check("...and what was already failing under them",
+        rev("alreadyLabel.text"), "Already failing before the update: Input Method starter.")
 # Three of each button, and the words on them are the same three times. What a screen reader is
-# told is not: each button's accessible name carries its service, and the Copy button, the first
-# stop in each message, carries what happened as its description.
-p.pump(100)
-BTN = "popup.buttonFor(startupRepeater.itemAt(%d), startupRepeater.itemAt(%d).actions[%d])"
-_names = [lev("startupRepeater.itemAt(%d).modelData.name" % i) for i in range(3)]
+# told is not: each button's accessible name carries its service.
+_names = [rev((ROW % i) + ".service.name") for i in range(3)]
 p.check("each Mute button names its own service to a screen reader",
-        [lev(BTN % (i, i, 1) + ".Accessible.name") for i in range(3)],
+        [rev((ROW % i) + ".muteButton.Accessible.name") for i in range(3)],
         ["Mute Until It Starts: %s" % n for n in _names])
-p.check("...and so does each Startup Report button",
-        [lev(BTN % (i, i, 0) + ".Accessible.name") for i in range(3)],
-        ["Startup Report: %s" % n for n in _names])
+p.check("...and so does each Copy Command",
+        [rev((ROW % i) + ".copyButton.Accessible.name") for i in range(3)],
+        ["Copy Command: %s" % n for n in _names])
 p.check("...while the words drawn on them stay as they were",
-        [lev(BTN % (0, 0, 0) + ".text"), lev(BTN % (0, 0, 1) + ".text")],
-        ["Startup Report", "Mute Until It Starts"])
-p.check("...Startup Report says what happened to the service",
-        lev(BTN % (0, 0, 0) + ".Accessible.description"),
-        "System service: bluetooth.service.")
-p.check("...and Mute says what muting does",
-        lev(BTN % (0, 0, 1) + ".Accessible.description"),
-        "Kempt stops mentioning it until it starts cleanly again.")
-
-# A narrow banner: Kirigami swaps in icon-only buttons and puts what does not fit in a More
-# Actions menu, all built in its own time. Every one of them still names its service.
-SPOKEN = """(function (i, a) {
-  var entry = startupRepeater.itemAt(i), action = entry.actions[a], out = [];
-  (function walk(o) {
-     if (o.action === action) out.push(String(o.Accessible.name));
-     if (o.menu !== undefined && o.menu !== null)
-       for (var k = 0; k < o.menu.count; k++) {
-         var it = o.menu.itemAt(k);
-         if (it && it.action === action) out.push("menu:" + String(it.Accessible.name));
-       }
-     for (var c = 0; c < o.children.length; c++) walk(o.children[c]);
-  })(entry);
-  return JSON.stringify(out); })(%d, %d)"""
-lev("popup.width = 120")
-p.pump(400)
-# The menu's entries exist only while it is open, so open each message's.
-OPEN_MENUS = """(function (show) { var n = 0;
-  for (var i = 0; i < startupRepeater.count; i++)
-    (function walk(o) {
-       if (o.menu !== undefined && o.menu !== null && o.visible) {
-         if (show) o.menu.open(); else o.menu.close(); n++; }
-       for (var c = 0; c < o.children.length; c++) walk(o.children[c]);
-    })(startupRepeater.itemAt(i));
-  return n; })(%s)"""
-p.check("narrow, each message has a More Actions menu", lev(OPEN_MENUS % "true"), 3)
-p.pump(200)
-_narrow = [json.loads(lev(SPOKEN % (i, a))) for i in range(3) for a in range(2)]
-_want = [("Startup Report: %s" if a == 0 else "Mute Until It Starts: %s") % _names[i]
-         for i in range(3) for a in range(2)]
-p.check("narrow, every button and menu entry drawn for an action carries its spoken name",
-        [sorted(set(n.replace("menu:", "") for n in names)) for names in _narrow],
-        [[w] for w in _want])
-p.check("...the overflow menu's entries included",
-        any(n.startswith("menu:") for names in _narrow for n in names), True)
-lev(OPEN_MENUS % "false")
-lev("popup.width = 460")
-p.pump(200)
-
-p.check("a session service's command has --user", lev("startupRepeater.itemAt(1).modelData.command"),
+        [rev((ROW % 0) + ".copyButton.text"), rev((ROW % 0) + ".muteButton.text")],
+        ["Copy Command", "Mute Until It Starts"])
+p.check("...Copy Command describes its command, and Mute what muting does",
+        [rev((ROW % 0) + ".copyButton.Accessible.description"), rev((ROW % 0) + ".muteButton.Accessible.description")],
+        ["systemctl status bluetooth.service", "Kempt stops mentioning it until it starts cleanly again."])
+p.check("a session service's command has --user", rev((ROW % 1) + ".service.command"),
         "systemctl --user status plasma-foo.service")
-p.check("a unit with a backslash is single-quoted", lev("startupRepeater.itemAt(2).modelData.command"),
+p.check("a unit with a backslash is single-quoted", rev((ROW % 2) + ".service.command"),
+        "systemctl status '" + ESCAPED + "'")
+lev("engineCopyClip.text = ''")
+rev((ROW % 2) + ".copyButton.clicked()")
+p.check("Copy Command copies that command, quotes intact", lev("engineCopyClip.text"),
         "systemctl status '" + ESCAPED + "'")
 p.clear_calls()
-lev("startupRepeater.itemAt(1).actions[1].trigger()")
+rev((ROW % 1) + ".muteButton.clicked()")
 settle()
 p.check("Mute runs kempt startup mute <unit> --user",
         p.argv("startup"), ["startup", "mute", "plasma-foo.service", "--user"])
-p.check("...and the muted service leaves the banner",
-        [lev("startupRepeater.count"), ev("root.startupMutePending")], [2, ""])
-NEXT_FOCUSED = ("popup.Window.activeFocusItem !== null"
-                " && popup.Window.activeFocusItem === popup.buttonFor(startupRepeater.itemAt(1),"
-                " startupRepeater.itemAt(1).actions[0])")
-p.wait_for(lev, NEXT_FOCUSED, True)
+p.check("...and the muted service leaves the report",
+        [rev("failedRepeater.count"), ev("root.startupMutePending")], [2, ""])
+NEXT_FOCUSED = "page.Window.activeFocusItem === " + (ROW % 1) + ".copyButton"
+p.wait_for(rev, NEXT_FOCUSED, True)
 p.check("...and the keyboard moves to the next service's first button",
-        [lev(NEXT_FOCUSED), lev("startupRepeater.itemAt(1).modelData.unit")], [True, ESCAPED])
+        [rev(NEXT_FOCUSED), rev((ROW % 1) + ".service.unit")], [True, ESCAPED])
 p.clear_calls()
-lev("startupRepeater.itemAt(1).actions[1].trigger()")
+rev((ROW % 1) + ".muteButton.clicked()")
 settle()
 p.check("an escaped unit reaches the CLI as one argument, backslash intact",
         p.argv("startup"), ["startup", "mute", ESCAPED])
-# The list hands its focus on to its current row, so the list is asked, not the focused item.
-p.wait_for(lev, "rowsView.activeFocus", True)
-p.check("with no service after it, the keyboard moves to the list, past the already-failing text",
-        [lev("rowsView.activeFocus"), lev("startupAlready.activeFocus"), lev("startupAlready.visible")],
-        [True, False, True])
+p.wait_for(rev, "page.Window.activeFocusItem === backButton", True)
+p.check("with no service after it, the keyboard moves to Back", rev("page.Window.activeFocusItem === backButton"), True)
 # Characters systemd allows and a shell would not leave alone: one argument, exactly as named.
 ODD = "systemd-backlight@backlight:acpi\\x2dvideo0.service"
 p.clear_calls()
@@ -270,28 +235,28 @@ settle()
 p.check("a unit with @, a colon and a backslash reaches the CLI as one argument, unchanged",
         p.argv("startup"), ["startup", "mute", ODD])
 open(MUTERC, "w").write("1")
-lev("startupRepeater.itemAt(0).actions[1].trigger()")
+rev((ROW % 0) + ".muteButton.clicked()")
 settle()
-p.check("a mute that failed says so in that service's message",
-        lev("startupRepeater.itemAt(0).text.split('\\n')[2]"), "kempt: could not write the mutes file")
-p.check("...and the buttons are live again", lev("startupRepeater.itemAt(0).actions[1].enabled"), True)
+p.check("a mute that failed says so in that service's row",
+        rev((ROW % 0) + ".label.text.split('\\n')[2]"), "kempt: could not write the mutes file")
+p.check("...and the button says Mute again", rev((ROW % 0) + ".muteButton.text"), "Mute Until It Starts")
 open(MUTEMSG, "w").write("")
-lev("startupRepeater.itemAt(0).actions[1].trigger()")
+rev((ROW % 0) + ".muteButton.clicked()")
 settle()
 p.check("a failure that says nothing names the service as the person knows it",
-        lev("startupRepeater.itemAt(0).text.split('\\n')[2]"), "Could not mute Bluetooth service.")
+        rev((ROW % 0) + ".label.text.split('\\n')[2]"), "Could not mute Bluetooth service.")
 # The service started between the check and the press: the CLI's exit 6, said calmly, by name.
 open(MUTERC, "w").write("6")
 open(MUTEMSG, "w").write("bluetooth.service is running, so there is nothing to mute.\n")
-lev("startupRepeater.itemAt(0).actions[1].trigger()")
+rev((ROW % 0) + ".muteButton.clicked()")
 settle()
 p.check("a service that started before the press is said to be running again, not a failure",
-        lev("startupRepeater.itemAt(0).text.split('\\n')[2]"),
+        rev((ROW % 0) + ".label.text.split('\\n')[2]"),
         "Bluetooth service is running again, so there is nothing to mute.")
 ev("root.popupOpened()")
 ev("root.popupClosed()")
-p.check("...and closing the widget clears it", [ev("root.startupMuteError"), lev("startupRepeater.itemAt(0).text.split('\\n').length")],
-        [None, 2])
+p.check("...and closing the widget clears it",
+        [ev("root.startupMuteError"), rev((ROW % 0) + ".label.text.split('\\n').length")], [None, 2])
 
 # --- the settings page ---------------------------------------------------------------------------
 for k, v in harness.CONFIG_DEFAULTS.items():

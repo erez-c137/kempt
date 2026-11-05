@@ -3463,8 +3463,8 @@ startup_list() {
   fi
 }
 
-# `kempt startup --all` - the Startup page: everything startup_page_gather finds, as JSON for the
-# widget (its menu's Startup Page) or as text grouped the way a person would say it.
+# `kempt startup --all` - everything startup_page_gather finds, as text grouped the way a person
+# would say it (the widget's Startup Report shows this text), or as JSON.
 startup_page_cmd() {
   local json="" a page now today
   for a in "$@"; do case "$a" in

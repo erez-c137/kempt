@@ -259,35 +259,6 @@ PlasmaExtras.Representation {
         }
     }
 
-    // Mute Until It Starts for the message at `at`. The callback is made here, not in the message:
-    // the message is destroyed when its service leaves, and a function made in it dies with it.
-    function muteStartupAt(at) {
-        const entry = popup.vm.startupEntries[at];
-        if (!entry) return;
-        popup.plasmoidItem.muteStartup(entry.unit, entry.scope, entry.name,
-                                       function () { popup.focusAfterStartupMute(at); });
-    }
-
-    // After Mute Until It Starts the pressed button is gone with its message, so the keyboard goes
-    // to the next service's first button: the one that took its place, at the same index. With
-    // none after it, to the list (the already-failing line is plain text, not a control), then
-    // wherever the popup opens.
-    // Later, not now: the messages are rebuilt from the new state first.
-    function focusAfterStartupMute(at) {
-        Qt.callLater(function () {
-            if (at < startupRepeater.count) {
-                const next = startupRepeater.itemAt(at);
-                const button = next ? popup.buttonFor(next, next.actions[0]) : null;
-                if (button && popup.canTakeFocus(button)) {
-                    button.forceActiveFocus(Qt.TabFocusReason);
-                    return;
-                }
-            }
-            if (popup.canTakeFocus(rowsView)) rowsView.forceActiveFocus(Qt.TabFocusReason);
-            else popup.focusPrimary();
-        });
-    }
-
     // --- the Startup page ----------------------------------------------------------------------
     // A second page in place of the update list, opened from the widget's menu (main.qml,
     // startupAction). Opening it gathers (main.qml, gatherStartupPage); nothing else does. It
@@ -311,11 +282,8 @@ PlasmaExtras.Representation {
     }
 
     function openStartup() {
-        // Each opening starts afresh: the last page or error is cleared and the lists fold again,
-        // so what shows is the loading line until this gather answers.
+        // Each opening starts afresh: the last page or error is cleared, so what shows is the loading line until this gather answers.
         popup.plasmoidItem.startupPage = null;
-        startupPage.startsOpen = false;
-        startupPage.scheduleOpen = false;
         popup.startupOpen = true;
         popup.plasmoidItem.gatherStartupPage();
         Qt.callLater(function () { if (popup.startupOpen) startupPage.focusFirst(); });
@@ -1194,124 +1162,29 @@ PlasmaExtras.Representation {
                      && popup.plasmoidItem.doctorReport.length > 0
         }
 
-        // A service that stopped starting after an update, in the `startup` slot above the restart. A Warning per service, each with its own two buttons, under
-        // a heading only when there are several; the services already failing before the update are
-        // one quiet line under them. Nothing here acts on a unit: Copy Command puts the command that
-        // shows why on the clipboard, and Mute Until It Starts only tells Kempt to stop mentioning it.
-        // Polite when it appears: the person opened the widget and is reading, and the notification
-        // already interrupted them once.
-        ColumnLayout {
+        // Services that stopped starting after an update: one sentence that names them, whatever
+        // their number. The Startup Report holds what to do about each. Polite when it appears:
+        // the person opened the widget and is reading, and the notification already interrupted
+        // them once.
+        Kirigami.InlineMessage {
             id: startupBanner
+            Component.onCompleted: popup.plainTextMessage(startupBanner)
             Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
+            type: Kirigami.MessageType.Warning
+            text: popup.vm.startupTitle
             visible: popup.shows("startup")
-            readonly property string sentence: popup.vm.startupTitle
+            Accessible.name: text
             property string spoken: ""
-            function speak() {
-                if (sentence.length > 0) popup.speakMessage(startupBanner, false, sentence);
-            }
-            onSentenceChanged: speak()
-            onVisibleChanged: speak()
-
-            PlasmaComponents.Label {
-                id: startupHeading
-                Layout.fillWidth: true
-                visible: text.length > 0
-                text: popup.vm.startupHeading
-                textFormat: Text.PlainText
-                wrapMode: Text.Wrap
-                font.weight: Font.DemiBold
-            }
-
-            Repeater {
-                id: startupRepeater
-                // A count, not the array: every state read makes a new array, and a new array
-                // rebuilds every message, taking the keyboard off a button someone is on. A count
-                // rebuilds only when a service comes or goes.
-                model: popup.vm.startupEntries.length
-
-                Kirigami.InlineMessage {
-                    id: startupEntry
-                    required property int index
-                    readonly property var modelData: popup.vm.startupEntries[index]
-                        || ({ unit: "", scope: "", name: "", command: "", text: "" })
-                    Component.onCompleted: {
-                        popup.plainTextMessage(startupEntry);
-                        Qt.callLater(speakButtons);
-                    }
-                    // Names the buttons for a screen reader (speakActionsAs), which hooks what
-                    // Kirigami builds later. A function of each message's own, since
-                    // Qt.callLater runs one call per function: handed popup.speakActionsAs,
-                    // three messages got one call.
-                    function speakButtons() { popup.speakActionsAs(startupEntry); }
-                    property var spokenHooks: []
-                    onVisibleChanged: Qt.callLater(speakButtons)
-                    // What happened to the service, without the line that only names it: the
-                    // buttons already say the name. One service's message has no such line,
-                    // since its first line is a sentence.
-                    readonly property string whatHappened: {
-                        const lines = text.split("\n");
-                        if (lines.length > 1 && lines[0] === modelData.name) lines.shift();
-                        return lines.join(" ");
-                    }
-                    Layout.fillWidth: true
-                    type: Kirigami.MessageType.Warning
-                    // Kirigami starts every InlineMessage hidden; the banner around it decides.
-                    visible: true
-                    readonly property string key: modelData.scope + ":" + modelData.unit
-                    readonly property var muteError: popup.plasmoidItem.startupMuteError
-                    text: muteError && muteError.key === key ? modelData.text + "\n" + muteError.text
-                                                             : modelData.text
-                    Accessible.name: text
-                    actions: [
-                        // Each button names its service to a screen reader (speakActionsAs):
-                        // with three services up, the drawn words are the same three times.
-                        // The report is the first stop in each message, so its description is
-                        // the message's own news. The command to copy is on the report.
-                        Kirigami.Action {
-                            // The drawn words first, so voice control finds the button by
-                            // what it shows, as the Startup page's Copy Command does.
-                            readonly property string spokenName:
-                                i18nc("@action:button a service's name follows",
-                                      "Startup Report: %1", startupEntry.modelData.name)
-                            readonly property string spokenDescription: startupEntry.whatHappened
-                            text: i18n("Startup Report")
-                            icon.name: "system-run"
-                            tooltip: i18n("Shows what failed, and the command to see why.")
-                            Accessible.description: tooltip
-                            onTriggered: source => popup.plasmoidItem.showStartupPage()
-                        },
-                        Kirigami.Action {
-                            readonly property bool muting:
-                                popup.plasmoidItem.startupMutePending === startupEntry.key
-                            readonly property string spokenName: muting
-                                ? i18nc("@action:button a service's name follows",
-                                        "Muting…: %1", startupEntry.modelData.name)
-                                : i18nc("@action:button a service's name follows",
-                                        "Mute Until It Starts: %1", startupEntry.modelData.name)
-                            readonly property string spokenDescription: tooltip
-                            // The label is what a screen reader reads, so the running state is words.
-                            text: muting ? i18n("Muting…") : i18n("Mute Until It Starts")
-                            icon.name: "notifications-disabled"
-                            tooltip: i18n("Kempt stops mentioning it until it starts cleanly again.")
-                            Accessible.description: tooltip
-                            enabled: popup.plasmoidItem.startupMutePending === ""
-                            onTriggered: source => popup.muteStartupAt(startupEntry.index)
-                        }
-                    ]
+            onTextChanged: popup.speakMessage(startupBanner, false)
+            onVisibleChanged: popup.speakMessage(startupBanner, false)
+            actions: [
+                Kirigami.Action {
+                    text: i18n("Startup Report")
+                    icon.name: "system-run"
+                    tooltip: i18n("Shows what failed, and the command to see why.")
+                    onTriggered: source => popup.plasmoidItem.showStartupPage()
                 }
-            }
-
-            PlasmaComponents.Label {
-                id: startupAlready
-                Layout.fillWidth: true
-                visible: text.length > 0
-                text: popup.vm.startupAlready
-                textFormat: Text.PlainText
-                wrapMode: Text.Wrap
-                font: Kirigami.Theme.smallFont
-                opacity: 0.7
-            }
+            ]
         }
 
         // Unused Flatpak runtimes: space `kempt reclaim` can free. Information, because nothing is

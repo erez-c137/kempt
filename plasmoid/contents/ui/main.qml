@@ -751,7 +751,7 @@ PlasmoidItem {
     // --- the Startup page ---------------------------------------------------------------------
     // Gathered when the page opens and on its own Refresh, and by nothing else: the journal and
     // crontab reads are the costly part, and nobody needs them unless looking. What comes back is
-    // Logic.startupPageOutcomeOf's: the page, or a problem to show in its place.
+    // Logic.startupPageOutcomeOf's: the CLI's text, or a problem to show in its place.
     property var startupPage: null
     property bool startupPageBusy: false
 
@@ -760,7 +760,7 @@ PlasmoidItem {
         startupPageBusy = true;
         startupExecutor.run(kemptCmd + Logic.STARTUP_PAGE_ARGS, Logic.STARTUP_PAGE_TIMEOUT_MS,
                             function(stdout, stderr, rc) {
-            root.startupPage = Logic.startupPageOutcomeOf(stdout, stderr, rc, Date.now());
+            root.startupPage = Logic.startupPageOutcomeOf(stdout, stderr, rc);
             root.startupPageBusy = false;
         });
     }

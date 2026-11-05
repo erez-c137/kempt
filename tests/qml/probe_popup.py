@@ -3396,21 +3396,7 @@ _SUBSTITUTED_IN_QML = {
 }
 
 _ASSEMBLED_IN_LOGIC = {
-    "startupPageChanged",   # -> startupPageOf -> the Startup page's changed heading (a date in the %1)
-    "startupPageNoPackage", # -> startupPageOf -> the starts list's first group
-    "startupPageAtStartup", # -> startupPageOf -> a starts list heading, when both scopes are present
-    "startupPageAtLogin",   # -> ...and its partner
-    "startupPageTimers",    # -> startupPageOf -> the schedule list's groups
-    "startupPageYourTimers",
-    "startupPageCron",
-    "startupPageAt",
-    "startupPageCrondDown", # -> startupPageOf -> a schedule note, always shown
-    "startupPageLingerOff",
-    "startupPageJournalDenied",  # -> startupPageOf -> the note under what failed
-    "startupPageNoJournal",
-    "startupPageSessionSlow",    # -> startupPageOf -> a page note
-    "startupPageSessionMissing",
-    "startupPageUnreadable",     # -> startupPageOf / startupPageOutcomeOf -> the page's problem line
+    "startupPageUnreadable",     # -> startupPageOutcomeOf -> the page's problem line
     "startupPageTimedOut",
     "startupPageFailed",
     "startupPageFailedCode",

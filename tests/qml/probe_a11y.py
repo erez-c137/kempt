@@ -864,18 +864,15 @@ def _code(name):
 # The fourth is the footer button when updates run on the next restart: it reads Install on Next
 # Restart, and its tooltip says the press downloads now and installs at the restart.
 #
-# The fifth and sixth are the startup banner's Startup Report and Mute Until It Starts: one pair
-# per service, so the description (the service, and what muting does) tells them apart by ear.
-# The seventh is popup.speakActionsAs binding those two actions' spoken descriptions onto the
-# buttons Kirigami draws for them, since an action cannot reach its own button's.
+# The fifth is popup.speakActionsAs binding the question's spoken description onto the button
+# Kirigami draws for it, since an action cannot reach its own button's.
 #
 # configGeneral.qml has one: Undo beside a service just unmuted names the service it mutes again.
 #
-# StartupPage.qml has three: Back says where it goes, each Copy Command carries the command it
-# copies, so one service's button is told from the next by ear, and Refresh's tooltip reads its
-# description back rather than repeating the literal. The fourth is Show All and Hide, which carry
-# the folded list's count, and the whole list once it is open.
-_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 7, "configGeneral.qml": 1, "StartupPage.qml": 4}
+# StartupPage.qml has five beside Refresh: Back says where it goes and what failed, Copy Command
+# carries the command it copies, Mute Until It Starts says what muting does, and the page's button
+# component reads the description twice for its tooltip.
+_EXTRA_DESCRIPTIONS = {"FullRepresentation.qml": 5, "configGeneral.qml": 1, "StartupPage.qml": 5}
 
 for _name in sorted(n for n in os.listdir(harness.UI) if n.endswith(".qml")):
     _s = _code(_name)

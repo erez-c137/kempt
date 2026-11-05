@@ -1543,7 +1543,7 @@ update_running_elsewhere() {
 # container) is left out rather than read as "nothing failed".
 startup_on() { is_true "$(config_get notify_startup 2>/dev/null)"; }
 
-# Every outside call of the startup code, under `timeout -k1 5`. While the Startup page gathers,
+# Every outside call of the startup code, under `timeout -k1 5`. While the Startup Report gathers,
 # each call also fits in what is left of its budget (STARTUP_DEADLINE, in $SECONDS), and a session
 # call that times out or finds no time left marks the session slow so the page asks it nothing
 # more. A session that fails at once is then told apart as missing. The mark is a file
@@ -1922,7 +1922,7 @@ startup_patch_state() {
   return "$rc"
 }
 
-# --- the Startup page (`kempt startup --all`) ---
+# --- the Startup Report (`kempt startup --all`) ---
 # One gatherer for the terminal and the widget: what did not start this boot, what changed since
 # the last run's baseline, what starts with the computer, what runs on a schedule, and how long
 # startup took. Every outside call is a read-only query as the user through startup_timed, and a

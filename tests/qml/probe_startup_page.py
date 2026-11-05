@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""The Startup page: the menu entry, the page it opens, and the one command it gathers with.
+"""The Startup Report: the menu entry, the page it opens, and the one command it gathers with.
 
-The node tests pin every line logic.js derives from `kempt startup --all --json`. This proves the
-QML: the widget's menu offers Startup Page with no setting behind it, choosing it opens the page and
-gathers with that exact argv and nothing else ever does, the page draws what came back as plain
-text, Copy Command copies the CLI's command, Refresh gathers again and refuses while one runs, a
-failure is said calmly, and Back and Escape return to the updates with the keyboard on the header's
-Check for Updates. Then the settings page, which has no checkbox for it.
+The widget's menu offers Startup Report with no setting behind it, choosing it opens the page and
+gathers with that exact argv and nothing else ever does, the CLI's text lands unchanged in the one
+keyboard-readable text area, Refresh gathers again and refuses while one runs, a failure is said
+calmly, and Back and Escape return to the updates with the keyboard on the header's Check for
+Updates. The services with their two buttons are in probe_startup.py. Then the settings page, which
+has no checkbox for it.
 """
 import json
 import os
@@ -21,46 +21,25 @@ if not harness.have_pyside():
 p = harness.Probe("probe-startup-page")
 os.makedirs(p.state)
 STATE_JSON = os.path.join(p.state, "state.json")
-PAGE = os.path.join(p.sandbox, "page.json")          # what `startup --all --json` prints
+PAGE = os.path.join(p.sandbox, "page.txt")           # what `startup --all` prints
 RC = os.path.join(p.sandbox, "rc")                   # ...and exits with
 DELAY = os.path.join(p.sandbox, "delay")             # ...after sleeping this long
 VALUES = os.path.join(p.sandbox, "values")
 os.makedirs(VALUES)
 
 HOSTILE = "<b>Bold</b><img src=x> & <a href='x'>link</a>"
-# An autostart unit's name holds an @, spliced in so the docs test's address scan passes it by.
-UNIT = "app-imsettings\\x2dstart" + "@" + "autostart.service"
-CMD = "systemctl --user status '%s'" % UNIT
-FULL = {
-    "schema": 1, "boot_id": "b", "generated_at": "2026-10-20T20:36:48Z", "notes": [],
-    "failed": {"units": [
-        {"scope": "user", "unit": UNIT,
-         "description": "imsettings-start", "state": "failed", "result": "exit-code",
-         "log": "Current desktop isn't supported.", "status_command": CMD},
-        {"scope": "system", "unit": "evil.service", "description": HOSTILE, "state": "failed",
-         "result": "exit-code", "log": HOSTILE, "status_command": "systemctl status evil.service"}],
-        "journal_denied": False, "journal_available": True},
-    "changed": {"since": "2026-10-18T09:00:00Z", "added": [{"scope": "system", "unit": "cups.service"}],
-                "removed": []},
-    "starts": [
-        {"scope": "system", "kind": "service", "unit": "a.service", "description": "Alpha",
-         "package": "alpha", "skipped": False},
-        {"scope": "system", "kind": "service", "unit": "h.service", "description": HOSTILE,
-         "package": None, "skipped": False},
-        {"scope": "system", "kind": "service", "unit": "s.service", "description": "Skipped",
-         "package": "s", "skipped": True}],
-    "schedule": {"timers": [
-        {"scope": "user", "unit": "backup.timer", "activates": "backup.service",
-         "description": "Nightly backup", "last": "2026-10-20T01:00:00Z", "next": None,
-         "result": "exit-code"}],
-        "cron": [], "at": [], "notes": []},
-    "boot_time": {"ready_sec": 6.1, "userspace_sec": 41, "total_sec": None, "usual": None,
-                  "slowest": None, "recent": []},
-}
+FULL = """Failed this boot:
+  imsettings-start (user)
+    Current desktop isn't supported.
+  %s
+
+Runs on a schedule:
+  Nightly backup: last run failed
+""" % HOSTILE
 
 
 def serve(page, rc=0, delay=0):
-    open(PAGE, "w").write(page if isinstance(page, str) else json.dumps(page))
+    open(PAGE, "w").write(page)
     open(RC, "w").write(str(rc))
     open(DELAY, "w").write(str(delay))
 
@@ -177,41 +156,15 @@ ev("startupAction.trigger()")
 p.pump(100)
 p.check("the menu entry opens the page in place of the updates",
         [lev("popup.startupOpen"), lev("startupPage.visible"), ev("root.startupPageWanted")], [True, True, False])
-p.check("...gathering with kempt startup --all --json", p.argv("startup"), ["startup", "--all", "--json"])
+p.check("...gathering with kempt startup --all", p.argv("startup"), ["startup", "--all"])
 p.check("...a busy indicator and a calm line meanwhile, Refresh still enabled, so focus can stay on it",
-        [pev("busyIndicator.running"), pev("loadingLabel.text"), pev("refreshButton.enabled")],
+        [pev("busyIndicator.running"), pev("noteLabel.text"), pev("refreshButton.enabled")],
         [True, "Reading what starts with the computer…", True])
 pev("refreshButton.clicked()")
 settle()
 p.check("...so a second press while it runs gathers nothing more", p.call_count("startup --all"), 1)
 p.wait_for(pev, "page.Window.activeFocusItem === backButton", True)
 p.check("the keyboard lands on Back", pev("page.Window.activeFocusItem === backButton"), True)
-# Nothing on the page but its buttons is a tab stop, so what it found reaches a listener as Back's
-# description (Back is where the keyboard is) and, since the gather lands after the page opened,
-# said once out loud when it does.
-p.check("Back says where it goes, then what the page found, section by section",
-        [str(pev("backButton.Accessible.description")).split("\n")[0],
-         all(t in str(pev("backButton.Accessible.description")).split("\n") for t in [
-             pev("bootLabel.text"),
-             "Didn't start this boot: imsettings-start (when you log in), "
-             + pev("failedRepeater.itemAt(1).children[0].text") + ".",
-             pev("startsHeading.label") + ": 2 services.",
-             pev("scheduleHeading.label") + ": 1 timer."])],
-        ["Returns to the list of updates.", True])
-p.check("...and lists what changed and which scheduled job failed, word for word",
-        [pev("changedRepeater.itemAt(0).text") in str(pev("backButton.Accessible.description")),
-         pev("timerFailRepeater.itemAt(0).text") in str(pev("backButton.Accessible.description"))],
-        [True, True])
-p.check("...and the same summary is said once when the gather lands",
-        json.loads(str(sev("JSON.stringify(said)"))).count(pev("page.summary")), 1)
-# ...but not when Back already said it: a gather that answers before the keyboard reaches Back
-# is heard in Back's description, and the same words again straight after are noise.
-_heard = len(json.loads(str(sev("JSON.stringify(said)"))))
-pev("refreshButton.forceActiveFocus()")
-pev("backButton.forceActiveFocus(Qt.TabFocusReason)")
-pev("page.sayWhatLanded()")
-p.check("...and not again when Back has already said it",
-        len(json.loads(str(sev("JSON.stringify(said)")))), _heard)
 p.check("the updates are out of the way", lev("startupPage.visible && !updatingPane.visible"), True)
 # The page only reads: Update Now there would start a run, or open the risky question, behind it.
 p.check("...the footer too, Update Now with it, while the header's Check for Updates stays",
@@ -220,105 +173,63 @@ p.check("...the footer too, Update Now with it, while the header's Check for Upd
 p.check("...and the keyboard is on a control that is drawn",
         lev("popup.Window.activeFocusItem.visible && popup.Window.activeFocusItem.enabled"), True)
 
-p.check("what failed is listed in full, (when you log in) for a login item",
-        [pev("failedHeading.visible"), pev("failedRepeater.count"),
-         pev("failedRepeater.itemAt(0).children[0].text"), pev("failedRepeater.itemAt(0).children[1].text")],
-        [True, 2, "imsettings-start (when you log in)", "Its log says: Current desktop isn't supported."])
-copy = "failedRepeater.itemAt(0).children[2]"
-p.check("...with Copy Command, named for its service and describing the command",
-        [pev(copy + ".text"), pev(copy + ".Accessible.name"), pev(copy + ".Accessible.description")],
-        ["Copy Command", "Copy Command: imsettings-start (when you log in)",
-         "Its log says: Current desktop isn't supported.\n" + CMD])
-lev("engineCopyClip.text = ''")
-pev(copy + ".clicked()")
-p.check("Copy Command copies the CLI's command, quotes intact", lev("engineCopyClip.text"), CMD)
-p.check("changes and failed timers are listed too",
-        [pev("changedRepeater.count"), pev("timerFailRepeater.count"),
-         pev("timerFailRepeater.itemAt(0).text").split(":")[0]],
-        [1, 1, "Nightly backup (backup.timer)"])
-p.check("the long lists are counts until asked for",
-        [pev("startsSummaryLabel.text"), pev("startsRepeater.count"), pev("skippedLabel.text"),
-         pev("scheduleSummaryLabel.text"), pev("scheduleRepeater.count")],
-        ["2 services", 0, "1 more is set to start but is skipped on this computer.", "1 timer", 0])
-p.check("...with a toggle each, named for its list",
-        [pev("startsToggle.Accessible.name"), pev("scheduleToggle.Accessible.name")],
-        ["Show All: Starts with the computer", "Show All: Runs on a schedule"])
-p.check("...and describing what the folded list holds: its count and the line under it",
-        [pev("startsToggle.Accessible.description"), pev("scheduleToggle.Accessible.description").split("\n")[0]],
-        ["2 services\n1 more is set to start but is skipped on this computer.", "1 timer"])
-pev("startsToggle.clicked()")
-pev("scheduleToggle.clicked()")
-p.pump(50)
-p.check("Show All lists them, and says Hide",
-        [pev("startsRepeater.count"), pev("startsToggle.text"), pev("scheduleRepeater.count")],
-        [3, "Hide", 2])
-p.check("...and the open list is in the toggle's description, one line each, so a listener hears it",
-        [all(pev("startsRepeater.itemAt(%d).text" % i) in str(pev("startsToggle.Accessible.description")).split("\n")
-             for i in range(3)),
-         all(pev("scheduleRepeater.itemAt(%d).text" % i) in str(pev("scheduleToggle.Accessible.description")).split("\n")
-             for i in range(2))],
+SHOWN = FULL.rstrip("\n")
+p.check("the CLI's text is shown as printed, in the one text area", pev("report.text"), SHOWN)
+p.check("...nothing is on top of it when no service was announced",
+        [pev("failedScroll.visible"), pev("noteLabel.visible"), pev("report.visible")], [False, False, True])
+p.check("...named for a screen reader, its schedule section with it",
+        [pev("report.area.Accessible.name"), "Runs on a schedule:" in pev("report.area.text")],
+        ["Startup Report", True])
+p.check("...and it is the shared component doctor's full report uses",
+        ["ReportText {\n        id: report" in open(os.path.join(harness.UI, "StartupPage.qml")).read(),
+         "ReportText {\n" in open(os.path.join(harness.UI, "FullRepresentation.qml")).read()],
         [True, True])
-p.check("the startup time is one line", pev("bootLabel.text"), "Ready in 6 s; all services by 41 s.")
+p.check("...which takes the keyboard and cannot be edited",
+        [pev("report.area.readOnly"), pev("report.area.activeFocusOnTab"), pev("report.area.selectByKeyboard")],
+        [True, True, True])
+pev("report.area.forceActiveFocus(Qt.TabFocusReason)")
+p.pump(30)
+pev("report.area.cursorPosition = 0")
+for _ in range(2):
+    press(Qt.Key_Down)
+p.check("the arrow keys walk the report's lines",
+        pev("report.area.text.slice(0, report.area.cursorPosition).split('\\n').length"), 3)
+pev("backButton.forceActiveFocus(Qt.TabFocusReason)")
+p.pump(30)
 BUTTONS = """(function () { var out = [];
   (function walk(o) {
-     // A section header is an ItemDelegate underneath, with no action and no focus: not a button.
-     if (o.clicked !== undefined && o.text !== undefined && o.visible && o.Accessible.role !== Accessible.Heading
-         && out.indexOf(String(o.text)) < 0)
+     if (o.clicked !== undefined && o.text !== undefined && o.visible && out.indexOf(String(o.text)) < 0)
        out.push(String(o.text));
      for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
   })(page); return JSON.stringify(out.sort()); })()"""
-p.check("every button on the page reads, copies or moves: none acts on the system",
-        json.loads(pev(BUTTONS)), ["Back", "Copy Command", "Hide", "Refresh"])
+p.check("every button here reads or moves: none acts on the system", json.loads(pev(BUTTONS)), ["Back", "Refresh"])
 
 # --- plain text, whatever the strings hold ----------------------------------------------------------
-HOSTILE_FORMATS = """(function () { var out = [];
-  (function walk(o) {
-     if (o.textFormat !== undefined && typeof o.text === "string" && o.text.indexOf("<b>Bold</b>") >= 0)
-       out.push(o.textFormat === Text.PlainText);
-     for (var i = 0; i < o.children.length; i++) walk(o.children[i]);
-  })(page); return JSON.stringify(out); })()"""
-formats = json.loads(pev(HOSTILE_FORMATS))
 p.check("markup in a description or a log is shown as text, never read as markup",
-        [len(formats) >= 3, all(formats)], [True, True])
+        [pev("report.area.textFormat === TextEdit.PlainText"), HOSTILE in pev("report.area.getText(0, report.area.length)")],
+        [True, True])
 
 # --- Refresh ----------------------------------------------------------------------------------------
-changed = dict(FULL, failed={"units": [], "journal_denied": False, "journal_available": True})
-serve(changed)
+serve("Starts with the computer:\n  Nothing else\n")
 p.clear_calls()
 pev("refreshButton.clicked()")
 settle()
-p.check("Refresh gathers again with the same command", p.calls_matching("startup"), ["startup --all --json"])
-p.check("...and the page follows: an empty section is not drawn",
-        [pev("failedHeading.visible"), pev("failedRepeater.count")], [False, 0])
-p.check("...and says the new page out loud, though Back said the last one",
-        json.loads(str(sev("JSON.stringify(said)")))[-1], pev("page.summary"))
+p.check("Refresh gathers again with the same command", p.calls_matching("startup"), ["startup --all"])
+p.check("...and the page follows", pev("report.text"), "Starts with the computer:\n  Nothing else")
 
 # --- problems, said calmly --------------------------------------------------------------------------
-serve("this is not json {")
+serve("")
 pev("refreshButton.clicked()")
 settle()
-p.check("garbage is one calm line, and no section",
-        [pev("problemLabel.text"), pev("startsHeading.visible"), pev("bootLabel.visible")],
-        ["Kempt could not read the startup list.", False, False])
+p.check("nothing printed is one calm line, and no text area",
+        [pev("noteLabel.text"), pev("report.visible")], ["Kempt could not read the startup list.", False])
 serve("", rc=1)
 pev("refreshButton.clicked()")
 settle()
 p.check("a failed gather gives the CLI's reason",
-        pev("problemLabel.text"), "Kempt could not gather the startup list: kempt: could not gather the startup page")
-serve({"schema": 1, "boot_id": "b", "generated_at": "x", "notes": []})
-pev("refreshButton.clicked()")
-settle()
-p.check("a page with nothing in it says so", pev("emptyLabel.text"), "Kempt found nothing to list.")
-serve({"schema": 1, "boot_id": "b", "generated_at": "x", "notes": ["session_missing"]})
-pev("refreshButton.clicked()")
-settle()
-p.check("a session that could not be reached is said, in place of the empty line",
-        [pev("notesRepeater.count"), pev("notesRepeater.itemAt(0).text"), pev("emptyLabel.text")],
-        [1, "Your session could not be reached, so what starts when you log in is missing.", ""])
-serve("", rc=1)
-pev("refreshButton.clicked()")
-settle()
-pev("page.startsOpen = true")
+        pev("noteLabel.text"), "Kempt could not gather the startup list: kempt: could not gather the startup page")
+p.check("...and says it out loud, since no text area is there to read",
+        json.loads(str(sev("JSON.stringify(said)")))[-1], pev("noteLabel.text"))
 
 # --- back ------------------------------------------------------------------------------------------
 pev("backButton.clicked()")
@@ -333,9 +244,8 @@ p.clear_calls()
 serve(FULL, delay=1)
 ev("startupAction.trigger()")
 p.pump(100)
-p.check("opening again starts afresh: the last error gone, the loading line, the lists folded",
-        [ev("root.startupPage === null"), pev("problemLabel.text"), pev("loadingLabel.text"), pev("page.startsOpen")],
-        [True, "", "Reading what starts with the computer…", False])
+p.check("opening again starts afresh: the last error gone, the loading line",
+        [ev("root.startupPage === null"), pev("noteLabel.text")], [True, "Reading what starts with the computer…"])
 settle()
 p.check("...and gathers again", p.call_count("startup --all"), 1)
 
@@ -415,15 +325,13 @@ p.check("Escape does the same, and does not close the widget",
         [False, True, True])
 ev("startupAction.trigger()")
 settle()
-pev("startsToggle.clicked()")
-p.pump(50)
 p.check("premise: the keyboard is on Back", pev("page.Window.activeFocusItem === backButton"), True)
 ev("root.leaveUpdating()")
 settle()
 p.pump(120)
 p.check("the run ending while the page is open leaves the page as it was",
         [lev("popup.startupOpen"), lev("startupPage.visible"), lev("updatingPane.visible"),
-         pev("page.startsOpen"), pev("page.showsPage")], [True, True, False, True, True])
+         pev("report.text")], [True, True, False, SHOWN])
 p.check("...the keyboard where it was", pev("page.Window.activeFocusItem === backButton"), True)
 pev("backButton.clicked()")
 p.wait_for(lev, FOCUS + "refreshButton", True)
