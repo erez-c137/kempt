@@ -87,7 +87,7 @@ said() { sed 's/^NOTIFY //' "$WORLD/notifications" | tr '\n' ' '; }
 newest_entry() { ls "$KEMPT_STATE_DIR/history/"*.json 2>/dev/null | LC_ALL=C sort | tail -n 1; }
 entries() { ls "$KEMPT_STATE_DIR/history/"*.json 2>/dev/null | wc -l; }
 silent() { assert_eq "$(said)" "" "$1: nothing is said"; }
-never() { assert_not_contains "$(said)" "will no longer install" "$1: never says it will not install"
+never() { assert_not_contains "$(said)" "No restart will install" "$1: never says it will not install"
           assert_not_contains "$("$KEMPT" status 2>&1)" "no restart will install" "$1: status does not say it either"; }
 armed_published() { assert_eq "$(jq -r '.offline_staged.count' "$STATE_FILE")" "$2" "$1: count read from dnf5's list"; }
 
@@ -226,7 +226,7 @@ assert_contains "$("$KEMPT" status)" "a restart began installing them and stoppe
 
 # --- lost link: told, offered the way back, told once
 world ready none; check
-assert_contains "$(said)" "no longer install" "lost: told"
+assert_contains "$(said)" "No restart will install your prepared updates now." "lost: told"
 assert_contains "$(said)" "kempt update --surface=offline" "lost: offered"
 assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" lost "lost: the word"
 assert_eq "$(jq -r '.offline_staged // "none"' "$STATE_FILE")" none "lost: not published as ready"
@@ -240,7 +240,7 @@ world ready none; export KEMPT_NOTIFY="$TESTTMP/notify-fails"; mk notify-fails '
 check
 assert_not_contains "$(cat "$SHOWN")" "told=" "lost, notification failed: not remembered as told"
 export KEMPT_NOTIFY="$TESTTMP/notify-stub"; check
-assert_contains "$(said)" "no longer install" "lost: told at the next check that can show it"
+assert_contains "$(said)" "No restart will install your prepared updates now." "lost: told at the next check that can show it"
 
 # status reads now: the link going between checks is seen before the next check
 world ready dnf5; check
@@ -281,17 +281,20 @@ silent "a package named like the flag"; assert_eq "$(entries)" 0 "...and no entr
 world gone none; rpm_is "$NEW"; echo row=9 > "$SHOWN"; row 27 Ok 'dnf5 --offline upgrade'; row 28 Ok 'dnf5 upgrade --offline'; check
 assert_eq "$(entries)" 2 "the flag anywhere as a word is a restart's row"
 
-# --- downloaded or half downloaded, and never set to install: nothing cancelled them, and nobody is told at a check
-for st in download-complete download-incomplete; do
-  world "$st" none; check; silent "$st"
-  assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" unarmed "$st: published as never set to install"
-  assert_contains "$("$KEMPT" status 2>&1)" "they were never set to install" "$st: status says so"
-  assert_not_contains "$("$KEMPT" status 2>&1)" "cancelled" "$st: status does not say cancelled"
-  assert_contains "$("$KEMPT" doctor 2>&1)" "they were never set to install" "$st: doctor says so"
-  assert_not_contains "$("$KEMPT" doctor 2>&1)" "downloaded" "$st: doctor does not say downloaded"
+# --- `ready` with no link, downloaded or half downloaded: one word and one sentence, with no cause
+for st in ready download-complete download-incomplete; do
+  world "$st" none; check
+  assert_contains "$(said)" "No restart will install your prepared updates now." "$st: told"
+  assert_not_contains "$(said)" "cancelled" "$st: the notification gives no cause"
+  assert_not_contains "$(said)" "no longer" "$st: the notification does not say it once would have"
+  assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" lost "$st: published as lost"
+  assert_contains "$("$KEMPT" status 2>&1)" "Prepared updates: no restart will install them now. To prepare them again, run: kempt update --surface=offline" "$st: status says so"
+  dr="$("$KEMPT" doctor 2>&1)"
+  assert_contains "$dr" "dnf5 says \"$st\", and no restart will install them now" "$st: doctor prints the real status"
+  assert_not_contains "$dr" "removed it" "$st: doctor gives no cause"
+  assert_not_contains "$dr" "downloads nothing" "$st: doctor promises no download"
+  : > "$WORLD/notifications"; check; silent "$st, told already"
 done
-world ready none; check
-assert_contains "$("$KEMPT" status 2>&1)" "something cancelled them" "a lost link is what something cancelled"
 
 # --- another updater holds the restart, and dnf5's list cannot be read or is empty: the holder is
 # known all the same, and a clean would remove the other updater's link
@@ -330,7 +333,7 @@ assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" interrupted "a Started
 # the history once, and each reading once more.
 list_calls() { grep -c '^list$' "$WORLD/hist-calls" 2>/dev/null || true; }
 world ready none; : > "$WORLD/hist-calls"; check
-assert_contains "$(said)" "no longer install" "the check that tells of a lost stage"
+assert_contains "$(said)" "No restart will install your prepared updates now." "the check that tells of a lost stage"
 assert_eq "$(list_calls)" 3 "...reads it twice: to tell, and to publish"
 : > "$WORLD/hist-calls"; check
 assert_eq "$(list_calls)" 2 "the next check reads it once"

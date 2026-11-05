@@ -265,7 +265,7 @@ It covers the root helpers and the polkit action, the tools Kempt needs, the con
 the state directory and any staged update. Every check runs, and the last five events follow.
 Exit 1 when any line is
 .BR FAIL .
-A staged update that was downloaded but never set to install is a
+A boot symlink over a staged update that is not set to install is a
 .BR FAIL ,
 and
 .B "sudo dnf5 offline clean"

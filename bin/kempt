@@ -1169,7 +1169,7 @@ apply_flatpak_scope() {  # system|user
 # nothing. Reads: surface, snapshots_ok, log.
 reconcile_stage_after_live_run() {
   [[ "$surface" != offline && "$snapshots_ok" == true && -s "$SNAP_DIR/dnf-after.tsv" ]] || return 0
-  case "$(stage_read)" in armed|lost|unarmed|interrupted|failed|done) ;; *) return 0 ;; esac
+  case "$(stage_read)" in armed|lost|interrupted|failed|done) ;; *) return 0 ;; esac
   # same_content answers three ways, and only a positive "different" (1) may discard anything.
   local moved=0 clean_rc=0
   same_content "$SNAP_DIR/dnf-before.tsv" "$SNAP_DIR/dnf-after.tsv" || moved=$?
@@ -2056,7 +2056,7 @@ status_last_run() {  # now-epoch → "Last update ..." for the newest history en
   if [[ "$phrase" == *" for a restart" ]]; then
     case "$(stage_read)" in
       other) phrase="${phrase% for a restart}, but another updater has since prepared the next restart" ;;
-      lost|unarmed|interrupted) phrase="${phrase% for a restart}, but no restart will install them now" ;;
+      lost|interrupted) phrase="${phrase% for a restart}, but no restart will install them now" ;;
       armed) ;;
       *) phrase="${phrase% for a restart}" ;;
     esac
@@ -2197,8 +2197,7 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
     [[ -n "$staged_line" ]] && body+=("$staged_line")
   fi
   case "$stage_problem" in
-    lost) body+=("Prepared updates: no restart will install them now, because something cancelled them. To prepare them again, run: kempt update --surface=offline") ;;
-    unarmed) body+=("Prepared updates: no restart will install them now, because they were never set to install. To prepare them again, run: kempt update --surface=offline") ;;
+    lost) body+=("Prepared updates: no restart will install them now. To prepare them again, run: kempt update --surface=offline") ;;
     interrupted) body+=("Prepared updates: a restart began installing them and stopped, and no restart will run them again. To prepare them again, run: kempt update --surface=offline") ;;
     failed) body+=("Prepared updates: a restart ran them and dnf5 recorded a failure. See: kempt doctor") ;;
     unknown) body+=("Prepared updates: Kempt cannot tell what the next restart will do. See: kempt doctor") ;;
@@ -2361,7 +2360,6 @@ stage_tell_problem() {  # history-answered(true|false) had-memory(true|false)
   fp="$(offline_stored_fingerprint)"
   [[ -n "$fp" && "$(stage_shown_get told)" != "$fp" ]] || return 0
   word="$(stage_read)"
-  # Not `unarmed`: somebody may be half way through staging by hand.
   case "$word" in failed|lost|interrupted) ;; *) return 0 ;; esac
   # A run in progress replaces these files on purpose.
   update_running_elsewhere && return 0
@@ -2386,7 +2384,7 @@ stage_tell_problem() {  # history-answered(true|false) had-memory(true|false)
       [[ -z "$newest" ]] || said="$(jq -r 'select(.status == "failed" and (.surface | strings | startswith("offline ("))) | .error | strings' "$HIST_DIR/$newest" 2>/dev/null)"
       notify "Kempt" "Prepared updates: ${said:-the install did not finish on the restart}. Kempt's update list shows anything still waiting" ;;
     interrupted) notify "Kempt" "A restart stopped before your prepared updates finished installing, and no restart will run them again. To prepare them again, run kempt update --surface=offline or press Install on Next Restart in Kempt" ;;
-    lost) notify "Kempt" "Your prepared updates will no longer install on a restart, because something cancelled them. To prepare them again, run kempt update --surface=offline or press Install on Next Restart in Kempt" ;;
+    lost) notify "Kempt" "No restart will install your prepared updates now. To prepare them again, run kempt update --surface=offline or press Install on Next Restart in Kempt" ;;
   esac
   [[ "$NOTIFY_SHOWN" != true ]] || stage_shown_set told "$fp" || true
   return 0
@@ -3947,9 +3945,7 @@ doctor_offline_rows() {
       doctor_staged_conflict_row ;;
     done) doctor_stale_done_row "$dr_link" ;;
     lost)
-      doctor_warn "prepared updates will not install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and something on this computer removed it. Prepare them again with: kempt update --surface=offline, which downloads nothing new. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean" ;;
-    unarmed)
-      doctor_warn "prepared updates will not install: they were never set to install (status \"$dr_toml\"). Prepare them again with: kempt update --surface=offline. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean" ;;
+      doctor_warn "prepared updates will not install: dnf5 says \"$dr_toml\", and no restart will install them now. Prepare them again with: kempt update --surface=offline. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean" ;;
     interrupted)
       doctor_warn "prepared updates will not install: a restart began them and stopped, and dnf5 does not run them again. See what happened with: dnf5 history info. Prepare them again with: kempt update --surface=offline. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean" ;;
     failed)

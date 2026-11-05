@@ -247,7 +247,7 @@ is "armed" "$(toml_status)" "ready"
 sed -i 's/^status = "ready"/status = "download-complete"/' "$TOML"
 "$K" check >/dev/null 2>&1
 is "nothing is published as pending" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
-is "published as never set to install" "$(problem)" "unarmed"
+is "published as lost" "$(problem)" "lost"
 d=$("$K" doctor 2>&1); rc=$?
 has "doctor: the boot symlink stands over a transaction that is not armed" "$d" "boot symlink"
 is "...exit 1" "$rc" "1"
@@ -289,7 +289,7 @@ is "armed again" "$(toml_status)" "ready"
 rm -f "$LINK"
 : > /tmp/gate-notifications
 "$K" check > /dev/null 2>&1
-has "announced as a stage no restart will install" "$(notes)" "will no longer install on a restart"
+has "announced as a stage no restart will install" "$(notes)" "No restart will install your prepared updates now"
 is "published as lost" "$(problem)" "lost"
 is "dnf5 still says ready, so this is read from the link" "$(toml_status)" "ready"
 is "nothing is published as a pending install" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
@@ -333,7 +333,7 @@ is "dnf5 kept the transaction" "$(toml_status)" "ready"
 "$K" check >/dev/null 2>&1
 is "no history entry: no restart happened" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$before_hist"
 hasnt "...and nothing was announced as applied" "$(notes)" "were installed during the restart"
-has "the user is told the stage will not install" "$(notes)" "will no longer install on a restart"
+has "the user is told the stage will not install" "$(notes)" "No restart will install your prepared updates now"
 is "published as lost" "$(problem)" "lost"
 is "...and nothing is published as pending" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
 d=$("$K" doctor 2>&1)
@@ -357,7 +357,7 @@ is "the stage is still fully armed" "$(toml_status)" "ready"
 "$K" check >/dev/null 2>&1
 is "no history entry was fabricated" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$before_hist"
 hasnt "nothing was announced as applied" "$(notes)" "were installed during the restart"
-hasnt "...and nothing was announced as dead either" "$(notes)" "will no longer install"
+hasnt "...and nothing was announced as dead either" "$(notes)" "No restart will install"
 is "...and dnf5 still holds the transaction" "$(toml_status)" "ready"
 dnf5 -y -q offline clean >/dev/null 2>&1
 rm -f "$LINK"

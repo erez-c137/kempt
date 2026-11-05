@@ -552,10 +552,10 @@ assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  staged update: Kempt canno
 assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'on the next restart' "...and no promise about the restart"
 
 # THE STUCK STAGE FROM A REAL BOX, and the reason this section exists. `dnf5 upgrade --offline`
-# leaves the transaction at download-complete; only `dnf5 offline reboot` arms it. Unarmed, it
+# leaves the transaction at download-complete; only `dnf5 offline reboot` arms it. Until then it
 # installs on no restart ever.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  prepared updates will not install: they were never set to install' \
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  prepared updates will not install: dnf5 says "download-complete"' \
   "a stage that was never armed says it will not install, not that it is pending"
 assert_contains "$(cat "$TESTTMP/staged.txt")" 'kempt unstage' "...and names the command that clears it"
 
@@ -738,7 +738,7 @@ grep -qE '^FAIL' "$TESTTMP/staged.txt" \
 
 # Symlink over a transaction that was never armed: somebody else's stage, or ours replaced
 # mid-rebuild. The remedy needs root, so it is spelled out.
-assert_exit 1 "a live boot symlink over an unarmed transaction fails the checkup" \
+assert_exit 1 "a live boot symlink over a transaction not set to install fails the checkup" \
   env KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
 assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  boot symlink is live over a transaction that is not set to install (status "download-complete")' \
   "...naming the status the boot will detour on"
@@ -764,7 +764,7 @@ KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK
 assert_eq "$(grep -c '^FAIL  boot symlink' "$TESTTMP/staged.txt" || true)" "0" \
   "no boot symlink, no symlink row"
 assert_eq "$(grep -c 'prepared updates' "$TESTTMP/staged.txt" || true)" "1" \
-  "...and the unarmed transaction is reported exactly once"
+  "...and the transaction not set to install is reported exactly once"
 # ...and with the symlink there, a ready transaction is fine.
 assert_exit 0 "a ready transaction with its symlink standing is not a problem" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor

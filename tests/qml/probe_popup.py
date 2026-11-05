@@ -1080,8 +1080,8 @@ state(STAGED_NOCOUNT)
 p.check("an unknown count loses the number, not the sentence",
         lev("stagedMessage.Accessible.name.split('. ')[0]"), "They install the next time you restart")
 
-# Something cancelled the stage: the warning names the way back, in the real popup.
-for _word in ("lost", "unarmed", "interrupted"):
+# No restart will install the stage: the warning names the way back, in the real popup.
+for _word, _says in (("lost", "No restart will install"), ("interrupted", "will not install on the next restart")):
     _doc = json.load(open(fixture("state-live.json")))
     _doc["offline_stage_problem"] = _word
     _path = os.path.join(p.sandbox, "state-stage-%s.json" % _word)
@@ -1089,7 +1089,7 @@ for _word in ("lost", "unarmed", "interrupted"):
     state(_path)
     p.check("%s: the warning is on screen" % _word, lev("stagedMessage.visible"), True)
     p.check("%s: it says the restart will not install them" % _word,
-            lev("stagedMessage.Accessible.name.indexOf('will not install on the next restart') >= 0"), True)
+            lev("stagedMessage.Accessible.name.indexOf('%s') >= 0" % _says), True)
 
 # --- the banner FLIPS when a hold lands behind the stage ------------------------
 # The trap, in the user's own order: stage 61 updates with a kernel among them, read something

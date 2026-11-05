@@ -1212,7 +1212,7 @@ assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and publis
 # than growing an empty conflict list nobody should read.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
-  "an unarmed stage publishes no conflict fields, because it publishes nothing"
+  "a stage not set to install publishes no conflict fields, because it publishes nothing"
 "$KEMPT" unhold dnf:librepo >/dev/null 2>&1
 unset KEMPT_BOOT_ID
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"

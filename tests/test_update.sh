@@ -726,12 +726,12 @@ assert_eq "$(jq -r .error "$sthist")" \
 : > "$WORLD/apply-calls"
 strc=0
 KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
-assert_eq "$strc" "1" "a rebuild whose stage fails over an unarmed stage fails the run"
+assert_eq "$strc" "1" "a rebuild whose stage fails over a stage not set to install fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "1" \
   "...and cleans the stale stage, which no restart would install"
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 [[ "$(jq -r .error "$sthist")" == *"still installs on the next restart"* ]] \
-  && { echo "FAIL: an unarmed stage was reported as still installing"; _fail=1; } \
+  && { echo "FAIL: a stage not set to install was reported as still installing"; _fail=1; } \
   || echo "ok: ...and the reason does not claim it still installs"
 
 # ...and a rebuild that failed after dnf5 replaced the old transaction (the toml is no longer

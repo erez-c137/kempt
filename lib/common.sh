@@ -2857,8 +2857,8 @@ restart_held_by_other() { [[ "$(restart_holder)" == other ]]; }
 #   armed        `ready` and dnf5's link: the next restart installs it
 #   other        `ready`, and another updater's link decides the next restart
 #   done         `ready` with no link of dnf5's, and every stored package is already installed
-#   lost         `ready`, and no restart installs it, because the link went
-#   unarmed      stored and never set to install: `download-complete` or `download-incomplete`
+#   lost         no restart installs it: `ready` with no link, or `download-complete` or
+#                `download-incomplete`
 #   interrupted  lost because a restart began it and stopped: the newest history row for this very
 #                stage is still `Started`
 #   failed       `transaction-incomplete`: a restart ran it and dnf5 recorded a failure
@@ -2883,7 +2883,7 @@ stage_read() {  # → one word from the table above
   if offline_release_upgrade >/dev/null; then printf 'upgrade\n'; return 0; fi
   case "$st" in
     transaction-incomplete) printf 'failed\n' ;;
-    download-complete|download-incomplete) printf 'unarmed\n' ;;
+    download-complete|download-incomplete) printf 'lost\n' ;;
     ready)
       local holder rc=0 names
       holder="$(restart_holder)"
@@ -3450,7 +3450,7 @@ offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
 # What state.json says about a stage no restart will install, for the words the surfaces show. Only
 # the four words that have a sentence.
 offline_stage_problem_of() {  # stage word → the word to publish, or nothing
-  case "$1" in lost|unarmed|interrupted|failed|unknown) printf '%s\n' "$1" ;; esac
+  case "$1" in lost|interrupted|failed|unknown) printf '%s\n' "$1" ;; esac
 }
 
 # Put what the next restart will install into the state file NOW, without a check.

@@ -391,16 +391,15 @@ or a metadata refresh and leaves `ready`, and a power cut leaves the same toml b
 | `none` | no toml | Nothing about a stage |
 | `armed` | `ready`, link points at dnf5's folder | The count, and that it installs on the next restart |
 | `done` | `ready`, link gone or another updater's, every package already here | Nothing, and `kempt doctor` says the stored copy will not run |
-| `other` | `ready`, another updater's link, packages not here or a list it cannot read | Those updates will not install on that restart |
-| `lost` | `ready`, no link, no row | Something cancelled them, no restart will install them, and how to prepare them again |
-| `unarmed` | `download-complete` or `download-incomplete` | They were never set to install, and how to prepare them again |
+| `other` | `ready`, another updater's link, packages not here, or a list empty or unreadable | Those updates will not install on that restart |
+| `lost` | `ready`, no link, no row; or `download-complete` or `download-incomplete` | No restart will install them, and how to prepare them again |
 | `interrupted` | `ready`, no link, a `Started` row from the toml's cookie | A restart began them and stopped, and how to prepare them again |
 | `failed` | `transaction-incomplete` | A restart ran them and dnf5 recorded a failure |
 | `upgrade` | the toml's target release differs | The Fedora upgrade's own sentences |
 | `unknown` | unreadable toml, a `state_version` other than 2, a word this build does not know, a package list it cannot read or an empty one with no other updater's link, or rpm not answering | Kempt cannot tell what the next restart will do |
 
 `offline_staged_state` publishes `offline_staged` for `armed` only, and `offline_stage_problem` carries
-`lost`, `unarmed`, `interrupted`, `failed` or `unknown`.
+`lost`, `interrupted`, `failed` or `unknown`.
 
 **Staging.** `kempt update --surface=offline` asks dnf for a fresh count, then makes two
 privileged calls inside one authentication:
@@ -410,8 +409,8 @@ privileged calls inside one authentication:
    creating `/system-update`, the symlink systemd looks for at boot. Without
    `DNF_SYSTEM_UPGRADE_NO_REBOOT`, arming reboots at once.
 
-An unarmed transaction stays at `download-complete`, and no restart installs it. If the arm fails,
-the stage is discarded with `dnf-offline-clean` and the run fails.
+Before the second call the transaction stays at `download-complete`, and no restart installs it.
+If the arm fails, the stage is discarded with `dnf-offline-clean` and the run fails.
 
 **Rebuilding.** dnf5 replaces the stored transaction as soon as a new stage gets far enough, so a
 failed rebuild can lose the old one. `cmd_update` reads dnf5's status after a failed stage: an old

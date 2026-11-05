@@ -269,14 +269,13 @@ To update anyway, use `kempt update --surface=widget` in a terminal, unless othe
 folders: then the message names the folder, and `kempt doctor` has the fix. While the restart is held, the
 risky-transaction prompt offers only `[u]` and `[a]`.
 
-**When the staged update will not install.** Something on the computer cancelled it, usually
-PackageKit after a package change. The next check tells you once:
+**When the staged update will not install.** The next check tells you once:
 
 ```
-Your prepared updates will no longer install on a restart, because something cancelled them. To prepare them again, run kempt update --surface=offline or press Install on Next Restart in Kempt
+No restart will install your prepared updates now. To prepare them again, run kempt update --surface=offline or press Install on Next Restart in Kempt
 ```
 
-Staging again downloads nothing. Kempt says nothing if your dnf command installed every staged update.
+Kempt says nothing if your dnf command installed every staged update.
 
 **A live update replaces the stage.** A staged update is built against the installed packages, so
 when a live `kempt update` changes any rpm, Kempt discards the stage, which could only fail at boot.
@@ -775,8 +774,7 @@ stores nothing.
 | Line | What it means |
 | --- | --- |
 | `info  staged update: 61 packages install on the next restart ...` | Normal. |
-| `WARN  prepared updates will not install: dnf5 says "ready" but /system-update is gone ...` | Something removed the link, usually PackageKit. Prepare them again, which downloads nothing. |
-| `WARN  prepared updates will not install: they were never set to install ...` | Never set up for the restart. Prepare them again. |
+| `WARN  prepared updates will not install: dnf5 says "<status>" ...` | No restart will install them. Prepare them again. |
 | `WARN  prepared updates will not install: a restart began them and stopped ...` | Power loss or a crash. dnf5 does not run them again. Prepare them again. |
 | `FAIL  staged update failed: a restart ran it and dnf5 recorded a failure ...` | `sudo dnf5 offline log` says why. `kempt unstage` clears it, and the row names `sudo dnf5 offline clean` if that fails. |
 | `WARN  staged update: Kempt cannot tell what the stored update will do ...` | The toml cannot be read or says something this version does not know. `sudo dnf5 offline status` shows it. |
