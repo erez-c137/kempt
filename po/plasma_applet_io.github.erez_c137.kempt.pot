@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 17:35+0200\n"
+"POT-Creation-Date: 2026-11-05 18:37+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -637,11 +637,7 @@ msgid "Kempt could not read the startup list."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js
-msgid "%1 can be freed. No installed app uses these Flatpak runtimes."
-msgstr ""
-
-#: plasmoid/contents/ui/logic.js
-msgid "%1 (no longer supported)"
+msgid "Up to %1 can be freed. No installed app uses these Flatpak runtimes."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js
