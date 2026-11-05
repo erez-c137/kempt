@@ -417,8 +417,14 @@ failed rebuild can lose the old one. `cmd_update` reads dnf5's status after a fa
 transaction still `ready` is left alone, anything else is cleaned, and a failed clean ends in "See:
 kempt doctor", which names the command.
 
-**The lost link.** Staging again rebuilds the same transaction and downloads nothing, so that is what
-Kempt offers. It does not arm the link again: `dnf5 offline reboot` refuses after an rpm change.
+**The lost link.** Any rpm change wakes PackageKit, even a stopped one, and it removes the link about two
+seconds later, so a stage armed in that window can lose it at once. Staging again rebuilds the same
+transaction and downloads nothing, so that is what Kempt offers. It does not arm the link again:
+`dnf5 offline reboot` refuses after an rpm change.
+
+One gap stays. With PackageKit masked or removed, a plain `rpm -U` leaves the link standing, and dnf5
+refuses the transaction at boot because the rpmdb moved. Kempt reads `armed` until that restart and
+`lost` after it, because it does not compare the toml's cookie.
 
 **Holds after a stage.** dnf5 cannot edit a stored transaction, so a hold applies from the next
 one. `kempt hold dnf:<name>` exits 0 and warns on stderr when the armed stage contains the
