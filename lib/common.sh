@@ -2867,7 +2867,10 @@ restart_held_by_other() { [[ "$(restart_holder)" == other ]]; }
 #
 # Never `ready` alone: PackageKit removes dnf5's link on an rpm change or a refresh and leaves the
 # toml at `ready`, and a power cut leaves the same toml behind.
+# One check's answer takes one reading, which costs seconds on a lost stage: cmd_check holds it here.
+STAGE_WORD_NOW=""
 stage_read() {  # → one word from the table above
+  [[ -z "$STAGE_WORD_NOW" ]] || { printf '%s\n' "$STAGE_WORD_NOW"; return 0; }
   local st
   st="$(offline_system_status)"
   case "$st" in

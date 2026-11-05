@@ -569,6 +569,10 @@ cmd_check() {
   # The pending names go along only when dnf ANSWERED (dnf_priced): the previous state's items are
   # not news about what arrived after the stage. Held packages are left out, since the stage skips
   # them on purpose.
+  # Read here and not at the start of the check: a stage may land during a slow fetch. Local, so
+  # whatever runs after an internal check reads the machine again.
+  local STAGE_WORD_NOW=""
+  STAGE_WORD_NOW="$(stage_read)"
   local staged_state pend_f=""
   if [[ "$dnf_priced" == true ]] && pend_f="$(mktemp 2>/dev/null)"; then
     jq -r '.[] | select(.held != true) | .name' <<<"$dnf_items" > "$pend_f" 2>/dev/null \
@@ -2353,13 +2357,14 @@ stage_report_row() {  # id status
 # the notification was really shown: someone with no session at this check is told at the next one.
 stage_tell_problem() {  # history-answered(true|false) had-memory(true|false)
   local word fp
+  # Asked first: a stage already told about needs no second reading in this check.
+  fp="$(offline_stored_fingerprint)"
+  [[ -n "$fp" && "$(stage_shown_get told)" != "$fp" ]] || return 0
   word="$(stage_read)"
   # Not `unarmed`: somebody may be half way through staging by hand.
   case "$word" in failed|lost|interrupted) ;; *) return 0 ;; esac
   # A run in progress replaces these files on purpose.
   update_running_elsewhere && return 0
-  fp="$(offline_stored_fingerprint)"
-  [[ -n "$fp" && "$(stage_shown_get told)" != "$fp" ]] || return 0
   if [[ "$word" == failed ]]; then
     if [[ "$2" != true ]] && (( $(date +%s) - $(stat -c %Y "$KEMPT_OFFLINE_TOML" 2>/dev/null || echo 0) > KEMPT_STAGE_FRESH_SECS )); then
       stage_shown_set entry "$fp" && stage_shown_set told "$fp" || true

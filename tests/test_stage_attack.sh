@@ -22,6 +22,7 @@ mk notify-stub "printf 'NOTIFY %s\n' \"\$*\" >> \"$WORLD/notifications\""
 mk dnf-no-reboot 'exit 0'
 # dnf5's history, as files: no list file means history does not answer.
 mk history-stub "while [[ \$# -gt 0 && \$1 != list && \$1 != info ]]; do shift; done
+echo \"\$1\" >> \"$WORLD/hist-calls\"
 [[ \$1 == list ]] && exec cat \"$WORLD/hist-list.json\"
 [[ \$1 == info ]] && exec cat \"$WORLD/hist-info-\$2.json\"
 exit 1"
@@ -308,6 +309,18 @@ world ready none; echo row=64 > "$SHOWN"; row 63 Started 'dnf5 upgrade --offline
 assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" lost "an old Started row under a newer Ok: lost"
 world ready none; echo row=66 > "$SHOWN"; row 65 Ok 'dnf5 upgrade --offline -y'; row 66 Started 'dnf5 upgrade --offline -y'; check
 assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" interrupted "a Started row over an old Ok, from this stage: interrupted"
+
+# --- one reading of the stage per check, because it costs seconds on a lost stage. The report asks
+# the history once, and each reading once more.
+list_calls() { grep -c '^list$' "$WORLD/hist-calls" 2>/dev/null || true; }
+world ready none; : > "$WORLD/hist-calls"; check
+assert_contains "$(said)" "no longer install" "the check that tells of a lost stage"
+assert_eq "$(list_calls)" 3 "...reads it twice: to tell, and to publish"
+: > "$WORLD/hist-calls"; check
+assert_eq "$(list_calls)" 2 "the next check reads it once"
+# The env cannot answer for the machine.
+world ready dnf5; STAGE_WORD_NOW=lost check
+assert_eq "$(jq -r '.offline_stage_problem // "none"' "$STATE_FILE")" none "a word in the environment is not a reading"
 
 # --- memory: a history that does not answer writes none, or its old rows are all new at the next check
 world gone none; row 40 Ok 'dnf5 upgrade --offline -y' 400000; row 41 Ok 'dnf5 upgrade --offline -y' 300000
