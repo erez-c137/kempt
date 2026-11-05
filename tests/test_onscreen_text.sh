@@ -171,7 +171,7 @@ HELPER_TEXT="$(grep -E '^libexec/kempt-apply:' "$TEXT" | cut -f2-)"
 assert_contains "$HELPER_TEXT" "Updates paused for safety: X Run kempt doctor for the fix." "the helper's refusal keeps its shape"
 assert_contains "$HELPER_TEXT" "Kempt could not check X (X). Run kempt doctor." "...and the could-not-check one"
 assert_contains "$HELPER_TEXT" "Kempt does not update atomic Fedora (Kinoite, Silverblue, bootc image mode); use Discover, rpm-ostree or bootc upgrade." "...and the atomic one"
-assert_contains "$(cut -f2- "$TEXT")" "The staged update was left in place. Run kempt doctor." "the clean unwind's sentence is collected"
+assert_contains "$(cut -f2- "$TEXT")" "These updates were left in place. Run kempt doctor." "the clean unwind's sentence is collected"
 if command -v node >/dev/null 2>&1; then
   PAUSED="$(node -e 'console.log(require(process.argv[1]).COPY.updatesPausedFolder)' "$UI/logic.js")"
   assert_eq "$PAUSED" "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." "the widget's own form"

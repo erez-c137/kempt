@@ -74,7 +74,7 @@ stage_real() {  # a real armed stage from this world, so there is a marker to ac
 rm -f "$marker" "$TOML"; reset_run
 rc=0; out="$(KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-ok" "$KEMPT" unstage 2>"$TESTTMP/err")" || rc=$?
 assert_eq "$rc" "0" "unstage with nothing staged is not a failure"
-assert_eq "$out" "Nothing is staged, so there is nothing to discard." "...and says so in words"
+assert_eq "$out" "Nothing is waiting for the next restart, so there is nothing to discard." "...and says so in words"
 assert_eq "$(calls dnf-offline-clean)" "0" "...without asking root to do anything"
 
 # --- the ordinary discard -------------------------------------------------------------------------
@@ -85,7 +85,7 @@ rc=0; out="$(KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-ok" "$KEMPT" unstage 2>"$T
 assert_eq "$rc" "0" "unstage over an armed stage succeeds"
 assert_eq "$(calls dnf-offline-clean)" "1" "...through the helper verb that already existed"
 assert_exit 1 "...and Kempt's marker goes with the transaction" -- test -f "$marker"
-assert_eq "$out" "Discarded the staged update. The next restart installs nothing." \
+assert_eq "$out" "Discarded the updates waiting for the next restart. That restart installs nothing." \
   "...and says plainly what it did, and what that means"
 logged 'unstage discarded the staged update' \
   && echo "ok: ...and the event log records it" || { echo "FAIL: no unstage event"; _fail=1; }
@@ -114,7 +114,7 @@ rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-ok" "$KEMPT" unstage >/dev/null 2
 assert_eq "$rc" "5" "a stored release upgrade refuses the unstage before anything is changed"
 assert_eq "$(calls dnf-offline-clean)" "0" "...without asking root to do anything"
 assert_exit 0 "...and the marker is untouched" -- test -f "$marker"
-grep -q '44 -> 45' "$TESTTMP/err" \
+grep -q 'Fedora 45 upgrade' "$TESTTMP/err" \
   && echo "ok: ...and the message names the upgrade it protected" \
   || { echo "FAIL: the refusal does not name the release upgrade"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
 no_clean_advice "...and never advises the command that would delete it"
@@ -130,7 +130,7 @@ reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-refused" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "5" "a refusal from the root helper is a refusal here too, not a failed run"
 assert_exit 0 "...and the marker stays, because nothing changed" -- test -f "$marker"
-grep -q 'The staged update was left in place. Run kempt doctor.' "$TESTTMP/err" \
+grep -q 'These updates were left in place. Run kempt doctor.' "$TESTTMP/err" \
   && echo "ok: ...and with nothing odd stored, it points at the doctor, which explains the folders" \
   || { echo "FAIL: the refusal does not point at the doctor"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean either"
@@ -149,7 +149,7 @@ apply_stub clean-check 'dnf-offline-clean) cp "'"$FIXTURES/offline-release-upgra
 reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-check" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "5" "a clean refused over the folders is a refusal"
-assert_eq "$(cat "$TESTTMP/err")" "The staged update was left in place. $S_CHECK" "...in the helper's sentence, once, with nothing about what is stored"
+assert_eq "$(cat "$TESTTMP/err")" "These updates were left in place. $S_CHECK" "...in the helper's sentence, once, with nothing about what is stored"
 
 # Any other failure keeps what the helper said.
 stage_real

@@ -283,7 +283,7 @@ staged_marker "$NAMES"
 moved $'librepo\t1.21.0-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'7zip\t26.03-1.fc44'
 grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"
 qa_from_after; harvest
-assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your staged updates are installed." "all of it: as before"
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your prepared updates are installed." "all of it: as before"
 assert_eq "$(entry .surface)" "offline (installed by another updater)" "...with its history entry"
 assert_exit 0 "...and the marker goes" -- test ! -f "$marker"
 
@@ -573,7 +573,7 @@ rm -f "$marker"; rm -rf "$KEMPT_STATE_DIR/history"
 # None of it changed, with the set as it was.
 staged_marker "$NAMES"; cp "$pre" "$after_tsv"; qa_from_after
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_contains "$(cat "$WORLD/notifications")" "Your staged update did not finish installing on the restart, and none of it was installed." "none of an unfinished restart: says so"
+assert_contains "$(cat "$WORLD/notifications")" "Your prepared updates did not finish installing on the restart, and none of them were installed." "none of an unfinished restart: says so"
 assert_not_contains "$(cat "$WORLD/notifications")" "can no longer install" "...and not that it can no longer install"
 assert_eq "$(entries)" "0" "...with no history"
 assert_contains "$(tail -n 4 "$KEMPT_STATE_DIR/events.log")" "offline stage did not finish on the restart (status transaction-incomplete) - announced" "...and the log agrees"
@@ -589,7 +589,7 @@ rm -f "$marker" "$pre"
 staged_marker "$NAMES"; moved $'zzz-unrelated\t1.0-1.fc44'
 grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"; qa_from_after
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_contains "$(cat "$WORLD/notifications")" "did not finish installing on the restart, and none of it was installed" "none of it, whatever else moved"
+assert_contains "$(cat "$WORLD/notifications")" "did not finish installing on the restart, and none of them were installed" "none of it, whatever else moved"
 assert_eq "$(entries)" "0" "...with no history"
 rm -f "$marker" "$pre"
 
@@ -597,7 +597,7 @@ rm -f "$marker" "$pre"
 staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
 jq -c 'del(.staged_names)' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_contains "$(cat "$WORLD/notifications")" "Your staged update did not finish installing on the restart." "cannot tell how much: says it did not finish"
+assert_contains "$(cat "$WORLD/notifications")" "Your prepared updates did not finish installing on the restart." "cannot tell how much: says it did not finish"
 assert_not_contains "$(cat "$WORLD/notifications")" "none of it" "...and nothing about how much"
 assert_not_contains "$(cat "$WORLD/notifications")" "of your staged updates" "...either way"
 assert_eq "$(entries)" "0" "...with no history"
@@ -608,7 +608,7 @@ staged_marker "$NAMES"
 moved $'librepo\t1.21.0-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'7zip\t26.03-1.fc44'
 grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"; qa_from_after
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your staged updates are installed." "all of an unfinished restart: installed, with no count to get wrong"
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your prepared updates are installed." "all of an unfinished restart: installed, with no count to get wrong"
 rm -f "$marker" "$pre"
 
 

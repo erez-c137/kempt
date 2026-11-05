@@ -2272,6 +2272,12 @@ function mentionsDoctor(text) {
             || text === COPY.updatesPausedFolder);
 }
 
+// The CLI's pointer at the command, for a message drawn beside Check Installation, which is that
+// command. mentionsDoctor keeps reading the raw string, which is how the button gets there.
+function withoutDoctorPointer(text) {
+    return typeof text === "string" ? text.replace(/\s*See: kempt doctor\.?\s*$/, "") : "";
+}
+
 // The longest result sentence. Longer ones end at a word, with the full report one press away.
 var DOCTOR_SUMMARY_MAX = 150;
 
@@ -3240,6 +3246,7 @@ if (typeof module !== "undefined" && module.exports) {
         DOCTOR_TIMEOUT_MS: DOCTOR_TIMEOUT_MS,
         DOCTOR_SUMMARY_MAX: DOCTOR_SUMMARY_MAX,
         mentionsDoctor: mentionsDoctor,
+        withoutDoctorPointer: withoutDoctorPointer,
         doctorOutcomeOf: doctorOutcomeOf,
         lastRunText: lastRunText,
         lastRunSubtitle: lastRunSubtitle,

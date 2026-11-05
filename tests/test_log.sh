@@ -442,7 +442,7 @@ plain_in=(
   "offline stage left in place (another updater has prepared the next restart)"
   "offline stage replaced outside Kempt (x) - announced"
   "offline stage replaced outside Kempt (x) - not announced"
-  "notification shown: Updates are staged and install on the next restart"
+  "notification shown: Updates are ready and install on the next restart"
   "notification not shown (no desktop session): Update failed: no network"
   "offline restage failed (stage left in place, another updater has prepared the next restart)"
   "offline marker dropped (superseded by live update, another updater has prepared the next restart)"
@@ -488,7 +488,7 @@ assert_contains "$plain_out" "cli Staged update cannot install (it was cancelled
   "a stage cancelled outside Kempt says so without the marker's name"
 assert_contains "$plain_out" "cli Staged update replaced outside Kempt (x), but the notification could not be shown" \
   "a stage line never claims a notification that did not show"
-assert_contains "$plain_out" "cli Notified: Updates are staged and install on the next restart" \
+assert_contains "$plain_out" "cli Notified: Updates are ready and install on the next restart" \
   "a notification that showed says what it said"
 assert_contains "$plain_out" "cli Notification not shown (no desktop session): Update failed: no network" \
   "...and one that did not says why"

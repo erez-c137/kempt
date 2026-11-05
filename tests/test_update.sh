@@ -369,7 +369,7 @@ pre="$(jq -r .pre_snapshot "$marker")"
 assert_exit 0 "marker owns its own pre-snapshot copy" -- test -f "$pre"
 [[ "$pre" != "$KEMPT_STATE_DIR/snapshots/dnf-before.tsv" ]] && echo "ok: copy is not the shared before-snapshot" \
   || { echo "FAIL: marker points at the reusable dnf-before.tsv"; _fail=1; }
-grep -q 'staged' "$WORLD/notifications" && echo "ok: offline notification says staged" || { echo "FAIL: offline notify"; _fail=1; }
+grep -q 'are ready' "$WORLD/notifications" && echo "ok: offline notification says the updates are ready" || { echo "FAIL: offline notify"; _fail=1; }
 # A run that DID stage carries no staged_nothing key. The key exists so the popup can tell this run
 # apart from one that staged nothing, and absence is how a real stage says so - which also keeps
 # every entry written before the key existed reading as what it is.
@@ -526,9 +526,9 @@ grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
 assert_exit 0 "a stage that was never armed leaves no marker" -- test ! -f "$marker"
 armhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$armhist")" "failed" "...and the history entry says the run failed"
-assert_eq "$(jq -r .error "$armhist")" "the updates were staged, but could not be set to install on the next restart" \
+assert_eq "$(jq -r .error "$armhist")" "the updates were downloaded, but could not be set to install on the next restart" \
   "...naming the step that failed, not the first error-shaped line in the log"
-grep -q 'run failed rc=1: the updates were staged, but could not be set to install on the next restart' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'run failed rc=1: the updates were downloaded, but could not be set to install on the next restart' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event log carries the same reason" || { echo "FAIL: arm failure event line"; _fail=1; }
 grep -q 'Update failed: ' "$WORLD/notifications" \
   && echo "ok: a detached user is told the staging did not take" || { echo "FAIL: arm failure notification"; _fail=1; }
@@ -551,7 +551,7 @@ assert_eq "$bothrc" "1" "a failed unwind does not change the verdict"
 grep -q 'could not discard' <<<"$botherr" \
   && echo "ok: a failed unwind warns" || { echo "FAIL: no warning for a failed unwind - got: $botherr"; _fail=1; }
 bothhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-assert_eq "$(jq -r .error "$bothhist")" "the updates were staged, but could not be set to install on the next restart" \
+assert_eq "$(jq -r .error "$bothhist")" "the updates were downloaded, but could not be set to install on the next restart" \
   "...and the reason stays the arm, not the cleanup that failed after it"
 
 # The run is over the moment the helper returns: a report step that dies afterwards would take the
@@ -617,7 +617,7 @@ grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
   && echo "ok: the failure notification carries the command that clears what is left" \
   || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 armdbl="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-assert_eq "$(jq -r .error "$armdbl")" "the updates were staged, but could not be set to install on the next restart" \
+assert_eq "$(jq -r .error "$armdbl")" "the updates were downloaded, but could not be set to install on the next restart" \
   "...while the recorded reason still names the step that failed"
 
 # --- a REBUILD whose STAGE fails, which is the state nothing used to unwind -----------------------
@@ -670,7 +670,7 @@ grep -q 'offline restage failed (previous stage intact)' "$KEMPT_STATE_DIR/event
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$sthist")" "failed" "...the history entry says the run failed"
 assert_eq "$(jq -r .error "$sthist")" \
-  "could not rebuild the staged update. The previous one is unchanged and still installs on the next restart" \
+  "could not replace the prepared updates. The earlier ones are unchanged and still install on the next restart" \
   "...and the reason says the previous stage still installs, not that it was lost"
 
 # ...but `ready` WITHOUT /system-update is not intact. Measured on Fedora 44: a live dnf5
@@ -707,7 +707,7 @@ assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
 assert_exit 0 "...with its snapshot copy" -- test ! -f "$sf_pre"
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$sthist")" \
-  "could not rebuild the staged update, and the previous one is gone. Another updater has prepared the next restart. Try again after the restart" \
+  "could not replace the prepared updates, and the earlier ones are gone. Another updater has prepared the next restart. Try again after that restart" \
   "...and the reason says the old stage is gone and the restart installs the other update"
 grep -q 'offline restage failed (stage left in place, another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the log says why nothing was cleaned" || { echo "FAIL: no event for the skipped clean"; _fail=1; }
@@ -737,7 +737,7 @@ grep -q 'offline staged ?' "$KEMPT_STATE_DIR/events.log" \
 grep -q 'offline stage found nothing to stage (every pending update is held)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the event names the reason, so the log does not read as a fault" \
   || { echo "FAIL: no nothing-to-stage event"; _fail=1; grep 'offline' "$KEMPT_STATE_DIR/events.log" | tail -3; }
-grep -q 'Nothing to stage, because every pending update is held' "$WORLD/notifications" \
+grep -q 'Every waiting update is held, so the next restart has nothing to install' "$WORLD/notifications" \
   && echo "ok: ...and the user is told their holds did it, not that Kempt failed" \
   || { echo "FAIL: wrong notification"; _fail=1; cat "$WORLD/notifications"; }
 grep -q 'could not be set to install' "$WORLD/notifications" \
@@ -801,7 +801,7 @@ tail -n +$(( nd_ev + 1 )) "$KEMPT_STATE_DIR/events.log" | grep -q 'offline resta
 grep -q 'offline stage discarded' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...the log says the stored one was discarded" \
   || { echo "FAIL: no discarded event"; _fail=1; }
-grep -q 'Nothing to stage, because every pending update is held. The update staged earlier was removed' "$WORLD/notifications" \
+grep -q 'Every waiting update is held, so the next restart has nothing to install. The updates prepared earlier were removed' "$WORLD/notifications" \
   && echo "ok: ...and the user is told the earlier stage is gone" \
   || { echo "FAIL: wrong notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 ndhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
@@ -829,7 +829,7 @@ assert_exit 0 "...with its snapshot copy" -- test ! -f "$nf_pre"
 grep -q 'offline stage left in place (another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the log says why the stored one stayed" \
   || { echo "FAIL: no event for the stage left in place"; _fail=1; }
-assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Nothing to stage, because every pending update is held" \
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Every waiting update is held, so the next restart has nothing to install" \
   "...and the notification claims no removal"
 
 # ...and when the clean fails, the old transaction still installs, held package included: that is
@@ -845,7 +845,7 @@ assert_eq "$ndrc" "1" "an empty stage whose clean fails fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" "...without arming the old transaction"
 ndhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r .error "$ndhist")" \
-  "nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included. Run: sudo dnf5 offline clean" \
+  "nothing new was prepared, and the earlier updates could not be removed, so they still install on the next restart, held packages included. Run: sudo dnf5 offline clean" \
   "...and the reason says the old one still installs and how to clear it"
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
 rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
@@ -870,7 +870,7 @@ grep -q 'offline marker cleared (rebuild failed, stage discarded)' "$KEMPT_STATE
   || { echo "FAIL: no rebuild-failed clearing event"; _fail=1; }
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$sthist")" "failed" "...the history entry says the run failed"
-assert_eq "$(jq -r .error "$sthist")" "the previous staged update was discarded and could not be rebuilt" \
+assert_eq "$(jq -r .error "$sthist")" "the earlier updates were removed and could not be prepared again" \
   "...naming what the user lost, not the first error-shaped line in the log"
 
 # The double failure - state (d). The clean failed too, so the toml and the boot symlink disagree
@@ -889,7 +889,7 @@ grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
   || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 dblhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$dblhist")" \
-  "the previous staged update was discarded and could not be rebuilt or cleaned up. Run: sudo dnf5 offline clean" \
+  "the earlier updates were removed and could not be prepared again or cleaned up. Run: sudo dnf5 offline clean" \
   "...and the reason carries it too, because there is nothing left to chase in the log"
 
 # Nothing staged before the attempt: there is nothing to unwind, and a clean fired anyway would be
@@ -901,7 +901,7 @@ KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_APPLY_HELPER="$TEST
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "a first stage that fails unwinds nothing - there was nothing there"
 nsthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-[[ "$(jq -r .error "$nsthist")" == "the previous staged update was discarded and could not be rebuilt" ]] \
+[[ "$(jq -r .error "$nsthist")" == "the earlier updates were removed and could not be prepared again" ]] \
   && { echo "FAIL: a first stage reported a previous one being lost"; _fail=1; } \
   || echo "ok: ...and says nothing about a previous stage that never existed"
 

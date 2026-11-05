@@ -109,7 +109,7 @@ assert_eq "$(notified 'replaced outside Kempt')" "0" "...and nothing is announce
 export KEMPT_OFFLINE_TOML="$REPLACED_TOML" KEMPT_OFFLINE_TXJSON="$REPLACED_TX"
 "$KEMPT" check >/dev/null
 assert_eq "$(notified 'replaced outside Kempt')" "1" "a stage replaced outside Kempt is announced"
-assert_eq "$(notified 'next restart will not install it. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean.')" "1" \
+assert_eq "$(notified 'next restart will not install them. To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean.')" "1" \
   "...with the same remedy a stage that can no longer install gets"
 assert_eq "$(events_like 'offline stage replaced outside Kempt (command, packages) - announced')" "1" \
   "...and the event names what differs: the command and the packages, not the cookie"
@@ -137,7 +137,7 @@ jq -c 'del(.replaced)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
 : > "$WORLD/notifications"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade-downloaded.toml" "$KEMPT" check >/dev/null
 assert_eq "$(notified 'replaced outside Kempt')" "1" "a stage replaced by a release upgrade is announced"
-assert_eq "$(notified 'A Fedora release upgrade is stored, so Kempt will not stage updates now. See: kempt doctor')" "1" \
+assert_eq "$(notified 'A Fedora release upgrade is stored, so Kempt will not prepare updates now. See: kempt doctor')" "1" \
   "...with the release-upgrade remedy"
 assert_eq "$(notified 'offline clean')" "0" "...and no clean that would delete the upgrade"
 jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"

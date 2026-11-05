@@ -1084,7 +1084,7 @@ PlasmaExtras.Representation {
             type: aboutFetch ? Kirigami.MessageType.Information
                 : popup.plasmoidItem.reportFailed ? Kirigami.MessageType.Error
                 : Kirigami.MessageType.Positive
-            text: aboutFetch ? popup.vm.reportFetchMessage : popup.plasmoidItem.reportText
+            text: aboutFetch ? popup.vm.reportFetchMessage : Logic.withoutDoctorPointer(popup.plasmoidItem.reportText)
             visible: popup.shows("report")
             Accessible.name: text
             // Assertive: a run that has just finished, or a press that failed, is the answer to
@@ -1705,7 +1705,7 @@ PlasmaExtras.Representation {
                 // reboot_needed: that is a fact about the moment the run ended, and the state
                 // file's live answer is what the restart message above is bound to. Repeating the
                 // history entry here would go on claiming a restart after the user had done it.
-                subtitle: Logic.lastRunSubtitle(popup.plasmoidItem.lastRun)
+                subtitle: Logic.withoutDoctorPointer(Logic.lastRunSubtitle(popup.plasmoidItem.lastRun))
                 subtitleCanWrap: true
                 customExpandedViewContent: lastRunPackages
                 contextualActions: [

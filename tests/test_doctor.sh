@@ -558,7 +558,7 @@ assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: it installs
 printf '{"staged_at":"2026-09-01T10:31:00+03:00","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' > "$D_MARKER"
 assert_exit 1 "a stage that was never armed is a problem, and doctor exits on it" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
-grep -qE '^FAIL  staged update can never install' "$TESTTMP/last_output" \
+grep -qE '^FAIL  prepared updates can never install' "$TESTTMP/last_output" \
   && echo "ok: ...saying it can never install, not that it is pending" \
   || { echo "FAIL: no never-install line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
 # The exact command, because a diagnosis a person cannot act on is half a diagnosis - and this one
@@ -719,7 +719,7 @@ jq -n '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:"/x.tsv", boot_id:"b
         armed:false}' > "$D_MARKER"
 assert_exit 1 "a demoted marker still fails the checkup over a transaction that cannot install" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
-grep -qE '^FAIL  staged update can never install' "$TESTTMP/last_output" \
+grep -qE '^FAIL  prepared updates can never install' "$TESTTMP/last_output" \
   && echo "ok: ...with the same precise row, which is what clearing the marker would have lost" \
   || { echo "FAIL: no never-install line for a demoted marker - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
 
@@ -729,8 +729,8 @@ jq -n --arg pre "$D_PRE" --arg cookie "$(sed -n 's/^rpmdb_cookie *= *"\(.*\)"/\1
   '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:$pre, boot_id:"b", staged:61, armed:false, rpmdb_cookie:$cookie}' > "$D_MARKER"
 D_LINK_WAS="$(readlink "$KEMPT_OFFLINE_LINK" 2>/dev/null || true)"; rm -f "$KEMPT_OFFLINE_LINK"
 env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/snap-before.tsv" "$KEMPT" doctor >"$TESTTMP/last_output" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/last_output")" 'staged update can never install' "a stage that lost its restart step fails the checkup"
-assert_contains "$(cat "$TESTTMP/last_output")" 'Stage it again with: kempt update --surface=offline' "...and says to stage again"
+assert_contains "$(cat "$TESTTMP/last_output")" 'prepared updates can never install' "a stage that lost its restart step fails the checkup"
+assert_contains "$(cat "$TESTTMP/last_output")" 'Prepare them again with: kempt update --surface=offline' "...and says to stage again"
 rm -f "$D_MARKER"
 [[ -z "$D_LINK_WAS" ]] || ln -sfn "$D_LINK_WAS" "$KEMPT_OFFLINE_LINK"
 
@@ -869,7 +869,7 @@ assert_contains "$(cat "$TESTTMP/last_output")" 'sudo dnf5 offline clean' \
 # there is not even a transaction for it to consider.
 assert_exit 1 "a boot symlink with nothing staged behind it fails the checkup" \
   env KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  boot symlink is live with nothing staged behind it' \
+assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  boot symlink is live with nothing prepared behind it' \
   "...and says the transaction is not there rather than quoting a status"
 
 # Marker or no marker, and both rows when both apply: they are two different facts about the same
@@ -879,7 +879,7 @@ printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' >
 KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" doctor_out
 assert_eq "$(grep -c '^FAIL  boot symlink is live over a transaction that is not set to install' "$TESTTMP/staged.txt" || true)" "1" \
   "a marker does not suppress the symlink row"
-assert_eq "$(grep -c '^FAIL  staged update' "$TESTTMP/staged.txt" || true)" "1" \
+assert_eq "$(grep -c '^FAIL  prepared updates' "$TESTTMP/staged.txt" || true)" "1" \
   "...and the symlink does not suppress the marker's"
 
 # No symlink is no row, whatever the toml says: the marker's own FAIL is the only one left. Without
@@ -887,7 +887,7 @@ assert_eq "$(grep -c '^FAIL  staged update' "$TESTTMP/staged.txt" || true)" "1" 
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
 assert_eq "$(grep -c '^FAIL  boot symlink' "$TESTTMP/staged.txt" || true)" "0" \
   "no boot symlink, no symlink row"
-assert_eq "$(grep -c '^FAIL  staged update' "$TESTTMP/staged.txt" || true)" "1" \
+assert_eq "$(grep -c '^FAIL  prepared updates' "$TESTTMP/staged.txt" || true)" "1" \
   "...and the unarmed transaction is reported exactly once"
 # The INVERSE of the row above, and it had no row at all: dnf5 says `ready` and the symlink is
 # GONE. Arming is both, systemd removes the symlink once system-update.target has been reached,
@@ -896,7 +896,7 @@ assert_eq "$(grep -c '^FAIL  staged update' "$TESTTMP/staged.txt" || true)" "1" 
 printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":7,"armed":true}\n' > "$D_MARKER"
 assert_exit 1 "a ready transaction with no boot symlink fails the checkup" \
   env KEMPT_OFFLINE_LINK="$NO_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" 'staged update can never install: dnf5 says "ready" but' \
+assert_contains "$(cat "$TESTTMP/last_output")" 'prepared updates can never install: dnf5 says "ready" but' \
   "...and the row says the transaction can never install"
 assert_contains "$(cat "$TESTTMP/last_output")" 'kempt update --surface=offline' \
   "...and offers the re-stage that fixes it"

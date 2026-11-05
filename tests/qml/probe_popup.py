@@ -81,7 +81,7 @@ UNSTAGERC = os.path.join(p.sandbox, "unstagerc")
 UNSTAGEOUT = os.path.join(p.sandbox, "unstageout")
 UNSTAGEERR = os.path.join(p.sandbox, "unstageerr")
 open(UNSTAGERC, "w").write("0")
-open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart installs nothing.\n")
+open(UNSTAGEOUT, "w").write("Discarded the updates waiting for the next restart. That restart installs nothing.\n")
 open(UNSTAGEERR, "w").write("")
 # `kempt reclaim`, which Free Up Space runs: status, both streams, and the state the CLI leaves
 # behind (a path, copied over state.json with @NOW@ stamped as `date -Iseconds`, or empty to leave
@@ -1467,7 +1467,7 @@ p.check("an unchanged stage is discarded through the CLI's own verb, exactly onc
         p.calls_matching("unstage"), ["unstage"])
 p.check("...which takes no arguments at all", p.argv("unstage"), ["unstage"])
 p.check("...reported in the CLI's own sentence", ev("root.actionDone"),
-        "Discarded the staged update. The next restart installs nothing.")
+        "Discarded the updates waiting for the next restart. That restart installs nothing.")
 p.check("...in the report slot, as the thing that just happened",
         ev("root.reportText"), ev("root.actionDone"))
 # The half that a shared `actionMessage` could not have given: an action that did exactly what
@@ -1488,8 +1488,7 @@ state(CONFLICT1)
 open(UNSTAGERC, "w").write("5")
 open(UNSTAGEOUT, "w").write("")
 open(UNSTAGEERR, "w").write(
-    "Nothing was discarded. A Fedora release upgrade (45) is stored, and dnf5 keeps one stored"
-    " transaction, so discarding it would cancel the upgrade. See: kempt doctor\n")
+    "Nothing was discarded, because that would also cancel the Fedora 45 upgrade. See: kempt doctor\n")
 p.clear_calls()
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
@@ -1497,7 +1496,7 @@ lev("stagedMessage.actions[1].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
 p.check("a refused discard reports the CLI's reason, which names the upgrade it protected",
-        str(ev("root.actionMessage")).startswith("Nothing was discarded. A Fedora release"
+        str(ev("root.actionMessage")).startswith("Nothing was discarded, because that would also cancel the Fedora"
                                                  " upgrade (45) is stored"), True)
 p.check("...as a failure, in red, because the thing that was asked for did not happen",
         ev("root.reportFailed"), True)
@@ -1508,6 +1507,8 @@ p.check("...and the staged banner is still there, because nothing was discarded"
 # The refusal ends "See: kempt doctor", so the report carries the button. Copy Command is on the
 # result instead: Show Log, two more and a close do not fit the narrowest popup.
 p.pump(50)
+p.check("...drawn without its pointer at the button beside it",
+        lev("reportMessage.text"), "Nothing was discarded, because that would also cancel the Fedora 45 upgrade.")
 p.check("a report that names kempt doctor offers Check Installation",
         [lev("reportMessage.actions[1].text"), lev("reportMessage.actions[1].visible")],
         ["Check Installation", True])
@@ -1692,7 +1693,7 @@ p.check("a discard asked for during a run does not run", p.call_count("unstage")
 ev("root.leaveUpdating()")
 settle()
 open(UNSTAGERC, "w").write("0")
-open(UNSTAGEOUT, "w").write("Discarded the staged update. The next restart installs nothing.\n")
+open(UNSTAGEOUT, "w").write("Discarded the updates waiting for the next restart. That restart installs nothing.\n")
 ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
 

@@ -18,19 +18,19 @@ last_event() { tail -1 "$EV" | cut -f2-; }
 send() {  # notify-send-stand-in [bus]  (body is fixed)
   ( KEMPT_NOTIFY="$TESTTMP/$1"; DBUS_SESSION_BUS_ADDRESS="${2-}"; XDG_RUNTIME_DIR="$TESTTMP/no-runtime"
     NOTIFY_TIMEOUT=1
-    notify "Kempt" "Updates are staged"$'\n'"and install on the next restart"
+    notify "Kempt" "Updates are ready"$'\n'"and install on the next restart"
     echo "$NOTIFY_SHOWN" > "$TESTTMP/shown" )
 }
 
 send ok "$BUS"
-assert_contains "$(last_event)" "notification shown: Updates are staged and install on the next restart" \
+assert_contains "$(last_event)" "notification shown: Updates are ready and install on the next restart" \
   "a notification that showed is logged with what it said, on one line"
 assert_eq "$(cat "$TESTTMP/shown")" "true" "...and the caller is told it showed"
-assert_eq "$(cat "$TESTTMP/sent")" "Kempt|Updates are staged"$'\n'"and install on the next restart|" \
+assert_eq "$(cat "$TESTTMP/sent")" "Kempt|Updates are ready"$'\n'"and install on the next restart|" \
   "...and notify-send got the text as given"
 
 send ok ""
-assert_contains "$(last_event)" "notification not shown (no desktop session): Updates are staged" \
+assert_contains "$(last_event)" "notification not shown (no desktop session): Updates are ready" \
   "with no session bus nothing is sent, and the line says why"
 assert_eq "$(cat "$TESTTMP/shown")" "false" "...and the caller is told it did not show"
 
@@ -50,8 +50,8 @@ out="$( set -e; KEMPT_NOTIFY="$TESTTMP/fails"; DBUS_SESSION_BUS_ADDRESS="$BUS"; 
 assert_eq "$out" "after" "a failed notification never stops the caller"
 
 # Plain words for the log view.
-event_plain "notification shown: Your staged updates are installed."
-assert_eq "$EVENT_PLAIN" "Notified: Your staged updates are installed." "a shown notification reads as Notified"
+event_plain "notification shown: Your prepared updates are installed."
+assert_eq "$EVENT_PLAIN" "Notified: Your prepared updates are installed." "a shown notification reads as Notified"
 event_plain "notification not shown (no desktop session): Update failed: no network"
 assert_eq "$EVENT_PLAIN" "Notification not shown (no desktop session): Update failed: no network" \
   "...and one that did not keeps its reason"

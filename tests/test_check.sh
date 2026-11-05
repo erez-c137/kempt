@@ -1211,7 +1211,7 @@ before_marker="$(jq -Sc . "$marker")"
 detour_check
 assert_exit 0 "a stage that a restart could not install is not cleared" -- test -f "$marker"
 assert_eq "$(cat "$notify_log")" \
-  "Kempt Your staged update can no longer install on a restart. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean." \
+  "Kempt Your prepared updates can no longer install on a restart. To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean." \
   "...the one notification that keeps the banner's disappearance from being silent"
 assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
   "...and the event log carries the status it was announced for"
@@ -1447,7 +1447,7 @@ stage_marker boot-before-reboot 3
 before_pk="$(events_since 'offline stage installed by another updater')"
 : > "$notify_log"
 KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_eq "$(cat "$notify_log")" "Kempt Your staged updates are installed." \
+assert_eq "$(cat "$notify_log")" "Kempt Your prepared updates are installed." \
   "a stage another updater installed on the restart is announced once, as installed"
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 assert_exit 0 "...with its snapshot" -- test ! -f "$pre"
@@ -1465,7 +1465,7 @@ rm -rf "$KEMPT_STATE_DIR/history"   # the race case further down counts entries 
 stage_marker boot-before-reboot 3
 : > "$notify_log"
 PK_QA="$TESTTMP/pk-qa-newer" KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_eq "$(cat "$notify_log")" "Kempt Your staged updates are installed." \
+assert_eq "$(cat "$notify_log")" "Kempt Your prepared updates are installed." \
   "a newer build installed elsewhere is announced as installed, with no advice to stage again"
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 rm -f "$marker" "$pre"

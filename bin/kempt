@@ -862,7 +862,7 @@ refuse_run_behind_other_updater() {
   if [[ "$wanted_stage" != true ]]; then
     preflight_abort "the next restart belongs to another updater, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now by typing this in a terminal: kempt update --surface=widget"
   fi
-  preflight_abort "the next restart belongs to another updater, so nothing was staged or changed. Restart when you are ready, or update now by typing this in a terminal: kempt update --surface=widget"
+  preflight_abort "the next restart belongs to another updater, so nothing was prepared or changed. Restart when you are ready, or update now by typing this in a terminal: kempt update --surface=widget"
 }
 
 # The sentence for a step the root helper refused: what the helper said about a folder, else the
@@ -1478,11 +1478,11 @@ cmd_update() {
       # Refused in all three states - staging cancels a stored transaction whatever state it is in -
       # and the remedy named is the one that applies to the state it is actually in.
       case "$(offline_release_upgrade_state)" in
-        armed)      preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart. Staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
-        foreign)    preflight_abort "a Fedora release upgrade ($relup) is stored, and another updater has prepared the next restart. Staging updates would cancel the upgrade. Remove it with: sudo dnf5 offline clean" ;;
-        stranded)   preflight_abort "a Fedora release upgrade ($relup) is stored but no longer set to install, so no restart installs it. Staging updates would cancel it. Set it to install again with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
-        incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish. Staging updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
-        *)          preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started. Staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
+        armed)      preflight_abort "a Fedora release upgrade ($relup) is already prepared and installs on the next restart. Preparing updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
+        foreign)    preflight_abort "a Fedora release upgrade ($relup) is stored, and another updater has prepared the next restart. Preparing updates would cancel the upgrade. Remove it with: sudo dnf5 offline clean" ;;
+        stranded)   preflight_abort "a Fedora release upgrade ($relup) is stored but no longer set to install, so no restart installs it. Preparing updates would cancel it. Set it to install again with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
+        incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish. Preparing updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
+        *)          preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started. Preparing updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
       esac
     fi
   fi
@@ -1619,13 +1619,13 @@ cmd_update() {
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
-      reason_override="$(refusal_words "$log" "nothing was staged" "$(apply_refusal_reason) and staging would replace it")"
+      reason_override="$(refusal_words "$log" "nothing was prepared" "$(apply_refusal_reason) and preparing updates would replace it")"
       log_event "offline stage refused by the root helper"
     elif [[ $stage_rc -eq $KEMPT_APPLY_BUSY ]]; then
       # The stage Kempt started earlier is still running, so this one changed nothing. No unwind,
       # for the arm's reason below: a clean now would discard what that run is building.
       dnf_status="failed"; status="failed"
-      reason_override="nothing was staged, because another Kempt update is still in progress. Try again when it has finished"
+      reason_override="nothing was prepared, because another Kempt update is still in progress. Try again when it has finished"
       log_event "offline stage not started (another Kempt run is still in progress)"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
@@ -1670,29 +1670,29 @@ cmd_update() {
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
           if clean_refused_over_folders "$log"; then
-            reason_override="nothing new was staged. $(clean_left_words "$log")"
+            reason_override="nothing new was prepared. $(clean_left_words "$log")"
           else
-            reason_override="nothing new was staged, and the previous staged update was left in place because $(apply_refusal_reason). See: kempt doctor"
+            reason_override="nothing new was prepared, and the earlier updates were left in place because $(apply_refusal_reason). See: kempt doctor"
           fi
         else
           dnf_status="failed"; status="failed"
-          reason_override="nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included. Run: sudo dnf5 offline clean"
+          reason_override="nothing new was prepared, and the earlier updates could not be removed, so they still install on the next restart, held packages included. Run: sudo dnf5 offline clean"
         fi
       elif { apply_with_retry "$log" priv_apply dnf-offline-arm || arm_rc=$?; [[ $arm_rc -eq $KEMPT_APPLY_REFUSED ]]; }; then
         # Refused as root: what is stored now is not the transaction this run built (a release
         # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
-        reason_override="$(refusal_words "$log" "the updates were staged, but not set to install on the next restart" "$(apply_refusal_reason)")"
+        reason_override="$(refusal_words "$log" "the updates were downloaded, but not set to install on the next restart" "$(apply_refusal_reason)")"
       elif [[ $arm_rc -eq $KEMPT_APPLY_BUSY ]]; then
         # The arm Kempt started earlier is still running, so this one started nothing. No unwind:
         # the clean would land beside that run and could take away what it is setting up.
         dnf_status="failed"; status="failed"
-        reason_override="the updates were staged, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished"
+        reason_override="the updates were downloaded, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished"
         log_event "offline stage not armed (another Kempt run is still in progress)"
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
-        reason_override="the updates were staged, but could not be set to install on the next restart"
+        reason_override="the updates were downloaded, but could not be set to install on the next restart"
         # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
         # check, doctor run and popup promises an install forever. Best-effort, and a cleanup
         # that also fails must not overwrite the reason with its own.
@@ -1722,7 +1722,7 @@ cmd_update() {
           # Escalated past stderr because this is state (d): the toml and the boot symlink
           # now disagree and only root can settle it. The reason stays the ARM - the step
           # that failed - so the command travels on the notification instead.
-          notify_tail=". The staged update could not be removed. Run: sudo dnf5 offline clean"
+          notify_tail=". These updates could not be removed. Run: sudo dnf5 offline clean"
         fi
       else
         # Staged and armed.
@@ -1744,7 +1744,7 @@ cmd_update() {
           # The same untouched transaction, behind another updater's symlink. The clean below would
           # remove that symlink too and cancel the other updater's restart install, so nothing is
           # unwound, and the sentence says what the next restart does.
-          reason_override="could not rebuild the staged update. The previous one is unchanged, but another updater has prepared the next restart, so it will not install then"
+          reason_override="could not replace the prepared updates. The earlier ones are unchanged, but another updater has prepared the next restart, so they will not install then"
           log_event "offline restage failed (previous stage intact)"
         elif offline_armed; then
           # dnf5 failed BEFORE replacing the previous transaction: a download that cannot complete
@@ -1753,17 +1753,17 @@ cmd_update() {
           # BOTH halves of armed, never the status alone: any live dnf5 transaction removes
           # /system-update and leaves the toml at `ready`, and that stage installs on no restart.
           # It is stale, and takes the clean below like any other leftover.
-          reason_override="could not rebuild the staged update. The previous one is unchanged and still installs on the next restart"
+          reason_override="could not replace the prepared updates. The earlier ones are unchanged and still install on the next restart"
           log_event "offline restage failed (previous stage intact)"
         elif [[ "$(offline_link_state)" == other ]]; then
           # dnf5 replaced the previous transaction before failing, so the old marker describes
           # nothing. The clean would remove another updater's /system-update and cancel its
           # restart install, so only the marker goes.
-          reason_override="could not rebuild the staged update, and the previous one is gone. Another updater has prepared the next restart. Try again after the restart"
+          reason_override="could not replace the prepared updates, and the earlier ones are gone. Another updater has prepared the next restart. Try again after that restart"
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
           log_event "offline restage failed (stage left in place, another updater has prepared the next restart)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then
-          reason_override="the previous staged update was discarded and could not be rebuilt"
+          reason_override="the earlier updates were removed and could not be prepared again"
           # The marker described a transaction that no longer exists: the re-stage destroyed it,
           # the clean took the remains. Left in place it promises an install nothing can deliver.
           if [[ -n "$prev_marker" ]]; then
@@ -1773,12 +1773,12 @@ cmd_update() {
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Marker kept, as in the branch below, so doctor can compare it with what is stored.
           if clean_refused_over_folders "$log"; then
-            reason_override="could not rebuild the staged update. $(clean_left_words "$log")"
+            reason_override="could not replace the prepared updates. $(clean_left_words "$log")"
           else
-            reason_override="could not rebuild the staged update, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
+            reason_override="could not replace the prepared updates, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
           fi
         else
-          reason_override="the previous staged update was discarded and could not be rebuilt or cleaned up. Run: sudo dnf5 offline clean"
+          reason_override="the earlier updates were removed and could not be prepared again or cleaned up. Run: sudo dnf5 offline clean"
           # Marker KEPT here, deliberately - state (d) again. doctor reads it against the toml
           # and FAILs on that row, the boot-symlink row FAILs beside it, and both name the command
           # that fixes it. Clearing it downgrades the first to a benign "staged outside Kempt".
@@ -2098,23 +2098,23 @@ cmd_update() {
       # reasons it was is the difference between "Kempt did nothing" and "your holds did what you
       # asked": the first reads as a fault.
       local discarded_tail=""
-      [[ "$stage_discarded" == true ]] && discarded_tail=". The update staged earlier was removed"
+      [[ "$stage_discarded" == true ]] && discarded_tail=". The updates prepared earlier were removed"
       if [[ -n "$held_dnf" ]]; then
-        notify "Kempt" "Nothing to stage, because every pending update is held$discarded_tail"
+        notify "Kempt" "Every waiting update is held, so the next restart has nothing to install$discarded_tail"
       else
-        notify "Kempt" "Nothing to stage, because no updates are pending$discarded_tail"
+        notify "Kempt" "No updates are waiting, so the next restart has nothing to install$discarded_tail"
       fi
     elif [[ "$surface" == "offline" && "$status" == "ok" && -n "$stage_untracked" ]]; then
       # The stage is REAL: it is downloaded, armed, and the next restart installs it. What failed is
       # Kempt's record of it, so the promise is kept and the limit stated in the same breath - this
       # is the one notification that has to carry both, because every later surface will be silent.
-      notify "Kempt" "Updates are staged and install on the next restart. Kempt could not record them ($stage_untracked), so it will not report the result afterwards"
+      notify "Kempt" "Updates are ready and install on the next restart. Kempt could not record them ($stage_untracked), so it will not report the result afterwards"
     elif [[ "$stage_blocked" == true ]]; then
-      notify "Kempt" "Updates are staged, but another updater has prepared the next restart, so they will not install then"
+      notify "Kempt" "Updates are ready, but another updater has prepared the next restart, so they will not install then"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       local discover_tail=""
       discover_offer_pending && discover_tail=". Discover's update check can cancel this, so restart soon or run kempt discover-notifier off"
-      notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}$discover_tail"
+      notify "Kempt" "Updates are ready and install on the next restart${stage_unlisted:+ ($stage_unlisted)}$discover_tail"
     elif [[ "$status" == "ok" ]]; then
       notify "Kempt" "${phrase:-Update finished}$([[ "$reboot" == "true" ]] && echo ', restart needed')"
     else
@@ -2495,12 +2495,12 @@ clear_gone_stage() {  # marker-owned pre-snapshot path (possibly empty), the mar
 # can never install"; without it that row degrades to "staged outside Kempt".
 # What to do about a stage that will not install as Kempt made it, for both announcements below.
 # Commands rather than a button: they work from a terminal and from the widget alike.
-KEMPT_STAGE_REMEDY="To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean."
+KEMPT_STAGE_REMEDY="To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean."
 # ...except over a stored Fedora release upgrade, where both commands would be wrong: a stage is
 # refused, and a clean would delete the upgrade.
-KEMPT_STAGE_RELUP_REMEDY="A Fedora release upgrade is stored, so Kempt will not stage updates now. See: kempt doctor"
+KEMPT_STAGE_RELUP_REMEDY="A Fedora release upgrade is stored, so Kempt will not prepare updates now. See: kempt doctor"
 # ...or behind another updater's restart, where a stage is refused and a clean would cancel that.
-KEMPT_STAGE_HELD_REMEDY="The next restart belongs to another updater, so staging again has to wait until you have restarted."
+KEMPT_STAGE_HELD_REMEDY="The next restart belongs to another updater, so preparing updates again has to wait until you have restarted."
 stage_remedy() {
   if offline_release_upgrade >/dev/null; then printf '%s' "$KEMPT_STAGE_RELUP_REMEDY"
   elif restart_held_by_other; then printf '%s' "$KEMPT_STAGE_HELD_REMEDY"
@@ -2524,9 +2524,9 @@ reconcile_detour_stage() {  # marker-json toml-status [none, when nothing of it 
     # dnf5 started this on a restart and stopped. It was never unable to install, and whether any
     # of it went in is only said when the caller could tell.
     outcome="did not finish on the restart"
-    notify "Kempt" "Your staged update did not finish installing on the restart${3:+, and none of it was installed}. $(stage_remedy)"
+    notify "Kempt" "Your prepared updates did not finish installing on the restart${3:+, and none of them were installed}. $(stage_remedy)"
   else
-    notify "Kempt" "Your staged update can no longer install on a restart. $(stage_remedy)"
+    notify "Kempt" "Your prepared updates can no longer install on a restart. $(stage_remedy)"
   fi
   log_event "offline stage $outcome (status $2) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
   [[ "$NOTIFY_SHOWN" == true ]] || return 0
@@ -2576,7 +2576,7 @@ reconcile_replaced_stage() {
   stage_lock_try || return 0
   local why="" updated
   if { [[ "$owed" == true ]] || why="$(offline_stage_replaced "$marker")"; } && offline_marker_still "$marker"; then
-    notify "Kempt" "Your staged update was replaced outside Kempt, so the next restart will not install it. $(stage_remedy)"
+    notify "Kempt" "Your prepared updates were replaced outside Kempt, so the next restart will not install them. $(stage_remedy)"
     if [[ "$owed" == true && "$NOTIFY_SHOWN" != true ]]; then
       stage_unlock
       return 0
@@ -2977,7 +2977,7 @@ harvest_offline() {
     # been the restart or a live run before it, and the sentence is true of both. What the person
     # asked for is what matters, and the history entry has the packages.
     log_event "offline stage installed by another updater${harvested:+ ($harvested)}"
-    notify "Kempt" "Your staged updates are installed."
+    notify "Kempt" "Your prepared updates are installed."
   elif [[ "$partly_elsewhere" == true ]]; then
     # Who did it stays unsaid, since `dnf upgrade foo` looks the same, and so does what became of the
     # rest: the normal list shows whatever is still pending. Nor does a restart that stopped name the
@@ -2996,7 +2996,7 @@ harvest_offline() {
     # Nothing here says what DID happen to the stage, because the history does not say it either:
     # removed, or replaced by a transaction that then ran. What it does say is that this was not it.
     log_event "harvest found the staged transaction did not run${harvested:+ ($harvested)}"
-    notify "Kempt" "The update Kempt staged did not run on the restart. Changes seen across the restart came from somewhere else${harvested:+: $harvested}"
+    notify "Kempt" "The updates Kempt prepared did not run on the restart. Changes seen across the restart came from somewhere else${harvested:+: $harvested}"
   elif [[ -n "$harvested" ]]; then
     log_event "harvest applied ($harvested)"
     notify "Kempt" "Staged updates were installed during the restart: $harvested"
@@ -3116,13 +3116,13 @@ cmd_unstage() {
   # in this function - that is the command the refusal exists to protect against.
   local relup
   if relup="$(offline_release_upgrade)"; then
-    echo "Nothing was discarded. A Fedora release upgrade ($relup) is stored, and dnf5 keeps one stored transaction, so discarding it would cancel the upgrade. See: kempt doctor" >&2
+    echo "Nothing was discarded, because that would also cancel the Fedora ${relup##* } upgrade. See: kempt doctor" >&2
     log_event "unstage refused (a Fedora release upgrade ($relup) is stored)"
     exit 5
   fi
   # The update lock, for the race it exists for: a stage in flight is building the very transaction
   # this would remove. Same refusal and same status as a second `kempt update`.
-  acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
+  acquire_lock || { echo "Another update is running." >&2; exit 3; }
   trap release_lock EXIT
 
   local marker pre status
@@ -3134,10 +3134,10 @@ cmd_unstage() {
     if [[ -n "$marker" ]]; then
       pre="$(jq -r '.pre_snapshot // empty' <<<"$marker" 2>/dev/null || true)"
       clear_gone_stage "$pre" "$marker"
-      echo "The staged update was already gone. Kempt's record of it has been cleared."
+      echo "These updates were already gone. The next restart installs nothing."
       log_event "unstage cleared a marker with no transaction under it"
     else
-      echo "Nothing is staged, so there is nothing to discard."
+      echo "Nothing is waiting for the next restart, so there is nothing to discard."
       log_event "unstage found nothing staged"
     fi
     cmd_check >/dev/null 2>&1 || true
@@ -3148,7 +3148,7 @@ cmd_unstage() {
   # stands, discarding Kempt's stage would cancel that updater's restart install too, so this waits
   # for the restart that runs it.
   if [[ "$(offline_link_state)" == other ]]; then
-    echo "Nothing was discarded. Another updater has prepared the next restart, and discarding now would cancel its update too. After the restart, run kempt unstage again." >&2
+    echo "Nothing was discarded. Another updater has prepared the next restart, and discarding now would cancel its update too. Try again after that restart." >&2
     log_event "unstage refused (another updater has prepared the next restart)"
     exit 5
   fi
@@ -3162,7 +3162,7 @@ cmd_unstage() {
   [[ -z "$err" ]] || printf '%s\n' "$err" >&2
   if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
     if [[ -n "$refused_why" ]]; then
-      echo "The staged update was left in place. $refused_why" >&2
+      echo "These updates were left in place. $refused_why" >&2
     elif clean_refused_over_folders; then
       echo "$KEMPT_CLEAN_LEFT" >&2
     else
@@ -3172,7 +3172,7 @@ cmd_unstage() {
     exit 5
   fi
   if [[ $rc -ne 0 ]]; then
-    echo "The staged update could not be discarded. See: kempt doctor" >&2
+    echo "These updates could not be discarded. See: kempt doctor" >&2
     log_event "unstage failed rc=$rc"
     exit 1
   fi
@@ -3184,7 +3184,7 @@ cmd_unstage() {
   if [[ "$status" != absent ]]; then
     local left="dnf5 still reports a stored transaction (status \"$status\")"
     [[ "$status" != unknown ]] || left="the stored transaction is still there and cannot be read"
-    echo "The staged update was not fully discarded: $left. Kempt's record of it has been kept. See: kempt doctor" >&2
+    echo "These updates were not fully discarded: $left. Kempt's record of them has been kept. See: kempt doctor" >&2
     log_event "unstage left a transaction behind (status ${status/#unknown/could not be read})"
     cmd_check >/dev/null 2>&1 || true
     exit 1
@@ -3193,7 +3193,7 @@ cmd_unstage() {
     pre="$(jq -r '.pre_snapshot // empty' <<<"$marker" 2>/dev/null || true)"
     clear_gone_stage "$pre" "$marker"
   fi
-  echo "Discarded the staged update. The next restart installs nothing."
+  echo "Discarded the updates waiting for the next restart. That restart installs nothing."
   log_event "unstage discarded the staged update"
   # state.json is the widget's only channel, so a discarded stage stops being advertised in the
   # panel exactly when this rewrites it.
@@ -4123,10 +4123,10 @@ clean_refused_over_folders() {  # run log or "" → 0 when the folders are why
   [[ -e "$KEMPT_OFFLINE_TOML" || -L "$KEMPT_OFFLINE_TOML" ]] && ! offline_stored_is_readable && return 1
   return 0
 }
-KEMPT_CLEAN_LEFT="The staged update was left in place. Run kempt doctor."
+KEMPT_CLEAN_LEFT="These updates were left in place. Run kempt doctor."
 clean_left_words() {  # run log → KEMPT_CLEAN_LEFT, in the helper's words when it gave a folder reason
   local why
-  if why="$(log_folder_refusal "$1")"; then printf 'The staged update was left in place. %s\n' "$why"
+  if why="$(log_folder_refusal "$1")"; then printf 'These updates were left in place. %s\n' "$why"
   else printf '%s\n' "$KEMPT_CLEAN_LEFT"; fi
 }
 # The helper's own sentence for a refusal over the folders or the mount namespace. It alone knows
@@ -4627,7 +4627,7 @@ doctor_offline_rows() {
       *)
         # Not `ready` means not armed, and no restart applies it. FAIL rather than info: a real
         # defect with an exact remedy, spelled out because the remedy needs root.
-        doctor_fail "staged update can never install: the transaction was downloaded but never set to install (status \"$dr_toml\"), so no restart applies it. Clear it with: sudo dnf5 offline clean" ;;
+        doctor_fail "prepared updates can never install: the transaction was downloaded but never set to install (status \"$dr_toml\"), so no restart applies it. Clear it with: sudo dnf5 offline clean" ;;
     esac
   elif [[ "$dr_relup_owns" == false && -f "$OFFLINE_MARKER" ]]; then
     # A marker is there and cannot be read. Reported as itself, not through the line below, which
@@ -4707,7 +4707,7 @@ doctor_offline_rows() {
     fi
   elif [[ "$dr_link" == dnf5 && "$dr_toml" != ready && "$dr_toml" != unknown ]]; then
     if [[ "$dr_toml" == absent ]]; then
-      doctor_fail "boot symlink is live with nothing staged behind it: $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Remove it with: sudo dnf5 offline clean"
+      doctor_fail "boot symlink is live with nothing prepared behind it: $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Remove it with: sudo dnf5 offline clean"
     else
       doctor_fail "boot symlink is live over a transaction that is not set to install (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Clear it with: sudo dnf5 offline clean"
     fi
@@ -4722,7 +4722,7 @@ doctor_offline_rows() {
     if offline_release_upgrade >/dev/null; then
       doctor_fail "the stored Fedora release upgrade can never install: dnf5 says \"ready\" but the restart marker $KEMPT_OFFLINE_LINK is not in place, so a restart has already been past it. Set it to install again with: sudo dnf5 system-upgrade reboot, or clear it with: sudo dnf5 offline clean"
     else
-      doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` sets it to install again. Stage it again with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
+      doctor_fail "prepared updates can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` sets it to install again. Prepare them again with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
     fi
   fi
 }

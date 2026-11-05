@@ -240,11 +240,11 @@ pending, and the widget stops offering to stage them again. The CLI says:
 The widget puts the count in its header and says `They install when you restart.`
 
 **When staging fails.** If the update was stored but could not be set up for the restart, Kempt
-discards it. The run fails with `the updates were staged, but could not be set to install on the
+discards it. The run fails with `the updates were downloaded, but could not be set to install on the
 next restart`. Staging again replaces the previous staged update. If that fails:
 
 - Before anything was replaced, the previous one still installs. The run fails with
-  `could not rebuild the staged update. The previous one is unchanged and still installs on the
+  `could not replace the prepared updates. The previous one is unchanged and still installs on the
   next restart`.
 - After the previous one was gone, the run fails with `the previous staged update was discarded
   and could not be rebuilt`, and Kempt cleans up so the restart installs nothing. If that cleanup
@@ -271,7 +271,7 @@ risky-transaction prompt offers only `[u]` and `[a]`.
 your own removed the restart trigger. The next check tells you once:
 
 ```
-Your staged update can no longer install on a restart. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean.
+Your prepared updates can no longer install on a restart. To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean.
 ```
 
 Kempt says nothing if your dnf command installed every staged update.
@@ -362,7 +362,7 @@ kempt unstage
 Undoes `kempt update --surface=offline`, so the next restart installs nothing.
 
 ```
-Discarded the staged update. The next restart installs nothing.
+Discarded the updates waiting for the next restart. That restart installs nothing.
 ```
 
 It asks for your password once, or, with nothing staged, says so without asking. Kempt clears its
@@ -794,8 +794,8 @@ when neither exists.
 | --- | --- |
 | `info  staged update: 61 packages install on the next restart` | Normal. |
 | `FAIL  staged update did not finish: dnf5 started it on a restart and stopped before the end ...` | No restart runs it again. Run `sudo dnf5 offline clean` and stage again. |
-| `FAIL  staged update can never install: the transaction was downloaded but never set to install ...` | Never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
-| `FAIL  staged update can never install: dnf5 says "ready" but /system-update is gone ...` | A restart already skipped it, and no later restart will install it. |
+| `FAIL  prepared updates can never install: the transaction was downloaded but never set to install ...` | Never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
+| `FAIL  prepared updates can never install: dnf5 says "ready" but /system-update is gone ...` | A restart already skipped it, and no later restart will install it. |
 | `FAIL  the stored Fedora release upgrade can never install: ...` | The same, for a release upgrade. `sudo dnf5 system-upgrade reboot` sets it up again. |
 | `info  staged update: the transaction is gone, ...` | The next check clears Kempt's leftover record. |
 | `info  an offline transaction is staged outside Kempt ...` | Something else staged it. `dnf5 offline status` describes it. |
@@ -809,7 +809,7 @@ when neither exists.
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and did not finish ...` | `sudo dnf5 offline log` says why. |
 | `info  staged update: Kempt has a marker for a transaction that is no longer stored ...` | A release upgrade replaced Kempt's staged update. The next check clears the record. |
 | `FAIL  boot symlink is live over a transaction that is not set to install ...` | The next restart starts the offline updater and installs nothing. |
-| `FAIL  boot symlink is live with nothing staged behind it ...` | The same, with nothing stored at all. |
+| `FAIL  boot symlink is live with nothing prepared behind it ...` | The same, with nothing stored at all. |
 | `info  staged update: it installs kernel-core on the next restart despite the hold ...` | A hold added after staging. Rebuild with `kempt update --surface=offline`, or remove it with `sudo dnf5 offline clean`. |
 | `info  staged update: it may still install held packages on the next restart ...` | The same, when Kempt cannot read the staged update's contents and you hold a dnf package. |
 | `FAIL  staged update is not the one Kempt built ...` | Something replaced it. The line lists up to four differences each way (`+` only in dnf5's, `-` only in Kempt's). |

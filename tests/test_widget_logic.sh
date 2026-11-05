@@ -1759,8 +1759,8 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"d
 # harvest writes "offline (applied on reboot)" and its counts are real changes.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":28}"))')" \
   "Updates are ready and install on the next restart." "a staging run reports the staging, not the zero rpm delta"
-assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"the updates were staged, but could not be set to install on the next restart\"}"))')" \
-  "The update failed: the updates were staged, but could not be set to install on the next restart." "a FAILED staging run is a failure, never a promise"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"the updates were downloaded, but could not be set to install on the next restart\"}"))')" \
+  "The update failed: the updates were downloaded, but could not be set to install on the next restart." "a FAILED staging run is a failure, never a promise"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline (applied on reboot)\",\"duration_sec\":0,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
   "Updated 2 packages in 0 s." "the harvest entry is not a staging run - its counts render"
 # ...and the staging run that staged NOTHING, which is `offline` and `ok` exactly like the first
@@ -1830,16 +1830,16 @@ assert_eq "$(js "L.runStartMessage(-1, '', '')")" "Could not start the update (e
 # and nothing else, and a message that only vanished is indistinguishable from a button that did
 # nothing. Same shape as runStartMessage - the CLI's own first line wherever there is one, a
 # fallback per status where there is not.
-assert_eq "$(js "L.discardStagedMessage(0, 'Discarded the staged update. The next restart installs nothing.\n', '')")" \
-  "Discarded the staged update. The next restart installs nothing." \
+assert_eq "$(js "L.discardStagedMessage(0, 'Discarded the updates waiting for the next restart. That restart installs nothing.\n', '')")" \
+  "Discarded the updates waiting for the next restart. That restart installs nothing." \
   "a discard that worked reports the CLI's own sentence"
 # The CLI says two different TRUE things on exit 0 and the status cannot tell them apart, so the
 # words are read from stdout rather than chosen from the code.
-assert_eq "$(js "L.discardStagedMessage(0, 'Nothing is staged, so there is nothing to discard.\n', '')")" \
-  "Nothing is staged, so there is nothing to discard." \
+assert_eq "$(js "L.discardStagedMessage(0, 'Nothing is waiting for the next restart, so there is nothing to discard.\n', '')")" \
+  "Nothing is waiting for the next restart, so there is nothing to discard." \
   "...and nothing staged is the same exit 0, reported in the CLI's words rather than as a success"
-assert_eq "$(js "L.discardStagedMessage(0, 'The staged update was already gone. Kempt\\'s record of it has been cleared.\n', '')")" \
-  "The staged update was already gone. Kempt's record of it has been cleared." \
+assert_eq "$(js "L.discardStagedMessage(0, 'These updates were already gone. The next restart installs nothing.\n', '')")" \
+  "These updates were already gone. The next restart installs nothing." \
   "...as is a record cleared with no transaction under it"
 assert_eq "$(js "L.discardStagedMessage(0, '', '')")" "$(js 'L.COPY.stagedDiscardDone')" \
   "...and a run that said nothing at all still reports what happened"
@@ -1855,8 +1855,8 @@ assert_eq "$(js "L.discardStagedMessage(3, '', 'another kempt update is running\
   "the lock another update holds is reported in the CLI's words"
 assert_eq "$(js "L.discardStagedMessage(3, '', '')")" "$(js 'L.COPY.stagedDiscardBusy')" \
   "...and silently, as a sentence that says what to do about it"
-assert_eq "$(js "L.discardStagedMessage(1, '', 'The staged update could not be discarded. See: kempt doctor\n')")" \
-  "The staged update could not be discarded. See: kempt doctor" \
+assert_eq "$(js "L.discardStagedMessage(1, '', 'These updates could not be discarded. See: kempt doctor\n')")" \
+  "These updates could not be discarded. See: kempt doctor" \
   "a failed discard reports the CLI's own line"
 assert_eq "$(js "L.discardStagedMessage(1, '', '')")" \
   "These updates could not be discarded (exit 1). Press Check Installation to find out why." \
@@ -1889,6 +1889,13 @@ assert_eq "$(js 'L.mentionsDoctor("Could not change the hold on bash.")')" "fals
 assert_eq "$(js 'L.mentionsDoctor(undefined)')" "false" "...and no text offers nothing"
 assert_eq "$(js 'L.mentionsDoctor("see kempt doctors")')" "false" "...matching the command as a word"
 
+# Beside the button, the pointer at the command it runs goes. The button test reads the raw string.
+assert_eq "$(js 'L.withoutDoctorPointer("These updates could not be discarded. See: kempt doctor")')" \
+  "These updates could not be discarded." "See: kempt doctor comes off text drawn beside Check Installation"
+assert_eq "$(js 'L.withoutDoctorPointer("See: kempt doctor is not at the end.")')" \
+  "See: kempt doctor is not at the end." "...only at the end"
+assert_eq "$(js 'L.mentionsDoctor("These updates could not be discarded. See: kempt doctor")')" "true" \
+  "...and the raw string still earns the button"
 # The result in one sentence. Doctor's rows are "ok", "info" and "FAIL", padded to six columns.
 doc_ok=$'info  kempt 0.1.7 (/usr/share/kempt)\nok    jq: /usr/bin/jq\n\nRecent events (kempt log):\n  none\n\nkempt doctor: all checks passed\n'
 doc_one=$'info  kempt 0.1.7\nok    jq: /usr/bin/jq\nFAIL  polkit action not installed: /usr/share/polkit-1/actions/x.policy - run ./install.sh\nkempt doctor: 1 problem found\n'
