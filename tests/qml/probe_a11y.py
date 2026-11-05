@@ -277,7 +277,7 @@ p.check("...and visibly so: a focus ring is drawn from visualFocus, which only t
 # reads "Update Now, button" and then how many updates it would install.
 p.check("...and Update Now's description is the heading's count, so opening says how many",
         [lev("updateButton.Accessible.description"), lev("popup.vm.headerText")],
-        [lev("popup.vm.headerText"), "10 updates available"])
+        [lev("popup.vm.headerText"), "10 updates"])
 settle()
 
 # ...and the state where that button is not on screen at all. It is HIDDEN rather than disabled,

@@ -40,7 +40,7 @@ No successful check yet" "no state: says so"
 assert_eq "$(status_rc)" "1" "no state exits 1"
 
 put live
-assert_eq "$(status)" "10 updates available
+assert_eq "$(status)" "10 updates
 
 System (dnf): 7 updates for aajohan-comfortaa-fonts, bash, brandnew, curl, and 3 more
 Apps (flatpak): 3 updates for com.example.NotInstalled, net.mkiol.SpeechNote and org.gimp.GIMP
@@ -52,7 +52,7 @@ assert_eq "$(status_rc)" "0" "updates waiting exits 0"
 # last check failed. Scripts still learn it from the exit code.
 put stale
 out="$(status)"
-assert_eq "$(head -n 1 <<<"$out")" "10 updates available" "stale after a success: the header is the count"
+assert_eq "$(head -n 1 <<<"$out")" "10 updates" "stale after a success: the header is the count"
 assert_contains "$out" "Checked 1 day ago · last check failed" "stale: the footer says the last check failed"
 assert_not_contains "$out" "dnf check failed" "stale: no problem detail under a calm header"
 assert_eq "$(status_rc)" "1" "stale exits 1"
@@ -385,7 +385,7 @@ list() { "$KEMPT" status --list 2>&1 || true; }
 # The rows and the lines around them, without the last update, which earlier cases recorded.
 rows() { list | grep -v '^Last update '; }
 put live
-assert_eq "$(rows)" "10 updates available
+assert_eq "$(rows)" "10 updates
 
 System (dnf): 7 updates
   aajohan-comfortaa-fonts   3.105-0.9.20210729git2a87ac6.fc44 → 3.106-1.fc44
@@ -428,7 +428,7 @@ jq '.backends.dnf.items = [{name: "a-very-long-package-name-that-goes-past-forty
                                  {name: "org.gnome.Theme", branch: "stable", kind: "runtime", from: "2024-05-30", to: "2024-05-30", held: false},
                                  {name: "org.gimp.GIMP", scope: "user", from: "3.0.2", to: "3.0.4", held: false}]
     | .security = {count: 1, packages: ["zsh"]}' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_eq "$(rows)" "4 updates available
+assert_eq "$(rows)" "4 updates
 
 System (dnf): 1 update
   a-very-long-package-name-that-goes-past-forty-chars  1 → 2

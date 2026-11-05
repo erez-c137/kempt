@@ -197,10 +197,10 @@ assert_eq "$(js 'V("live",true).headerText')" "Updating…" \
 assert_eq "$(js 'V("live",false).iconState')" "updates" "pending updates => updates"
 assert_eq "$(js 'V("live",false).badgeText')" "10" "the badge is the CLI's actionable count, verbatim"
 assert_eq "$(js 'V("live",false).badgeVisible')" "true" "...and it is shown"
-assert_eq "$(js 'V("live",false).headerText')" "10 updates available" "header names the count"
+assert_eq "$(js 'V("live",false).headerText')" "10 updates" "header names the count"
 assert_eq "$(js 'V("live",false).staleReason')" "" "a healthy check has no stale reason"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1,held_total:0,backends:{}},false).headerText')" \
-  "1 update available" "one update is singular"
+  "1 update" "one update is singular"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).iconState')" \
   "uptodate" "nothing pending => up to date"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{}},false).badgeVisible')" \
@@ -219,7 +219,7 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1000,held_total:0,
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1247,held_total:0,backends:{}},false).badgeText')" \
   "999+" "...however far above"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:1247,held_total:0,backends:{}},false).tooltipMain')" \
-  "1247 updates available" "...while the tooltip still gives the exact number"
+  "1247 updates" "...while the tooltip still gives the exact number"
 
 # --- holds: the spec's promise that a held-only box looks up to date but still says so ---
 assert_eq "$(js 'V("held-only",false).iconState')" "uptodate" "held-only pending => the up-to-date icon"
@@ -301,7 +301,7 @@ assert_eq "$(js 'V("stale",false).emptyStateText')" "" "...and there are rows to
 # last known "nothing pending"; the boundary below is what separates that from knowing nothing.
 calm_empty='L.viewModel({schema:1,status:"stale",error:"repo flap",last_success:"2026-08-20T10:00:00+03:00",actionable:0,held_total:0,backends:{}},false)'
 assert_eq "$(js "$calm_empty.iconState")" "stale" "a flap after a real success stays calm"
-assert_eq "$(js "$calm_empty.emptyStateText")" "No updates in the last known state." \
+assert_eq "$(js "$calm_empty.emptyStateText")" "No updates found the last time Kempt could check." \
   "...and says the count is the LAST KNOWN one"
 
 # --- the empty state: one sentence, said once ---------------------------------------------------
@@ -526,7 +526,7 @@ assert_eq "$(js 'L.viewModel(null,false,"",{engineFault:true}).engineFaultMessag
 assert_eq "$(js 'L.viewModel(null,false,"",{engineFault:"broken"}).engineFaultMessage')" "" \
   "...so an unrecognised fault name blanks nothing"
 assert_eq "$(js 'L.viewModel(null,false,"",{}).emptyStateText')" \
-  "No update data yet. The first check has not finished." \
+  "The first check has not finished." \
   "...leaving the ordinary first-load placeholder exactly as it was"
 assert_eq "$(js 'V("live",false).engineFaultMessage')" "" "a box whose engine answers says nothing about one"
 
@@ -566,10 +566,10 @@ assert_eq "$(js "$brk.iconState")" "error" "a broken installation earns the warn
 assert_eq "$(js "$eng.iconState")" "unknown" "...and an absent one still does not"
 # Whichever it is, it shows ALONE: everything below it presumes an engine that answered.
 assert_eq "$(js "$brk.messageSlots")" '["engineFault"]' "...and it replaces the whole stack"
-# The fix line must not promise more than it can keep: `kempt doctor` is itself a kempt subcommand,
-# so on the box whose kempt cannot start it cannot start either. The sentence says so.
-assert_eq "$(js 'L.COPY.engineUnrunnableFix.indexOf("If it cannot start") >= 0')" "true" \
-  "the repair line admits doctor may not start, rather than promising it will"
+# `kempt doctor` is itself a kempt subcommand, so on this box it may not start either. Its own error
+# then says why, on the report page, so the line only needs to name the button.
+assert_eq "$(js 'L.COPY.engineUnrunnableFix')" "Press Check Installation to find the problem." \
+  "the repair line names the button and promises nothing more"
 
 # --- a Fedora release upgrade staged outside Kempt -----------------------------------------------
 # dnf5 keeps ONE stored transaction for a release upgrade and for an ordinary offline update alike,
@@ -1042,7 +1042,7 @@ assert_eq "$(js "L.collectItems($RT).sections[1].kind")" "runtime" \
   "the runtime section says which kind it is, rather than leaving its title to be parsed"
 # The badge counts them: that is the promise the whole change exists to keep.
 assert_eq "$(js "L.viewModel($RT,false).badgeText")" "4" "the badge counts runtimes alongside apps"
-assert_eq "$(js "L.viewModel($RT,false).headerText")" "4 updates available" "...and so does the header"
+assert_eq "$(js "L.viewModel($RT,false).headerText")" "4 updates" "...and so does the header"
 # THE two-branch case. Two rows sharing a name, told apart by the branch beside it: without this the
 # popup draws what looks like the same runtime twice at two different versions.
 GL="L.collectItems($RT).sections[1].items.filter(function (i) { return i.name.indexOf('GL.default') >= 0; })"
@@ -1409,11 +1409,11 @@ assert_eq "$(js 'L.versionTextOf("9","9").indexOf(L.COPY.newBuild) > 0')" "true"
 K='["kernel-core","kernel-modules"]'
 KN='["kernel-core","akmod-nvidia"]'
 assert_eq "$(js "L.riskyMessageOf($K)")" \
-  "This update includes a new kernel, so the next restart is the safest time to install it." \
+  "The next restart is the safest time to install a new kernel." \
   "a kernel in the set names the kernel, and recommends the button underneath it"
 assert_eq "$(js "L.riskyMessageOf($K)")" "$(js 'L.COPY.kernelRestart')" "...in the copy table's words"
 assert_eq "$(js "L.riskyMessageOf($KN)")" \
-  "This update includes a new kernel and NVIDIA driver, so the next restart is the safest time to install them." \
+  "The next restart is the safest time to install a new kernel and NVIDIA driver." \
   "a kernel plus the NVIDIA driver names both"
 assert_eq "$(js "L.riskyMessageOf($KN)")" "$(js 'L.COPY.kernelNvidiaRestart')" "...in the copy table's words too"
 # The two tests are shaped DIFFERENTLY on purpose, and this is what pins the difference.
@@ -1433,18 +1433,16 @@ done
 # NVIDIA on its own is not a kernel update, and the message must not claim one. It falls back to
 # the count-and-families phrase, which is what the popup showed before this existed.
 assert_eq "$(js 'L.riskyMessageOf(["akmod-nvidia"])')" \
-  "This update changes parts your desktop is using (akmod), so the next restart is the safest time to install it." \
+  "The next restart is the safest time to change parts your desktop is using (akmod)." \
   "the driver without a kernel gets the same recommendation in the singular, not a kernel sentence"
 assert_eq "$(js 'L.riskyMessageOf(["glibc","dbus"])')" \
-  "This update changes parts your desktop is using (the system message bus, the core system library), so the next restart is the safest time to install it." \
+  "The next restart is the safest time to change parts your desktop is using (the system message bus, the core system library)." \
   "a risky set with no kernel in it recommends the same button, and says what is in it in words"
-# ...and an unlabelled family keeps its bare name in the same sentence. risky_regex is the user's to
-# extend, so the moment a label is derived rather than looked up, the popup starts describing
-# packages nobody wrote a description for. alsa, atk and bash are exactly that case.
-# The families cap is the SUMMARY's cap and it survives the rewrite: four families, then ", …".
+# ...and only labelled families reach that sentence: alsa, atk and bash say nothing to the person
+# reading it. A set with no label at all keeps its bare names, since empty brackets say less.
 assert_eq "$(js 'L.riskyMessageOf(["alsa-lib","atk","bash","dbus","glibc","mesa-libGL"])')" \
-  "This update changes parts your desktop is using (alsa, atk, bash, the system message bus, …), so the next restart is the safest time to install it." \
-  "...capped at four families, exactly as the count sentence is, labelled where Kempt has a label"
+  "The next restart is the safest time to change parts your desktop is using (the system message bus, the core system library, graphics drivers)." \
+  "...naming labelled families only, the plain names left out"
 # ...and "Restart when it finishes" is gone from the widget entirely. It recommended the live path
 # while the only button under it offered the offline one.
 assert_eq "$(js 'Object.keys(L.COPY).filter(function (k) { return /Restart when it finishes/.test(L.COPY[k]); })')" \
@@ -2200,7 +2198,7 @@ assert_eq "$(js "L.viewModel($DIVERGENT,false).actionable")" "2" \
   "a state whose total says 0 over two pending rows is counted from the rows"
 assert_eq "$(js "L.viewModel($DIVERGENT,false).iconState")" "updates" \
   "...so the panel cannot say up to date over a list of pending updates"
-assert_eq "$(js "L.viewModel($DIVERGENT,false).headerText")" "2 updates available" \
+assert_eq "$(js "L.viewModel($DIVERGENT,false).headerText")" "2 updates" \
   "...and the header agrees with the list beneath it"
 OVERCOUNT='{schema:1,status:"ok",actionable:9,held_total:0,backends:{dnf:{enabled:true,items:[{name:"a"},{name:"b"}]}}}'
 assert_eq "$(js "L.viewModel($OVERCOUNT,false).actionable")" "2" \
@@ -2350,23 +2348,23 @@ fm() {  # extra-fields askedMs field [more opts]
 FM_STAMP="2026-08-26T12:02:30+03:00"
 NETERR='backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (7): Failed to connect to mirrors.fedoraproject.org port 443 after 3 ms: Could not connect to server"}}'
 assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage)" \
-  "Kempt could not reach the update servers, so this list may be out of date." \
+  "Kempt could not reach the update servers, so this may be out of date." \
   "a press whose fetch failed on the network says Kempt could not reach the update servers"
 assert_eq "$(fm "$NETERR" "$ASKED" messageSlots)" '["report"]' "...in the report's slot"
 assert_eq "$(fm "$NETERR" "$ASKED" checkAnswerText)" \
-  "Up to date. Kempt could not reach the update servers, so this list may be out of date." \
+  "Up to date. Kempt could not reach the update servers, so this may be out of date." \
   "...and the spoken answer says the same"
 assert_eq "$(fm 'backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (22): The requested URL returned error: 404"}}' "$ASKED" reportFetchMessage)" \
-  "The check failed, so this list is from 3 hours ago." \
+  "The check failed, so this is from 3 hours ago." \
   "a fetch that reached a server and failed says only that it could not download"
 assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" reportFetchMessage)" \
-  "Kempt skips the online check on battery, so this list may be out of date." \
+  "Kempt skips the online check on battery, so this may be out of date." \
   "a fetch skipped on battery says Kempt waits for mains power"
 assert_eq "$(fm "refresh_skipped:\"metered\",$NETERR" "$ASKED" reportFetchMessage)" \
-  "Kempt skips the online check on a metered connection, so this list may be out of date." \
+  "Kempt skips the online check on a metered connection, so this may be out of date." \
   "...one skipped on a metered link says so, even with an older refresh error on record"
 assert_eq "$(fm '' "$ASKED" reportFetchMessage)" \
-  "Kempt did not download fresh lists, so this list is from 3 hours ago." \
+  "Kempt did not download fresh update info, so this is from 3 hours ago." \
   "an engine that publishes neither reason gets the lead that claims no cause"
 assert_eq "$(fm "metadata_refreshed:\"2026-08-26T12:02:10+03:00\",$NETERR" "$ASKED" reportFetchMessage)" "" \
   "a later press whose fetch worked clears it, whatever refresh_error a later gate left"
@@ -2387,24 +2385,31 @@ assert_eq "$(fm "$NETERR" "$ASKED" footerText)" "Checked 1 min ago · lists 3 ho
 assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage reportShown:true)" "" "a report of something that happened takes the slot first"
 assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedAnyway reportShown:true)" "" "...and Download Anyway goes with the sentence"
 assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage 'nowMs:Date.UTC(2026,7,26,11,0,0)')" \
-  "Kempt could not reach the update servers, so this list may be out of date." \
+  "Kempt could not reach the update servers, so this may be out of date." \
   "the age is measured at the check, so the sentence does not change while the widget is open"
 assert_eq "$(fm "refresh_skipped:\"off\",$NETERR" "$ASKED" reportFetchMessage)" \
-  "Kempt did not download fresh lists, so this list is from 3 hours ago." \
+  "Kempt did not download fresh update info, so this is from 3 hours ago." \
   "with refreshing turned off, an old refresh error is not read as this check's"
 assert_eq "$(fm "offline_staged:{staged_at:\"2026-08-26T11:00:00+03:00\",count:3,armed:true},$NETERR" "$ASKED" footerText reportShown:true)" \
   "Checked 1 min ago · lists 3 hours old" \
   "...and the footer gives the age when the notice is crowded out"
 assert_eq "$(js "L.fetchMissedOf($(fm_state "metadata_refreshed:\"2026-08-26T12:01:40+03:00\",$NETERR"), $ASKED, \"$FM_STAMP\")")" \
-  "Kempt could not reach the update servers, so this list may be out of date." \
+  "Kempt could not reach the update servers, so this may be out of date." \
   "...and lists fetched seconds before the press are less than a minute old"
+# "this is from just now" would read as fresh in a sentence about a failure, so that form has no age.
+assert_eq "$(js "L.fetchMissedOf($(fm_state 'metadata_refreshed:"2026-08-26T12:01:40+03:00",backends:{dnf:{actionable:0,held:0,items:[],refresh_error:"Curl error (22): The requested URL returned error: 404"}}'), $ASKED, \"$FM_STAMP\")")" \
+  "The check failed, so this may be out of date." \
+  "a failure seconds after the last good fetch does not say just now"
+assert_eq "$(js "L.fetchMissedOf($(fm_state 'metadata_refreshed:"2026-08-26T12:01:40+03:00"'), $ASKED, \"$FM_STAMP\")")" \
+  "Kempt did not download fresh update info, so this may be out of date." \
+  "...nor does a fetch that gave no reason"
 # Lists fetched by dnf or Discover leave no metadata_refreshed. A press whose fetch failed still
 # says the lists could not be downloaded, and leaves out the age nobody knows.
 assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" reportFetchMessage)" \
-  "Kempt could not reach the update servers, so this list may be out of date." \
+  "Kempt could not reach the update servers, so this may be out of date." \
   "with no metadata stamp, a failed fetch still leads with the failure, without an age"
 assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" checkAnswerText)" \
-  "Up to date. Kempt could not reach the update servers, so this list may be out of date." \
+  "Up to date. Kempt could not reach the update servers, so this may be out of date." \
   "...and the spoken answer says so too"
 assert_eq "$(fm "metadata_refreshed:null,$NETERR" "$ASKED" footerText)" "Checked 1 min ago" \
   "...while the footer invents no age"
@@ -2477,7 +2482,7 @@ assert_eq "$(js "L.viewModel($FAILED_ALWAYS,false,\"\",{nowMs:$NOW}).headerText"
 # rule above rather than the one this block is about (see "the count and the list under it are one
 # answer" further down).
 STALE_NO_SUCCESS='{schema:1,status:"stale",error:"repo flapped",actionable:2,held_total:0,last_check:"2026-08-26T12:00:00+03:00",last_success:"",backends:{dnf:{enabled:true,items:[{name:"a"},{name:"b"}]}}}'
-assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).headerText")" "2 updates available" \
+assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).headerText")" "2 updates" \
   "a stale state with known counts heads the popup with a count, not with a warning"
 assert_eq "$(js "L.viewModel($STALE_NO_SUCCESS,false,\"\",{nowMs:$NOW}).footerText")" \
   "No successful check yet · last check failed" \
@@ -2523,21 +2528,21 @@ assert_eq "$(js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,b
 assert_eq "$(js "L.viewModel(null,false,\"\",{nowMs:$NOW}).footerTooltip")" "" "...and nothing at all with no state"
 
 # --- the status line over a session-critical set -------------------------------------------------
-assert_eq "$(js 'V("risky-heavy",false).headerText')" "23 updates available, including a new kernel" \
+assert_eq "$(js 'V("risky-heavy",false).headerText')" "23 updates, including a new kernel" \
   "a captured risky transaction with kernel-core in it names the kernel"
 assert_eq "$(js 'V("live",false).headerText.indexOf("including")')" "-1" "an everyday transaction claims nothing"
 assert_eq "$(js 'L.viewModel(null,false).headerText.indexOf("including")')" "-1" "and neither does no state at all"
 RPG='{schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:["glibc"]}'
-assert_eq "$(js "L.viewModel($RPG,false).headerText")" "1 update available, including parts your desktop is using" \
+assert_eq "$(js "L.viewModel($RPG,false).headerText")" "1 update, including parts your desktop is using" \
   "a set without a kernel says parts of the desktop"
-assert_eq "$(js "L.viewModel($RPG,false).tooltipMain")" "1 update available" "...on the status line only"
+assert_eq "$(js "L.viewModel($RPG,false).tooltipMain")" "1 update" "...on the status line only"
 RPH='{schema:1,status:"ok",actionable:0,held_total:1,backends:{},risky_pending:["glibc"]}'
 assert_eq "$(js "L.viewModel($RPH,false).headerText.indexOf(\"including\")")" "-1" "nothing actionable, nothing to include"
 # A string has a length and characters, and is not a list of names; nor is an object with a length.
 RPS='{schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:"kernel-core"}'
 RPO='{schema:1,status:"ok",actionable:1,held_total:0,backends:{},risky_pending:{length:3}}'
-assert_eq "$(js "L.viewModel($RPS,false).headerText")" "1 update available" "a string risky_pending is not a list of names"
-assert_eq "$(js "L.viewModel($RPO,false).headerText")" "1 update available" "...nor is an object that merely carries a length"
+assert_eq "$(js "L.viewModel($RPS,false).headerText")" "1 update" "a string risky_pending is not a list of names"
+assert_eq "$(js "L.viewModel($RPO,false).headerText")" "1 update" "...nor is an object that merely carries a length"
 
 # --- vm.stagedMessage / vm.stagedShowRestart: a transaction that is already waiting --------------
 # The state key exists only when the CLI has reconciled its own marker against dnf5's status and
@@ -2546,27 +2551,27 @@ assert_eq "$(js "L.viewModel($RPO,false).headerText")" "1 update available" "...
 STG=',offline_staged:{staged_at:"2026-09-02T10:31:00+03:00",count:61,armed:true}'
 STGN=',offline_staged:{staged_at:"x",count:null,armed:true}'
 assert_eq "$(vm '{}' "$STG" 0 'stagedMessage')" \
-  "61 updates are ready and install on the next restart." \
+  "They install the next time you restart." \
   "a staged transaction says how many updates the restart will install"
 assert_eq "$(vm '{}' "$STGN" 0 'stagedMessage')" \
-  "Updates are ready and install on the next restart." \
+  "They install the next time you restart." \
   "an unknown count drops the number rather than the sentence"
 # ONE update is a whole different sentence, not the plural one with a 1 in it. Same rule the rest
 # of this file already follows for minutes, hours, days, packages and the header's own count.
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:1,armed:true}' 0 'stagedMessage')" \
-  "1 update is ready and installs on the next restart." \
+  "It installs the next time you restart." \
   "a single staged update reads as one, verb included"
 assert_eq "$(vm '{}' '' 0 'stagedMessage')" "" "...and nothing staged shows no banner"
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:2,armed:true}' 0 'stagedMessage')" \
-  "2 updates are ready and install on the next restart." \
+  "They install the next time you restart." \
   "...and two is back to the plural"
 # Zero is not a sentence anybody should ever read, but the count comes from another program and
 # the singular branch must not be the one that catches it.
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",count:0,armed:true}' 0 'stagedMessage')" \
-  "0 updates are ready and install on the next restart." \
+  "They install the next time you restart." \
   "...and zero takes the plural, not the singular"
 assert_eq "$(vm '{}' ',offline_staged:{staged_at:"x",armed:true}' 0 'stagedMessage')" \
-  "$(js 'L.COPY.stagedUnknownCount')." "...and a key that never carried a count reads the same"
+  "$(js 'L.COPY.stagedTail')." "...and a key that never carried a count reads the same"
 assert_eq "$(vm '{}' '' 0 'stagedMessage')" "" "nothing staged, nothing said"
 assert_eq "$(js 'L.viewModel(null,false).stagedMessage')" "" "...and no state at all says nothing either"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,backends:{},offline_staged:"yes"},false).stagedMessage')" \
@@ -2605,7 +2610,7 @@ assert_eq "$(vm '{}' "$BLK" 0 'messageSlots.indexOf("staged") >= 0')" "true" "..
 assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowDiscard, v.stagedArmed].join(); })(L.viewModel($(st "$BLK"),false,\"\",{}))")" \
   "true,false,false" "...with Restart, since restarting is what is left to do, no discard, and nothing armed"
 assert_eq "$(vm '{}' "$BLK" 0 'headerText.indexOf("staged") < 0')" "true" "...and the header promises nothing"
-assert_eq "$(vm '{}' "$STG$BLK" 0 'stagedMessage')" "61 updates are ready and install on the next restart." \
+assert_eq "$(vm '{}' "$STG$BLK" 0 'stagedMessage')" "They install the next time you restart." \
   "an armed stage wins over a stray blocked key"
 assert_eq "$(vm '{}' "$BLK,release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}" 0 'stagedMessage')" "" \
   "...and so does a stored release upgrade, which has its own message"
@@ -2643,7 +2648,7 @@ assert_eq "$(free "$PEND" "$OFFL" heldLiveSurface)" "" "...and no surface is nam
 
 # Its own question with system updates, none for Flatpak alone.
 assert_eq "$(held "$PEND" "$OFFL" updateAsksHeld)" "true" "system updates waiting: Update Now asks"
-assert_eq "$(held "$PEND" '{surface:"offline",heldChoiceOpen:true}' questionMessage)" "Another updater has prepared your next restart, and updating now may stop its update from installing." "...saying what it can cost"
+assert_eq "$(held "$PEND" '{surface:"offline",heldChoiceOpen:true}' questionMessage)" "Updating now may stop another updater's prepared update from installing." "...saying what it can cost"
 assert_eq "$(held "$PEND" '{surface:"offline",heldChoiceOpen:true}' questionHeld)" "true" "...as the other updater's question"
 assert_eq "$(held 'backends:{flatpak:{actionable:2,status:"ok"}},actionable:2' "$OFFL" updateAsksHeld)" "false" "Flatpak alone asks nothing"
 assert_eq "$(free "$PEND" "$OFFL" updateAsksHeld)" "false" "...and nobody holding it asks nothing"
@@ -2763,7 +2768,7 @@ GENERIC='{staged_at:"2026-09-02T10:31:00+03:00",count:61,armed:true,holds_confli
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedType')" "positive" \
   "an armed stage with no hold behind it is the Positive banner it always was"
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedMessage')" \
-  "61 updates are ready and install on the next restart." \
+  "They install the next time you restart." \
   "...saying the same sentence, word for word"
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedShowRestart')" "true" "...still offering the restart"
 assert_eq "$(sv "$ARMED" "$NOBK" 'stagedStagedAt')" "2026-09-02T10:31:00+03:00" \
@@ -2930,7 +2935,7 @@ assert_eq "$(js 'V("held-only",false).rows[0].held')" "true" \
   "...on a real capture whose every pending update is held"
 
 # --- a staged box says staged, at the top as well as in the banner ------------------------------
-# Staging changed nothing at the top of the popup: the header still said "23 updates available" and
+# Staging changed nothing at the top of the popup: the header still said "23 updates" and
 # Update Now was still lit, directly under a green banner saying the same 23 were staged. The
 # reading a first-timer took from that was "so it did not work?".
 STAGED_HDR='{schema:1,status:"ok",actionable:23,held_total:0,last_check:"2026-09-05T10:31:00+03:00",last_success:"2026-09-05T10:31:00+03:00",backends:{},offline_staged:{staged_at:"2026-09-05T10:31:00+03:00",count:23,armed:true}}'
@@ -2951,7 +2956,7 @@ STAGED_NOCOUNT="$(js "JSON.stringify(Object.assign({}, $STAGED_HDR, {offline_sta
 assert_eq "$(js "L.viewModel($STAGED_NOCOUNT,false).headerText")" "Updates ready for the next restart" \
   "a marker written before the CLI recorded a count loses the number, not the sentence"
 # ...and a box with no stage is untouched.
-assert_eq "$(js 'V("live",false).headerText')" "10 updates available" \
+assert_eq "$(js 'V("live",false).headerText')" "10 updates" \
   "a box with nothing staged still counts what is available"
 assert_eq "$(js 'V("live",false).stagedArmed')" "false" "...and says nothing is armed"
 
@@ -2991,24 +2996,24 @@ assert_eq "$(js "L.stagedVariantOf($CONF1,true).message.indexOf(\"%1\")")" "-1" 
 # The reassuring banner is untouched: it has no conflict, so it has no cost to disclose.
 ARMED_PLAIN='{staged_at:"x",count:61,armed:true}'
 assert_eq "$(js "L.stagedVariantOf($ARMED_PLAIN,false).message")" \
-  "61 updates are ready and install on the next restart." \
+  "They install the next time you restart." \
   "an ordinary armed stage still says what the restart will do, and nothing about staging again"
 # Updates the stage leaves out ride the plain banner: dnf ones the CLI counted, plus Flatpak apps,
 # which never stage. Absent, zero or malformed counts add nothing.
 assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,0).message")" \
-  "61 updates are ready and install on the next restart. 2 other updates are left out." \
+  "They install the next time you restart. 2 other updates wait until after that." \
   "dnf updates published after the stage are named as left out"
 assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:1,armed:true,not_staged:0},false,1).message")" \
-  "1 update is ready and installs on the next restart. 1 other update is left out." \
+  "It installs the next time you restart. 1 other update waits until after that." \
   "...a pending Flatpak app counts too, and one reads as one"
 assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,3).message")" \
-  "61 updates are ready and install on the next restart. 5 other updates are left out." "...and the two add up"
+  "They install the next time you restart. 5 other updates wait until after that." "...and the two add up"
 assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:'2'},false).message")" \
-  "61 updates are ready and install on the next restart." "...a count that is not a number adds nothing"
+  "They install the next time you restart." "...a count that is not a number adds nothing"
 assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true},false,0).message")" \
-  "61 updates are ready and install on the next restart." "...and with nothing left out the banner is unchanged"
+  "They install the next time you restart." "...and with nothing left out the banner is unchanged"
 assert_eq "$(js "L.stagedVariantOf({staged_at:'x',count:61,armed:true,not_staged:2},false,0).message")" \
-  "61 updates are ready and install on the next restart. 2 other updates are left out." \
+  "They install the next time you restart. 2 other updates wait until after that." \
   "...and the whole sentence, the accessible name, says it too"
 
 # --- the message stack, capped at two -----------------------------------------------------------
@@ -3177,6 +3182,11 @@ assert_eq "$(js "L.viewModel($STALE_FTR,false).staleReason")" "dnf check failed"
   "...with the CLI's own reason still published, for the tooltip beside the button that retries"
 assert_eq "$(js 'L.COPY.lastCheckFailed')" "last check failed" \
   "copy: the three words the footer gains while the counts above it are stale"
+STALE_NOTHING='{schema:1,status:"stale",actionable:0,held_total:0,error:"dnf check failed",last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T10:00:00+03:00",backends:{}}'
+assert_eq "$(js "L.viewModel($STALE_NOTHING,false,'',{nowMs:Date.parse('2026-09-05T12:00:00+03:00')}).headerText")" \
+  "Last check failed" "a stale box with nothing waiting says so in the header"
+assert_eq "$(js "L.viewModel($STALE_NOTHING,false,'',{nowMs:Date.parse('2026-09-05T12:00:00+03:00')}).footerText")" \
+  "Checked 2 hours ago" "...so the footer does not repeat it"
 FRESH_FTR='{schema:1,status:"ok",actionable:3,held_total:0,last_check:"2026-09-05T12:00:00+03:00",last_success:"2026-09-05T12:00:00+03:00",backends:{}}'
 assert_eq "$(js "L.viewModel($FRESH_FTR,false,'',{nowMs:Date.parse('2026-09-05T12:00:00+03:00')}).footerText.indexOf('last check failed')")" \
   "-1" "...and a healthy box says nothing of the kind"
@@ -3238,13 +3248,13 @@ assert_eq "$(js 'L.COPY.installOnNextRestartTooltip')" \
   "System updates install during the next restart. Apps update now." \
   "copy: and what it does, which is the whole argument for choosing it"
 assert_eq "$(js 'L.COPY.kernelRestart')" \
-  "This update includes a new kernel, so the next restart is the safest time to install it." \
+  "The next restart is the safest time to install a new kernel." \
   "copy: the kernel sentence, which recommends the button standing under it"
 assert_eq "$(js 'L.COPY.kernelNvidiaRestart')" \
-  "This update includes a new kernel and NVIDIA driver, so the next restart is the safest time to install them." \
+  "The next restart is the safest time to install a new kernel and NVIDIA driver." \
   "copy: and the one that names the driver too"
 assert_eq "$(js 'L.COPY.riskySession')" \
-  "This update changes parts your desktop is using (%1), so the next restart is the safest time to install it." \
+  "The next restart is the safest time to change parts your desktop is using (%1)." \
   "copy: a session-critical set with no kernel in it"
 assert_eq "$(js 'L.COPY.held')" "held" "copy: held, never \"held back\" - the CLI says Held and the command is kempt hold"
 assert_eq "$(js 'L.COPY.restartPending')" "restart pending" "copy: the two-word fact in the footer"
@@ -3253,11 +3263,11 @@ assert_eq "$(js 'L.COPY.noSuccessfulCheckYet')" "No successful check yet" \
 assert_eq "$(js 'L.COPY.showLog')" "Show Log" "copy: the log action"
 assert_eq "$(js 'L.COPY.noPackageChanges')" "No packages changed." "copy: a run that changed nothing"
 assert_eq "$(js 'L.COPY.updateFailed')" "The update failed" "copy: a run that failed"
-assert_eq "$(js 'L.COPY.stagedOne')" "1 update is ready and installs on the next restart" \
+assert_eq "$(js 'L.COPY.stagedOne')" "It installs the next time you restart" \
   "copy: the staged message for exactly one update"
-assert_eq "$(js 'L.COPY.stagedUnknownCount')" "Updates are ready and install on the next restart" \
+assert_eq "$(js 'L.COPY.stagedRunDone')" "Updates are ready and install on the next restart." \
   "copy: the staged message when the count is not known"
-assert_eq "$(js 'L.COPY.stagedTail')" "are ready and install on the next restart" \
+assert_eq "$(js 'L.COPY.stagedTail')" "They install the next time you restart" \
   "copy: the tail the counted spelling shares with it"
 # The HEADER while a transaction is armed. Three spellings, the same three the banner has and for
 # the same reasons: the count can be unknown, and one update moves the noun and the verb together.

@@ -25,6 +25,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The warning about a hold behind prepared updates is shorter:** "You held firefox after these updates were prepared, so it still installs. Discard them and install again to skip it." The download cost of discarding is in the button's tooltip.
 - **A service that failed offers Startup Report.** **Copy Command** moved to the report page, and the message reads "Bluetooth failed to start after the update. System service: bluetooth.service."
 - **Failures and notifications about updates waiting for the next restart say downloaded, prepared or ready**, not staged, and the widget draws them without "See: kempt doctor" beside its **Check Installation** button. `kempt summary` and other terminal text keep the word for now.
+- Shorter widget sentences. The count goes in the header and the sentence under it says when: "They install the next time you restart." The header no longer says "available". The kernel recommendation reads "The next restart is the safest time to install a new kernel.", it names only parts with a plain name, and a failed check no longer says "just now" or repeats "last check failed" in the footer.
 
 ### Removed
 

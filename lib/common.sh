@@ -4443,8 +4443,8 @@ KEMPT_JQ_STATUS='
            | (if $held_total > 0 then $nothing_waiting + dot + ($held_total | tostring) + " " + status_copy.held
               elif $user_unchecked then $nothing_waiting + dot + status_copy.userAppsUncheckedShort
               else $nothing_waiting end)
-         elif $actionable == 1 then "1 update available"
-         else ($actionable | tostring) + " updates available" end) as $header
+         elif $actionable == 1 then "1 update"
+         else ($actionable | tostring) + " updates" end) as $header
       | (if (($s.risky_pending | type) == "array") then [$s.risky_pending[] | tostring] else [] end) as $risky
       | "H\u001f" + ($header | clean),
         (if $never_answered then ($s | check_problem | select(. != "") | "P\u001f" + (. | clean)) else empty end),

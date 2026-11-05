@@ -166,7 +166,7 @@ p.check("an engine that answers clears the flag", ev("root.engineFault"), "")
 p.check("a fresh widget runs a check on load", ev("root.kemptState !== null"), True)
 p.check("the badge shows the CLI's actionable count", ev("root.vm.badgeText"), "10")
 p.check("...and the icon state that goes with it", ev("root.vm.iconState"), "updates")
-p.check("the tooltip comes out of the same view model", ev("root.vm.tooltipMain"), "10 updates available")
+p.check("the tooltip comes out of the same view model", ev("root.vm.tooltipMain"), "10 updates")
 p.check("the check interval is read from `kempt config`", ev("root.refreshIntervalMin"), 15)
 p.check("...and the timer actually uses it", ev("checkTimer.interval"), 15 * 60000)
 # pollWatch stats through executor.run, so the baseline is a SUBPROCESS: it lands some time after

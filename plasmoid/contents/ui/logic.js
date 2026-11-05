@@ -169,12 +169,12 @@ var COPY = {
     // NVIDIA driver is with it. Each is the reason for the question Update Now asks, whose buttons
     // answer it.
     kernelRestart:
-        "This update includes a new kernel, so the next restart is the safest time to install it.",
+        "The next restart is the safest time to install a new kernel.",
     kernelNvidiaRestart:
-        "This update includes a new kernel and NVIDIA driver, so the next restart is the safest time to install them.",
+        "The next restart is the safest time to install a new kernel and NVIDIA driver.",
     // ...and with no kernel in the set. The family list is the evidence for the claim.
     riskySession:
-        "This update changes parts your desktop is using (%1), so the next restart is the safest time to install it.",
+        "The next restart is the safest time to change parts your desktop is using (%1).",
     // Said before the question, out loud only: nothing else tells a listener the press started nothing.
     riskyAskLead: "Nothing is installed yet.",
     // The status line's half of the same fact, on screen before any press.
@@ -237,13 +237,13 @@ var COPY = {
     countsFrom: "The counts are from %1.",
     // A Check for Updates whose fetch did not land, over counts the check still answered from the
     // lists already here. It says why, and %1 is when those lists are from, where that is the news.
-    fetchNoServers: "Kempt could not reach the update servers, so this list may be out of date.",
-    fetchFailed: "The check failed, so this list is from %1.",
-    fetchFailedNoAge: "The check failed, so this list may be out of date.",
-    fetchWaitsForPower: "Kempt skips the online check on battery, so this list may be out of date.",
-    fetchWaitsForUnmetered: "Kempt skips the online check on a metered connection, so this list may be out of date.",
-    fetchMissed: "Kempt did not download fresh lists, so this list is from %1.",
-    fetchMissedNoAge: "Kempt did not download fresh lists, so this list may be out of date.",
+    fetchNoServers: "Kempt could not reach the update servers, so this may be out of date.",
+    fetchFailed: "The check failed, so this is from %1.",
+    fetchFailedNoAge: "The check failed, so this may be out of date.",
+    fetchWaitsForPower: "Kempt skips the online check on battery, so this may be out of date.",
+    fetchWaitsForUnmetered: "Kempt skips the online check on a metered connection, so this may be out of date.",
+    fetchMissed: "Kempt did not download fresh update info, so this is from %1.",
+    fetchMissedNoAge: "Kempt did not download fresh update info, so this may be out of date.",
     // The button on fetchWaitsFor* and under the battery and metered no-cache hints. One press runs
     // one check that downloads anyway. Its tooltip follows the reason the check published.
     downloadAnyway: "Download Anyway",
@@ -266,15 +266,16 @@ var COPY = {
     // and verb move together ("1 update IS staged and INSTALLS"). `stagedTail` stays a
     // FRAGMENT for the plural spellings only, so the two say the identical thing about the
     // identical transaction; the tests pin the finished sentences, not the pieces.
-    stagedTail: "are ready and install on the next restart",
-    stagedOne: "1 update is ready and installs on the next restart",
-    stagedUnknownCount: "Updates are ready and install on the next restart",
+    stagedTail: "They install the next time you restart",
+    stagedOne: "It installs the next time you restart",
+    // ...and a finished run's own line, with no header above it to say what "they" are.
+    stagedRunDone: "Updates are ready and install on the next restart.",
     // ...and the updates the stage leaves out: dnf updates published after it was built
     // (offline_staged.not_staged) and pending Flatpak apps, which never stage. Worded as a fact
     // about the stage, never a promise of when they install: dnf may skip some of them, and the
     // Flatpak list can be stale after a failed check.
-    stagedOthersOne: "1 other update is left out.",
-    stagedOthersMore: "%1 other updates are left out.",
+    stagedOthersOne: "1 other update waits until after that.",
+    stagedOthersMore: "%1 other updates wait until after that.",
 
     // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
     // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
@@ -286,7 +287,7 @@ var COPY = {
     lastRunNothingStaged: "the next restart has nothing to install",
 
     // ...and the HEADER over that banner, same three spellings, same reasons. While a stage is
-    // armed the pending count is a true number saying a false thing: "23 updates available" over a
+    // armed the pending count is a true number saying a false thing: "23 updates" over a
     // green banner about the same 23 reads as "so it did not work?". The BADGE is deliberately
     // untouched - those updates really are pending until the restart runs.
     stagedHeaderOne: "1 update ready for the next restart",
@@ -304,7 +305,7 @@ var COPY = {
     restartHeldBanner: "Another updater has prepared your next restart.",
     restartHeldFooter: "the next restart belongs to another updater",
     // Update Now with system updates waiting: a live run may cancel what that updater prepared.
-    restartHeldAsk: "Another updater has prepared your next restart, and updating now may stop its update from installing.",
+    restartHeldAsk: "Updating now may stop another updater's prepared update from installing.",
 
     // ...and the three the banner has once a hold lands behind the stage. These REPLACE
     // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
@@ -398,7 +399,7 @@ var COPY = {
     // which from an exit code, so it names none of them and hands over the one command that can.
     // The header above it already says the engine will not run, so this does not repeat it.
     engineUnrunnable: "The engine is installed but cannot start, so nothing can check for updates.",
-    engineUnrunnableFix: "Check Installation can find the problem. If it cannot start, its error says why.",
+    engineUnrunnableFix: "Press Check Installation to find the problem.",
     engineUnrunnableCopy: "kempt doctor",
     // The Copy button's label, which follows its payload rather than being fixed: the install
     // remedy is two commands and the repair one is a single command, and a button offering to copy
@@ -1010,12 +1011,15 @@ function labelFor(family) {
 // the sentence's job is to say what those packages ARE. The terminal listing keeps the name beside
 // the label, because there the name is the row's identity and there is room for both.
 function riskyFamiliesOf(names) {
-    var fams = familiesOf(names, RISKY_FAMILIES_SHOWN), out = [], i, lbl;
-    for (i = 0; i < fams.shown.length; i++) {
-        lbl = labelFor(fams.shown[i]);
-        out.push(lbl !== "" ? lbl : fams.shown[i]);
+    // Only the parts with a plain name. A set with none of them still says what it holds.
+    var all = familiesOf(names, 0).shown, out = [], i, lbl;
+    for (i = 0; i < all.length; i++) {
+        lbl = labelFor(all[i]);
+        if (lbl !== "") out.push(lbl);
     }
-    return out.join(", ") + (fams.total > fams.shown.length ? ", …" : "");
+    if (out.length === 0) out = all;
+    var shown = out.slice(0, RISKY_FAMILIES_SHOWN);
+    return shown.join(", ") + (out.length > shown.length ? ", …" : "");
 }
 
 // pendingNamesOf(sections, riskyNames) -> "kernel-core, bash, curl and 7 more", for the panel
@@ -1086,9 +1090,9 @@ function riskyHasKernel(names) {
 function stagedMessageOf(staged) {
     if (!staged || typeof staged !== "object" || isArray(staged)) return "";
     var n = staged.count;
-    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedUnknownCount;
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedTail;
     // Exactly one takes the singular - zero is plural in English ("0 updates"), so `=== 1`.
-    return n === 1 ? COPY.stagedOne : n + " updates " + COPY.stagedTail;
+    return n === 1 ? COPY.stagedOne : COPY.stagedTail;
 }
 
 // --- how many messages the popup may show at once ------------------------------------------------
@@ -1847,7 +1851,9 @@ function fetchMissedOf(state, askedMs, pressStamp) {
     // No stamp means nobody knows how old the lists are. Measured at the check, so the sentence does
     // not change while the widget is open.
     if (!stamped) return named ? COPY.fetchMissedNoAge : COPY.fetchFailedNoAge;
-    return (named ? COPY.fetchMissed : COPY.fetchFailed).replace("%1", relativeTime(state.metadata_refreshed, checked));
+    var when = relativeTime(state.metadata_refreshed, checked);
+    if (when === "just now") return named ? COPY.fetchMissedNoAge : COPY.fetchFailedNoAge;
+    return (named ? COPY.fetchMissed : COPY.fetchFailed).replace("%1", when);
 }
 
 // servedBeforePress(state, askedMs) -> whether a check started at `askedMs` answered with a state
@@ -2156,7 +2162,7 @@ function postRunLine(run) {
     if (run.surface === "offline" && run.stagedNothing !== null) {
         return run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending;
     }
-    if (run.surface === "offline") return COPY.stagedUnknownCount + ".";
+    if (run.surface === "offline") return COPY.stagedRunDone;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     if (n === 0) return COPY.noPackageChanges;
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
@@ -2635,7 +2641,7 @@ function viewModel(state, updating, cliError, opts) {
         countPhrase = actionable === 0
             ? (heldTotal > 0 ? nothingWaiting + DOT + heldTotal + " " + COPY.held
                 : userUnchecked ? nothingWaiting + DOT + COPY.userAppsUncheckedShort : nothingWaiting)
-            : (actionable === 1 ? "1 update available" : actionable + " updates available");
+            : (actionable === 1 ? "1 update" : actionable + " updates");
     }
 
     // --- a transaction that is already staged and armed ------------------------------------------
@@ -2915,10 +2921,10 @@ function viewModel(state, updating, cliError, opts) {
     // check has not finished") would be a promise about a check that will never finish. The
     // placeholder hides itself on empty text.
     else if (noEngine) emptyStateText = "";
-    else if (iconState === "unknown") emptyStateText = "No update data yet. The first check has not finished.";
+    else if (iconState === "unknown") emptyStateText = "The first check has not finished.";
     else if (iconState === "error") emptyStateText = problemText;
     else if (nothingKnown) {
-        emptyStateText = stale ? "No updates in the last known state."
+        emptyStateText = stale ? "No updates found the last time Kempt could check."
             : (userUnchecked ? COPY.userAppsUnchecked : COPY.everythingUpToDate);
     }
 
@@ -3013,7 +3019,7 @@ function viewModel(state, updating, cliError, opts) {
         }
         // ...and the staleness, beside the date it explains. Not an alarm - the counts above are
         // still the best known truth - with the CLI's reason one hover away on the retry button.
-        if (stale) footerParts.push(COPY.lastCheckFailed);
+        if (stale && headerText.indexOf(COPY.lastCheckFailedHeader) < 0) footerParts.push(COPY.lastCheckFailed);
         if (userUnchecked) footerParts.push(COPY.userAppsUncheckedShort);
         // ...and how old the metadata behind those counts is, which the dateline above cannot say.
         // The two are different clocks: the check ran four minutes ago, the metadata it answered
@@ -3041,7 +3047,7 @@ function viewModel(state, updating, cliError, opts) {
     // What Check for Updates says out loud when it lands, in the words already on screen. ONE
     // sentence for both places that can speak it (the panel icon while the popup is closed, the
     // popup while it is open), so the two cannot drift apart.
-    //   * the line at the top, which is the answer: "3 updates available", "Up to date", or that
+    //   * the line at the top, which is the answer: "3 updates", "Up to date", or that
     //     the engine is missing or will not run.
     //   * a check that failed: which half failed and how old the counts are (staleAnswerOf). The
     //     counts at the top are the old ones, and reading them out as the answer would be the

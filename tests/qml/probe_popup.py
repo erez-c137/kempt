@@ -1029,16 +1029,16 @@ p.check("...and Update Now GONE, because the work it would start is already done
         lev("updateButton.visible"), False)
 p.check("...announced as it arrives, since a name change on an unfocused alert is readable "
         "and not spoken", said(),
-        ["61 updates are ready and install on the next restart. "
-         "3 other updates are left out."])
+        ["They install the next time you restart. "
+         "3 other updates wait until after that."])
 # The fixture's three pending Flatpak apps are not in the stage, so the banner says they wait.
-p.check("...saying how many and what else waits",
+p.check("...saying when, and what else waits",
         lev("stagedMessage.text"),
-        "61 updates are ready and install on the next restart. 3 other updates are left out.")
-p.check("...while its accessible name is the whole sentence, with the count",
+        "They install the next time you restart. 3 other updates wait until after that.")
+p.check("...while its accessible name is the whole sentence",
         lev("stagedMessage.Accessible.name"),
-        "61 updates are ready and install on the next restart. "
-        "3 other updates are left out.")
+        "They install the next time you restart. "
+        "3 other updates wait until after that.")
 p.check("...as a Positive message: nothing is wrong and nothing needs pressing",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Positive"))
 p.check("...and offering the restart, since no restart message is carrying it",
@@ -1078,7 +1078,7 @@ STAGED_NOCOUNT = staged_from("state-live.json", "state-staged-nocount.json", Non
 state(STAGED_NOCOUNT)
 # The fixture's pending Flatpak apps add their own sentence after it, so only the first is compared.
 p.check("an unknown count loses the number, not the sentence",
-        lev("stagedMessage.Accessible.name.split('. ')[0]"), ev("Logic.COPY.stagedUnknownCount"))
+        lev("stagedMessage.Accessible.name.split('. ')[0]"), ev("Logic.COPY.stagedTail"))
 
 # --- the banner FLIPS when a hold lands behind the stage ------------------------
 # The trap, in the user's own order: stage 61 updates with a kernel among them, read something
@@ -1497,7 +1497,7 @@ p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
 p.check("a refused discard reports the CLI's reason, which names the upgrade it protected",
         str(ev("root.actionMessage")).startswith("Nothing was discarded, because that would also cancel the Fedora"
-                                                 " upgrade (45) is stored"), True)
+                                                 " 45 upgrade"), True)
 p.check("...as a failure, in red, because the thing that was asked for did not happen",
         ev("root.reportFailed"), True)
 p.check("...and the staged banner is still there, because nothing was discarded",
@@ -2151,7 +2151,7 @@ lev("refreshButton.clicked()")
 settle()
 p.check("a Check for Updates that finds updates says the header out loud, once",
         said(), [lev("popup.vm.headerText")])
-p.check("...which is the count the person can see", "updates available" in said()[0], True)
+p.check("...which is the count the person can see", " updates" in said()[0], True)
 p.check("...and the panel icon stays quiet while the popup is open", compact_said(), [])
 hush()
 open(CHECKSRC, "w").write(UPTODATE)
@@ -2165,7 +2165,7 @@ open(CHECKSRC, "w").write(fixture("state-live.json"))
 ev("root.doCheck(true)")
 settle()
 p.check("a background check that changes the count says nothing", said(), [])
-p.check("...though the header did change", "updates available" in str(lev("popup.vm.headerText")),
+p.check("...though the header did change", " updates" in str(lev("popup.vm.headerText")),
         True)
 # ...and neither does a check the person caused some other way (Check again, a hold, a discard):
 # those each announce their own outcome.
@@ -3441,8 +3441,8 @@ _ASSEMBLED_IN_LOGIC = {
     "stagedNothingNonePending",  # -> postRunLine, the other reason it can have staged nothing
     "lastRunNothingStaged",  # -> lastRunText, the past-tense row for the same run
     "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
+    "stagedRunDone",  # -> postRunLine, after a run that prepared updates
     "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
-    "stagedUnknownCount",   # -> stagedMessageOf -> vm.stagedMessage
     "stagedHeaderOne",      # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
     "stagedHeaderTail",     # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
     "stagedHeaderUnknown",  # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain

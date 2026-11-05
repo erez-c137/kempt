@@ -494,7 +494,7 @@ and a restart owed. The footer says when the check ran, the age of the lists and
 When another updater has prepared the next restart, a line says that restart belongs to it.
 
 ```
-10 updates available
+10 updates
 
 System (dnf): 7 updates for kernel-core, bash, curl, tar, and 3 more
 Apps (flatpak): 3 updates for org.gimp.GIMP, net.mkiol.SpeechNote and org.mozilla.firefox
