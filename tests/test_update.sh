@@ -384,6 +384,35 @@ assert_eq "$(ls "$KEMPT_STATE_DIR/history/" | wc -l)" "$hist_before" "...and no 
 assert_eq "$(tail -n 1 "$KEMPT_STATE_DIR/events.log" | grep -c 'stopped watching')" "1" "...and the event log says the watching stopped"
 assert_eq "$(wc -l < "$WORLD/notifications")" "0" "...and no notification says it did"
 if flock -n "$KEMPT_STATE_DIR/lock" true 2>/dev/null; then echo "ok: ...and the lock is free for the next run"; else echo "FAIL: lock still held"; _fail=1; fi
+# Ctrl-C reaches every process of the terminal's group, tee too. Its line must still get through.
+cat > "$TESTTMP/apply-wait-for-int" <<EOF
+#!/usr/bin/env bash
+trap 'sleep 0.3; echo "the words after Ctrl-C" >&2; exit 130' INT
+: > "$TESTTMP/apply-waiting"
+for _ in {1..100}; do sleep 0.1; done
+exit 1
+EOF
+chmod +x "$TESTTMP/apply-wait-for-int"
+ctrlc_group="$(KEMPT_ASSUME_TTY=1 KEMPT_APPLY_HELPER="$TESTTMP/apply-wait-for-int" python3 - "$KEMPT" "$TESTTMP/apply-waiting" <<'PY'
+import os, signal, subprocess, sys, time
+def fresh():
+    for s in (signal.SIGINT, signal.SIGQUIT, signal.SIGHUP, signal.SIGTERM):
+        signal.signal(s, signal.SIG_DFL)
+p = subprocess.Popen([sys.argv[1], "update", "--no-flatpak", "--surface=popup"], stdin=subprocess.DEVNULL,
+                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, start_new_session=True, preexec_fn=fresh)
+for _ in range(300):
+    if os.path.exists(sys.argv[2]):
+        break
+    time.sleep(0.1)
+time.sleep(0.3)
+os.killpg(p.pid, signal.SIGINT)
+print(p.communicate(timeout=30)[0].decode(errors="replace"))
+print("rc=%d" % p.returncode)
+PY
+)"
+assert_contains "$ctrlc_group" "the words after Ctrl-C" "Ctrl-C to the whole terminal group: the helper's last words still reach the person"
+assert_contains "$ctrlc_group" "rc=130" "...and kempt update ends with 130"
+
 # A next run while dnf5 goes on: the fixed unit name refuses, in words a person can use.
 cat > "$TESTTMP/apply-busy" <<EOF
 #!/usr/bin/env bash
