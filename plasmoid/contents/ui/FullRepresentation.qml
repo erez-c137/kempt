@@ -684,11 +684,11 @@ PlasmaExtras.Representation {
                 // first: the heading is never a tab stop, and Update Now says it when it is there.
                 Accessible.description: [
                     updateButton.visible ? "" : popup.vm.headerText,
-                    i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer."),
-                    popup.vm.stale ? popup.vm.staleReason : ""
+                    i18n("Checks for updates now, instead of waiting for the timer."),
+                    popup.vm.staleTip
                 ].filter(s => s.length > 0).join("\n")
-                PlasmaComponents.ToolTip.text: popup.vm.stale && popup.vm.staleReason.length > 0
-                                               ? text + "\n" + popup.vm.staleReason : text
+                PlasmaComponents.ToolTip.text: popup.vm.staleTip.length > 0
+                                               ? text + "\n" + popup.vm.staleTip : text
                 PlasmaComponents.ToolTip.visible: hovered || visualFocus
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
                 // QQC2 activates on Space only. The shipped Plasma pattern is per button, not one
@@ -939,7 +939,7 @@ PlasmaExtras.Representation {
                     // for. On a warning it is the first half of the remedy. It is on the green
                     // banner too: staging an update and then thinking better of it is not a problem
                     // anybody should have to open a terminal to fix.
-                    text: i18n("Discard Update")
+                    text: i18n("Discard Updates")
                     icon.name: "edit-delete"
                     // The tooltip is the disclosure, not a hint. Accessible.description carries the
                     // identical words because a polkit dialog takes the focus the moment this is
@@ -1119,12 +1119,12 @@ PlasmaExtras.Representation {
                 // On battery or a metered connection, one press downloads the lists anyway.
                 Kirigami.Action {
                     id: fetchAnywayAction
-                    text: i18n("Download Anyway")
+                    text: i18n("Check Anyway")
                     icon.name: "download"
                     visible: popup.vm.fetchMissedAnyway.length > 0
                     tooltip: popup.vm.fetchMissedAnyway === "metered"
-                             ? i18n("Downloads fresh package lists now over this metered connection.")
-                             : i18n("Downloads fresh package lists now, on battery power.")
+                             ? i18n("Checks online now over this metered connection.")
+                             : i18n("Checks online now on battery power.")
                     enabled: visible && !popup.plasmoidItem.updating
                     onTriggered: source => popup.plasmoidItem.downloadAnyway()
                 }
@@ -1574,16 +1574,16 @@ PlasmaExtras.Representation {
                 onTriggered: source => popup.plasmoidItem.runDoctor()
             }
 
-            // ...or, under the battery and metered hints, Download Anyway: the lists were never
+            // ...or, under the battery and metered hints, Check Anyway: the lists were never
             // downloaded, and one press fetches them now. Enabled while a check runs: the press
             // runs next.
             Kirigami.Action {
                 id: anywayPlaceholderAction
-                text: i18n("Download Anyway")
+                text: i18n("Check Anyway")
                 icon.name: "download"
                 tooltip: popup.vm.problemAnyway === "metered"
-                         ? i18n("Downloads fresh package lists now over this metered connection.")
-                         : i18n("Downloads fresh package lists now, on battery power.")
+                         ? i18n("Checks online now over this metered connection.")
+                         : i18n("Checks online now on battery power.")
                 enabled: popup.vm.problemAnyway.length > 0 && !popup.plasmoidItem.updating
                 onTriggered: source => popup.plasmoidItem.downloadAnyway()
             }
@@ -1984,7 +1984,7 @@ PlasmaExtras.Representation {
             // control that leaves the screen takes the keyboard with it.
             enabled: !popup.plasmoidItem.checking
             Accessible.name: text
-            Accessible.description: i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+            Accessible.description: i18n("Checks for updates now, instead of waiting for the timer.")
             Keys.onReturnPressed: animateClick()
             Keys.onEnterPressed: animateClick()
             onClicked: popup.plasmoidItem.checkAgain()

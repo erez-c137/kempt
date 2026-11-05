@@ -656,7 +656,7 @@ assert_eq "$(jq -r '.refresh_skipped // "absent"' <<<"$st_off")" "off" \
   "...and with refreshing turned off it says off, beside the old failure it did not retry"
 rm -f "$REFRESH_DNF_FAILED_FILE"
 
-# --- Download Anyway: one check, by request, past the battery and metering rules ------------------
+# --- Check Anyway: one check, by request, past the battery and metering rules ------------------
 # --anyway implies --refresh and passes the two rules --refresh may not. Each override is logged,
 # every time, and the check publishes no refresh_skipped, so the widget's message clears.
 anyways() { grep -c 'refresh anyway' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }

@@ -98,7 +98,7 @@ refreshes them at most once every 3 hours, which is the only network use, and sk
 or a metered connection. On a fresh install the first check refreshes before it asks, and a backend
 that cannot reports `stale` until a refresh succeeds. Old metadata shows in the widget's footer, in
 `kempt doctor`, and in the event log, which records a skipped refresh once a day. To fetch anyway,
-run `kempt check --anyway` or press **Download Anyway** in the widget.
+run `kempt check --anyway` or press **Check Anyway** in the widget.
 
 A check also records a staged update once the restart has installed it, and clears Kempt's record
 of a stage that has gone.
@@ -499,7 +499,7 @@ When another updater has prepared the next restart, a line says that restart bel
 System (dnf): 7 updates for kernel-core, bash, curl, tar, and 3 more
 Apps (flatpak): 3 updates for org.gimp.GIMP, net.mkiol.SpeechNote and org.mozilla.firefox
 
-Checked 2 hours ago · lists 2 days old
+Checked 2 hours ago · update info 2 days old
 Last update 3 days ago · 41 updated
 ```
 
@@ -651,7 +651,7 @@ Its wording is fixed, so you can search it:
 | `refresh ok` / `refresh failed` | The dnf metadata refresh ran. |
 | `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak refresh ran in the same step, while `include_flatpak` is on. Either can fail alone. |
 | `refresh skipped (<reason>)` | Skipped on battery or a metered connection. At most once a day. |
-| `refresh anyway (on battery)` / `refresh anyway (the connection is metered)` | `--anyway` or **Download Anyway** fetched past that rule. Every time. |
+| `refresh anyway (on battery)` / `refresh anyway (the connection is metered)` | `--anyway` or **Check Anyway** fetched past that rule. Every time. |
 | `run start surface=<surface>` | A run is about to change the system. |
 | `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |

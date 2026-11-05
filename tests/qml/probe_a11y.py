@@ -577,7 +577,7 @@ p.check("...each one saying exactly what its tooltip says, so the two can never 
 # pressing this DOES. Bound to `text` it was the label spoken twice and nothing learned.
 p.check("the Refresh icon also says what pressing it does",
         lev("refreshButton.Accessible.description"),
-        "Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+        "Checks for updates now, instead of waiting for the timer.")
 p.check("...and the gear says what is behind it", lev("configureButton.Accessible.description"),
         "Check interval, where updates run, and the packages you hold.")
 p.check("...neither of them repeating its own label",
@@ -609,8 +609,8 @@ state(fixture("state-stale.json"))
 p.pump(120)
 p.check("staleness is on the footer now, beside the date it explains",
         "last check failed" in str(lev("footerLabel.text")), True)
-p.check("...and the reason a person has to act on is on the button that acts",
-        "dnf check failed" in str(lev("refreshButton.Accessible.description")), True)
+p.check("...and which half failed is on the button that acts",
+        "The check failed" in str(lev("refreshButton.Accessible.description")), True)
 
 # Unused Flatpak runtimes: an offer, last in the stack. Derived from the up-to-date state with a
 # reclaim block added, in the shape cmd_check writes, so nothing else in the stack competes for
@@ -854,7 +854,7 @@ def _code(name):
 # text-only and says what pressing it does - it is the ONLY control in that pane, so a person who
 # cannot see the label has nothing else to go on.
 #
-# The second is Discard Update, a labelled button that carries a description anyway: its
+# The second is Discard Updates, a labelled button that carries a description anyway: its
 # tooltip discloses the authorization and that the downloaded packages go with the transaction, and
 # polkit takes the focus the instant it is pressed.
 #

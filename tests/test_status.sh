@@ -151,7 +151,7 @@ assert_contains "$out" "Checked 2 days ago · apps for you only not checked" "..
 
 # Old package lists: the metadata age joins the dateline past a day.
 jq '.metadata_refreshed = "2026-08-24T09:00:00+03:00"' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_contains "$(status)" "Checked 2 days ago · lists 3 days old" "the lists age, past 24 hours"
+assert_contains "$(status)" "Checked 2 days ago · update info 3 days old" "the update info age, past 24 hours"
 
 # Runtimes get their own section, named as people read them.
 jq '.backends.flatpak.items += [{name: "org.kde.Platform/6.9", from: "?", to: "?", held: false, kind: "runtime"}]
@@ -359,7 +359,7 @@ want="$(node -e '
     const vm = L.viewModel({ schema: 1, actionable: 0, status: "ok", last_success: iso,
                              metadata_refreshed: iso, backends: {} }, false, "", { nowMs: now * 1000 });
     // Matched by shape, not by its first word, so a rename of that word fails only on the bash side.
-    const meta = vm.footerText.split(" \u00b7 ").filter((p) => /^\S+ \d+ days? old$/.test(p))[0] || "";
+    const meta = vm.footerText.split(" \u00b7 ").filter((p) => /^update info \d+ days? old$/.test(p))[0] || "";
     console.log(L.relativeTime(iso, now * 1000) + "|" + meta);
   }' "$LOGIC" "$NOW" "$ages")"
 # date -Iseconds writes local time; the stamps differ in zone only, and the absolute fallback

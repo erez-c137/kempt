@@ -1434,7 +1434,7 @@ state(fixture("state-live.json"))
 settle()
 ev('root.discoverOfferAnswered = false; root.actionDone = ""; root.actionMessage = ""')
 
-# --- Discard Update, the same banner's other way out ---------------------------------
+# --- Discard Updates, the same banner's other way out ---------------------------------
 # `kempt unstage` from the popup, so somebody who staged an update here can undo it here. Consent
 # is given to a banner, and a banner describes ONE staged update: a press must not spend consent on
 # a different one.
@@ -1836,10 +1836,10 @@ ev("root.refreshClock()")
 p.pump(50)
 p.check("...and the reason is on the button that would try again",
         str(lev("refreshButton.PlasmaComponents.ToolTip.text")).endswith(
-            str(ev("root.vm.staleReason"))), True)
+            str(ev("root.vm.staleTip"))), True)
 p.check("...for a screen reader too, since a tooltip is a pointer's channel",
         str(lev("refreshButton.Accessible.description")).endswith(
-            str(ev("root.vm.staleReason"))), True)
+            str(ev("root.vm.staleTip"))), True)
 
 state(UPTODATE)
 stack("with nothing at all pending")
@@ -2248,9 +2248,9 @@ ev("root.refreshClock()")
 hush()
 ev("checkAction.trigger()")
 settle()
-p.check("a Check for Updates whose fetch did not happen says how old the lists are",
-        said(), ["Up to date. Lists 3 hours old"])
-p.check("...in the footer's own words", "lists 3 hours old" in str(lev("footerLabel.text")),
+p.check("a Check for Updates whose fetch did not happen says how old the update info is",
+        said(), ["Up to date. Update info 3 hours old"])
+p.check("...in the footer's own words", "update info 3 hours old" in str(lev("footerLabel.text")),
         True)
 
 # The same press answered by this check, with the fetch failed for want of a network. A message
@@ -2273,7 +2273,7 @@ p.check("a Check for Updates that could not reach the servers says so in a messa
         [True, _fetch_words, True])
 p.check("...and the answer reads it, once", said(), ["Up to date. " + _fetch_words])
 p.check("...and the footer gives the age",
-        "lists 3 hours old" in str(lev("footerLabel.text")), True)
+        "update info 3 hours old" in str(lev("footerLabel.text")), True)
 # The age is the lists' age at the check, so the clock moving does not rewrite or re-read it.
 hush()
 ev("root.nowMs = Date.now() + 3600000")
@@ -2310,7 +2310,7 @@ ev("checkAction.trigger()")
 settle()
 p.check("premise: a new press that missed shows the message again",
         lev("reportMessage.visible"), True)
-p.check("...and a fetch that failed offers no Download Anyway",
+p.check("...and a fetch that failed offers no Check Anyway",
         [lev("fetchAnywayAction.visible"), lev("fetchAnywayAction.enabled")], [False, False])
 _fetched = dict(_failed, metadata_refreshed=datetime.datetime.now().astimezone().isoformat(
     timespec="seconds"), backends=_missed["backends"], last_check=(
@@ -2323,7 +2323,7 @@ settle()
 p.check("a later Check for Updates that fetched shows no message",
         [lev("reportMessage.visible"), ev("root.vm.reportFetchMessage")], [False, ""])
 
-# Download Anyway: on a fetch skipped for battery or a metered link, the message carries one button.
+# Check Anyway: on a fetch skipped for battery or a metered link, the message carries one button.
 # Its press runs one check with --anyway, and that check's answer clears the message.
 def _stamp(seconds):
     return (datetime.datetime.now().astimezone()
@@ -2333,10 +2333,10 @@ open(os.path.join(p.sandbox, "state-skipped.json"), "w").write(json.dumps(_skipp
 open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-skipped.json"))
 ev("checkAction.trigger()")
 settle()
-p.check("a fetch skipped on battery offers Download Anyway on its message",
+p.check("a fetch skipped on battery offers Check Anyway on its message",
         [lev("reportMessage.visible"), lev("fetchAnywayAction.visible"),
          lev("fetchAnywayAction.enabled"), lev("fetchAnywayAction.text")],
-        [True, True, True, "Download Anyway"])
+        [True, True, True, "Check Anyway"])
 p.check("...with the battery tooltip", lev("fetchAnywayAction.tooltip"),
         ev("Logic.COPY.downloadAnywayPowerTip"))
 ev("root.kemptState = JSON.parse(%s)" % json.dumps(json.dumps(dict(_skipped, refresh_skipped="metered"))))
@@ -2373,7 +2373,7 @@ def _show(doc):
     ev("root.kemptState = JSON.parse(%s)" % json.dumps(json.dumps(doc)))
     settle()
 _show(_nocache)
-p.check("lists never downloaded on battery put Download Anyway under the hint",
+p.check("lists never downloaded on battery put Check Anyway under the hint",
         [lev("placeholder.explanation"), lev("placeholder.helpfulAction === anywayPlaceholderAction"),
          lev("anywayPlaceholderAction.enabled"), lev("anywayPlaceholderAction.tooltip")],
         [ev("Logic.COPY.checkNoCachePowerHint"), True, True, ev("Logic.COPY.downloadAnywayPowerTip")])
@@ -2742,8 +2742,8 @@ p.check("...as a warning", lev("blockedMessage.type"), lev("Kirigami.MessageType
 p.check("...and it is drawn", lev("blockedMessage.visible"), True)
 state(_ibpath)
 stack("on an image-based Fedora", "blockedMessage")
-p.check("...naming the tool that does update this machine",
-        "rpm-ostree" in str(lev("blockedMessage.text")), True)
+p.check("...naming what does update this machine",
+        "through Discover" in str(lev("blockedMessage.text")), True)
 p.check("...carrying logic.js's sentence rather than a second copy of it",
         lev("blockedMessage.text"), ev("root.vm.blockedMessage"))
 p.check("...as Information: neither the machine nor Kempt is broken",
@@ -3000,9 +3000,9 @@ p.check("staleness is not a message at all any more: the popup fits two, and thi
         json.loads(str(lev("JSON.stringify(popup.messageSlots)"))), [])
 p.check("...the fact is on the footer's dateline",
         "last check failed" in str(lev("footerLabel.text")), True)
-p.check("...and the CLI's own reason, which is what a person has to act on, is one hover from "
-        "the button that acts", "dnf check failed"
-        in str(lev("refreshButton.PlasmaComponents.ToolTip.text")), True)
+p.check("...and which half failed is one hover from the button that acts, in the popup's words",
+        "The check failed" in str(lev("refreshButton.PlasmaComponents.ToolTip.text"))
+        and "dnf" not in str(lev("refreshButton.PlasmaComponents.ToolTip.text")), True)
 
 # --- the post-run line -------------------------------------------------------------------------------
 state(fixture("state-live.json"))

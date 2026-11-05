@@ -253,10 +253,13 @@ assert_eq "$(jq -r '.last_success != .last_check' "$FIXTURES/state-stale.json")"
   "fixture guard: the stale capture's last_success is EARLIER than its last_check"
 assert_eq "$(js 'V("stale",false).iconState')" "stale" "a failed check => stale"
 assert_eq "$(js 'V("stale",false).badgeText')" "10" "stale keeps the LAST KNOWN count on the badge"
-assert_eq "$(js 'V("stale",false).tooltipSub')" "aajohan-comfortaa-fonts, bash, brandnew and 7 more · dnf check failed · Last successful check $ls_stale" \
+assert_eq "$(js 'V("stale",false).tooltipSub')" "aajohan-comfortaa-fonts, bash, brandnew and 7 more · The check failed for System. · Last successful check $ls_stale" \
   "the stale tooltip carries BOTH what went wrong and the last SUCCESSFUL check"
-assert_eq "$(js 'V("stale",false).tooltipSub.indexOf(V("stale",false).staleReason) >= 0')" "true" \
-  "...and the reason it carries is the CLI's own staleReason, verbatim"
+assert_eq "$(js 'V("stale",false).tooltipSub.indexOf("dnf")')" "-1" \
+  "...in the popup's words, never the tool's"
+assert_eq "$(js 'V("stale",false).staleTip')" "The check failed for System." \
+  "...and the Check for Updates tooltip gets the same sentence"
+assert_eq "$(js 'V("live",false).staleTip')" "" "...while a healthy check has none"
 assert_eq "$(js 'V("stale",false).footerTooltip')" "$ls_stale" "the footer's tooltip is the formatted last success"
 assert_eq "$(js 'V("stale",false).staleReason')" "dnf check failed" "the stale reason is the CLI's own error text"
 assert_eq "$(js 'V("never",false).tooltipSub.indexOf("No successful check yet") >= 0')" "true" \
@@ -266,10 +269,10 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"",actionable:1,held
 # Belt and braces on the same rule: stamps render to the minute, so a fixture whose two stamps
 # fall in the same minute would let last_check pass for last_success. These two cannot.
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,held_total:0,last_check:"2026-08-24T23:59:00+03:00",last_success:"2020-01-01T10:30:00+03:00",backends:{}},false).tooltipSub')" \
-  "x · Last successful check 2020-01-01 10:30 +03:00" "the tooltip reads last_success, never last_check"
+  "The check failed. · Last successful check 2020-01-01 10:30 +03:00" "the tooltip reads last_success, never last_check"
 # ...as a relative time, like the footer, once the clock is known.
 assert_eq "$(js 'L.viewModel({schema:1,status:"stale",error:"x",actionable:1,held_total:0,last_check:"2026-08-26T10:00:00+03:00",last_success:"2026-08-25T10:00:00+03:00",backends:{}},false,"",{nowMs:Date.UTC(2026,7,26,7,0,0)}).tooltipSub')" \
-  "x · Last successful check 1 day ago" "the stale tooltip gives the age of the counts in words"
+  "The check failed. · Last successful check 1 day ago" "the stale tooltip gives the age of the counts in words"
 
 # --- a failed check never says "Up to date" ------------------------------------------------------
 # It says the check failed, however old the last good one. The footer and the tooltip keep the age.
@@ -395,14 +398,14 @@ assert_eq "$(js "$r404.emptyStateText")" \
   "The package lists have not been downloaded yet" \
   "a refresh that reached a server answering 404 is not a network failure"
 assert_eq "$(js "$r404.problemDetail + \"|\" + $r404.problemHint")" \
-  "$err404|dnf could not download them. Its error is below." "...and shows dnf's refresh error under it"
+  "$err404|The download failed. The error is below." "...and shows the refresh error under it"
 assert_eq "$(js "$r404.remedyCommand")" "" "...with no Check Installation, which would find nothing wrong"
 r_empty="L.viewModel($(nc_state ',refresh_error:""'),false)"
 assert_eq "$(js "$r_empty.emptyStateText")" \
   "The package lists have not been downloaded yet" "a refresh that failed silently claims no network cause"
 r_to="L.viewModel($(nc_state ',refresh_error:"dnf makecache timed out"'),false)"
 assert_eq "$(js "$r_to.emptyStateText + \"|\" + $r_to.problemHint")" \
-  "The package lists have not been downloaded yet|dnf could not download them. Its error is below." \
+  "The package lists have not been downloaded yet|The download failed. The error is below." \
   "a refresh that timed out is not called a network failure, and the hint says a refresh ran"
 old="L.viewModel($(nc_state ''),false)"
 assert_eq "$(js "$old.emptyStateText + \"|\" + $old.remedyCommand")" \
@@ -686,7 +689,7 @@ assert_eq "$(js "$ib.updateOffered")" "false" "on an image-based system Update N
 assert_eq "$(js "($IB)().updateOffered")" "true" "...and on an ordinary Fedora it is, exactly as before"
 assert_eq "$(js "$ib.offlineStageOffered")" "false" \
   "...and neither is staging, because the run aborts in pre-flight whatever surface it was asked for"
-assert_eq "$(js "$ib.blockedMessage")" "This computer updates through rpm-ostree, so use Discover to install these updates." \
+assert_eq "$(js "$ib.blockedMessage")" "This computer installs updates through Discover, not Kempt." \
   "the message names the tool that updates this machine and where to go"
 assert_eq "$(js "$ib.blockedOffersDoctor")" "false" "...and offers no button: Discover is the answer"
 assert_eq "$(js "($IB)().blockedMessage")" "" "an ordinary box says nothing about rpm-ostree"
@@ -703,7 +706,7 @@ assert_eq "$(js "$ib.updateAsksFirst")" "false" "...and no question either"
 # A check that found an unsafe folder says updates are paused, before anyone presses a button.
 FP='function (v) { var s = S("risky-heavy"); if (v !== undefined) s.unsafe_folder = v; return L.viewModel(s, false, "", {}); }'
 assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedMessage")" \
-  "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." "an unsafe folder puts the paused message up"
+  "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it." "an unsafe folder puts the paused message up"
 assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").messageSlots.indexOf(\"blocked\") >= 0")" "true" "...in its slot"
 assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedWarns")" "true" "...as a warning"
 assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedOffersDoctor")" "true" "...with Check Installation, which names the folder"
@@ -712,7 +715,7 @@ assert_eq "$(js "($FP)().updateAsksFirst")" "true" "...which it does ask on an o
 assert_eq "$(js "($FP)().blockedMessage")" "" "...and an ordinary box says nothing"
 # One cause at a time, worst first.
 BOTH='function (ib) { var s = S("risky-heavy"); s.image_based = ib; s.unsafe_folder = "/x"; s.release_upgrade = {from:"44",to:"45",state:"armed"}; return L.viewModel(s, false, "", {}); }'
-assert_eq "$(js "($BOTH)(true).blockedMessage.indexOf(\"rpm-ostree\") >= 0")" "true" "an image-based box says that first"
+assert_eq "$(js "($BOTH)(true).blockedMessage.indexOf(\"through Discover\") >= 0")" "true" "an image-based box says that first"
 assert_eq "$(js "($BOTH)(false).blockedMessage")" \
   "A Fedora 45 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it." \
   "...then the folder, with an armed upgrade still said, because the next restart installs it"
@@ -1731,11 +1734,11 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\"}"))')" \
 # in its short form, and the row offers Check Installation, where doctor prints the fix.
 UNSAFE_RUN='{\"status\":\"failed\",\"error\":\"nothing was installed, because other users can change files in /usr/lib/sysimage/libdnf5. See: kempt doctor\"}'
 assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), '')")" \
-  "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." \
+  "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it." \
   "a run the helper refused over an unsafe dnf folder says so on the Last update row"
 HELPER_RUN='{\"status\":\"failed\",\"error\":\"Updates paused for safety: users other than root can change /var/lib. Run kempt doctor for the fix.\"}'
 assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$HELPER_RUN\"))")" \
-  "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." \
+  "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it." \
   "...and so does the helper's own sentence"
 assert_eq "$(js "L.mentionsDoctor(L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), ''))")" "true" \
   "...and the row offers Check Installation"
@@ -2261,11 +2264,11 @@ assert_eq "$(js "L.viewModel(Object.assign({}, $UF, {backends:{flatpak:{items:[]
 mfoot() {  # [metadata_refreshed] → the whole footer line
   js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,last_success:\"2026-08-26T12:00:00+03:00\",backends:{}${1:+,metadata_refreshed:\"$1\"}},false,\"\",{nowMs:$NOW}).footerText"
 }
-assert_eq "$(mfoot 2026-08-23T12:00:00+03:00)" "Checked 4 min ago · lists 3 days old" \
+assert_eq "$(mfoot 2026-08-23T12:00:00+03:00)" "Checked 4 min ago · update info 3 days old" \
   "lists three days old is said, beside the check that answered from it"
-assert_eq "$(mfoot 2026-08-25T12:00:00+03:00)" "Checked 4 min ago · lists 1 day old" \
+assert_eq "$(mfoot 2026-08-25T12:00:00+03:00)" "Checked 4 min ago · update info 1 day old" \
   "...and one day reads as one day, not \"1 days\""
-assert_eq "$(mfoot 2026-08-25T11:00:00+03:00)" "Checked 4 min ago · lists 1 day old" \
+assert_eq "$(mfoot 2026-08-25T11:00:00+03:00)" "Checked 4 min ago · update info 1 day old" \
   "...from the moment it passes 24 hours"
 assert_eq "$(mfoot 2026-08-26T11:00:00+03:00)" "Checked 4 min ago" \
   "metadata fetched an hour ago is not worth a word"
@@ -2282,11 +2285,11 @@ mfoot_asked() {  # metadata_refreshed askedMs
   js "L.viewModel({schema:1,status:\"ok\",actionable:0,held_total:0,last_success:\"2026-08-26T12:00:00+03:00\",backends:{},metadata_refreshed:\"$1\"},false,\"\",{nowMs:$NOW,refreshAskedMs:$2}).footerText"
 }
 ASKED="$(js 'Date.parse("2026-08-26T12:02:00+03:00")')"
-assert_eq "$(mfoot_asked 2026-08-26T09:00:00+03:00 "$ASKED")" "Checked 4 min ago · lists 3 hours old" \
+assert_eq "$(mfoot_asked 2026-08-26T09:00:00+03:00 "$ASKED")" "Checked 4 min ago · update info 3 hours old" \
   "a Check for Updates that got no fetch says how old the metadata is"
-assert_eq "$(mfoot_asked 2026-08-26T11:00:00+03:00 "$ASKED")" "Checked 4 min ago · lists 1 hour old" \
+assert_eq "$(mfoot_asked 2026-08-26T11:00:00+03:00 "$ASKED")" "Checked 4 min ago · update info 1 hour old" \
   "...one hour reads as one hour"
-assert_eq "$(mfoot_asked 2026-08-26T11:55:00+03:00 "$ASKED")" "Checked 4 min ago · lists 9 min old" \
+assert_eq "$(mfoot_asked 2026-08-26T11:55:00+03:00 "$ASKED")" "Checked 4 min ago · update info 9 min old" \
   "...and under an hour, in minutes"
 assert_eq "$(mfoot_asked 2026-08-26T12:02:00+03:00 "$ASKED")" "Checked 4 min ago" \
   "a fetch stamped in the press's own second is the press's fetch, and says nothing"
@@ -2301,31 +2304,31 @@ answer() {  # state-json askedMs [engineFault]
 OK_STATE='{schema:1,status:"ok",actionable:0,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{},metadata_refreshed:"2026-08-26T09:00:00+03:00"}'
 assert_eq "$(answer "$OK_STATE" 0)" "Up to date" \
   "a Check for Updates answer is the line at the top"
-assert_eq "$(answer "$OK_STATE" "$ASKED")" "Up to date. Lists 3 hours old" \
+assert_eq "$(answer "$OK_STATE" "$ASKED")" "Up to date. Update info 3 hours old" \
   "...with the metadata age when the fetch it asked for did not happen"
 STALE_STATE='{schema:1,status:"stale",error:"dnf check failed",actionable:0,held_total:0,last_success:"2026-08-26T12:00:00+03:00",backends:{}}'
-assert_eq "$(answer "$STALE_STATE" "$ASKED")" "The check failed for dnf. The counts are from 4 min ago." \
+assert_eq "$(answer "$STALE_STATE" "$ASKED")" "The check failed for System. The counts are from 4 min ago." \
   "...and when the check failed, which half failed and how old the counts are, never the old counts as the answer"
 # The reason is read off the CLI's fixed prefixes only: what follows them is a tool's stderr.
 stale_answer() {  # error last_success
   js "L.staleAnswerOf({error:$1,last_success:$2}, $NOW)"
 }
 assert_eq "$(stale_answer '"dnf check failed: Curl error (6): Could not resolve host"' '"2026-08-26T12:00:00+03:00"')" \
-  "The check failed for dnf. The counts are from 4 min ago." \
+  "The check failed for System. The counts are from 4 min ago." \
   "the spoken failure leaves out the tool's own error text"
 assert_eq "$(stale_answer '"dnf check failed: x; flatpak check failed: y"' '"2026-08-26T12:00:00+03:00"')" \
-  "The check failed for dnf and Flatpak. The counts are from 4 min ago." \
+  "The check failed for System and Apps. The counts are from 4 min ago." \
   "...names both halves when both failed"
 assert_eq "$(stale_answer '"repository metadata unavailable"' '"2026-08-26T12:00:00+03:00"')" \
   "The check failed. The counts are from 4 min ago." \
   "...and names neither when the reason has neither prefix"
 assert_eq "$(stale_answer '"dnf check failed"' '""')" \
-  "The check failed for dnf. No successful check yet." \
+  "The check failed for System. No successful check yet." \
   "...and says there has been no successful check when there has not"
-assert_eq "$(stale_answer '"dnf check failed"' '"not a date"')" "The check failed for dnf." \
+assert_eq "$(stale_answer '"dnf check failed"' '"not a date"')" "The check failed for System." \
   "...and leaves out a time it cannot read"
 assert_eq "$(js "L.staleAnswerOf({error:\"dnf check failed\",last_success:new Date($NOW - 10000).toISOString()}, $NOW)")" \
-  "The check failed for dnf. The counts are from a moment ago." \
+  "The check failed for System. The counts are from a moment ago." \
   "...and a time under a minute reads as a moment ago"
 # A check that answered nothing over a state we hold: main.qml shows a report and passes it here,
 # and that report is the answer, since the counts at the top did not change.
@@ -2380,10 +2383,10 @@ assert_eq "$(fm "last_check:\"2026-08-26T11:50:00+03:00\",$NETERR" "$ASKED" repo
   "...nor does a state another check wrote before the press"
 assert_eq "$(fm "status:\"stale\",error:\"dnf check failed\",$NETERR" "$ASKED" reportFetchMessage)" "" \
   "...nor a stale check, which reports its own failure"
-assert_eq "$(fm "$NETERR" "$ASKED" footerText)" "Checked 1 min ago · lists 3 hours old" \
+assert_eq "$(fm "$NETERR" "$ASKED" footerText)" "Checked 1 min ago · update info 3 hours old" \
   "the footer always gives the lists' age"
 assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage reportShown:true)" "" "a report of something that happened takes the slot first"
-assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedAnyway reportShown:true)" "" "...and Download Anyway goes with the sentence"
+assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedAnyway reportShown:true)" "" "...and Check Anyway goes with the sentence"
 assert_eq "$(fm "$NETERR" "$ASKED" reportFetchMessage 'nowMs:Date.UTC(2026,7,26,11,0,0)')" \
   "Kempt could not reach the update servers, so this may be out of date." \
   "the age is measured at the check, so the sentence does not change while the widget is open"
@@ -2391,7 +2394,7 @@ assert_eq "$(fm "refresh_skipped:\"off\",$NETERR" "$ASKED" reportFetchMessage)" 
   "Kempt did not download fresh update info, so this is from 3 hours ago." \
   "with refreshing turned off, an old refresh error is not read as this check's"
 assert_eq "$(fm "offline_staged:{staged_at:\"2026-08-26T11:00:00+03:00\",count:3,armed:true},$NETERR" "$ASKED" footerText reportShown:true)" \
-  "Checked 1 min ago · lists 3 hours old" \
+  "Checked 1 min ago · update info 3 hours old" \
   "...and the footer gives the age when the notice is crowded out"
 assert_eq "$(js "L.fetchMissedOf($(fm_state "metadata_refreshed:\"2026-08-26T12:01:40+03:00\",$NETERR"), $ASKED, \"$FM_STAMP\")")" \
   "Kempt could not reach the update servers, so this may be out of date." \
@@ -2602,7 +2605,7 @@ assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", reclaim: true})
 # offline_staged for it. The staged slot carries it as a warning, and offers no action at all.
 BLK=',offline_stage_blocked:{staged_at:"2026-09-02T10:31:00+03:00",count:61}'
 assert_eq "$(vm '{}' "$BLK" 0 'stagedMessage')" \
-  "Another updater has taken your next restart, so these updates will not install then." \
+  "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart." \
   "...and says the next restart installs something else"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedMessage')" "$(vm '{}' "$BLK" 0 'stagedMessage')" "...as its whole sentence"
 assert_eq "$(vm '{}' "$BLK" 0 'stagedType')" "warning" "...as a warning"
@@ -2629,7 +2632,7 @@ assert_eq "$(free "$PEND" "$OFFL" updateStages)" "true" "...and the footer stage
 
 # Nothing staged: the banner, with Restart, and no way to stage anywhere.
 assert_eq "$(held "$PEND" "$OFFL" 'messageSlots.indexOf("staged") >= 0')" "true" "held, nothing staged: a banner in the staged slot"
-assert_eq "$(held "$PEND" "$OFFL" stagedMessage)" "Another updater has prepared your next restart." "...in these words"
+assert_eq "$(held "$PEND" "$OFFL" stagedMessage)" "Another updater has prepared your next restart, so restart when you are ready." "...in these words"
 assert_eq "$(held "$PEND" "$OFFL" stagedMessage)" "$(held "$PEND" "$OFFL" stagedMessage)" "...as its whole sentence"
 assert_eq "$(held "$PEND" "$OFFL" stagedType)" "warning" "...as a warning"
 assert_eq "$(js "(function (v) { return [v.stagedShowRestart, v.stagedShowDiscard, v.stagedArmed, v.offlineStageOffered].join(); })(L.viewModel({schema:1,status:\"ok\",restart_holder:\"other\",$PEND},false,\"\",$OFFL))")" \
@@ -2687,7 +2690,7 @@ assert_eq "$(js 'L.viewModel({schema:1,status:"ok",restart_holder:"other",action
 # The footer.
 LAST='{when:"2026-08-26T11:00:00+03:00",surface:"offline",failed:false,stagedNothing:null}'
 NOW='Date.parse("2026-08-26T12:00:00+03:00")'
-assert_contains "$(js "L.lastRunText($LAST,$NOW,true)")" "the next restart belongs to another updater" "the footer says who holds it"
+assert_contains "$(js "L.lastRunText($LAST,$NOW,true)")" "another updater has prepared the next restart" "the footer says who holds it"
 assert_not_contains "$(js "L.lastRunText($LAST,$NOW,true)")" "ready for the next restart" "...and not that it is staged"
 assert_contains "$(js "L.lastRunText($LAST,$NOW,false)")" "ready for the next restart" "...which it says with nobody holding it"
 
@@ -3293,7 +3296,7 @@ assert_eq "$(js 'L.COPY.stagedConflictUnknown')" \
 # docs/usage.md says discard, so the button says Discard. "Cancel Staged Update" was the other
 # candidate and it is worse in this one place: a button labelled Cancel inside a message reads as
 # "close this message", which is the one thing it does not do.
-assert_eq "$(js 'L.COPY.stagedDiscardAction')" "Discard Update" \
+assert_eq "$(js 'L.COPY.stagedDiscardAction')" "Discard Updates" \
   "copy: the banner's way out of a staged update, in the CLI's own verb"
 # The tooltip is the disclosure: this deletes dnf5's downloaded packages. Stated as what happens next
 # time rather than as a warning, because the cost is only paid by someone who stages again.
@@ -3348,7 +3351,7 @@ assert_eq "$(js 'L.COPY.versionRange')" "from %1 to %2" \
 # which is the same gate failure the pin had: `text` is what makes an icon-only button speak, and
 # the description is the slot for what pressing it does.
 assert_eq "$(js 'L.COPY.checkForUpdatesDescription')" \
-  "Asks dnf and flatpak what is pending now, instead of waiting for the timer." \
+  "Checks for updates now, instead of waiting for the timer." \
   "copy: what the refresh icon does, rather than its own name again"
 assert_eq "$(js 'L.COPY.configureDescription')" \
   "Check interval, where updates run, and the packages you hold." \
@@ -3397,7 +3400,7 @@ assert_eq "$(js 'L.COPY.everythingUpToDate.charAt(L.COPY.everythingUpToDate.leng
 
 # --- every branch returns the full view model shape: QML binds to these names, and an
 # undefined property in a binding is a silent blank in the panel, not an error anyone sees.
-keys='["actionable","badgeText","badgeVisible","blockedMessage","blockedOffersDoctor","blockedWarns","checkAnswerText","discoverMessage","discoverSerious","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","footerText","footerTooltip","headerText","heldLiveSurface","iconState","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","remedyCommand","reportFetchMessage","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","startupAckDigest","startupAlready","startupEntries","startupHeading","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
+keys='["actionable","badgeText","badgeVisible","blockedMessage","blockedOffersDoctor","blockedWarns","checkAnswerText","discoverMessage","discoverSerious","emptyStateText","engineFaultActionLabel","engineFaultCopyText","engineFaultMessage","engineFaultOffersDoctor","fetchMissedAnyway","footerText","footerTooltip","headerText","heldLiveSurface","iconState","messageSlots","offlineStageOffered","problemAnyway","problemDetail","problemHint","questionHeld","questionMessage","reclaimDigest","reclaimLines","reclaimMessage","remedyCommand","reportFetchMessage","restartHeld","restartMessageVisible","restartShowAction","rows","stageMenuOffered","stageTooltipNamesFlatpak","stagedArmed","stagedMessage","stagedShowDiscard","stagedShowRestart","stagedStagedAt","stagedType","stale","staleReason","staleTip","startupAckDigest","startupAlready","startupEntries","startupHeading","startupTitle","tooltipMain","tooltipSub","updateAsksFirst","updateAsksHeld","updateOffered","updateStages"]'
 for case in 'L.viewModel(null,false)' 'L.viewModel(null,true)' 'V("live",false)' 'V("live",true)' \
             'V("stale",false)' 'V("never",false)' 'V("held-only",false)' 'V("flatpak-disabled",false)' \
             'V("risky-heavy",false)' 'V("schema-v0",false)' 'V("empty",false)' 'V("garbage",false)' 'V("broken",false)' \
@@ -3687,10 +3690,10 @@ assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (!auto) recheckAsked
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.doCheck(!asked, again || anywayAgain, watchedAgain, anywayAgain);" \
   "...and the deferred check it becomes does not coalesce"
 
-# --- Download Anyway: never automatic, and only from its own button -------------------------------
+# --- Check Anyway: never automatic, and only from its own button -------------------------------
 # One press runs one check that passes the battery and metering rules. Nothing automatic may ask
 # for that: it spends the person's power or data.
-assert_eq "$(js 'L.checkArgs(false, true, true)')" " check --anyway" "Download Anyway passes --anyway"
+assert_eq "$(js 'L.checkArgs(false, true, true)')" " check --anyway" "Check Anyway passes --anyway"
 assert_eq "$(js 'L.checkArgs(true, true, true)')" " check --refresh" "...never for an automatic check"
 assert_eq "$(js 'L.checkArgs(false, false, true)')" " check" "...nor for a check that is not a fetch"
 assert_eq "$(js 'L.checkArgs(true, false, true)')" " check --coalesce" "...nor for an automatic cache check"
@@ -3698,7 +3701,7 @@ assert_eq "$(js 'L.checkArgs(false, true, "yes")')" " check --refresh" "...and o
 assert_eq "$(js 'L.checkArgs(false, true)')" " check --refresh" "...so Check for Updates still passes --refresh"
 # The button on the missed-fetch message: battery and metered only.
 assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedAnyway)" "battery" \
-  "a fetch skipped on battery offers Download Anyway"
+  "a fetch skipped on battery offers Check Anyway"
 assert_eq "$(fm "refresh_skipped:\"metered\",$NETERR" "$ASKED" fetchMissedAnyway)" "metered" \
   "...one skipped on a metered link offers it too"
 assert_eq "$(fm "refresh_skipped:\"off\",$NETERR" "$ASKED" fetchMissedAnyway)" "" \
@@ -3709,7 +3712,7 @@ assert_eq "$(fm 'refresh_skipped:"battery"' "$ASKED" fetchMissedAnyway 'refreshC
   "...nor a press whose own check gave no state"
 # ...and under the placeholder over lists never downloaded.
 assert_eq "$(js "L.viewModel($(nc_skip battery),false).problemAnyway")" "battery" \
-  "lists never downloaded on battery offer Download Anyway under the hint"
+  "lists never downloaded on battery offer Check Anyway under the hint"
 assert_eq "$(js "L.viewModel($(nc_skip metered),false).problemAnyway")" "metered" \
   "...and on a metered connection"
 assert_eq "$(js "L.viewModel($(nc_skip off),false).problemAnyway")" "" \
@@ -3726,13 +3729,13 @@ nc_skip_err() { printf '{schema:1,status:"stale",error:"%s",last_success:null,ac
 skip_old="L.viewModel($(nc_skip_err battery 'Curl error (22): 404'),false)"
 assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint + \"|\" + $skip_old.problemDetail")" \
   "battery|Plug in, then press Check for Updates.|Curl error (22): 404" \
-  "a skip on battery over an older refresh error keeps the hint and Download Anyway, with the error as the detail"
+  "a skip on battery over an older refresh error keeps the hint and Check Anyway, with the error as the detail"
 skip_old="L.viewModel($(nc_skip_err metered "$neterr"),false)"
 assert_eq "$(js "$skip_old.problemAnyway + \"|\" + $skip_old.problemHint")" \
   "metered|Switch to an unmetered connection, then press Check for Updates." \
   "...and a metered skip over an older network error is not called a network failure"
 assert_eq "$(js "L.viewModel($(nc_skip_err off 'Curl error (22): 404'),false).problemHint")" \
-  "dnf could not download them. Its error is below." \
+  "The download failed. The error is below." \
   "...while with fetching turned off the refresh error still says why"
 # A press whose check waited out another check's lock got the state from before it.
 assert_eq "$(js 'L.servedBeforePress({last_check:"2026-08-26T12:00:00+03:00"}, Date.parse("2026-08-26T12:00:05+03:00"))')" "true" \
@@ -3752,11 +3755,11 @@ assert_eq "$(grep -v '^ *//' "$LJ" | grep -c -- '--anyway')" "1" "logic.js write
 assert_contains "$(awk '/^function checkArgs/,/^}/' "$LJ")" '" check --anyway"' "...inside checkArgs"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "if (spend && Logic.servedBeforePress(parsed, askedMs)) {" \
   "a press answered with the state from before it is noticed"
-assert_contains "$(qml_block "$MQ" 'function doCheck')" 'root.checkFailNote = i18n("Another check was running. Press Download Anyway again.");' \
+assert_contains "$(qml_block "$MQ" 'function doCheck')" 'root.checkFailNote = i18n("Another check was running. Press Check Anyway again.");' \
   "...and asked for again, as a note the next check takes back"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.actionMessage = root.checkFailNote;" \
   "...shown where a failed check's note is"
-assert_eq "$(js 'L.COPY.anywayLost')" "Another check was running. Press Download Anyway again." \
+assert_eq "$(js 'L.COPY.anywayLost')" "Another check was running. Press Check Anyway again." \
   "...in the wording the table specifies"
 assert_contains "$(qml_block "$MQ" 'function doCheck')" "root.recheckAnyway = false;" \
   "...and cleared with the other recheck flags"
@@ -3982,7 +3985,7 @@ done
 # dialog takes focus the moment the button is pressed, so a screen-reader user who has not heard
 # the authorization and the discard cost by then hears them never.
 assert_eq "$(ui_grep 'Accessible\.description: tooltip' | wc -l)" "4" \
-  "...and Discard Update, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
+  "...and Discard Updates, Free Up Space and the startup banner's two, say the same words to a screen reader as to a mouse"
 # The flip has to arrive as WORDS, not as a colour: Kirigami gives every InlineMessage the
 # AlertMessage role and no name, so without this a screen reader announces "Warning" and nothing
 # about what happened. Every message in the stack carries it; this counts them rather than trusting

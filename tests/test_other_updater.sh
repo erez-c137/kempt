@@ -92,7 +92,7 @@ assert_not_contains "$("$KEMPT" status 2>&1 || true)" "belongs to another update
 foreign_link
 "$KEMPT" check >/dev/null
 assert_eq "$(state .restart_holder)" "other" "the state names another updater"
-assert_contains "$("$KEMPT" status 2>&1 || true)" "The next restart belongs to another updater" "...and status has a line saying so"
+assert_contains "$("$KEMPT" status 2>&1 || true)" "Another updater has prepared the next restart" "...and status has a line saying so"
 # The write a run makes once its stage is armed, with no check behind it yet.
 jq -c '.restart_holder = "none"' "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/s.json" && cp "$TESTTMP/s.json" "$KEMPT_STATE_DIR/state.json"
 bash -c 'source "$1/lib/common.sh"; publish_staged_state_write "" ""' _ "$REPO_ROOT"
@@ -107,12 +107,12 @@ gate_refuses() {  # label, then the environment and arguments
   err="$(env "$@" 2>&1 >/dev/null)" || rc=$?
   assert_eq "$rc" "5" "$label: refused with the code for this condition"
   assert_eq "$(cat "$WORLD/calls")" "" "$label: no download and no Flatpak"
-  assert_contains "$err" "the next restart belongs to another updater" "$label: says why"
+  assert_contains "$err" "another updater has prepared the next restart" "$label: says why"
   assert_eq "$(ls "$KEMPT_STATE_DIR/history" 2>/dev/null | wc -l)" "$hist_before" "$label: nothing recorded as a run"
 }
 foreign_link
 gate_refuses "a foreign link" "$KEMPT" update --surface=offline
-assert_contains "$(cat "$WORLD/notifications")" "the next restart belongs to another updater" "...and the notification says so"
+assert_contains "$(cat "$WORLD/notifications")" "another updater has prepared the next restart" "...and the notification says so"
 assert_not_contains "$(cat "$WORLD/notifications")" "install on" "...and promises nothing"
 rm -f "$LINK"; ln -s "$TESTTMP/no/such/target" "$LINK"
 gate_refuses "a dangling link" "$KEMPT" update --surface=offline
@@ -217,10 +217,10 @@ export KEMPT_RISKY_RE='^bash$'
 foreign_link
 : > "$WORLD/calls"; : > "$WORLD/notifications"
 sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" 2>&1)" || true
-assert_contains "$sout" "Staging is not available: the next restart belongs to another updater" "the risky prompt drops staging"
+assert_contains "$sout" "Staging is not available: another updater has prepared the next restart" "the risky prompt drops staging"
 assert_not_contains "$sout" "[s]" "...and does not offer the key"
 assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/calls" || true)" "0" "...and answering s anyway never stages"
-assert_contains "$sout" "Staging is not available, because the next restart belongs to another updater. Answer u or a." "...and is turned down in words"
+assert_contains "$sout" "Staging is not available, because another updater has prepared the next restart. Answer u or a." "...and is turned down in words"
 assert_contains "$sout" "aborted" "...and the end of input ends the run"
 : > "$WORLD/notifications"
 "$KEMPT" update --surface=popup </dev/null >/dev/null 2>&1 || true
@@ -395,7 +395,7 @@ rm -f "$KEMPT_STATE_DIR/offline-partial"
 staged_marker "$NAMES"
 moved $'zzz-unrelated\t1.0-1.fc44'
 qa_from_after; foreign_link; harvest
-assert_contains "$(cat "$WORLD/notifications")" "The next restart belongs to another updater" "held: says whose restart it is"
+assert_contains "$(cat "$WORLD/notifications")" "Another updater has prepared the next restart" "held: says whose restart it is"
 assert_not_contains "$(cat "$WORLD/notifications")" "--surface=offline" "...and does not advise a stage"
 assert_not_contains "$(cat "$WORLD/notifications")" "dnf5 offline clean" "...nor a clean that would cancel that updater's"
 no_link; rm -f "$marker" "$pre"

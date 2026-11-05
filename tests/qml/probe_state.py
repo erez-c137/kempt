@@ -337,13 +337,13 @@ p.check("...so it costs one fetch, not two",
 p.check("...and the running check is no longer marked as a fetch once it lands",
         ev("root.checkingRefresh"), False)
 
-# --- 6d. Download Anyway: a person's press, never automatic, never replayed ----------------------
+# --- 6d. Check Anyway: a person's press, never automatic, never replayed ----------------------
 # Only downloadAnyway() asks the CLI to pass the battery and metering rules. Pressed during a check,
 # it runs next, once, and no automatic check carries it afterwards.
 p.clear_calls()
 ev("root.downloadAnyway()")
 p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
-p.check("Download Anyway runs one check that passes the rules", p.calls_matching("check"), ["check --anyway"])
+p.check("Check Anyway runs one check that passes the rules", p.calls_matching("check"), ["check --anyway"])
 p.check("...marked as such only while it runs", ev("root.checkingAnyway"), False)
 p.clear_calls()
 ev("root.doCheck(true, true, false, true)")
@@ -362,7 +362,7 @@ p.check("a press during a running fetch is remembered", ev("root.recheckAnyway")
 p.wait_for(ev, "root.checking || root.recheckPending", False, timeout_ms=15000)
 p.check("...and honoured once that fetch lands", p.calls_matching("check"), ["check --refresh", "check --anyway"])
 p.check("...leaving nothing to replay", ev("root.recheckAnyway"), False)
-# During a running Download Anyway check: nothing more to honour.
+# During a running Check Anyway check: nothing more to honour.
 p.clear_calls()
 ev("root.downloadAnyway()")
 p.pump(100)

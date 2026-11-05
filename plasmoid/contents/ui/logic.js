@@ -73,7 +73,7 @@ var COPY = {
     // called. `text` is already the accessible name, so a description bound to `text` spends the
     // one slot that could explain the effect.
     checkForUpdatesDescription:
-        "Asks dnf and flatpak what is pending now, instead of waiting for the timer.",
+        "Checks for updates now, instead of waiting for the timer.",
     configureDescription:
         "Check interval, where updates run, and the packages you hold.",
 
@@ -226,7 +226,7 @@ var COPY = {
     checkNoCacheMeteredHint: "Switch to an unmetered connection, then press Check for Updates.",
     // KEMPT_SKIP_REFRESH turns fetching off, so no press can download them.
     checkNoCacheOffHint: "Fetching package lists is turned off.",
-    checkRefreshFailedHint: "dnf could not download them. Its error is below.",
+    checkRefreshFailedHint: "The download failed. The error is below.",
     // ...and the panel tooltip in that state: a title, and the reason in a few words.
     checkFailedTooltip: "Cannot check for updates",
     stateUnreadableTooltip: "Cannot read the update state",
@@ -246,12 +246,12 @@ var COPY = {
     fetchMissedNoAge: "Kempt did not download fresh update info, so this may be out of date.",
     // The button on fetchWaitsFor* and under the battery and metered no-cache hints. One press runs
     // one check that downloads anyway. Its tooltip follows the reason the check published.
-    downloadAnyway: "Download Anyway",
-    downloadAnywayPowerTip: "Downloads fresh package lists now, on battery power.",
-    downloadAnywayMeteredTip: "Downloads fresh package lists now over this metered connection.",
+    downloadAnyway: "Check Anyway",
+    downloadAnywayPowerTip: "Checks online now on battery power.",
+    downloadAnywayMeteredTip: "Checks online now over this metered connection.",
     // A press whose check waited out another check's lock: the CLI served the state from before
     // the press and downloaded nothing, so the press is asked for again.
-    anywayLost: "Another check was running. Press Download Anyway again.",
+    anywayLost: "Another check was running. Press Check Anyway again.",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
     showLog: "Show Log",
@@ -259,7 +259,7 @@ var COPY = {
     updateFailed: "The update failed",
     // The root helper refused because a folder of dnf's, or one above it, is not root's alone. A
     // short form of the CLI's reason; the row offers Check Installation, where doctor has the fix.
-    updatesPausedFolder: "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed.",
+    updatesPausedFolder: "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.",
 
     // THREE spellings, because two things vary independently: the count can be unknown (a marker
     // written before the CLI recorded one), and one update is not the plural with a 1 in it: noun
@@ -297,13 +297,13 @@ var COPY = {
     // A stage Kempt made that the next restart will NOT install: another updater (Discover, through
     // PackageKit) has prepared that restart, and dnf5 does not run behind its symlink. The CLI
     // publishes offline_stage_blocked for it and never offline_staged, so nothing above applies.
-    stageBlocked: "Another updater has taken your next restart, so these updates will not install then.",
+    stageBlocked: "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart.",
 
     // The same restart with nothing of Kempt's behind it. The short form is what `kempt status`
     // prints, and what the Update Now question opens with.
-    restartHeld: "The next restart belongs to another updater",
-    restartHeldBanner: "Another updater has prepared your next restart.",
-    restartHeldFooter: "the next restart belongs to another updater",
+    restartHeld: "Another updater has prepared the next restart",
+    restartHeldBanner: "Another updater has prepared your next restart, so restart when you are ready.",
+    restartHeldFooter: "another updater has prepared the next restart",
     // Update Now with system updates waiting: a live run may cancel what that updater prepared.
     restartHeldAsk: "Updating now may stop another updater's prepared update from installing.",
 
@@ -337,7 +337,7 @@ var COPY = {
     // discard - so the button says Discard. "Cancel Staged Update" was the other candidate and it
     // is worse in exactly one place: a button labelled Cancel inside a message reads as "close
     // this message", which is the one thing it does not do.
-    stagedDiscardAction: "Discard Update",
+    stagedDiscardAction: "Discard Updates",
     // The whole cost, before the press: `dnf5 offline clean` removes the downloaded packages with
     // the transaction. Said as what happens NEXT time rather than as a
     // warning, because that cost is only paid by somebody who stages again.
@@ -436,7 +436,7 @@ var COPY = {
     // dnf is not how the machine updates - but those images ship dnf5 and plasma-workspace, so
     // Kempt installs cleanly, the widget appears and every list here fills in. Nothing about the
     // box gives it away, which is why this has to be said outright.
-    imageBased: "This computer updates through rpm-ostree, so use Discover to install these updates.",
+    imageBased: "This computer installs updates through Discover, not Kempt.",
 
     // --- unused Flatpak runtimes (`kempt reclaim`) ---------------------------------------------
     // The offer, assembled by reclaimMessageOf. The size is formatDownload's "~" figure: the CLI's
@@ -1795,11 +1795,11 @@ function metadataAgeText(iso, nowMs, floorMs) {
     if (age < floor) return "";
     if (age >= METADATA_STALE_MS) {
         var days = Math.floor(age / METADATA_STALE_MS);
-        return "lists " + days + (days === 1 ? " day old" : " days old");
+        return "update info " + days + (days === 1 ? " day old" : " days old");
     }
     var hours = Math.floor(age / 3600000);
-    if (hours >= 1) return "lists " + hours + (hours === 1 ? " hour old" : " hours old");
-    return "lists " + Math.floor(age / 60000) + " min old";
+    if (hours >= 1) return "update info " + hours + (hours === 1 ? " hour old" : " hours old");
+    return "update info " + Math.floor(age / 60000) + " min old";
 }
 
 // refreshMissed(state, askedMs) -> whether the check a Check for Updates press started at `askedMs`
@@ -1867,7 +1867,7 @@ function servedBeforePress(state, askedMs) {
     return isFinite(checked) && checked < Math.floor(asked / 1000) * 1000;
 }
 
-// anywayReasonOf(refreshSkipped) -> "battery" or "metered" when Download Anyway can pass the rule
+// anywayReasonOf(refreshSkipped) -> "battery" or "metered" when Check Anyway can pass the rule
 // that skipped the fetch, else "". Fetching turned off ("off") is a setting no press overrides.
 function anywayReasonOf(refreshSkipped) {
     return refreshSkipped === "battery" || refreshSkipped === "metered" ? refreshSkipped : "";
@@ -1875,7 +1875,7 @@ function anywayReasonOf(refreshSkipped) {
 
 // --- the check command ------------------------------------------------------------------------
 // checkArgs(automatic, refresh, anyway) -> what doCheck appends to `kempt`. Check for Updates fetches
-// fresh metadata (`--refresh`). Download Anyway also passes the battery and metering rules, and
+// fresh metadata (`--refresh`). Check Anyway also passes the battery and metering rules, and
 // only for a press: never for a check nobody asked for. The checks nobody asked for coalesce and
 // keep the CLI's 3-hour interval. Any other press (a hold, Check again) runs a check of its own
 // from the cache.
@@ -2270,12 +2270,10 @@ function answerOutcomeOf(rc, stdout, stderr, fallback, timedOut) {
 var DOCTOR_TIMEOUT_MS = 60000;
 
 // mentionsDoctor(text) -> does this message tell the person to run `kempt doctor`? The CLI's own
-// refusals end "See: kempt doctor", and so do the copy table's fallbacks. Each one gets the button,
-// as does the paused report, which says what is wrong and leaves the how to the button.
+// refusals end "See: kempt doctor", and the copy table's sentences name the button. Each one gets it.
 function mentionsDoctor(text) {
     return typeof text === "string"
-        && (/\bkempt doctor\b/.test(text) || text.indexOf(COPY.doctorAction) >= 0
-            || text === COPY.updatesPausedFolder);
+        && (/\bkempt doctor\b/.test(text) || text.indexOf(COPY.doctorAction) >= 0);
 }
 
 // The CLI's pointer at the command, for a message drawn beside Check Installation, which is that
@@ -2475,7 +2473,7 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
     }
     if (noCache === parts.length) {
         // This check's own skip comes first: a refresh error on record can be older than it, and
-        // the power and metered hints are the ones Download Anyway sits under. That error is still
+        // the power and metered hints are the ones Check Anyway sits under. That error is still
         // the detail. Otherwise a refresh that failed says why in its own words, and with none on
         // record it was skipped or turned off.
         var hasRefreshError = refreshError !== null && refreshError !== "";
@@ -2505,22 +2503,27 @@ function checkFailedOverOf(rc) {
 // check failed: ..."), by its fixed prefixes only: what follows them is a tool's stderr, which is
 // not something to read to a person. Then how old the counts are, from last_success.
 function staleAnswerOf(state, nowMs) {
-    var names = [];
-    var parts = (typeof state.error === "string" ? state.error : "").split("; ");
-    for (var i = 0; i < parts.length; i++) {
-        var m = /^(dnf|flatpak) check failed/.exec(parts[i]);
-        if (m === null) continue;
-        var name = m[1] === "flatpak" ? "Flatpak" : "dnf";
-        if (names.indexOf(name) < 0) names.push(name);
-    }
-    var said = names.length > 0 ? fill(COPY.checkFailedFor, "%1", names.join(" and "))
-                                : COPY.checkFailedPlain;
+    var said = staleSaidOf(state);
     var ls = typeof state.last_success === "string" ? state.last_success.trim() : "";
     if (ls === "") return said + " " + COPY.noSuccessfulCheckYet + ".";
     if (!isRenderableStamp(ls)) return said;
     var when = relativeTime(ls, nowMs);
     if (when === "just now") when = "a moment ago";
     return said + " " + fill(COPY.countsFrom, "%1", when);
+}
+
+// staleSaidOf(state) -> which half of a failed check failed, in the words the popup's lists use.
+function staleSaidOf(state) {
+    var names = [];
+    var parts = (typeof state.error === "string" ? state.error : "").split("; ");
+    for (var i = 0; i < parts.length; i++) {
+        var m = /^(dnf|flatpak) check failed/.exec(parts[i]);
+        if (m === null) continue;
+        var name = m[1] === "flatpak" ? "Apps" : "System";
+        if (names.indexOf(name) < 0) names.push(name);
+    }
+    return names.length > 0 ? fill(COPY.checkFailedFor, "%1", names.join(" and "))
+                            : COPY.checkFailedPlain;
 }
 
 // viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
@@ -2901,7 +2904,7 @@ function viewModel(state, updating, cliError, opts) {
         // Staleness is a tooltip fact, not an icon alarm, so the tooltip carries BOTH halves: what
         // went wrong, and how old the numbers above it therefore are.
         if (stale) {
-            subParts.push(staleReason);
+            subParts.push(staleSaidOf(state));
             subParts.push(everSucceeded
                 ? fill(COPY.lastSuccessfulCheck, "%1", relativeTime(state.last_success, opts.nowMs))
                 : COPY.noSuccessfulCheckYet);
@@ -3080,6 +3083,7 @@ function viewModel(state, updating, cliError, opts) {
         // "" when fine; otherwise the CLI's own error text, so the popup says what actually went
         // wrong instead of a generic apology.
         staleReason: staleReason,
+        staleTip: stale ? staleSaidOf(state) : "",
         // The fact, then what to do about it, on two lines. Empty means there is nothing to say,
         // and that empty string is the popup's only gate - exactly how stagedMessage
         // already works. The other two follow it: the clipboard payload the button
@@ -3109,7 +3113,7 @@ function viewModel(state, updating, cliError, opts) {
             : restartHeldBanner ? COPY.restartHeldBanner : stagedMessage,
         // A Check for Updates whose fetch did not land, when the report's slot is free for it.
         reportFetchMessage: reportRun ? "" : fetchMissedMessage,
-        // Why that message may offer Download Anyway: "battery", "metered", or "" for no button.
+        // Why that message may offer Check Anyway: "battery", "metered", or "" for no button.
         fetchMissedAnyway: !reportRun && fetchMissedMessage !== "" ? anywayReasonOf(state.refresh_skipped) : "",
         // The same for the placeholder over lists never downloaded: only under the battery and
         // metered hints, so never beside Check Installation or fetching turned off. A refresh

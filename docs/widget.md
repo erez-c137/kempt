@@ -107,7 +107,7 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    `The update failed: <the reason>.`, or why a button press failed. After an answer to message 9,
    it says what changed. After a failed **Check for Updates**, it says the counts are from the last
    check that worked. If the press got no fresh lists, it says why, until the next check. On battery
-   or a metered connection it offers **Download Anyway**, which fetches them once, now. If another
+   or a metered connection it offers **Check Anyway**, which fetches them once, now. If another
    check held the lock until the press gave up, it says `Another check was running. Press Download
    Anyway again.`
 
@@ -182,7 +182,7 @@ because there is no way to edit them and the restart would still install it:
 ```
  (!) You held kernel-core after these updates were prepared, so it still
      installs. Discard them and install again to skip it.
-                                                    [Discard Update]
+                                                    [Discard Updates]
 ```
 
 With several held packages it names the first and counts the rest:
@@ -198,7 +198,7 @@ When Kempt cannot read what those updates contain and you hold system packages, 
 ```
  (!) You added holds after these updates were prepared, so held packages may
      still install. Discard them and install again to apply your holds.
-                                                    [Discard Update]
+                                                    [Discard Updates]
 ```
 
 While the warning shows, neither it nor the restart message has **Restart…**, because a restart
@@ -208,7 +208,7 @@ restart.
 In a terminal, `kempt update --surface=offline` replaces those updates with your current holds and
 reuses the download.
 
-**Discard Update** has this tooltip:
+**Discard Updates** has this tooltip:
 
 > Removes the update waiting for the next restart, so the restart installs nothing. May ask for
 > your password. It deletes the packages it downloaded, so installing again downloads them again.
@@ -226,7 +226,7 @@ With nothing of Kempt's waiting, the message says `Another updater has prepared 
 and **Install on Next Restart** is gone until you have restarted. **Update Now** runs live, even
 when Kempt is set to install on the next restart. With system updates waiting it asks first:
 
-> The next restart belongs to another updater. If you update now, the update it prepared may no
+> Another updater has prepared the next restart. If you update now, the update it prepared may no
 > longer install.
 
 Flatpak apps alone do not ask. Nor does Update Now while updates are paused, because the run would
@@ -319,7 +319,7 @@ can still show, because a restart can be owed with nothing pending. In place of
 and `Apps installed for you only could not be checked.` when those apps could not be listed. When a
 check could not run Kempt at all, it says so there, with **Check Installation** under it. When the
 package lists were never downloaded because of battery or a metered connection, the hint says to
-plug in or switch connections, and **Download Anyway** sits under the hint.
+plug in or switch connections, and **Check Anyway** sits under the hint.
 
 ### About the restart
 
@@ -386,11 +386,11 @@ Each button runs a command described in [usage.md](usage.md).
 | Button | Command |
 | --- | --- |
 | **Check for Updates** | `kempt check --refresh` |
-| **Download Anyway** | `kempt check --anyway` |
+| **Check Anyway** | `kempt check --anyway` |
 | **Update Now** | `kempt run` |
 | **Install Now** | `kempt run --risky-ok` |
 | **Install on Next Restart** | `kempt run --surface=offline` |
-| **Discard Update** | `kempt unstage` |
+| **Discard Updates** | `kempt unstage` |
 | Drawing the warning about Discover's automatic updates | `kempt discover-notifier seen` |
 | **Update Now**, while another updater holds the next restart | `kempt run --surface=<a live surface>`, after its own question when system updates are waiting |
 | The padlock | `kempt hold` or `kempt unhold` |

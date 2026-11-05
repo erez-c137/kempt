@@ -631,7 +631,7 @@ the panel icon.
 | The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. Silent while a Check for Updates answer is being said, since that answer carries the same failure. |
 
 Each announcing message keeps a `spoken` string so one change is announced once, and clears it
-when hidden. The **Discard Update** tooltip names its costs, and `Accessible.description`
+when hidden. The **Discard Updates** tooltip names its costs, and `Accessible.description`
 is bound to it, because the polkit dialog takes focus at once.
 
 ### Where the widget's last-run line comes from

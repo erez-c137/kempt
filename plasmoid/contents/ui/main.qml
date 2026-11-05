@@ -23,7 +23,7 @@ PlasmoidItem {
     property bool recheckAsked: false      // ...and whether a PERSON asked for it (see doCheck)
     property bool recheckRefresh: false    // ...and whether any folded request was Check for Updates
     property bool recheckWatched: false    // ...and whether EVERY folded request was the watcher's
-    // ...and whether Download Anyway was pressed during it. Set in downloadAnyway() and nowhere
+    // ...and whether Check Anyway was pressed during it. Set in downloadAnyway() and nowhere
     // else, and replayed only into a check a person asked for.
     property bool recheckAnyway: false
     property bool checkingRefresh: false   // the check in flight is itself a fetch (`--refresh`)
@@ -103,7 +103,7 @@ PlasmoidItem {
     property string engineFault: ""
     // The result of the last button press, shown under the buttons until the next one.
     property string actionMessage: ""
-    // A Check for Updates that answered nothing while a state is held, or a Download Anyway press
+    // A Check for Updates that answered nothing while a state is held, or a Check Anyway press
     // answered with the state from before it: the sentence put in actionMessage for it, so the
     // next check can take back that report and no other. It is also
     // what the answer says out loud (vm.checkAnswerText), since the counts on screen did not move.
@@ -246,7 +246,7 @@ PlasmoidItem {
     // thing between a double press and two runs.
     property bool runRequested: false
 
-    // The same guard for Install on Next Restart and Discard Update:
+    // The same guard for Install on Next Restart and Discard Updates:
     // one flag for both, set at the press and cleared on every callback path. Each waits its
     // turn on the executor, behind a check for up to two minutes, and `updating` is false all that
     // time, so without it a second press queues a second action. The popup disables both.
@@ -470,11 +470,11 @@ PlasmoidItem {
                 // back on its own after the package is installed, or after it is repaired.
                 root.cliError = "";
                 root.engineFault = "";
-                // A Download Anyway press whose check gave up waiting on another check's lock: the
+                // A Check Anyway press whose check gave up waiting on another check's lock: the
                 // CLI printed the state from before the press and downloaded nothing. Said here,
                 // after the line above that clears the note, or the press would look ignored.
                 if (spend && Logic.servedBeforePress(parsed, askedMs)) {
-                    root.checkFailNote = i18n("Another check was running. Press Download Anyway again.");
+                    root.checkFailNote = i18n("Another check was running. Press Check Anyway again.");
                     root.actionMessage = root.checkFailNote;
                 }
             } else if (rc === 127) {
@@ -548,7 +548,7 @@ PlasmoidItem {
                 var asked = root.recheckAsked;
                 var again = root.recheckRefresh;
                 var watchedAgain = root.recheckWatched;
-                // A Download Anyway press folded in is honoured once, and only by a check a person
+                // A Check Anyway press folded in is honoured once, and only by a check a person
                 // asked for, never by an automatic one. Not during a run either, where the button
                 // itself does nothing: a run that started since the press drops it.
                 var anywayAgain = asked && root.recheckAnyway && !root.updating;
@@ -1015,7 +1015,7 @@ PlasmoidItem {
         reclaimDismissed = vm.reclaimDigest;
     }
 
-    // Download Anyway: one check that fetches even on battery or a metered connection. Only this
+    // Check Anyway: one check that fetches even on battery or a metered connection. Only this
     // press asks for that. During a check it is remembered and runs next, unless the running check
     // already passes the rules: then a second press adds nothing, not even a plain check. During a
     // run it does nothing, like Check for Updates' button.

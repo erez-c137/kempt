@@ -4309,7 +4309,7 @@ KEMPT_JQ_TIME='
     (stamp_s) as $at
     | if $at == null or ($now | type) != "number" or ($now - $at) < 86400 then ""
       else (($now - $at) / 86400 | floor) as $n
-           | "lists \($n) " + (if $n == 1 then "day old" else "days old" end) end;
+           | "update info \($n) " + (if $n == 1 then "day old" else "days old" end) end;
 '
 
 # The status facts from one state document. Input: the document, or null when there is none.
@@ -4327,7 +4327,7 @@ KEMPT_JQ_STATUS='
     stagedHeaderTail: "updates ready for the next restart",
     stagedHeaderUnknown: "Updates ready for the next restart",
     restartMessage: "Restart to finish updating.",
-    restartHeld: "The next restart belongs to another updater",
+    restartHeld: "Another updater has prepared the next restart",
     noSuccessfulCheckYet: "No successful check yet",
     lastCheckFailed: "last check failed",
     lastCheckFailedHeader: "Last check failed"

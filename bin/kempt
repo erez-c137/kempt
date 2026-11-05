@@ -857,12 +857,12 @@ refuse_run_behind_other_updater() {
   # The root helper would refuse the terminal run named below, so that is not the way out here.
   local unsafe_dir
   if unsafe_dir="$(apply_unsafe_dir)"; then
-    preflight_abort "the next restart belongs to another updater, and $(apply_unsafe_words "$unsafe_dir"), so nothing was changed. See: kempt doctor"
+    preflight_abort "another updater has prepared the next restart, and $(apply_unsafe_words "$unsafe_dir"), so nothing was changed. See: kempt doctor"
   fi
   if [[ "$wanted_stage" != true ]]; then
-    preflight_abort "the next restart belongs to another updater, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now by typing this in a terminal: kempt update --surface=widget"
+    preflight_abort "another updater has prepared the next restart, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now by typing this in a terminal: kempt update --surface=widget"
   fi
-  preflight_abort "the next restart belongs to another updater, so nothing was prepared or changed. Restart when you are ready, or update now by typing this in a terminal: kempt update --surface=widget"
+  preflight_abort "another updater has prepared the next restart, so nothing was prepared or changed. Restart when you are ready, or update now by typing this in a terminal: kempt update --surface=widget"
 }
 
 # The sentence for a step the root helper refused: what the helper said about a folder, else the
@@ -924,8 +924,8 @@ recommend_offline_if_risky() {
     no_stage_answer="Staging would cancel the stored Fedora release upgrade"
   elif restart_held_by_other; then
     relup_blocks=true
-    no_stage_why="the next restart belongs to another updater"
-    no_stage_answer="Staging is not available, because the next restart belongs to another updater"
+    no_stage_why="another updater has prepared the next restart"
+    no_stage_answer="Staging is not available, because another updater has prepared the next restart"
   fi
   if [[ "$surface" != "offline" ]]; then
     local risky_list="" rerr rcount fams
@@ -2500,7 +2500,7 @@ KEMPT_STAGE_REMEDY="To prepare your updates again, run kempt update --surface=of
 # refused, and a clean would delete the upgrade.
 KEMPT_STAGE_RELUP_REMEDY="A Fedora release upgrade is stored, so Kempt will not prepare updates now. See: kempt doctor"
 # ...or behind another updater's restart, where a stage is refused and a clean would cancel that.
-KEMPT_STAGE_HELD_REMEDY="The next restart belongs to another updater, so preparing updates again has to wait until you have restarted."
+KEMPT_STAGE_HELD_REMEDY="Another updater has prepared the next restart, so preparing updates again has to wait until you have restarted."
 stage_remedy() {
   if offline_release_upgrade >/dev/null; then printf '%s' "$KEMPT_STAGE_RELUP_REMEDY"
   elif restart_held_by_other; then printf '%s' "$KEMPT_STAGE_HELD_REMEDY"
