@@ -379,7 +379,7 @@ plain_in=(
   "startup failed after the update: bluetooth.service" "startup failed after the last restart: a.service, b.service"
   "startup recovered: bluetooth.service" "startup muted system:cups.service" "startup unmuted user:foo.service"
   "offline staged 4 (NOT recorded: the state directory could not be written)"
-  "offline stage refused by the root helper" "live update refused by the root helper" "offline stage discarded (the stored one would have installed what is now held)"
+  "offline stage refused by the root helper" "live update refused by the root helper" "offline stage discarded (rebuild failed)" "offline stage discarded (the stored one would have installed what is now held)"
   "offline stage found nothing to stage (every pending update is held)"
   "offline stage left in place (another updater has prepared the next restart)"
   "notification shown: Updates are ready and install on the next restart"
