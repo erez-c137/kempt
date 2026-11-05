@@ -1,9 +1,10 @@
 # Configuring Kempt
 
-![The widget's settings page: updates, unused Flatpak runtimes, where updates run, check interval, holds, Discover and password prompts](images/kempt-settings.png)
+![The widget's settings page in Kempt 0.2.0: updates, unused Flatpak runtimes, where updates run, check interval, holds, Discover and password prompts](images/kempt-settings.png)
 
 *Most controls on the widget's settings page set one of the keys below. **Held**, **Discover** and
-**Password prompts** run commands instead. A change made in either place shows up in the other.*
+**Password prompts** run commands instead. A change made in either place shows up in the other.
+The picture is from Kempt 0.2.0, so it also shows settings that have since gone.*
 
 ## The config file
 

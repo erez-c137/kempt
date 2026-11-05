@@ -26,12 +26,23 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **Fedora's official repos.** The package passes the review tools. The next step, after 0.2.1, is
   a review request, which needs a sponsor.
 
-## Next: a staged update that stays staged
+## Next: 0.3.0, a smaller Kempt
 
-Another program's update check can cancel an update staged for the next restart. Discover's
-notifier seems to be the usual cause. Today Kempt warns about it, and you stage the update again. In 0.2.1, Kempt puts the update back
-by itself when the computer shuts down, with no warning, button or password. If packages changed, the stage cannot be saved, and
-Kempt still says so.
+0.3.0 takes things away. [CHANGELOG.md](../CHANGELOG.md) says what replaces each one.
+
+- **Updating in a terminal window, and updating in the background.** Updates run in the widget or
+  on the next restart.
+- **Put It Back and Rebuild Staged Update.** When another program cancels a staged update, often
+  Discover's notifier, Kempt tells you and you stage it again. The packages are still downloaded,
+  so that costs no new download.
+- **`install.sh`.** Kempt installs as a package.
+- **Security notifications and automatic reclaim.** Kempt no longer removes unused Flatpak runtimes
+  by itself.
+- **The panel icon size, restart reminder and "without confirmation" settings.**
+- **A message per failed service.** One message opens the Startup Report, which has the failed
+  services on top and the text of `kempt startup --all` below them.
+- **Startup time, with its comparison to earlier starts.**
+- **Eight of the widget's 18 messages.** Some merged and some moved into the report.
 
 ## Then: updates that take care of themselves
 
@@ -64,11 +75,10 @@ safely. It also shows more about what an update changes.
 
 ## Then: clear to everyone
 
-- **Everyday words.** "System" and "Apps" in the widget in place of "dnf" and "flatpak", with the
-  full package list one click away.
-- **Translations.** The QML wraps its text in `i18n()`, but there is no translation domain,
-  catalogue or extraction step yet. Some widget sentences are also built from parts in `logic.js`,
-  which translators cannot reorder. Both get fixed together. Until then Kempt is English only.
+- **Translations.** Every widget sentence is one whole `i18n()` call, and `po/` has the template
+  for translators. No language is translated yet, so until someone does one Kempt is English
+  only. The text of `kempt startup --all` and of `kempt doctor` stays English in the widget, because
+  the command-line tool has no translations.
 
 ## When people ask
 
