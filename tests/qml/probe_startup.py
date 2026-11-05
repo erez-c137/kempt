@@ -205,6 +205,22 @@ p.check("a session service's command has --user", rev((ROW % 1) + ".service.comm
         "systemctl --user status plasma-foo.service")
 p.check("a unit with a backslash is single-quoted", rev((ROW % 2) + ".service.command"),
         "systemctl status '" + ESCAPED + "'")
+# A short window: the buttons of the last service are below the list's fold until the keyboard gets there.
+pop.setHeight(240)
+p.pump(200)
+LIST = "failedScroll.contentItem"
+p.check("premise: the list is taller than its window", rev(LIST + ".contentHeight > " + LIST + ".height"), True)
+p.check("premise: it starts at the top", rev(LIST + ".contentY"), 0)
+rev((ROW % 2) + ".muteButton.forceActiveFocus(Qt.TabFocusReason)")
+p.pump(50)
+_shown = ("(function (b) { const l = " + LIST + "; const t = b.mapToItem(l.contentItem, 0, 0).y;"
+          " return t >= l.contentY && t + b.height <= l.contentY + l.height; })(%s)")
+p.check("Tab onto the last service's button scrolls it into view", rev(_shown % ((ROW % 2) + ".muteButton")), True)
+rev((ROW % 0) + ".copyButton.forceActiveFocus(Qt.BacktabFocusReason)")
+p.pump(50)
+p.check("...and back onto the first scrolls that into view too", rev(_shown % ((ROW % 0) + ".copyButton")), True)
+pop.setHeight(900)
+p.pump(200)
 lev("engineCopyClip.text = ''")
 rev((ROW % 2) + ".copyButton.clicked()")
 p.check("Copy Command copies that command, quotes intact", lev("engineCopyClip.text"),

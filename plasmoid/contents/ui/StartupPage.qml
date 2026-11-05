@@ -40,6 +40,13 @@ ColumnLayout {
         }));
     }
 
+    // In the scrolling list, the keyboard must not end up on a button below its fold.
+    function keepInView(button) {
+        const list = failedScroll.contentItem;
+        const top = button.mapToItem(list.contentItem, 0, 0).y;
+        list.contentY = Math.max(0, Math.min(top, Math.max(list.contentY, top + button.height - list.height)));
+    }
+
     component PageLine: PlasmaComponents.Label {
         Layout.fillWidth: true
         textFormat: Text.PlainText
@@ -127,6 +134,7 @@ ColumnLayout {
                         Layout.fillWidth: true
                         PageButton {
                             id: copyButton
+                            onActiveFocusChanged: if (activeFocus) page.keepInView(this)
                             icon.name: "edit-copy"
                             text: i18n("Copy Command")
                             Accessible.name: i18nc("@action:button a service's name follows", "Copy Command: %1", entry.service.name)
@@ -135,6 +143,7 @@ ColumnLayout {
                         }
                         PageButton {
                             id: muteButton
+                            onActiveFocusChanged: if (activeFocus) page.keepInView(this)
                             icon.name: "notifications-disabled"
                             text: entry.muting ? i18n("Muting…") : i18n("Mute Until It Starts")
                             Accessible.name: entry.muting
