@@ -660,9 +660,9 @@ Its wording is fixed, so you can search it:
 | `offline staged <n>` | An update was staged for the next restart. |
 | `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
-| `offline stage cannot install (...) - announced\|not announced` | The staged update can no longer install on a restart. `not announced` when the notification did not show. It is not sent again. |
+| `offline stage cannot install (...) - announced\|not announced` | The staged update can no longer install on a restart. `not announced` when the notification did not show, and the next check tries again. Once shown, it is not sent again. |
 | `offline stage replaced outside Kempt (<what differs>) - announced\|not announced` | The staged update is no longer the one Kempt made. `not announced` as above. |
-| `offline stage did not finish on the restart (...) - announced\|not announced` | dnf5 stopped during the restart, and nothing of the stage can be shown to have changed. It is not sent again. |
+| `offline stage did not finish on the restart (...) - announced\|not announced` | dnf5 stopped during the restart, and nothing of the stage can be shown to have changed. Once shown, it is not sent again. |
 | `offline stage partly installed on a restart that did not finish (<counts>)` | dnf5 stopped during the restart with some staged packages changed. The history entry says `offline (restart did not finish)`. |
 | `offline stage partly installed outside Kempt (<counts>)` | Some of the staged packages changed outside Kempt and the rest did not. The history entry says `offline (partly installed outside Kempt)`. |
 | `offline stage partly installed outside Kempt, after it was announced as lost` | The same, after you were told the stage could no longer install. No history or second notification. |

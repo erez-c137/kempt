@@ -2508,7 +2508,8 @@ stage_remedy() {
 }
 
 # The announce-once key is the marker itself - `armed: false` IS the record that this was said,
-# and a box checking every ten minutes would otherwise repeat it 144 times a day.
+# and a box checking every ten minutes would otherwise repeat it 144 times a day. Written only once
+# the notification was really shown: someone with no session at this check is told at the next one.
 reconcile_detour_stage() {  # marker-json toml-status [none, when nothing of it was installed]
   # `.armed == false` and never `.armed // true`: jq's alternative operator treats FALSE as empty,
   # so `//` would read the demoted marker as armed and announce it again on every check. Absent
@@ -2528,6 +2529,7 @@ reconcile_detour_stage() {  # marker-json toml-status [none, when nothing of it 
     notify "Kempt" "Your staged update can no longer install on a restart. $(stage_remedy)"
   fi
   log_event "offline stage $outcome (status $2) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
+  [[ "$NOTIFY_SHOWN" == true ]] || return 0
   # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
   # pointer, the names and the boot id survive for the doctor rows that read them.
   # lost_announced: people were told it can no longer install, so a later harvest does not report on it.
@@ -2564,13 +2566,28 @@ record_stage_did_not_run() {
 # before it rewrites this marker, and in between the two disagree for the most ordinary reason.
 # Reads and writes harvest_offline's `marker`, so every branch after it carries the flag forward.
 reconcile_replaced_stage() {
-  if jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1; then return 0; fi
+  # `replaced` is a fact other code reads, so it is recorded whether or not anyone was told.
+  # replaced_unannounced says the telling is still owed, and the next check tries again.
+  local owed=false
+  if jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1; then
+    jq -e '.replaced_unannounced == true' <<<"$marker" >/dev/null 2>&1 || return 0
+    owed=true
+  fi
   stage_lock_try || return 0
-  local why updated
-  if why="$(offline_stage_replaced "$marker")" && offline_marker_still "$marker"; then
+  local why="" updated
+  if { [[ "$owed" == true ]] || why="$(offline_stage_replaced "$marker")"; } && offline_marker_still "$marker"; then
     notify "Kempt" "Your staged update was replaced outside Kempt, so the next restart will not install it. $(stage_remedy)"
-    log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
-    updated="$(jq -c '. + {replaced: true}' <<<"$marker" 2>/dev/null)" || updated=""
+    if [[ "$owed" == true && "$NOTIFY_SHOWN" != true ]]; then
+      stage_unlock
+      return 0
+    fi
+    [[ "$owed" == true ]] \
+      || log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
+    if [[ "$NOTIFY_SHOWN" == true ]]; then
+      updated="$(jq -c '. + {replaced: true} | del(.replaced_unannounced)' <<<"$marker" 2>/dev/null)" || updated=""
+    else
+      updated="$(jq -c '. + {replaced: true, replaced_unannounced: true}' <<<"$marker" 2>/dev/null)" || updated=""
+    fi
     if [[ -n "$updated" ]] && printf '%s\n' "$updated" | write_offline_marker; then
       marker="$updated"
     else

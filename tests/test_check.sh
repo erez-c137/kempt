@@ -1080,6 +1080,19 @@ sb_check
 assert_eq "$(cat "$sb_notify")" "" "the next check does not say it again"
 assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "$((sb_before + 1))" \
   "...nor record it again"
+# Nobody could be told at that check: it is not recorded as said, so the next check says it.
+stage_marker boot-t4 61
+: > "$sb_notify"
+KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" KEMPT_NOTIFY=false "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.armed' "$marker")" "true" "a notification that was not shown does not demote the marker"
+assert_eq "$(jq -r '.lost_announced // "absent"' "$marker")" "absent" "...nor record the stage as announced"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and the stage is still not published as staged"
+sb_check
+assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" "...so the next check with a session says it"
+assert_eq "$(jq -r '[.armed, .lost_announced] | join(" ")' "$marker")" "false true" "...and records that it did"
+: > "$sb_notify"
+sb_check
+assert_eq "$(cat "$sb_notify")" "" "...once"
 # A lock held by somebody else, until it is let go: a sentinel says it is held, and the holder
 # waits on a fifo rather than a timer, so a loaded box cannot release it early.
 sb_hold() {  # lock-file → holds it in the background; sb_release lets go
