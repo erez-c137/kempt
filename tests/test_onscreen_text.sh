@@ -174,7 +174,7 @@ assert_contains "$HELPER_TEXT" "Kempt does not update atomic Fedora (Kinoite, Si
 assert_contains "$(cut -f2- "$TEXT")" "These updates were left in place. Run kempt doctor." "the clean unwind's sentence is collected"
 if command -v node >/dev/null 2>&1; then
   PAUSED="$(node -e 'console.log(require(process.argv[1]).COPY.updatesPausedFolder)' "$UI/logic.js")"
-  assert_eq "$PAUSED" "A system folder has unsafe permissions, so Kempt has paused updates until that is fixed." "the widget's own form"
+  assert_eq "$PAUSED" "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it." "the widget's own form"
 fi
 
 # --- the allowlist ------------------------------------------------------------------------------
