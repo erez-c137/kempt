@@ -2377,7 +2377,7 @@ stage_tell_problem() {  # history-answered(true|false) had-memory(true|false)
       # The words the restart's entry already has: a script failing after everything arrived is not
       # an install that did not finish.
       local said="" newest
-      newest="$(startup_hist_names | tail -n 1)"
+      newest="$(startup_hist_names | tail -n 1)" || true
       [[ -z "$newest" ]] || said="$(jq -r 'select(.status == "failed" and (.surface | strings | startswith("offline ("))) | .error | strings' "$HIST_DIR/$newest" 2>/dev/null)"
       notify "Kempt" "Prepared updates: ${said:-the install did not finish on the restart}. Kempt's update list shows anything still waiting" ;;
     interrupted) notify "Kempt" "A restart stopped before your prepared updates finished installing, and no restart will run them again. To prepare them again, run kempt update --surface=offline or press Install on Next Restart in Kempt" ;;
@@ -2390,7 +2390,7 @@ stage_tell_problem() {  # history-answered(true|false) had-memory(true|false)
 # The check's first step, inside the check lock: two overlapping checks must not report one restart
 # twice. A history that does not answer says nothing, and the next check asks again.
 stage_report_restart() {
-  local had_memory=false answered=false seen rows id st when now
+  local had_memory=false answered=false seen rows id st when now newest
   # What 0.2.0 and earlier kept about a stage. Nothing reads these now.
   rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR/offline-partial" \
         "$KEMPT_STATE_DIR/stage.lock" "$SNAP_DIR"/offline-pre-*.tsv 2>/dev/null || true
@@ -2413,6 +2413,11 @@ stage_report_restart() {
       # Remembered first: a report lost to a full disk is better than one repeated on every check.
       stage_shown_set row "$id" || return 0
       if [[ "$had_memory" != true && "$when" =~ ^[0-9]+$ ]] && (( now - when > KEMPT_STAGE_FRESH_SECS )); then
+        continue
+      fi
+      # 0.2.0 reported its own restart and kept no row: an upgrade must not report that one again.
+      newest="$(startup_hist_names | tail -n 1)" || true
+      if [[ -n "$newest" && "$(jq -r '.transaction_id // empty' "$HIST_DIR/$newest" 2>/dev/null)" == "$id" ]]; then
         continue
       fi
       stage_report_row "$id" "$st"

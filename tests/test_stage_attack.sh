@@ -292,6 +292,18 @@ world gone none; check; assert_eq "$(grep '^row=' "$SHOWN")" "row=0" "no offline
 row 42 Ok 'dnf5 upgrade --offline -y' 400000; check
 assert_contains "$(said)" "were installed during the restart" "...so any later row is reported"
 
+# --- upgrading from 0.2.0: it told of this restart itself and kept no row, so no second report
+world gone none; rpm_is "$NEW"; row 50 Ok 'dnf5 upgrade --offline -y'
+mkdir -p "$KEMPT_STATE_DIR/history"
+jq -n --arg t "$(date +%Y-%m-%dT%H:%M:%S%:z)" '{timestamp:$t,surface:"offline (applied on reboot)",status:"ok",transaction_id:50,
+  log:"",error:"",backends:{dnf:{status:"ok",skipped_held:[],updated:[],added:[],removed:[]}}}' > "$KEMPT_STATE_DIR/history/20260101T000000.json"
+check
+silent "0.2.0 already reported it"; assert_eq "$(entries)" 1 "...and no second entry"
+assert_eq "$(grep '^row=' "$SHOWN")" "row=50" "...and the row is remembered"
+# ...and a row that entry does not name is still a report.
+row 51 Ok 'dnf5 upgrade --offline -y'; check
+assert_contains "$(said)" "were installed during the restart" "the next restart is reported"; assert_eq "$(entries)" 2 "...with its entry"
+
 # --- memory: an old restart is known, a recent one is not lost to a deleted folder
 world gone none; row 30 Ok 'dnf5 upgrade --offline -y' 400000; check
 silent old-row; assert_eq "$(entries)" 0 "old-row: no entry"
