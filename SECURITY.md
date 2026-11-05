@@ -11,8 +11,7 @@ Include:
 
 - the `version:` line from `kempt doctor`, which also names the commit on a checkout;
 - the exact command and arguments;
-- whether `/etc/polkit-1/rules.d/49-kempt.rules` is installed, because passwordless mode changes
-  what is exposed;
+- whether your account is in the `wheel` group, because that decides who gets a password dialog;
 - what you expected, and what happened.
 
 A reproduction in the test suite is the most useful thing you can send.
@@ -37,8 +36,7 @@ Fixes ship as a patch release and a COPR rebuild, so they arrive through `dnf up
 ## What runs as root
 
 Nothing Kempt installs is setuid. Two helper scripts run as root, through `pkexec` and two polkit
-actions. The only other root commands are behind their own password prompts: the `install` and
-`rm` in `kempt enable-passwordless` and `kempt disable-passwordless`. Every installed file is mode 0755 or 0644.
+actions, and nothing else does. Every installed file is mode 0755 or 0644.
 
 ## Scope
 
@@ -48,8 +46,8 @@ Where to look, most important first:
    argument checks, the pinned `PATH` and `LC_ALL`, bash's privileged mode, and the refusal to
    touch a downloaded Fedora release upgrade.
 2. `polkit/io.github.erez_c137.kempt.policy`: the two actions and who may use them.
-3. `polkit/49-kempt.rules.in` and `render_passwordless_rule` in `lib/common.sh`: the passwordless
-   rule and the check that verifies it.
+3. `polkit/49-kempt.rules`: the fixed rule that lets a `wheel` user at the desk update with no
+   password.
 4. How the widget builds commands: `shellQuote` in `plasmoid/contents/ui/logic.js` and its callers.
    The widget runs as you, but it puts package names into shell commands.
 

@@ -53,16 +53,15 @@ a symlink into your home directory.
 | `/usr/bin/kempt` | `root:root` | The command you type. A **symlink** to `/usr/share/kempt/bin/kempt`, because the CLI finds its own tree with `readlink -f`. |
 | `/usr/share/kempt/bin/`, `lib/`, `backends/`, `libexec/` | `root:root` | The CLI, its library, the two backends and the helper that lists unused Flatpak runtimes. |
 | `/usr/share/kempt/VERSION` | `root:root` 0644 | What `kempt --version` and the first line of `kempt doctor` read. |
-| `/usr/share/kempt/polkit/49-kempt.rules.in` | `root:root` 0644 | The template `kempt enable-passwordless` renders. |
 | `/usr/libexec/kempt-refresh` | `root:root` 0755 | Root helper: package metadata only, no authentication dialog. |
-| `/usr/libexec/kempt-apply` | `root:root` 0755 | Root helper: the dnf upgrade verbs, one authentication per run. |
+| `/usr/libexec/kempt-apply` | `root:root` 0755 | Root helper: the dnf upgrade verbs. A `wheel` user at the desk gets no dialog, and anyone else at the desk gets one per run. |
 | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | The two polkit actions. Their `exec.path` pins `/usr/libexec`. |
+| `/usr/share/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | Lets a `wheel` user at the desk update with no password. Installing or upgrading the package also removes the old `/etc/polkit-1/rules.d/49-kempt.rules`, if an earlier version left one. |
 | `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt/` | `root:root` | The panel widget. **From `kempt-plasmoid`.** |
 | `/usr/share/icons/hicolor/*/apps/kempt.svg` | `root:root` 0644 | The icon at each size. **From `kempt-plasmoid`.** |
 | `/usr/share/man/man1/kempt.1` | `root:root` 0644 | `man kempt`. |
 | `/usr/share/metainfo/io.github.erez_c137.kempt.metainfo.xml` | `root:root` 0644 | What a software centre reads. **From `kempt-plasmoid`.** |
 | `/usr/share/doc/kempt/` | `root:root` | The README, the changelog, `SECURITY.md` and the user guides in `docs/`, at the same relative paths so most of their links work. |
-| `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | Only after `kempt enable-passwordless`. It names one user, so it is not part of the package. |
 
 Your settings and state are created on first use, in `~/.config/kempt/` (config, holds) and
 `~/.local/state/kempt/` (state, history, logs, snapshots). See
@@ -123,7 +122,6 @@ Doctor also catches a widget installed from the KDE Store before the package; se
 ### Removing the package
 
 ```bash
-kempt disable-passwordless    # first, if you allowed updates without a password
 kempt discover-notifier on    # first, if you turned off Discover's notifier
 sudo dnf remove kempt
 ```
@@ -131,7 +129,6 @@ sudo dnf remove kempt
 Removing `kempt` also removes `kempt-plasmoid` and every file the two packages installed. Some
 files are not part of the package, so they stay:
 
-- The passwordless rule. That is why `kempt disable-passwordless` comes first.
 - `~/.config/autostart/org.kde.discover.notifier.desktop`, if you turned Discover's notifier off.
   That is why `kempt discover-notifier on` comes first.
 - `~/.config/kempt/` and `~/.local/state/kempt/`, with your settings, holds and update history.
@@ -228,24 +225,15 @@ multilib pairs such as `bash.x86_64` and `bash.i686` into one item, and leaves o
 packages. The `dnf5` command also reads your user cache, while Kempt reads the root cache its
 update will use.
 
-## Passwordless updates (optional)
+## Who gets a password dialog
 
-By default, applying updates raises one KDE authentication dialog per run. To skip it:
+A `wheel` user sitting at the computer updates with no password. Fedora puts the first account it
+creates in `wheel`. Anyone else at the computer gets one KDE dialog per run, which asks for an
+administrator's password. Over SSH, nobody can start an update. This is one fixed rule in the
+package, with no setting.
 
-```bash
-kempt enable-passwordless     # one pkexec prompt to install the rule
-```
-
-This renders `polkit/49-kempt.rules.in` with your username, checks the result, and installs it at
-`/etc/polkit-1/rules.d/49-kempt.rules`. The rule allows one polkit action,
-`io.github.erez_c137.kempt.apply`, for your user, and only in an **active, local** session. It
-grants nothing beyond the verbs the apply helper implements.
-
-```bash
-kempt disable-passwordless    # removes the rule; saying "not enabled" is not an error
-```
-
-The full grant is in [security.md](security.md#passwordless-mode).
+To make your own account ask, take it out of `wheel`. The full grant is in
+[security.md](security.md#no-password-at-the-desk).
 
 ## Updating Kempt
 

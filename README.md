@@ -100,12 +100,12 @@ them. The [contributing guide](CONTRIBUTING.md#installing-from-a-checkout) cover
 
 | Document | What is in it |
 | --- | --- |
-| [docs/install.md](docs/install.md) | Installing from the package, passwordless updates, and removing Kempt |
+| [docs/install.md](docs/install.md) | Installing from the package, who gets a password dialog, and removing Kempt |
 | [docs/widget.md](docs/widget.md) | What the panel widget shows, and what each message, button and setting does |
 | [docs/usage.md](docs/usage.md) | Every command with its options, output and exit codes |
 | [docs/configuration.md](docs/configuration.md) | Every setting with its default, holds, and where Kempt keeps its files |
 | [docs/architecture.md](docs/architecture.md) | How Kempt is built, the state file format, and how to add a package manager |
-| [docs/security.md](docs/security.md) | What runs as root, and what passwordless updates allow |
+| [docs/security.md](docs/security.md) | What runs as root, and who can start an update without a password |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Where the project is going, in order |
 | [docs/RELEASING.md](docs/RELEASING.md) | How a release is made |
 | [docs/man/kempt.1](docs/man/kempt.1) | Man page: `man kempt` once installed |

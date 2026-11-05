@@ -17,7 +17,6 @@ runs which command is in [its table](widget.md#what-each-button-runs).
 | [`kempt doctor`](#doctor) | Checks this install and names anything broken |
 | [`kempt hold`, `unhold`, `holds`](#hold-unhold-holds) | Skips a package in updates, stops skipping it, or lists what is held |
 | [`kempt config`](#config) | Reads or changes a setting |
-| [`kempt enable-passwordless`, `disable-passwordless`](#enable-passwordless-disable-passwordless) | Lets your session install updates without a password, or stops it |
 | [`kempt discover-notifier`](#discover-notifier) | Turns Discover's own update notifier off or back on |
 | [`kempt --version`](#--version) | Prints the version |
 | `kempt help`, `--help`, `-h` | Prints the list of commands with a line each. `help <command>` or `<command> --help` gives one command's usage. |
@@ -685,7 +684,6 @@ Its wording is fixed, so you can search it:
 | `reclaim needs authorization, nothing removed` | Removing needed an administrator (see [reclaim](#reclaim)). |
 | `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own line, if any. `<n>` is `?` when the list could not be read. `, what was removed is unknown`: Flatpak failed and the list afterwards could not be read. |
 | `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` ran as root, or with `reclaim=off`. |
-| `passwordless enable rc=<n>` / `passwordless disable rc=<n>` | `enable-passwordless` or `disable-passwordless` finished. |
 | `discover-notifier off` / `discover-notifier on` / `discover-notifier keep` | Discover's notifier was turned off or on for this user, or kept when the widget's offer was answered. |
 
 ### Which question, which file
@@ -934,25 +932,6 @@ kempt -V               # the same
 
 The number comes from the `VERSION` file, or reads `kempt unknown` without it. For a bug report,
 `kempt doctor` is better: it also says where the version was read from.
-
-## enable-passwordless, disable-passwordless
-
-```
-kempt enable-passwordless
-kempt disable-passwordless
-```
-
-Adds or removes a polkit rule that lets your active local session install updates without a
-password. It covers dnf. Flatpak app updates never ask. Each command asks for your password once,
-to write to `/etc/polkit-1`. Disabling when it was never enabled succeeds.
-What the rule grants is in [security.md](security.md#passwordless-mode).
-
-| Exit | When |
-| --- | --- |
-| 0 | Done, or there was nothing to disable. |
-| 1 | `enable-passwordless` could not install the rule, for example because the password dialog was cancelled. |
-| 2 | Any argument. Also `enable-passwordless` when it cannot build a valid rule for your user name. |
-| other | `disable-passwordless` could not remove the rule, and passes on pkexec's code: 126 when the password dialog was dismissed, 127 when authorization was refused or failed. |
 
 ## discover-notifier
 

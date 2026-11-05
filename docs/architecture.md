@@ -44,7 +44,7 @@ engine could replace the bash one.
 | `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager |
 | `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root |
 | `libexec/kempt-flatpak-unused` | Lists the Flatpak runtimes no installed app uses. Runs as the user |
-| `polkit/` | The two action definitions plus the passwordless rule template |
+| `polkit/` | The two action definitions and the fixed rule for `wheel` users at the desk |
 | `plasmoid/` | The Plasma 6 panel widget: a client of the CLI with no package-manager knowledge |
 | `plasmoid/contents/ui/logic.js` | The widget's whole derivation layer, in engine-agnostic JS so node can test it |
 | `tests/` | Fixture-driven bash test suite, no framework dependency |
@@ -574,10 +574,11 @@ action. A cheap verb must never share an action with a dangerous one.
   It handles dnf only. `flatpak update` asks polkit for itself and runs as the user.
 
 Both helpers validate every argument before running anything, accept no free-form arguments, and
-pin `PATH` and `LC_ALL`. Each verb runs as a fixed-name service that a watchdog polls. For a
-live upgrade, the status dnf5's history records for the run's own transaction settles a
-disagreement with the helper's exit status, in either direction. The full model, including what passwordless mode grants, is in
-[security.md](security.md).
+pin `PATH` and `LC_ALL`. Each runs dnf5 in place under a systemd scope, so its output and exit status are the
+helper's own, and it outlives a closed terminal or a logout. For a live upgrade, the status dnf5's history records
+for the run's own transaction settles a disagreement with the helper's exit status, in either
+direction. The full model, including who needs no
+password, is in [security.md](security.md).
 
 ## The widget's one command path
 
@@ -601,7 +602,6 @@ executor must be able to kill a stuck `kempt check`.
 | `tailExecutor` | `main.qml` | `tail -n 25` of the run log, every 2s while the widget shows it | The queue is first in, first out. Behind a two-minute check, tails would pile up ahead of every button press. |
 | `promptExecutor` | `main.qml` | the restart prompt, and nothing else | `dbus-send` takes milliseconds. Behind a check it would sit unsent with nothing on screen. |
 | `cfgExecutor` | `configGeneral.qml` | the settings page's reads and writes | The config dialog lives in its own object tree and cannot reach `main.qml`. It must also open while a check runs. |
-| `pwExecutor` | `configGeneral.qml` | `enable-passwordless` and `disable-passwordless`, and nothing else | Those two wait on a password dialog, and the page's other work must not wait behind them. |
 
 The rule: a fast, periodic caller must not share a queue with a slow, occasional one. Add another
 instance rather than making the queue clever.
