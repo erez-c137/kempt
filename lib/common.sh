@@ -2897,7 +2897,7 @@ stage_read() {  # → one word from the table above
 # so they are never Kempt's to announce.
 # shellcheck disable=SC2016
 KEMPT_JQ_OFFLINE_ROW='
-  def offline_row: (.command_line | strings | test("--offline"));'
+  def offline_row: (.command_line | strings | test("(^|\\s)--offline(\\s|$)"));'
 
 # Is the newest restart's install in dnf5's history this stored stage, and still unfinished? The
 # cookie the row began from says which stage it was, and a row that never ended still says `Started`.

@@ -253,6 +253,13 @@ assert_contains "$(last_line)" "but no restart will install them now" "last run,
 world gone none; rpm_is "$NEW"; row 24 Ok null; jq '.[0].command_line = null' "$WORLD/hist-list.json" > "$WORLD/l" && mv "$WORLD/l" "$WORLD/hist-list.json"; check
 silent packagekit; assert_eq "$(entries)" 0 "packagekit: no entry"
 
+# --- a live command whose words only contain the flag is not a restart's row
+world gone none; rpm_is "$NEW"; echo row=9 > "$SHOWN"; row 25 Ok 'dnf5 install foo--offline-tool'; row 26 Ok 'dnf5 install --offline-tool'; row 29 Ok 'dnf5 remove foo--offline'; check
+silent "a package named like the flag"; assert_eq "$(entries)" 0 "...and no entry"
+# ...and the flag first or last is still the flag.
+world gone none; rpm_is "$NEW"; echo row=9 > "$SHOWN"; row 27 Ok 'dnf5 --offline upgrade'; row 28 Ok 'dnf5 upgrade --offline'; check
+assert_eq "$(entries)" 2 "the flag anywhere as a word is a restart's row"
+
 # --- memory: a history that does not answer writes none, or its old rows are all new at the next check
 world gone none; row 40 Ok 'dnf5 upgrade --offline -y' 400000; row 41 Ok 'dnf5 upgrade --offline -y' 300000
 KEMPT_DNF_HISTORY_CMD=/bin/false check
