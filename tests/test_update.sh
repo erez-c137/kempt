@@ -381,6 +381,7 @@ done
 assert_contains "$ctrlc_out" "carries on to the end" "...and the person reads what happens to the update"
 assert_not_contains "$ctrlc_out" "Update failed" "...and is not told it failed"
 assert_eq "$(ls "$KEMPT_STATE_DIR/history/" | wc -l)" "$hist_before" "...and no run is recorded as ended"
+assert_eq "$(tail -n 1 "$KEMPT_STATE_DIR/events.log" | grep -c 'stopped watching')" "1" "...and the event log says the watching stopped"
 assert_eq "$(wc -l < "$WORLD/notifications")" "0" "...and no notification says it did"
 if flock -n "$KEMPT_STATE_DIR/lock" true 2>/dev/null; then echo "ok: ...and the lock is free for the next run"; else echo "FAIL: lock still held"; _fail=1; fi
 # A next run while dnf5 goes on: the fixed unit name refuses, in words a person can use.
