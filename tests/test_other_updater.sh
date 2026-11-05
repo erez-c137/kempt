@@ -134,17 +134,6 @@ assert_eq "$rc" "5" "a stage asked for at a terminal with auto_accept off is ref
 assert_eq "$(cat "$WORLD/calls")" "" "...and changes nothing"
 "$KEMPT" config set auto_accept true
 "$KEMPT" config set surface popup 2>/dev/null || true
-cat > "$TESTTMP/refresh-busy" <<STUB
-#!/usr/bin/env bash
-echo "kempt-refresh: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
-exit 5
-STUB
-chmod +x "$TESTTMP/refresh-busy"
-: > "$WORLD/calls"; busy_rc=0
-busy_err="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-busy" "$KEMPT" update --surface=offline 2>&1 >/dev/null)" || busy_rc=$?
-assert_eq "$busy_rc" "3" "another Kempt update running: the code for that, not a refusal"
-assert_eq "$busy_err" "another kempt update is running" "...saying only that"
-assert_eq "$(cat "$WORLD/calls")" "" "...and nothing ran"
 gate_refuses "a check that cannot answer" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-fails" "$KEMPT" update --surface=offline
 
 # Nothing to stage: the run carries on, so whatever else it does still happens.

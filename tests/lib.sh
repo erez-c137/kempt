@@ -123,8 +123,8 @@ sandbox() {  # fresh dirs per test file; call first
   # belong to whoever runs the suite, so the walk stops below it.
   export KEMPT_DNF_PARENTS_TOP="$TESTTMP"
   # The mount table and PID 1's namespace, which the same checks read. One plain mount, and this
-  # process's own namespace: unset, the helper would refuse, because a user cannot read PID 1's, and
-  # a developer's own mounts would decide. test_apply_parents.sh points them elsewhere.
+  # process's own namespace: unset, a developer's own mounts would decide. test_doctor_folders.sh points
+  # them elsewhere.
   printf '1 0 0:1 / / rw - ext4 /dev/root rw\n' > "$TESTTMP/mountinfo"
   export KEMPT_MOUNTINFO="$TESTTMP/mountinfo" KEMPT_MNT_NS_INIT=/proc/self/ns/mnt
   # The helper refuses without getfacl. The README promises a run without the acl package, so a box
@@ -204,47 +204,13 @@ sandbox() {  # fresh dirs per test file; call first
   # the pin the dnf5 on the machine running the suite would decide which format they are read as.
   # The JSON path is tested where it is set explicitly (test_dnf.sh, test_helpers.sh).
   export KEMPT_DNF5_VERSION=5.2.18.0
-  # The root helpers hand dnf5 to systemd-run, and run only where systemd is PID 1. Both are seams
-  # an unprivileged run honours. The stand-in records its argv one per line, and its pid, and exits
-  # KEMPT_TEST_SDRUN_RC: unset, a helper run without its ECHO seam would ask the real systemd-run,
-  # which asks polkit for a password, and on a box without systemd it would refuse instead.
+  # doctor's mount namespace row looks for a booted systemd.
   mkdir -p "$TESTTMP/systemd-booted"
-  export KEMPT_SYSTEMD_BOOTED="$TESTTMP/systemd-booted" KEMPT_SYSTEMD_RUN="$TESTTMP/systemd-run"
-  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$@" > "%s/systemd-run.argv"\necho "$$" > "%s/systemd-run.pid"\necho systemd-run >> "%s/systemd.calls"\nexit "${KEMPT_TEST_SDRUN_RC:-0}"\n' \
-    "$TESTTMP" "$TESTTMP" "$TESTTMP" > "$KEMPT_SYSTEMD_RUN"
-  chmod +x "$KEMPT_SYSTEMD_RUN"
-  unset KEMPT_TEST_SDRUN_RC
-  # The helpers ask systemctl about dnf5's unit before they start it, and while systemd-run waits.
-  # Unstubbed, a reset-failed would ask the real systemd, and polkit for a password. The stand-in
-  # logs each call to systemd.calls, as the systemd-run one does. `show` answers from
-  # systemctl.states, one line per read and the last line for good: LoadState ActiveState
-  # ExecMainCode ExecMainStatus InvocationID (- for none) [Result]. No file: the unit is not
-  # loaded. The ActiveState read before the start (`--value`) answers from systemctl.claim.<unit>
-  # when that file exists, else from systemctl.claim.
-  export KEMPT_SYSTEMD_SYSTEMCTL="$TESTTMP/systemctl"
-  cat > "$KEMPT_SYSTEMD_SYSTEMCTL" <<EOF
-#!/usr/bin/env bash
-echo "systemctl \$*" >> "$TESTTMP/systemd.calls"
-[[ "\$1" == show ]] || exit 0
-if [[ " \$* " == *" --value "* ]]; then
-  c="$TESTTMP/systemctl.claim.\${!#}"; [[ -e "\$c" ]] || c="$TESTTMP/systemctl.claim"
-  cat "\$c" 2>/dev/null || echo inactive; exit 0
-fi
-f="$TESTTMP/systemctl.states" line="not-found inactive 0 0 -"
-if [[ -s "\$f" ]]; then
-  line="\$(head -n 1 "\$f")"
-  (( \$(wc -l < "\$f") > 1 )) && sed -i 1d "\$f"
-fi
-read -r load active code status inv result <<<"\$line"
-printf 'LoadState=%s\nActiveState=%s\nResult=%s\nExecMainCode=%s\nExecMainStatus=%s\nInvocationID=%s\n' \\
-  "\$load" "\$active" "\${result:-success}" "\$code" "\$status" "\${inv#-}"
-EOF
-  chmod +x "$KEMPT_SYSTEMD_SYSTEMCTL"
-  unset KEMPT_SYSTEMD_POLL KEMPT_SYSTEMD_GRACE KEMPT_SYSTEMD_LONG_RUN
+  export KEMPT_SYSTEMD_BOOTED="$TESTTMP/systemd-booted"
   unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD \
         KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_LIST_CMD \
         KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
-        KEMPT_INSTALL_ECHO KEMPT_APPLY_ECHO KEMPT_REFRESH_ECHO \
+        KEMPT_INSTALL_ECHO \
         KEMPT_BOOT_ID KEMPT_POLICY_FILE KEMPT_VIA KEMPT_ROOT \
         KEMPT_KPACKAGETOOL KEMPT_LIVE_OUTPUT KEMPT_CHECK_LOCK_WAIT \
         KEMPT_REFRESH_HELPER_PATH KEMPT_APPLY_HELPER_PATH KEMPT_PLASMOID_DIR

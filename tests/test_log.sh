@@ -307,28 +307,6 @@ STUB
     "...and the check still answers from the cached metadata (exit $rc)"
 done
 
-# A refresh the helper refused because a Kempt update is running (exit 5, either busy sentence) is
-# not a failure: the person's own update is under way. No "refresh failed", the failure marker is
-# left as it was, and the 3h window is not stamped, so the next check fetches.
-for sentence in "dnf5 was not started, because a Kempt update is running. Nothing changed." \
-                "dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed."; do
-  cat > "$TESTTMP/refresh-busy" <<STUB
-#!/usr/bin/env bash
-[[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
-echo "kempt-refresh: $sentence" >&2
-exit 5
-STUB
-  chmod +x "$TESTTMP/refresh-busy"
-  rm -f "$KEMPT_STATE_DIR/last_refresh" "$KEMPT_STATE_DIR/last_refresh_dnf"
-  echo "an earlier failure" > "$KEMPT_STATE_DIR/refresh_dnf_failed"
-  : > "$EV"
-  KEMPT_REFRESH_HELPER="$TESTTMP/refresh-busy" "$KEMPT" check >/dev/null 2>&1 || true
-  assert_eq "$(events_like ' refresh failed')" "0" "a refresh refused while Kempt is busy is not recorded as failed"
-  assert_eq "$(cat "$KEMPT_STATE_DIR/refresh_dnf_failed")" "an earlier failure" "...and leaves the failure marker as it was"
-  assert_exit 1 "...and does not stamp the refresh window" -- test -e "$KEMPT_STATE_DIR/last_refresh_dnf"
-done
-rm -f "$KEMPT_STATE_DIR/refresh_dnf_failed"
-
 # A refresh that never answers, which is what an authentication dialog nobody is at looks like:
 # a background check cannot answer one, so it waits out the whole timeout. The number was
 # hardcoded at 120 until now, so no test could reach this branch without waiting two minutes -
@@ -435,8 +413,6 @@ plain_in=(
   "unstage refused (a Fedora release upgrade (44) is stored)"
   "dnf outcome read from history (transaction 10 ok, helper rc=1)"
   "dnf outcome read from history (transaction 10 Error, helper rc=0)"
-  "offline stage not started (another Kempt run is still in progress)"
-  "offline stage not armed (another Kempt run is still in progress)"
   "check skipped (a Kempt update is running)")
 for t in "${plain_in[@]}"; do printf '2026-01-01T00:00:00+00:00 cli %s\n' "$t" >> "$EV"; done
 cp "$EV" "$TESTTMP/ev.before"

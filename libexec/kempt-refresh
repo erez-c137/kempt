@@ -1,296 +1,53 @@
 #!/usr/bin/bash -p
-# Kempt root helper - metadata only. polkit action io.github.erez_c137.kempt.refresh (allow_active=yes).
-# Absolute shebang, -p and a pinned PATH: defense in depth beyond pkexec's env sanitizing. -p keeps
-# bash from reading BASH_ENV, ENV, SHELLOPTS, BASHOPTS, CDPATH, GLOBIGNORE or exported functions
-# from the caller (see kempt-apply).
-# This shell only decides. It validates its argument, checks the dnf5 version, and then hands the
-# one dnf5 command to systemd, which starts it as a fresh system service (see run_dnf5). pkexec
-# passes on far more of the caller than its environment: the umask, resource limits, ignored
-# signals, the working directory, the nice value, the CPU affinity and the cgroup. A process systemd
-# starts inherits none of them. The umask and core-file lines below are belt and braces for this
-# shell and systemd-run, which write nothing; dnf5 gets its own from the unit properties.
+# Kempt's no-dialog root helper: reads and refreshes package lists, and can install nothing.
+# polkit action io.github.erez_c137.kempt.refresh: any active local user, no dialog. pkexec picks the
+# action by this file's path, so this file holds no upgrade verb and never shares one with kempt-apply.
+# docs/security.md explains each line.
+
+# pkexec clears the environment, but passes on the umask, limits, directory and ignored signals.
 umask 022
-ulimit -c 0
+cd /
 set -euo pipefail
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-export LC_ALL=C.UTF-8
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
+ulimit -c 0
+ulimit -f unlimited -t unlimited -d unlimited -v unlimited -m unlimited -s 8192 -n 4096 || (( EUID ))
 
-run() {  # test seam: KEMPT_REFRESH_ECHO=1 prints the final command instead of running it
-  if [[ -n "${KEMPT_REFRESH_ECHO:-}" ]]; then echo "$*"; else run_watched "$@"; fi
-}
-
-# This helper's name in its messages, and its exit status when dnf5's unit from an earlier run is
-# still going (claim_unit). 5 is apart from 2 and 4 below, dnf5's 0, 1 and 100, and pkexec's 126
-# and 127.
-ME=kempt-refresh
-BUSY=5
-
-# systemd-run runs as a child, never by exec, so the shell can watch dnf5's unit while it waits
-# (watch_unit). With --pipe, systemd-run hands its own stdin, stdout and stderr to PID 1, which
-# gives them to dnf5's unit. They must never be this shell's own. PID 1 runs in SELinux's init_t,
-# which may not write the caller's files (a mktemp file in /tmp is user_tmp_t), and systemd-run
-# then fails with "Remote peer disconnected" before dnf5 starts. So its stdin is /dev/null, and its
-# stdout and stderr are each a pipe this shell makes, read by a cat that copies to this shell's
-# stdout or stderr. The two stay apart, because the CLI reads them apart. With --pty, systemd-run
-# reads the terminal itself, so its stdin is named: a background command would get /dev/null.
-# The shell waits for systemd-run and both cats before it exits, so no output is cut short, and
-# the exit status is systemd-run's, which is dnf5's. Bash starts a background command with INT and
-# QUIT ignored, so systemd-run gets them back. A TERM, INT or HUP to this shell is passed on to
-# systemd-run. Then the cats are stopped as well, since dnf5 may still hold their pipes open, and
-# nothing outlives this shell.
-# When the watch reports that the unit has ended and systemd-run is still waiting, systemd-run will
-# never return (see watch_unit). Only then the shell stops it, the client and never the unit, takes
-# the status systemd recorded, and says so. A systemd-run still there one poll interval after the
-# TERM is killed: it is the client, which owns no unit, and the helper must return. The cats get
-# one more poll interval for what is left in the pipes, and are then stopped: a stdio bridge left
-# behind can hold them open for good.
-# Identical in kempt-apply.
-run_watched() {  # systemd-run --pipe|--pty ... → dnf5's exit status
-  local out err out_pid="" err_pid="" sd_pid wd wd_pid wd_live=1 who r rc=0 woke=0 stopped=0 sig=0 verdict="" pause
-  local -a ids
-  claim_unit
-  if [[ "$2" == --pipe ]]; then
-    exec {out}> >(cat)
-    out_pid=$!
-    exec {err}> >(cat >&2 {out}>&-)
-    err_pid=$!
-    { trap - INT QUIT; exec "$@"; } </dev/null >&"$out" 2>&"$err" {out}>&- {err}>&- &
-    sd_pid=$!
-    exec {out}>&- {err}>&-
-  else
-    { trap - INT QUIT; exec "$@"; } <&0 &
-    sd_pid=$!
-  fi
-  exec {wd}< <(watch_unit </dev/null)
-  wd_pid=$!
-  ids=("$sd_pid" "$wd_pid")
-  trap 'woke=1 stopped=1 sig=15; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
-  trap 'woke=1 stopped=1 sig=2; kill -s INT "$sd_pid" 2>/dev/null || :' INT
-  trap 'woke=1 stopped=1 sig=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
-  # A trapped signal ends wait early. Waiting again returns the status once a child exits. The
-  # watch exits only with a verdict; if it ever exits without one, systemd-run is waited for alone.
-  while :; do
-    woke=0 r=0 who=""
-    wait -n -p who "${ids[@]}" || r=$?
-    if [[ "${who:-}" == "$sd_pid" ]]; then rc=$r; break; fi
-    if [[ -n "${who:-}" ]]; then
-      wd_live=0
-      ids=("$sd_pid")
-      read -r -u "$wd" verdict || verdict=""
-      if (( stopped )); then verdict=""; fi
-      if [[ "$verdict" == "rc "* || "$verdict" == unknown ]]; then break; fi
-      verdict=""
-      continue
-    fi
-    (( woke )) || { rc=$r; break; }
-  done
-  # If systemd-run exited while a trap ran, bash reaped it there and the next wait finds no child.
-  # Its status is lost, so report the signal that stopped it rather than 127 (a pkexec failure).
-  if (( rc == 127 && stopped )); then rc=$(( 128 + sig )); fi
-  trap - TERM INT HUP
-  if [[ -n "$verdict" ]]; then
-    kill -s TERM "$sd_pid" 2>/dev/null || :
-    exec {pause}<> <(:)
-    { read -r -t "$POLL" -u "$pause" _ || :; } &
-    ids=("$sd_pid" "$!")
-    exec {pause}<&-
-    who=""
-    wait -n -p who "${ids[@]}" || :
-    if [[ "${who:-}" == "$sd_pid" ]]; then kill "${ids[1]}" 2>/dev/null || :
-    else kill -s KILL "$sd_pid" 2>/dev/null || :; fi
-    wait "${ids[@]}" 2>/dev/null || :
-    if [[ "$verdict" =~ ^rc\ ([0-9]{1,3})$ ]]; then
-      rc="${BASH_REMATCH[1]}"
-      echo "$ME: systemd-run stopped reporting after dnf5 finished, so its exit status ($rc) was read from systemd." >&2
-    else
-      rc=1
-      echo "$ME: systemd-run stopped reporting after dnf5 finished, and systemd no longer has its result." >&2
-    fi
-    if [[ -n "$out_pid" ]]; then
-      exec {pause}<> <(:)
-      read -r -t "$POLL" -u "$pause" _ || :
-      exec {pause}<&-
-      stopped=1
-    fi
-  elif (( wd_live )); then
-    kill -s TERM "$wd_pid" 2>/dev/null || :
-    wait "$wd_pid" || :
-  fi
-  exec {wd}<&-
-  if [[ -n "$out_pid" ]]; then
-    if (( stopped )); then kill "$out_pid" "$err_pid" 2>/dev/null || :; fi
-    wait "$out_pid" "$err_pid" || :
-  fi
-  return "$rc"
-}
-
-# A second run of the same verb must not start while the first one's dnf5 is still running: its
-# unit name is fixed, so systemd would refuse the start anyway, with a message about unit names.
-# Otherwise the name is reset first. Without --collect a failed unit stays loaded until then, and
-# it would block the name. reset-failed changes nothing about a unit that is running.
-# A unit from UPDATE_UNITS that is running refuses the run the same way, with its own sentence.
-claim_unit() {  # → returns, or exits BUSY while the unit of an earlier run, or an update unit, is going
-  local u
-  for u in "$UNIT" "${UPDATE_UNITS[@]}"; do
-    case "$("$SYSTEMCTL" show --no-pager -p ActiveState --value -- "$u" 2>/dev/null || :)" in
-      active|activating|deactivating|reloading|refreshing)
-        if [[ "$u" == "$UNIT" ]]; then
-          echo "$ME: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." >&2
-        else
-          echo "$ME: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
-        fi
-        exit "$BUSY" ;;
-    esac
-  done
-  "$SYSTEMCTL" reset-failed --no-pager -- "$UNIT" 2>/dev/null || :
-}
-
-# The watch on dnf5's unit, run while systemd-run waits. systemd-run --wait hears that the unit
-# finished from PID 1 over the system bus. When PID 1 drops its API bus connection, which a
-# package's setup step can cause (a scriptlet that runs systemctl for a user manager, say), it
-# forgets systemd-run's interest in the unit, and systemd-run waits for good. So every POLL seconds
-# this asks systemctl, as root over systemd's private socket, about the unit. Once the unit has
-# been seen running, and has then ended for GRACE reads in a row, it prints the verdict and exits:
-# "rc N" from what systemd recorded, or "unknown" when systemd no longer has it. A successful unit
-# is unloaded once nothing refers to it, and a failed one stays loaded until reset, so gone after
-# running is success. Another InvocationID under the name is another run, and this run's result
-# is gone with it. A unit never seen running is never judged: systemd-run may still be starting it.
-# Until it has been seen, the first FIRST_READS reads come every FIRST seconds, so a dnf5 that ends
-# within seconds is still seen running. A read with no InvocationID names no run (systemd answers
-# like that while it re-executes itself), so it is never taken as this run's or another one's, and
-# an ended read like that is not counted. A unit that is gone has none, and still counts.
-# Nothing here stops anything. A unit still running after LONG_RUN reads is only reported, once.
-watch_unit() {  # → "rc N" or "unknown" once dnf5's unit has ended; nothing while it runs
-  local pause k v load active result code status inv mine="" seen=0 ended=0 polls=0 early=0
-  exec {pause}<> <(:)
-  while :; do
-    if (( ! seen && early < FIRST_READS )); then
-      early=$(( early + 1 ))
-      read -r -t "$FIRST" -u "$pause" _ || :
-    else
-      read -r -t "$POLL" -u "$pause" _ || :
-    fi
-    load="" active="" result="" code="" status="" inv=""
-    while IFS='=' read -r k v; do
-      case "$k" in
-        LoadState) load="$v" ;;
-        ActiveState) active="$v" ;;
-        Result) result="$v" ;;
-        ExecMainCode) code="$v" ;;
-        ExecMainStatus) status="$v" ;;
-        InvocationID) inv="$v" ;;
-      esac
-    done < <("$SYSTEMCTL" show --no-pager -p LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus,InvocationID -- "$UNIT" 2>/dev/null || :)
-    [[ -n "$load" && -n "$active" ]] || continue
-    case "$active" in
-      active|activating|deactivating|reloading|refreshing)
-        if [[ -z "$inv" ]]; then :
-        elif (( ! seen )); then seen=1 mine="$inv"
-        elif [[ "$inv" != "$mine" ]]; then echo unknown; return 0; fi
-        ended=0 polls=$(( polls + 1 ))
-        if (( polls == LONG_RUN )); then
-          echo "$ME: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
-        fi
-        continue ;;
-    esac
-    (( seen )) || continue
-    [[ -n "$inv" || "$load" == not-found ]] || continue
-    ended=$(( ended + 1 ))
-    (( ended >= GRACE )) || continue
-    # ExecMainCode is how dnf5 ended: 1 exited with ExecMainStatus, 2 killed, 3 dumped core.
-    # systemd-run itself reports 255 for the last two.
-    if [[ "$load" == not-found ]]; then echo "rc 0"
-    elif [[ "$inv" != "$mine" ]]; then echo unknown
-    elif [[ "$code" == 1 && "$status" =~ ^(0|[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$ ]]; then echo "rc $status"
-    elif [[ "$code" == 2 || "$code" == 3 ]]; then echo "rc 255"
-    elif [[ "$result" == success ]]; then echo "rc 0"
-    else echo unknown; fi
-    return 0
-  done
-}
-
-# systemd-run, the directory that exists only while systemd is PID 1 (sd_booted(3)), systemctl,
-# and the watch's timing: a read every POLL seconds, but every FIRST seconds (POLL if shorter)
-# for the first FIRST_READS reads until the unit is seen running, a verdict after GRACE reads of an
-# ended unit (10 s), the long-run line after LONG_RUN reads of a running one (15 minutes). Fixed whenever this
-# runs as root; the seams are honoured only for an unprivileged caller, which is the test suite,
-# as in kempt-apply. UNIT is set from a fixed table once the verb is known.
-SYSTEMD_RUN=/usr/bin/systemd-run
-SYSTEMD_BOOTED=/run/systemd/system
-SYSTEMCTL=/usr/bin/systemctl
-POLL=5
-FIRST=1
-FIRST_READS=10
-GRACE=2
-LONG_RUN=180
-UNIT=""
-# Units whose run also makes this helper BUSY (claim_unit): kempt-apply's four, a fixed table like
-# UNIT's. A check or refresh started while any of them runs, by anyone, would only wait on dnf5's
-# lock until that update ends, so it starts nothing and says a Kempt update is running.
-UPDATE_UNITS=(kempt-apply-dnf-upgrade.service kempt-apply-dnf-offline-stage.service kempt-apply-dnf-offline-arm.service kempt-apply-dnf-offline-clean.service)
-if [[ $EUID -ne 0 ]]; then
-  SYSTEMD_RUN="${KEMPT_SYSTEMD_RUN:-$SYSTEMD_RUN}"
-  SYSTEMD_BOOTED="${KEMPT_SYSTEMD_BOOTED:-$SYSTEMD_BOOTED}"
-  SYSTEMCTL="${KEMPT_SYSTEMD_SYSTEMCTL:-$SYSTEMCTL}"
-  if [[ "${KEMPT_SYSTEMD_POLL:-}" =~ ^[0-9]{1,3}(\.[0-9]{1,3})?$ && "$KEMPT_SYSTEMD_POLL" =~ [1-9] ]]; then POLL="$KEMPT_SYSTEMD_POLL"; fi
-  if [[ "${POLL%%.*}" =~ ^0+$ ]]; then FIRST="$POLL"; fi
-  if [[ "${KEMPT_SYSTEMD_GRACE:-}" =~ ^[1-9][0-9]{0,4}$ ]]; then GRACE="$KEMPT_SYSTEMD_GRACE"; fi
-  if [[ "${KEMPT_SYSTEMD_LONG_RUN:-}" =~ ^[1-9][0-9]{0,4}$ ]]; then LONG_RUN="$KEMPT_SYSTEMD_LONG_RUN"; fi
+ROOT="" OWNER=0 GROUP=0
+version="$(rpm -q --qf '%{VERSION}' dnf5 2>/dev/null || true)"
+# The tests' stand-in tree. pkexec always runs this as root, which never enters this block.
+if (( EUID )); then
+  ROOT="${KEMPT_HELPER_ROOT:?this helper runs through pkexec}" OWNER="$EUID" GROUP="$(id -g)"
+  version="${KEMPT_DNF5_VERSION:-}"
 fi
-# Exit status when systemd cannot start dnf5. It differs from 2 (bad arguments), from dnf5's own
-# 0, 1 and 100, and from pkexec's 126 and 127. Without systemd, dnf5 does not run at all, and never
-# directly from this shell.
-NO_SYSTEMD=4
+CACHE="$ROOT/var/cache/libdnf5"
 
-# The only way dnf5 starts. [unit properties...] -- dnf5 arguments...
-# --pipe gives dnf5 /dev/null for stdin and pipes back to this process's stdout and stderr
-# (run_piped); --wait and systemd-run's exit status carry dnf5's back (100 from check-update
-# included). The unit gets umask 022, no core files, systemd's default limits, cwd /, and an
-# environment of its own, so PATH and LC_ALL are set on it:
-# without them it gets systemd's PATH, which puts /usr/local first for dnf5's own lookups, and
-# the system locale, which would translate the text the CLI parses. Every dnf5 argument comes after
-# `--`, so none of them can reach systemd-run as an option, and --expand-environment=no keeps PID 1
-# from expanding ${VAR} and $$ inside them. HOME is set because rpm scriptlets otherwise run without
-# one (pkexec set it to /root).
-run_dnf5() {
-  local -a props=()
-  while [[ "$1" != -- ]]; do props+=("$1"); shift; done
-  shift
-  [[ -d "$SYSTEMD_BOOTED" && -x "$SYSTEMD_RUN" ]] || {
-    echo "kempt-refresh: dnf5 was not started, because systemd is not running this system (as in a container) or systemd-run is missing. Nothing changed." >&2
-    exit "$NO_SYSTEMD"
-  }
-  run "$SYSTEMD_RUN" --pipe --wait --quiet --unit="$UNIT" --expand-environment=no -p UMask=0022 -p LimitCORE=0 \
-    --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root "${props[@]}" -- /usr/bin/dnf5 "$@"
-}
+refuse() { echo "kempt-refresh: $1" >&2; exit 3; }
+usage() { echo "usage: kempt-refresh check|refresh" >&2; exit 2; }
 
-# Does the installed dnf5 print check-update as JSON? 5.4.0 added --json; Fedora 43 ships 5.2.
-# The CLI tells the two formats apart by content, so this choice never has to match the CLI's.
-# KEMPT_DNF5_VERSION is a test seam; pkexec clears the environment, so it never reaches a real run.
-dnf5_json() {
-  local v="${KEMPT_DNF5_VERSION:-$(rpm -q --qf '%{VERSION}' dnf5 2>/dev/null || true)}"
-  [[ "$v" =~ ^[0-9][0-9.]*$ ]] && [[ "$(printf '%s\n' 5.4.0 "$v" | sort -V | head -n1)" == 5.4.0 ]]
-}
-
-# Exactly one argument: extra args are never forwarded, so refusing them keeps the caller honest
-# instead of silently ignoring what it asked for.
-[[ $# -eq 1 ]] || { echo "usage: kempt-refresh check|refresh" >&2; exit 2; }
-# One fixed unit name per verb, never built from what the caller passed.
+[[ $# -eq 1 ]] || usage
 case "$1" in
-  check) UNIT=kempt-refresh-check.service ;;
-  refresh) UNIT=kempt-refresh-refresh.service ;;
+  # NEVER add 2>&1 to check: the CLI parses its stdout, and dnf5 keeps progress and errors on stderr.
+  # dnf5 5.4.0 added --json; Fedora 43 has 5.2. The CLI tells the two apart by content.
+  check)
+    args=(--cacheonly check-update --quiet)
+    if [[ "$version" =~ ^[0-9][0-9.]*$ && "$(printf '%s\n' 5.4.0 "$version" | sort -V | head -n1)" == 5.4.0 ]]; then
+      args+=(--json)
+    fi
+    ;;
+  refresh) args=(makecache --refresh) ;;
+  *) usage ;;
 esac
-case "$1" in
-  # NEVER add 2>&1 to the check verb: the CLI parses its stdout, and dnf5 keeps all
-  # progress/errors on stderr - merging them would feed diagnostics into the parser.
-  # Text exits 100 when updates are pending; JSON exits 0 either way.
-  check)   if dnf5_json; then run_dnf5 -- --cacheonly check-update --quiet --json
-           else run_dnf5 -- --cacheonly check-update --quiet; fi ;;
-  # The time limit lives here, as root: the CLI's own `timeout` wraps pkexec and cannot signal a
-  # root dnf5. 120 s is the CLI's KEMPT_REFRESH_TIMEOUT, so the widget's 510 s ceiling holds. systemd
-  # stops the unit when RuntimeMaxSec runs out, with SIGTERM and then SIGKILL after TimeoutStopSec.
-  # Fixed here, never taken from the caller. The CLI records a refresh stopped this way as failed,
-  # like any other.
-  refresh) run_dnf5 -p RuntimeMaxSec=120 -p TimeoutStopSec=10 -- makecache --refresh ;;
-  *) echo "usage: kempt-refresh check|refresh" >&2; exit 2 ;;
-esac
+
+# Root's dnf5 parses what is in the cache, so it stays out while other users can change it.
+if [[ -e "$CACHE" ]]; then
+  hit="$(find -P "$CACHE" -ignore_readdir_race \( ! -uid "$OWNER" -o \( ! -type l \( -perm -0002 -o \
+    \( -perm -0020 ! -gid "$GROUP" \) \) \) \) -print -quit)" || refuse "Kempt could not check $CACHE. Run kempt doctor."
+  [[ -z "$hit" ]] || refuse "Updates paused for safety: users other than root can change $CACHE. Run kempt doctor for the fix."
+fi
+
+# One fixed scope per verb: a second one started while the first runs gets exit 1 and starts nothing.
+# The time limit is here because the CLI's `timeout` cannot signal a root process.
+exec "$ROOT/usr/bin/systemd-run" --scope --quiet --collect --unit="kempt-refresh-$1" \
+  -p RuntimeMaxSec=120 -p TimeoutStopSec=10 -- \
+  env -i --default-signal --ignore-signal=PIPE --ignore-signal=HUP \
+  PATH="$PATH" LC_ALL=C.UTF-8 HOME=/root "$ROOT/usr/bin/dnf5" "${args[@]}"

@@ -482,11 +482,10 @@ cmd_check() {
     # which carry their own sizes - re-pricing puts today's bytes on yesterday's list.
     dnf_priced=true
     dnf_sizes > "$dnf_sz" 2>/dev/null || : > "$dnf_sz"
-  elif helper_busy_in "$errf"; then
-    # The helper refused because a Kempt run is under way: an update (the person's own, perhaps)
-    # or the check it started earlier. That is not a failed check, and the widget must not flash
-    # one: serve the previous state unchanged, as when another check holds the lock above, and
-    # say why in one event line.
+  elif update_running_elsewhere; then
+    # dnf5 waits for a running transaction, and this check's two minutes ran out behind it. That is
+    # not a failed check, and the widget must not flash one: serve the previous state unchanged, as
+    # when another check holds the lock above, and say why in one event line.
     rm -f "$errf" "$dnf_sz" "$fp_sz" "$fp_scopes_f"
     echo "warning: a Kempt update is running; serving previous state" >&2
     log_event "check skipped (a Kempt update is running)"
@@ -829,17 +828,10 @@ preflight_abort() {  # message
 # run carries on. A check that cannot answer refuses too, since either run could meet the same answer.
 # Reads: wanted_stage, risky_ok. Exits 3 or 5, or returns.
 # The updates a run would install, holds left out. REPLY is the count; non-zero when the check could
-# not answer. Another run holding the helper's lock exits 3 here.
+# not answer.
 run_pending_count() {
-  local cerr rc=0
-  cerr="$(mktemp)"
-  REPLY="$(dnf_check 2>"$cerr" | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || rc=$?
-  if grep -qxF -- "$KEMPT_HELPER_UPDATE_BUSY_TEXT" "$cerr"; then
-    rm -f "$cerr"
-    echo "another kempt update is running" >&2
-    exit 3
-  fi
-  rm -f "$cerr"
+  local rc=0
+  REPLY="$(dnf_check 2>/dev/null | mark_held dnf | jq '[.[] | select(.held | not)] | length')" || rc=$?
   return "$rc"
 }
 refuse_run_behind_other_updater() {
@@ -931,14 +923,6 @@ recommend_offline_if_risky() {
     # must never stop the user updating.
     risky_list="$(dnf_check 2>"$rerr" | mark_held dnf | risky_names)" || {
       risky_list=""
-      # The helper refused because a Kempt update is running, perhaps another user's or the
-      # widget's, whose lock this run cannot see. That is the busy answer, not a check that failed:
-      # stop here, before the lock, exactly as a held lock would.
-      if grep -qxF -- "$KEMPT_HELPER_UPDATE_BUSY_TEXT" "$rerr"; then
-        rm -f "$rerr"
-        echo "another kempt update is running" >&2
-        exit 3
-      fi
       # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
       local why
       why="$(explain_helper_error "$(stderr_tail "$rerr")")"
@@ -1600,8 +1584,7 @@ cmd_update() {
     # The three statuses below are read with `|| rc=$?` rather than inside an `if`, because exit 3
     # (KEMPT_APPLY_REFUSED) is an answer of its own: the root helper found a release upgrade, a
     # file it could not read, or a dnf5 folder other users can change, and changed nothing. Every
-    # path that sees it skips the unwind. So does exit 5 (KEMPT_APPLY_BUSY): the same step from an
-    # earlier run is still going, and this one started nothing.
+    # path that sees it skips the unwind.
     local stage_rc=0 arm_rc=0 clean_rc=0
     # From here until write_stage_marker, dnf5's record is this run's and the marker is still the
     # previous stage's. A check comparing the two in that window must not call this rebuild
@@ -1618,12 +1601,6 @@ cmd_update() {
       dnf_status="failed"; status="failed"
       reason_override="$(refusal_words "$log" "nothing was prepared" "$(apply_refusal_reason) and preparing updates would replace it")"
       log_event "offline stage refused by the root helper"
-    elif [[ $stage_rc -eq $KEMPT_APPLY_BUSY ]]; then
-      # The stage Kempt started earlier is still running, so this one changed nothing. No unwind,
-      # for the arm's reason below: a clean now would discard what that run is building.
-      dnf_status="failed"; status="failed"
-      reason_override="nothing was prepared, because another Kempt update is still in progress. Try again when it has finished"
-      log_event "offline stage not started (another Kempt run is still in progress)"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
       # every pending update held, or nothing pending at all. Arming then fails with "No offline
@@ -1681,12 +1658,6 @@ cmd_update() {
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
         reason_override="$(refusal_words "$log" "the updates were downloaded, but not set to install on the next restart" "$(apply_refusal_reason)")"
-      elif [[ $arm_rc -eq $KEMPT_APPLY_BUSY ]]; then
-        # The arm Kempt started earlier is still running, so this one started nothing. No unwind:
-        # the clean would land beside that run and could take away what it is setting up.
-        dnf_status="failed"; status="failed"
-        reason_override="the updates were downloaded, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished"
-        log_event "offline stage not armed (another Kempt run is still in progress)"
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
         reason_override="the updates were downloaded, but could not be set to install on the next restart"
@@ -1812,16 +1783,12 @@ cmd_update() {
       live_att="${live_att#*$'\n'}"; live_status="${live_att%%$'\n'*}"
       if [[ "$live_att" == *$'\n'* ]]; then live_keep="${live_att#*$'\n'}"; fi
       # dnf5's history names this run's transaction, and its status is the tiebreaker both ways.
-      # The transaction is the evidence: systemd-run can lose its line to PID 1 when a package's
-      # setup step restarts it, and the helper then reports what it could not see.
       # Ok over a helper that failed: the run's earlier state comes back. Only for an exit that can
-      # follow a dnf5 that ran: 1 (dnf5's own failure, or the helper's when systemd lost the
-      # result), 255 (dnf5 killed) and 128 and up (systemd-run stopped by a signal). Never 2 to 5,
-      # the helper turning the run away, nor pkexec's 126 and 127: nothing ran, so the entry
-      # would be another run's.
-      # Anything but Ok under a helper that said 0: the helper read a unit that was gone as a
-      # success, and another run's reset can make a failed unit go. A status Kempt cannot read
-      # (`unknown`) leaves the helper's answer as it is.
+      # follow a dnf5 that ran: 1 (dnf5's own failure), 255 (dnf5 killed) and 128 and up (stopped by
+      # a signal). Never 2 or 3, the helper turning the run away, nor pkexec's 126 and 127: nothing
+      # ran, so the entry would be another run's.
+      # Anything but Ok under a helper that said 0: dnf5 recorded a failure its exit did not show. A
+      # status Kempt cannot read (`unknown`) leaves the helper's answer as it is.
       # Either way the log says where the answer came from.
       if [[ "$live_status" == Ok ]] && (( live_rc == 1 || live_rc >= 128 )); then
         dnf_status="ok"; status="$live_was_status"; run_failed_otherwise="$live_was_failed"
@@ -4069,9 +4036,9 @@ doctor_scan_tree() {  # dir [links] → DOCTOR_TREE_HIT, the first entry another
   fi
   return 0
 }
-# The root helper refuses every verb while other users can change a dnf folder or one above it
-# (guard_dnf_folders in libexec/kempt-apply). This reads the same rules as the user, so a refusal can
-# name the folder and send the reader to the fix.
+# Kempt refuses to start while other users can change a dnf folder or one above it. The root helper
+# has a shorter check of its own, on the folders only, so this is the list a refusal can name a folder
+# and a fix from.
 apply_unsafe_dir() {  # → the first such folder; rc 1 when there is none
   local d
   doctor_dnf_parents_scan
@@ -4222,9 +4189,8 @@ doctor_dnf_cache_row() {
 # another user create the name first), or when an ACL entry grants write. A FUSE mount another user
 # made counts too: fusermount3 is setuid, so a user can mount over a folder they own and report
 # uid 0, mode 0755. The walk resolves the path one name at a time, as the kernel does, so every link
-# on the way and every folder above where each one leads is checked. Reported, never repaired. The
-# root helper applies the same rules (guard_dnf_folders); tests/test_apply_parents.sh runs one table
-# through both.
+# on the way and every folder above where each one leads is checked. Reported, never repaired.
+# tests/test_doctor_folders.sh has the table.
 doctor_acl_grants_write() {  # getfacl -s -n -E's text on stdin → 0 when an entry grants write, mask included
   awk -F: '
     /^#/ || NF < 3 { next }
@@ -4458,10 +4424,9 @@ doctor_dnf_parents_row() {
   list="$(printf '%s, ' "${DOCTOR_PARENT_SHOWN[@]}")"; list="${list%, }"
   doctor_fail "dnf folders' parents: other users can change $list. They could put a folder of their own in place of dnf's state, staged updates or cache, and the dnf checks would then look at theirs. Fix it with: ${fix# && }.$DOCTOR_PARENT_NOTE Then run kempt doctor again. $KEMPT_FOLDERS_HOLD"
 }
-# The root helper refuses when it does not share PID 1's mount namespace: dnf5 starts from PID 1, so
-# what the helper checks would not be what dnf5 uses. A user cannot read /proc/1/ns/mnt. PID 1's mount
-# table is readable, and a different namespace shows a different one. Without systemd the helper
-# stops for that reason first, so this row stays quiet.
+# The root helpers start dnf5 where they are, so a namespace of its own is where dnf5 would run. A
+# user cannot read /proc/1/ns/mnt. PID 1's mount table is readable, and a different namespace shows a
+# different one.
 doctor_mount_ns_read() {  # → 0 when this process and PID 1 look like one namespace, or nobody can tell
   local self init a b
   self="$(readlink /proc/self/ns/mnt 2>/dev/null)" || return 0
@@ -4477,7 +4442,7 @@ doctor_mount_ns_row() {
   [[ -d "${KEMPT_SYSTEMD_BOOTED:-/run/systemd/system}" ]] || return 0
   # Twice, for the second table: a mount made between the two reads is not a namespace.
   doctor_mount_ns_read || doctor_mount_ns_read && return 0
-  doctor_fail "mount namespace: Kempt is running in a different mount namespace from the system (as in a toolbox, or a sandboxed terminal), so what it checks is not what dnf5 would use. $KEMPT_FOLDERS_HOLD Run Kempt from a terminal or session on the host."
+  doctor_fail "mount namespace: Kempt is running in a different mount namespace from the system (as in a toolbox, or a sandboxed terminal), and dnf5 would run in it too. Run Kempt from a terminal or session on the host."
 }
 
 doctor_config_row() {

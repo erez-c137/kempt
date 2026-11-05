@@ -124,29 +124,6 @@ grep -q 'See: kempt doctor' "$WORLD/notifications" \
   && echo "ok: ...and the notification points at the doctor" || { echo "FAIL: notification"; _fail=1; cat "$WORLD/notifications"; }
 no_clean_advice "...and nothing advises a clean"
 
-# --- the helper is busy: the same step from an earlier run is still going (exit 5) ----------------
-# It started nothing, so nothing is unwound: a clean would land beside that run and could discard
-# what it is setting up. The reason says another Kempt update is in progress.
-BUSY_LINE='kempt-apply: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed.'
-stored offline-ready.toml; rm -f "$marker"; reset_run
-apply_stub arm-busy "dnf-offline-arm) echo '$BUSY_LINE' >&2; exit 5 ;;"
-rc=0
-KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-busy" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
-assert_eq "$rc" "1" "a busy arm fails the run"
-assert_eq "$(calls dnf-offline-clean)" "0" "...and is not unwound with a clean"
-assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished" \
-  "...and the reason says another Kempt update is in progress"
-no_clean_advice "...and nothing advises a clean"
-stage_real
-assert_exit 0 "the busy re-stage fixture starts from a real armed stage" -- test -f "$marker"
-apply_stub stage-busy "dnf-offline-stage) echo '$BUSY_LINE' >&2; exit 5 ;;"
-stored offline-download-complete.toml; reset_run
-KEMPT_APPLY_HELPER="$TESTTMP/apply-stage-busy" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-assert_eq "$(calls dnf-offline-clean)" "0" "a busy re-stage never cleans the previous stage"
-assert_eq "$(calls dnf-offline-arm)" "0" "...arms nothing"
-assert_eq "$(last_error)" "nothing was prepared, because another Kempt update is still in progress. Try again when it has finished" \
-  "...and says another Kempt update is in progress"
-
 # --- a failed re-stage whose clean is refused keeps the marker for the doctor --------------------
 stage_real
 assert_exit 0 "the second rebuild fixture starts from a real armed stage" -- test -f "$marker"

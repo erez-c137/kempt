@@ -1,782 +1,92 @@
 #!/usr/bin/bash -p
-# Kempt root helper - the dnf upgrade verbs, and only those. polkit action
-# io.github.erez_c137.kempt.apply (auth_admin_keep). Flatpak is NOT here: `flatpak update` needs
-# no password of its own in an active local session, so it runs as the user from
-# backends/flatpak.sh, which is where the reasoning and the two residual prompts are written down.
-# SECURITY: every argument is validated; anything unexpected exits 2 before any privileged command.
-# Absolute shebang, -p and a pinned PATH: defense in depth beyond pkexec's env sanitizing.
-# -p is bash's privileged mode. It never reads BASH_ENV or ENV, and it ignores SHELLOPTS, BASHOPTS,
-# CDPATH, GLOBIGNORE and exported functions, so a caller that skips pkexec (sudo -E, say) still
-# cannot run code before the first line below. /usr/bin/bash because that is the path the package
-# ships. The same PATH is set on dnf5's unit (run_dnf5), so dnf5's own lookups use the pinned order.
-# rpm sets its own PATH for scriptlets.
-# This shell only decides. It validates the arguments, reads dnf5's stored state, and then hands
-# the one dnf5 command to systemd, which starts it as a fresh system service (see run_dnf5). pkexec
-# passes on far more of the caller than its environment: the umask, resource limits, ignored
-# signals, the working directory, the nice value, the CPU affinity and the cgroup. A process systemd
-# starts inherits none of them, so root's dnf5 cannot write group- or world-writable files into its
-# cache, its downloads or the offline directory, and rpm scriptlets do not run with signals the
-# caller chose to ignore. The umask and core-file lines below are belt and braces for this shell
-# and systemd-run, which write nothing; dnf5 gets its own from the unit properties.
+# Kempt's root helper for updates: four fixed dnf5 commands and nothing else.
+# polkit action io.github.erez_c137.kempt.apply: a wheel user at the desk, no password; anyone else at
+# the desk, an admin password; over SSH, nobody. pkexec picks the action by this file's path, which
+# is why the no-dialog helper, kempt-refresh, is a separate file. docs/security.md explains each line.
+
+# pkexec clears the environment, but passes on the umask, limits, directory and ignored signals.
 umask 022
-ulimit -c 0
+cd /
 set -euo pipefail
-export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-export LC_ALL=C.UTF-8   # load-bearing: glibc widens [A-Za-z] under UTF-8 locales; pkexec passes LC_* through
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
+ulimit -c 0
+ulimit -f unlimited -t unlimited -d unlimited -v unlimited -m unlimited -s 8192 -n 4096 || (( EUID ))
+
 NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
+ROOT="" OWNER=0 GROUP=0
+# The tests' stand-in tree. pkexec always runs this as root, which never enters this block.
+if (( EUID )); then ROOT="${KEMPT_HELPER_ROOT:?this helper runs through pkexec}" OWNER="$EUID" GROUP="$(id -g)"; fi
+STATE="$ROOT/usr/lib/sysimage/libdnf5" STAGED="$ROOT/var/lib/dnf/offline" CACHE="$ROOT/var/cache/libdnf5"
+STORED="$STATE/offline/offline-transaction-state.toml" LINK="$ROOT/system-update"
 
-run() {  # test seam: KEMPT_APPLY_ECHO=1 prints instead of running it
-  if [[ -n "${KEMPT_APPLY_ECHO:-}" ]]; then echo "$*"; else run_watched "$@"; fi
-}
+refuse() { echo "kempt-apply: $1" >&2; exit 3; }
+usage() { echo "usage: kempt-apply dnf-upgrade [-y] [--exclude=NAME]...|dnf-offline-stage [-y] [--exclude=NAME]...|dnf-offline-arm|dnf-offline-clean" >&2; exit 2; }
 
-# This helper's name in its messages, and its exit status when dnf5's unit from an earlier run is
-# still going (claim_unit). 5 is apart from 2, 3 and 4 below, dnf5's 0, 1, 2 and 100, and pkexec's
-# 126 and 127.
-ME=kempt-apply
-BUSY=5
-
-# systemd-run runs as a child, never by exec, so the shell can watch dnf5's unit while it waits
-# (watch_unit). With --pipe, systemd-run hands its own stdin, stdout and stderr to PID 1, which
-# gives them to dnf5's unit. They must never be this shell's own. PID 1 runs in SELinux's init_t,
-# which may not write the caller's files (a mktemp file in /tmp is user_tmp_t), and systemd-run
-# then fails with "Remote peer disconnected" before dnf5 starts. So its stdin is /dev/null, and its
-# stdout and stderr are each a pipe this shell makes, read by a cat that copies to this shell's
-# stdout or stderr. The two stay apart, because the CLI reads them apart. With --pty, systemd-run
-# reads the terminal itself, so its stdin is named: a background command would get /dev/null.
-# The shell waits for systemd-run and both cats before it exits, so no output is cut short, and
-# the exit status is systemd-run's, which is dnf5's. Bash starts a background command with INT and
-# QUIT ignored, so systemd-run gets them back. A TERM, INT or HUP to this shell is passed on to
-# systemd-run. Then the cats are stopped as well, since dnf5 may still hold their pipes open, and
-# nothing outlives this shell.
-# When the watch reports that the unit has ended and systemd-run is still waiting, systemd-run will
-# never return (see watch_unit). Only then the shell stops it, the client and never the unit, takes
-# the status systemd recorded, and says so. A systemd-run still there one poll interval after the
-# TERM is killed: it is the client, which owns no unit, and the helper must return. The cats get
-# one more poll interval for what is left in the pipes, and are then stopped: a stdio bridge left
-# behind can hold them open for good.
-# Identical in kempt-refresh.
-run_watched() {  # systemd-run --pipe|--pty ... → dnf5's exit status
-  local out err out_pid="" err_pid="" sd_pid wd wd_pid wd_live=1 who r rc=0 woke=0 stopped=0 sig=0 verdict="" pause
-  local -a ids
-  claim_unit
-  if [[ "$2" == --pipe ]]; then
-    exec {out}> >(cat)
-    out_pid=$!
-    exec {err}> >(cat >&2 {out}>&-)
-    err_pid=$!
-    { trap - INT QUIT; exec "$@"; } </dev/null >&"$out" 2>&"$err" {out}>&- {err}>&- &
-    sd_pid=$!
-    exec {out}>&- {err}>&-
-  else
-    { trap - INT QUIT; exec "$@"; } <&0 &
-    sd_pid=$!
-  fi
-  exec {wd}< <(watch_unit </dev/null)
-  wd_pid=$!
-  ids=("$sd_pid" "$wd_pid")
-  trap 'woke=1 stopped=1 sig=15; kill -s TERM "$sd_pid" 2>/dev/null || :' TERM
-  trap 'woke=1 stopped=1 sig=2; kill -s INT "$sd_pid" 2>/dev/null || :' INT
-  trap 'woke=1 stopped=1 sig=1; kill -s HUP "$sd_pid" 2>/dev/null || :' HUP
-  # A trapped signal ends wait early. Waiting again returns the status once a child exits. The
-  # watch exits only with a verdict; if it ever exits without one, systemd-run is waited for alone.
-  while :; do
-    woke=0 r=0 who=""
-    wait -n -p who "${ids[@]}" || r=$?
-    if [[ "${who:-}" == "$sd_pid" ]]; then rc=$r; break; fi
-    if [[ -n "${who:-}" ]]; then
-      wd_live=0
-      ids=("$sd_pid")
-      read -r -u "$wd" verdict || verdict=""
-      if (( stopped )); then verdict=""; fi
-      if [[ "$verdict" == "rc "* || "$verdict" == unknown ]]; then break; fi
-      verdict=""
-      continue
-    fi
-    (( woke )) || { rc=$r; break; }
-  done
-  # If systemd-run exited while a trap ran, bash reaped it there and the next wait finds no child.
-  # Its status is lost, so report the signal that stopped it rather than 127 (a pkexec failure).
-  if (( rc == 127 && stopped )); then rc=$(( 128 + sig )); fi
-  trap - TERM INT HUP
-  if [[ -n "$verdict" ]]; then
-    kill -s TERM "$sd_pid" 2>/dev/null || :
-    exec {pause}<> <(:)
-    { read -r -t "$POLL" -u "$pause" _ || :; } &
-    ids=("$sd_pid" "$!")
-    exec {pause}<&-
-    who=""
-    wait -n -p who "${ids[@]}" || :
-    if [[ "${who:-}" == "$sd_pid" ]]; then kill "${ids[1]}" 2>/dev/null || :
-    else kill -s KILL "$sd_pid" 2>/dev/null || :; fi
-    wait "${ids[@]}" 2>/dev/null || :
-    if [[ "$verdict" =~ ^rc\ ([0-9]{1,3})$ ]]; then
-      rc="${BASH_REMATCH[1]}"
-      echo "$ME: systemd-run stopped reporting after dnf5 finished, so its exit status ($rc) was read from systemd." >&2
-    else
-      rc=1
-      echo "$ME: systemd-run stopped reporting after dnf5 finished, and systemd no longer has its result." >&2
-    fi
-    if [[ -n "$out_pid" ]]; then
-      exec {pause}<> <(:)
-      read -r -t "$POLL" -u "$pause" _ || :
-      exec {pause}<&-
-      stopped=1
-    fi
-  elif (( wd_live )); then
-    kill -s TERM "$wd_pid" 2>/dev/null || :
-    wait "$wd_pid" || :
-  fi
-  exec {wd}<&-
-  if [[ -n "$out_pid" ]]; then
-    if (( stopped )); then kill "$out_pid" "$err_pid" 2>/dev/null || :; fi
-    wait "$out_pid" "$err_pid" || :
-  fi
-  return "$rc"
-}
-
-# A second run of the same verb must not start while the first one's dnf5 is still running: its
-# unit name is fixed, so systemd would refuse the start anyway, with a message about unit names.
-# Otherwise the name is reset first. Without --collect a failed unit stays loaded until then, and
-# it would block the name. reset-failed changes nothing about a unit that is running.
-# A unit from UPDATE_UNITS that is running refuses the run the same way, with its own sentence.
-claim_unit() {  # → returns, or exits BUSY while the unit of an earlier run, or an update unit, is going
-  local u
-  for u in "$UNIT" "${UPDATE_UNITS[@]}"; do
-    case "$("$SYSTEMCTL" show --no-pager -p ActiveState --value -- "$u" 2>/dev/null || :)" in
-      active|activating|deactivating|reloading|refreshing)
-        if [[ "$u" == "$UNIT" ]]; then
-          echo "$ME: dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed." >&2
-        else
-          echo "$ME: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
-        fi
-        exit "$BUSY" ;;
-    esac
-  done
-  "$SYSTEMCTL" reset-failed --no-pager -- "$UNIT" 2>/dev/null || :
-}
-
-# The watch on dnf5's unit, run while systemd-run waits. systemd-run --wait hears that the unit
-# finished from PID 1 over the system bus. When PID 1 drops its API bus connection, which a
-# package's setup step can cause (a scriptlet that runs systemctl for a user manager, say), it
-# forgets systemd-run's interest in the unit, and systemd-run waits for good. So every POLL seconds
-# this asks systemctl, as root over systemd's private socket, about the unit. Once the unit has
-# been seen running, and has then ended for GRACE reads in a row, it prints the verdict and exits:
-# "rc N" from what systemd recorded, or "unknown" when systemd no longer has it. A successful unit
-# is unloaded once nothing refers to it, and a failed one stays loaded until reset, so gone after
-# running is success. Another InvocationID under the name is another run, and this run's result
-# is gone with it. A unit never seen running is never judged: systemd-run may still be starting it.
-# Until it has been seen, the first FIRST_READS reads come every FIRST seconds, so a dnf5 that ends
-# within seconds is still seen running. A read with no InvocationID names no run (systemd answers
-# like that while it re-executes itself), so it is never taken as this run's or another one's, and
-# an ended read like that is not counted. A unit that is gone has none, and still counts.
-# Nothing here stops anything. A unit still running after LONG_RUN reads is only reported, once.
-watch_unit() {  # → "rc N" or "unknown" once dnf5's unit has ended; nothing while it runs
-  local pause k v load active result code status inv mine="" seen=0 ended=0 polls=0 early=0
-  exec {pause}<> <(:)
-  while :; do
-    if (( ! seen && early < FIRST_READS )); then
-      early=$(( early + 1 ))
-      read -r -t "$FIRST" -u "$pause" _ || :
-    else
-      read -r -t "$POLL" -u "$pause" _ || :
-    fi
-    load="" active="" result="" code="" status="" inv=""
-    while IFS='=' read -r k v; do
-      case "$k" in
-        LoadState) load="$v" ;;
-        ActiveState) active="$v" ;;
-        Result) result="$v" ;;
-        ExecMainCode) code="$v" ;;
-        ExecMainStatus) status="$v" ;;
-        InvocationID) inv="$v" ;;
-      esac
-    done < <("$SYSTEMCTL" show --no-pager -p LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus,InvocationID -- "$UNIT" 2>/dev/null || :)
-    [[ -n "$load" && -n "$active" ]] || continue
-    case "$active" in
-      active|activating|deactivating|reloading|refreshing)
-        if [[ -z "$inv" ]]; then :
-        elif (( ! seen )); then seen=1 mine="$inv"
-        elif [[ "$inv" != "$mine" ]]; then echo unknown; return 0; fi
-        ended=0 polls=$(( polls + 1 ))
-        if (( polls == LONG_RUN )); then
-          echo "$ME: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
-        fi
-        continue ;;
-    esac
-    (( seen )) || continue
-    [[ -n "$inv" || "$load" == not-found ]] || continue
-    ended=$(( ended + 1 ))
-    (( ended >= GRACE )) || continue
-    # ExecMainCode is how dnf5 ended: 1 exited with ExecMainStatus, 2 killed, 3 dumped core.
-    # systemd-run itself reports 255 for the last two.
-    if [[ "$load" == not-found ]]; then echo "rc 0"
-    elif [[ "$inv" != "$mine" ]]; then echo unknown
-    elif [[ "$code" == 1 && "$status" =~ ^(0|[1-9][0-9]?|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$ ]]; then echo "rc $status"
-    elif [[ "$code" == 2 || "$code" == 3 ]]; then echo "rc 255"
-    elif [[ "$result" == success ]]; then echo "rc 0"
-    else echo unknown; fi
-    return 0
+# Root installs what is in these folders, so it stays out while other users can change them.
+check_folders() {
+  local d hit
+  for d in "$STATE" "$STAGED" "$CACHE"; do
+    [[ -e "$d" ]] || continue
+    hit="$(find -P "$d" -ignore_readdir_race \( ! -uid "$OWNER" -o \( ! -type l \( -perm -0002 -o \
+      \( -perm -0020 ! -gid "$GROUP" \) \) \) \) -print -quit)" || refuse "Kempt could not check $d. Run kempt doctor."
+    [[ -z "$hit" ]] || refuse "Updates paused for safety: users other than root can change $d. Run kempt doctor for the fix."
   done
 }
 
-# The test seams below change what root decides, so they count only where no real root can be
-# running this file. An unprivileged caller qualifies, because it cannot run any of these dnf5
-# commands. So does root in a user namespace (the test suite, for a root-owned tree) under two
-# conditions together. The uid map must not be the full identity map: a real root has that one. And
-# this file must not be at a path a polkit policy binds to, since unprivileged Incus or LXD and
-# nspawn -U run real systems whose uid map is not the identity either, and pkexec only ever runs
-# those two paths (the RPM's, and the one older checkout installs used). Anything that cannot be read counts as a real root.
-POLKIT_PATHS=(/usr/libexec/kempt-apply /usr/local/libexec/kempt-apply)
-uid_map_is_identity() {  # uid_map's text → 0 for the full identity map, or for no text at all
-  local a b c
-  [[ -n "$1" ]] || return 0
-  [[ "$1" != *$'\n'* ]] || return 1
-  read -r a b c <<<"$1"
-  [[ "$a $b $c" == "0 0 4294967295" ]]
-}
-seams_honoured() {  # → 0 when no real root can be running this
-  (( EUID != 0 )) && return 0
-  local map self p
-  map="$(cat /proc/self/uid_map 2>/dev/null)" || map=""
-  uid_map_is_identity "$map" && return 1
-  self="$(readlink -f -- "${BASH_SOURCE[0]}" 2>/dev/null)" || return 1
-  for p in "${POLKIT_PATHS[@]}"; do
-    [[ "$self" == "$p" || "${BASH_SOURCE[0]}" == "$p" ]] && return 1
-  done
-  return 0
-}
-SEAMS=0
-if seams_honoured; then SEAMS=1; fi
-
-# systemd-run, the directory that exists only while systemd is PID 1 (sd_booted(3)), systemctl,
-# and the watch's timing: a read every POLL seconds, but every FIRST seconds (POLL if shorter)
-# for the first FIRST_READS reads until the unit is seen running, a verdict after GRACE reads of an
-# ended unit (10 s), the long-run line after LONG_RUN reads of a running one (15 minutes). Fixed
-# unless SEAMS says otherwise. UNIT is set from a fixed table once the verb is known.
-SYSTEMD_RUN=/usr/bin/systemd-run
-SYSTEMD_BOOTED=/run/systemd/system
-SYSTEMCTL=/usr/bin/systemctl
-POLL=5
-FIRST=1
-FIRST_READS=10
-GRACE=2
-LONG_RUN=180
-UNIT=""
-# Units whose run also makes this helper BUSY (claim_unit). None here: kempt-refresh lists this
-# helper's four, so a check or refresh never waits on dnf5's lock behind an update.
-UPDATE_UNITS=()
-if (( SEAMS )); then
-  SYSTEMD_RUN="${KEMPT_SYSTEMD_RUN:-$SYSTEMD_RUN}"
-  SYSTEMD_BOOTED="${KEMPT_SYSTEMD_BOOTED:-$SYSTEMD_BOOTED}"
-  SYSTEMCTL="${KEMPT_SYSTEMD_SYSTEMCTL:-$SYSTEMCTL}"
-  if [[ "${KEMPT_SYSTEMD_POLL:-}" =~ ^[0-9]{1,3}(\.[0-9]{1,3})?$ && "$KEMPT_SYSTEMD_POLL" =~ [1-9] ]]; then POLL="$KEMPT_SYSTEMD_POLL"; fi
-  if [[ "${POLL%%.*}" =~ ^0+$ ]]; then FIRST="$POLL"; fi
-  if [[ "${KEMPT_SYSTEMD_GRACE:-}" =~ ^[1-9][0-9]{0,4}$ ]]; then GRACE="$KEMPT_SYSTEMD_GRACE"; fi
-  if [[ "${KEMPT_SYSTEMD_LONG_RUN:-}" =~ ^[1-9][0-9]{0,4}$ ]]; then LONG_RUN="$KEMPT_SYSTEMD_LONG_RUN"; fi
-fi
-
-guard_systemd() {  # → returns, or exits NO_SYSTEMD
-  [[ -d "$SYSTEMD_BOOTED" && -x "$SYSTEMD_RUN" ]] && return 0
-  echo "kempt-apply: dnf5 was not started, because systemd is not running this system (as in a container) or systemd-run is missing. Nothing changed." >&2
-  exit "$NO_SYSTEMD"
-}
-
-# The only way dnf5 starts. [unit properties...] -- dnf5 arguments...
-# --pipe gives dnf5 /dev/null for stdin and pipes back to this process's stdout and stderr
-# (run_piped); a terminal on stdin gets --pty instead
-# (below), so dnf5's own "Is this ok" prompt still reads it when the CLI runs without -y. --wait and
-# systemd-run's exit status carry dnf5's back. The unit gets umask 022, no core files, systemd's
-# default limits, cwd / and an environment of its own (--pty also copies TERM, COLORTERM and
-# NO_COLOR from the caller, which only shape dnf5's output), so PATH and LC_ALL are set on it:
-# without them it gets systemd's PATH, which puts /usr/local first for dnf5's own lookups, and the system
-# locale. No time limit: stopping an rpm transaction partway is worse than waiting for it. Every
-# dnf5 argument comes after `--`, so a validated --exclude can never reach systemd-run as an option,
-# and --expand-environment=no keeps PID 1 from expanding ${VAR} and $$ inside them. HOME is set
-# because rpm scriptlets otherwise run without one (pkexec set it to /root). argv[0] is
-# /usr/bin/dnf5, and dnf5 records it in its history; cmd_update looks the run up by that exact
-# command line.
-run_dnf5() {
-  local -a props=()
-  while [[ "$1" != -- ]]; do props+=("$1"); shift; done
-  shift
-  guard_systemd
-  # A terminal on stdin gets a pty of the unit's own instead of the terminal itself. With --pipe,
-  # Ctrl-C reaches only systemd-run, which exits 130 and leaves dnf5 running, still reading the
-  # terminal, so the next "y" typed at the shell answers dnf5's prompt. --pty puts the terminal in
-  # raw mode and hands ^C to dnf5, which stops (exit 1) or, inside the rpm transaction, finishes.
-  local io=--pipe
-  [[ -t 0 ]] && io=--pty
-  run "$SYSTEMD_RUN" "$io" --wait --quiet --unit="$UNIT" --expand-environment=no -p UMask=0022 -p LimitCORE=0 \
-    --setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root "${props[@]}" -- /usr/bin/dnf5 "$@"
-}
-
-# dnf5's record of the ONE stored offline transaction. An ordinary offline update and a Fedora
-# release upgrade share it, and all three offline verbs act on whichever is there: staging replaces
-# it, cleaning deletes it, arming makes the next restart install it. So this helper refuses all three
-# over a stored release upgrade itself. The CLI refuses first, but the CLI runs as the user, and
-# anything that calls this helper directly (inside polkit's retention window, or at any time under
-# passwordless mode) never passes through the CLI.
-#
-# The path is fixed unless SEAMS says otherwise: a seam must never be able to change what root
-# decides.
-OFFLINE_STATE=/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml
-if (( SEAMS )) && [[ -n "${KEMPT_OFFLINE_TOML:-}" ]]; then OFFLINE_STATE="$KEMPT_OFFLINE_TOML"; fi
-
-# Exit status for "refused because of what is stored", or because dnf5's folders cannot be trusted
-# (guard_dnf_folders), kept apart from 2 (bad arguments) so the CLI can tell the two apart
-# and say which it was. dnf5 itself exits 0, 1, 2 or 100, and pkexec 126 or
-# 127, so 3 cannot be mistaken for either of them.
-REFUSED=3
-# Exit status when systemd cannot start dnf5: no systemd as PID 1 (a container, say), or no
-# systemd-run. Nothing ran. dnf5 is never started from this shell instead.
-NO_SYSTEMD=4
-
-# One `key = "value"` line from dnf5's file, the same line-anchored read lib/common.sh uses. It is
-# repeated here rather than sourced because root must never source a file outside this helper. The
-# value must look like a release version ("44", "rawhide", "eln"). Anything else is treated as a
-# file that cannot be read, and never as a match.
-stored_value() {  # key → the value; rc 1 when it is missing or not shaped like a release version
-  local v
-  v="$(sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$OFFLINE_STATE" 2>/dev/null)" \
-    || return 1
-  v="${v%%$'\n'*}"
-  [[ "$v" =~ ^[A-Za-z0-9._-]+$ ]] || return 1
-  printf '%s\n' "$v"
-}
-
-# No file: nothing is stored, so there is nothing to protect.
-# A file whose two release versions are equal: an ordinary offline update. Allowed.
-# A file whose two release versions differ: a release upgrade. Refused.
-# A file that exists but cannot be read, or has no usable release versions: REFUSED. This is the
-# fail-closed choice, and it is deliberate. The file is root-owned in a root-owned directory, so no
-# unprivileged process can put it in this state. And the two mistakes cost very different amounts:
-# refusing leaves the transaction in place, and `sudo dnf5 offline clean` still removes it, while
-# allowing could arm or delete a release upgrade that took gigabytes to download.
-guard_stored_release_upgrade() {  # verb → returns, or exits REFUSED
-  [[ -e "$OFFLINE_STATE" || -L "$OFFLINE_STATE" ]] || return 0
+# dnf5 keeps one stored transaction, and a Fedora release upgrade shares it. Stage replaces it, arm
+# makes the next restart install it, clean deletes it. Two equal releases are an ordinary update;
+# anything else, a file that cannot be read included, is refused.
+stored() { sed -n "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*\"\([A-Za-z0-9._-]*\)\".*/\1/;T;p;q" "$STORED" 2>/dev/null || true; }
+check_stored() {
+  [[ -e "$STORED" || -L "$STORED" ]] || return 0
   local from to
-  if [[ -f "$OFFLINE_STATE" && -r "$OFFLINE_STATE" ]] \
-     && from="$(stored_value system_releasever)" && to="$(stored_value target_releasever)"; then
-    [[ "$from" != "$to" ]] || return 0
-    echo "kempt-apply: refusing $1: a Fedora release upgrade ($from -> $to) is stored" >&2
-  else
-    echo "kempt-apply: refusing $1: the stored offline transaction cannot be read, so it may be a Fedora release upgrade" >&2
-  fi
-  exit "$REFUSED"
+  from="$(stored system_releasever)" to="$(stored target_releasever)"
+  [[ -n "$from" && "$from" == "$to" ]] || refuse "refusing: a Fedora release upgrade may be stored"
 }
 
-# systemd boots into an offline update whenever /system-update exists (systemd.offline-updates(7)).
-# dnf5 points it at its offline directory. PackageKit, which Discover uses, points it at its own
-# prepared update. Then the next restart belongs to that updater, and `dnf5 offline clean` would
-# delete its link and cancel its install. So the clean refuses unless the path is absent or a link
-# to dnf5's directory, the same rule the CLI's offline_link_state applies, written out here because
-# root never sources the CLI's library. The arm is not guarded: dnf5 creates the link only when the
-# path is absent, so it cannot replace another updater's, and the CLI reports that stage as blocked.
-# The link text is read once and judged as read, so nothing swaps it between test and use. -ef is
-# dnf5's own test (std::filesystem::equivalent). Anything else at the path, a link that cannot be
-# read included, is refused. Only root can write to /, so no user can change the answer.
-# Seams as for the state file.
-SYSTEM_UPDATE=/system-update
-OFFLINE_DATADIR=/usr/lib/sysimage/libdnf5/offline
-if (( SEAMS )); then
-  SYSTEM_UPDATE="${KEMPT_OFFLINE_LINK:-$SYSTEM_UPDATE}"
-  OFFLINE_DATADIR="${KEMPT_OFFLINE_DATADIR:-$OFFLINE_DATADIR}"
-fi
-
-guard_foreign_system_update() {  # verb → returns, or exits REFUSED
-  [[ -e "$SYSTEM_UPDATE" || -L "$SYSTEM_UPDATE" ]] || return 0
-  local t
-  if t="$(readlink -- "$SYSTEM_UPDATE" 2>/dev/null)" && [[ -n "$t" ]]; then
-    [[ "$t" == /* ]] || t="${SYSTEM_UPDATE%/*}/$t"   # a relative link starts from its own directory
-    if [[ "${t%/}" == "${OFFLINE_DATADIR%/}" || "$t" -ef "$OFFLINE_DATADIR" ]]; then return 0; fi
-  fi
-  echo "kempt-apply: refusing $1: another updater has prepared the next restart ($SYSTEM_UPDATE is not dnf5's)" >&2
-  exit "$REFUSED"
+# dnf5 offline clean would delete /system-update whoever made it, and PackageKit makes one too.
+check_link() {
+  [[ -e "$LINK" || -L "$LINK" ]] || return 0
+  [[ "$(readlink -- "$LINK")" == "$STATE/offline" || "$LINK" -ef "$STATE/offline" ]] \
+    || refuse "refusing: another updater has prepared the next restart ($LINK is not dnf5's)"
 }
 
-# dnf5 runs as root and trusts three folders: its state (the staged transaction's record names each
-# package by full path, and the restart installs them without checking signatures again), the staged
-# packages, and the cache (a live upgrade installs from it, and after dnf5's signature check rpm
-# checks only the digest). A local user who can change one of them, or a folder above one, gets
-# root. A mistaken chown or chmod, a restore or an odd mount causes that, never a stock install.
-# So the helper refuses, and `kempt doctor` prints the fix. It runs dnf5's clean directly in that
-# fix, under folders it has locked first, so the refusal here never blocks the fix.
-#
-#   verb             contents checked        parents and mounts checked
-#   upgrade, stage   state, staged, cache    state, staged, cache
-#   arm              state, staged           state, staged
-#   clean            none                    state, staged
-#
-# Before the walk (guard_dnf_folders): an atomic system is refused, a system without systemd exits
-# NO_SYSTEMD, and a mount namespace other than PID 1's is refused, because dnf5 starts from PID 1 and
-# would see a different tree from the one checked here.
-#
-# Then every name on the way, top down, with links resolved (check_name):
-#   no mount another user made: a FUSE mount whose user_id= is not 0. fusermount3 is setuid, so a
-#     user can mount over a folder they own and report uid 0, mode 0755. Checked first, because root
-#     may get EACCES from such a mount, and this is the sentence that says what is wrong.
-#   root owns it, links included. A root-owned link is followed and its target's path is walked too.
-#   no group or other write, sticky or not, except a group of root. dnf5 deletes and recreates its
-#     offline folders, so a writable parent lets another user create the name first. A missing name
-#     is therefore safe only when its parent passed, which the walk's order gives.
-#   no ACL entry that grants write, with the mask applied and default entries counted.
-#
-# Errors refuse, each with its own sentence, except a name that vanished: dnf-makecache.timer
-# rewrites the cache mid-walk, and nobody but root can have removed a name under a folder that
-# passed. A tree that fails to check is retried once when it is the cache.
-#
-# Check and use are apart, and that is safe here. dnf5 resolves the paths itself, so no fd or lock
-# could carry over. Once only root can change a name that stays true: owner, mode and ACL changes
-# need the owner or root, and write permission on a folder is tested at each rename or create.
-#
-# This block repeats doctor's rules (doctor_dnf_path_names, doctor_scan_tree and their neighbours in
-# bin/kempt) because root never sources a file outside this helper. tests/test_apply_parents.sh runs
-# one table through both. Everything it reads is set in the lines below, so the block can be copied
-# whole into another root program.
-DNF_STATE_DIR=/usr/lib/sysimage/libdnf5
-DNF_OFFLINE_PKG_DIR=/var/lib/dnf/offline
-DNF_CACHE_DIR=/var/cache/libdnf5
-PARENTS_TOP=""
-OSTREE_MARKER=/run/ostree-booted
-MOUNTINFO=/proc/self/mountinfo
-MNT_NS_INIT=/proc/1/ns/mnt
-FIND=find
-GETFACL=getfacl
-if (( SEAMS )); then
-  DNF_STATE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-$DNF_STATE_DIR}"
-  DNF_OFFLINE_PKG_DIR="${KEMPT_DNF_OFFLINE_PKG_DIR:-$DNF_OFFLINE_PKG_DIR}"
-  DNF_CACHE_DIR="${KEMPT_DNF_CACHE_DIR:-$DNF_CACHE_DIR}"
-  PARENTS_TOP="${KEMPT_DNF_PARENTS_TOP:-}"
-  OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-$OSTREE_MARKER}"
-  MOUNTINFO="${KEMPT_MOUNTINFO:-$MOUNTINFO}"
-  MNT_NS_INIT="${KEMPT_MNT_NS_INIT:-$MNT_NS_INIT}"
-  FIND="${KEMPT_FIND:-$FIND}"
-  GETFACL="${KEMPT_GETFACL:-$GETFACL}"
-fi
-
-plain_name() {  # text → REPLY, every byte outside printable ASCII as ?, since another user may pick the name
-  local LC_ALL=C
-  REPLY="${1//[^ -~]/?}"
-}
-refuse_could_not_check() {  # what reason → exits REFUSED
-  plain_name "$1"
-  echo "$ME: Kempt could not check $REPLY ($2). Run kempt doctor." >&2
-  exit "$REFUSED"
-}
-refuse_unsafe() {  # sentence-end → exits REFUSED
-  echo "$ME: Updates paused for safety: $1 Run kempt doctor for the fix." >&2
-  exit "$REFUSED"
-}
-
-# find or getfacl's output → CHECK_ERROR, the first error that is not a vanished name, or "".
-# LC_ALL above keeps their words in English. Their last field is strerror's text.
-CHECK_ERROR=""
-first_check_error() {  # output
-  local line
-  CHECK_ERROR=""
-  while IFS= read -r line; do
-    [[ -n "$line" ]] || continue
-    line="${line%.}"
-    line="${line##*: }"
-    [[ "$line" == "No such file or directory" ]] && continue
-    CHECK_ERROR="$line"
-    return 0
-  done <<<"$1"
-}
-
-# The mount table, read once per run. A line's mount point is its fifth field with octal escapes
-# for space, tab, newline and backslash; after the "-" come the type, the source and the options.
-MOUNT_POINTS=() MOUNT_TYPES=() MOUNT_OPTS=()
-decode_mount_name() {  # escaped → REPLY
-  local s="$1" o="" ch
-  while [[ "$s" == *\\* ]]; do
-    o+="${s%%\\*}"; s="${s#*\\}"
-    if [[ "$s" =~ ^[0-7]{3} ]]; then
-      printf -v ch "\\${s:0:3}"; o+="$ch"; s="${s:3}"
-    else
-      o+='\'
-    fi
-  done
-  REPLY="$o$s"
-}
-load_mounts() {  # → the arrays filled, or exits REFUSED
-  local line err i n
-  local -a lines f
-  if ! err="$( { : < "$MOUNTINFO"; } 2>&1 )"; then refuse_could_not_check "the mount table" "${err##*: }"; fi
-  mapfile -t lines < "$MOUNTINFO" || refuse_could_not_check "the mount table" "it could not be read"
-  (( ${#lines[@]} )) || refuse_could_not_check "the mount table" "it is empty"
-  for line in "${lines[@]}"; do
-    read -r -a f <<<"$line"
-    n=${#f[@]} i=6
-    while (( i < n )) && [[ "${f[i]}" != - ]]; do i=$(( i + 1 )); done
-    # Type, source and options. The kernel escapes spaces in all three, and an empty source leaves two.
-    (( n >= 5 && i + 2 < n && i + 4 >= n )) || refuse_could_not_check "the mount table" "a line in it could not be read"
-    decode_mount_name "${f[4]}"
-    MOUNT_POINTS+=("$REPLY")
-    MOUNT_TYPES+=("${f[i + 1]}")
-    MOUNT_OPTS+=("${f[n - 1]}")
-  done
-}
-mount_is_users() {  # index → 0 when it is a FUSE mount root did not make
-  case "${MOUNT_TYPES[$1]}" in fuse|fuse.*|fuseblk) ;; *) return 1 ;; esac
-  [[ ",${MOUNT_OPTS[$1]}," != *,user_id=0,* ]]
-}
-mount_of() {  # path → REPLY, the index of the mount it sits on: the longest prefix, the later of equals
-  local i mp best=-1 best_len=-1
-  for i in "${!MOUNT_POINTS[@]}"; do
-    mp="${MOUNT_POINTS[i]}"
-    [[ "$mp" == / || "$1" == "$mp" || "$1" == "$mp"/* ]] || continue
-    if (( ${#mp} >= best_len )); then best=$i best_len=${#mp}; fi
-  done
-  REPLY=$best
-}
-
-# ACL entries that grant write, from `getfacl -s -n -E`'s text on stdin → exit 0 when there is one.
-acl_grants_write() {
-  awk -F: '
-    /^#/ || NF < 3 { next }
-    { d = ($1 == "default"); if (d) { $1 = $2; $2 = $3; $3 = $4 } }
-    $1 == "mask" { mask[d] = $3; next }
-    ($1 == "user" || $1 == "group") && $2 != "" && $3 ~ /w/ { want[d] = 1 }
-    d && $1 == "other" && $3 ~ /w/ { other = 1 }
-    END {
-      for (k = 0; k <= 1; k++) if (want[k] && (!(k in mask) || mask[k] ~ /w/)) exit 0
-      exit !other
-    }'
-}
-
-# One name: passes (NAME_TYPE is find's letter for it, or "" when it is gone), or exits REFUSED.
-# Above PARENTS_TOP (tests only) nothing is judged, and the type still comes back.
-declare -A SEEN_TYPE=()
-NAME_TYPE=""
-check_name() {  # path
-  local p="$1" out rc=0 uid gid mode type
-  if [[ -n "${SEEN_TYPE[$p]+x}" ]]; then NAME_TYPE="${SEEN_TYPE[$p]}"; return 0; fi
-  if [[ -n "$PARENTS_TOP" ]]; then
-    local top_l top_r
-    top_l="$(realpath -m -s -- "$PARENTS_TOP")"; top_r="$(realpath -m -- "$PARENTS_TOP")"
-    if [[ "$p" == / || "$p" == "$top_l" || "$p" == "$top_r" || "$top_l" == "$p"/* || "$top_r" == "$p"/* ]]; then
-      NAME_TYPE=d; [[ -L "$p" ]] && NAME_TYPE=l
-      SEEN_TYPE[$p]="$NAME_TYPE"
-      return 0
-    fi
-  fi
-  mount_of "$p"
-  if (( REPLY >= 0 )) && mount_is_users "$REPLY"; then
-    plain_name "$p"
-    refuse_unsafe "$REPLY is on a mount made by a user other than root."
-  fi
-  out="$("$FIND" -P "$p" -prune -printf '%U %G %m %y\n' 2>&1)" || rc=$?
-  if (( rc )); then
-    first_check_error "$out"
-    # Status 1 and only the vanished-name words: gone, and its parent passed. A tool that could not
-    # start says the same words with another status, and has answered nothing.
-    if (( rc == 1 )) && [[ -z "$CHECK_ERROR" && -n "$out" ]]; then
-      NAME_TYPE=""; SEEN_TYPE[$p]=""
-      return 0
-    fi
-    refuse_could_not_check "$p" "${CHECK_ERROR:-the check failed}"
-  fi
-  read -r uid gid mode type <<<"$out"
-  if ! [[ "$uid" =~ ^[0-9]+$ && "$gid" =~ ^[0-9]+$ && "$mode" =~ ^[0-7]+$ && -n "$type" ]]; then
-    refuse_could_not_check "$p" "the check gave no answer"
-  fi
-  plain_name "$p"
-  (( uid == 0 )) || refuse_unsafe "users other than root can change $REPLY."
-  if [[ "$type" != l ]]; then
-    if (( 8#$mode & 2 )) || { (( 8#$mode & 16 )) && (( gid != 0 )); }; then
-      refuse_unsafe "users other than root can change $REPLY."
-    fi
-    rc=0
-    command -v "$GETFACL" >/dev/null 2>&1 || refuse_could_not_check "$p" "getfacl is missing"
-    out="$("$GETFACL" -P -s -n -E -p -- "$p" 2>&1)" || rc=$?
-    if (( rc )); then
-      first_check_error "$out"
-      if (( rc == 1 )) && [[ -z "$CHECK_ERROR" && -n "$out" ]]; then NAME_TYPE=""; SEEN_TYPE[$p]=""; return 0; fi
-      refuse_could_not_check "$p" "${CHECK_ERROR:-the check failed}"
-    fi
-    rc=0
-    acl_grants_write <<<"$out" || rc=$?
-    (( rc != 0 )) || refuse_unsafe "users other than root can change $REPLY."
-    (( rc == 1 )) || refuse_could_not_check "$p" "its ACL entries could not be read"
-  fi
-  NAME_TYPE="$type"
-  SEEN_TYPE[$p]="$type"
-}
-
-# path → every name the kernel passes through checked, top down, each before anything is read through
-# it; WALK_END is where the path leads. A copy of doctor_dnf_path_names, kept in step by the suite:
-# name by name, ".." taken from where a link leads, at most 40 links (the kernel's limit), and a
-# readlink that keeps a trailing newline.
-WALK_END=""
-walk_path() {  # path
-  local cur="" rest="$1/" c t hops=0
-  check_name /
-  while [[ -n "$rest" ]]; do
-    c="${rest%%/*}"; rest="${rest#*/}"
-    case "$c" in
-      ''|.) continue ;;
-      ..) cur="${cur%/*}"; continue ;;
-    esac
-    check_name "$cur/$c"
-    if [[ "$NAME_TYPE" == l ]]; then
-      if (( hops >= 40 )); then refuse_could_not_check "$1" "Too many levels of symbolic links"; fi
-      hops=$(( hops + 1 ))
-      # The dot keeps a trailing newline of the target, which $(...) would strip into another name.
-      if t="$(readlink -- "$cur/$c" && echo .)"; then
-        t="${t%.}"; t="${t%$'\n'}"
-        [[ "$t" == /* ]] && cur=""
-        rest="$t/$rest"
-        continue
-      elif [[ -e "$cur/$c" || -L "$cur/$c" ]]; then
-        refuse_could_not_check "$cur/$c" "its link could not be read"
-      fi
-    fi
-    cur="$cur/$c"
-  done
-  WALK_END="${cur:-/}"
-}
-
-# A tree, by doctor's rule: an entry counts when root does not own it, when it is a link and "links"
-# is passed (dnf5 keeps none in its state or staged folders, and the cache has its own), when it is
-# world-writable, or when it is group-writable with a group other than root. Any ACL entry counts.
-# find -P and getfacl -P never follow a link. Empty output is no answer unless the exit status says
-# so, because find and getfacl print nothing for a tree they could not read at all.
-TREE_HIT=""
-scan_tree() {  # dir links|nolinks → 0 with TREE_HIT set or empty; 1 with CHECK_ERROR set
-  local out rc=0 line
-  local -a link=(-false)
-  [[ "$2" == links ]] && link=(-type l)
-  TREE_HIT=""
-  out="$("$FIND" -P "$1" -ignore_readdir_race \( ! -user root -o "${link[@]}" -o \( ! -type l \( -perm -0002 -o \( -perm -0020 ! -group root \) \) \) \) \
-    -printf 'HIT %p\n' -quit 2>&1)" || rc=$?
-  if [[ "$out" == *"HIT "* ]]; then
-    while IFS= read -r line; do
-      if [[ "$line" == "HIT "* ]]; then TREE_HIT="${line#HIT }"; return 0; fi
-    done <<<"$out"
-  fi
-  if (( rc )); then
-    first_check_error "$out"
-    if (( rc != 1 )) || [[ -n "$CHECK_ERROR" || -z "$out" ]]; then CHECK_ERROR="${CHECK_ERROR:-the check failed}"; return 1; fi
-  fi
-  command -v "$GETFACL" >/dev/null 2>&1 || { CHECK_ERROR="getfacl is missing"; return 1; }
-  rc=0
-  out="$("$GETFACL" -R -P -s -p -- "$1" 2>&1)" || rc=$?
-  while IFS= read -r line; do
-    if [[ "$line" == "# file: "* ]]; then TREE_HIT="${line#\# file: }"; return 0; fi
-  done <<<"$out"
-  if (( rc )); then
-    first_check_error "$out"
-    if (( rc != 1 )) || [[ -n "$CHECK_ERROR" || -z "$out" ]]; then CHECK_ERROR="${CHECK_ERROR:-the check failed}"; return 1; fi
-  fi
-  return 0
-}
-guard_contents() {  # dir links|nolinks tries → returns, or exits REFUSED
-  local d="$1" tries="$3" i
-  walk_path "$d"
-  for (( i = 1; i <= tries; i++ )); do
-    if scan_tree "$WALK_END" "$2"; then
-      if [[ -n "$TREE_HIT" ]]; then
-        plain_name "$d"
-        refuse_unsafe "users other than root can change files in $REPLY."
-      fi
-      break
-    fi
-    (( i < tries )) || refuse_could_not_check "$d" "$CHECK_ERROR"
-  done
-  # A mount inside the tree hides what lies under it from the scan.
-  for i in "${!MOUNT_POINTS[@]}"; do
-    if [[ "${MOUNT_POINTS[i]}" == "$WALK_END"/* ]] && mount_is_users "$i"; then
-      plain_name "${MOUNT_POINTS[i]}"
-      refuse_unsafe "$REPLY is on a mount made by a user other than root."
-    fi
-  done
-}
-
-# The folders whose contents count, "--", the folders whose parents alone count → returns, or exits
-# REFUSED or NO_SYSTEMD. The contents folders' parents are walked too. Runs after the arguments are
-# validated and before anything reads a folder it covers.
-guard_dnf_folders() {
-  if [[ -e "$OSTREE_MARKER" ]]; then
-    echo "$ME: Kempt does not update atomic Fedora (Kinoite, Silverblue, bootc image mode); use Discover, rpm-ostree or bootc upgrade." >&2
-    exit "$REFUSED"
-  fi
-  guard_systemd   # first, so a container hears about systemd rather than namespaces
-  local self init err d
-  self="$(readlink /proc/self/ns/mnt)" || refuse_could_not_check "the mount namespace" "it could not be read"
-  if ! err="$(readlink -- "$MNT_NS_INIT" 2>&1)"; then
-    err="${err##*: }"
-    refuse_could_not_check "the mount namespace" "${err:-it could not be read}"
-  fi
-  init="$err"
-  if [[ "$self" != "$init" ]]; then
-    echo "$ME: Updates paused for safety: Kempt is running in a different mount namespace from the system, so what it checks is not what dnf5 would use. Run kempt doctor." >&2
-    exit "$REFUSED"
-  fi
-  load_mounts
-  while (( $# )) && [[ "$1" != -- ]]; do
-    if [[ "$1" == "$DNF_CACHE_DIR" ]]; then guard_contents "$1" nolinks 2; else guard_contents "$1" links 1; fi
-    shift
-  done
-  shift
-  for d in "$@"; do walk_path "$d"; done
-}
-
-verb="${1:-}"; shift || true
-# One fixed unit name per verb, never built from what the caller passed.
-case "$verb" in
-  dnf-upgrade) UNIT=kempt-apply-dnf-upgrade.service ;;
-  dnf-offline-stage) UNIT=kempt-apply-dnf-offline-stage.service ;;
-  dnf-offline-arm) UNIT=kempt-apply-dnf-offline-arm.service ;;
-  dnf-offline-clean) UNIT=kempt-apply-dnf-offline-clean.service ;;
-esac
+verb="${1:-}"
+(( $# == 0 )) || shift
+env_extra=()
 case "$verb" in
   dnf-upgrade|dnf-offline-stage)
-    assume=(); excludes=()
+    args=(upgrade)
+    if [[ "$verb" == dnf-offline-stage ]]; then args+=(--offline); fi
     for a in "$@"; do
       case "$a" in
-        -y) assume=(-y) ;;
-        --exclude=*) n="${a#--exclude=}"
-           [[ "$n" =~ $NAME_RE ]] || { echo "invalid exclude: $n" >&2; exit 2; }
-           excludes+=("--exclude=$n") ;;
-        *) echo "invalid arg: $a" >&2; exit 2 ;;
+        -y) args+=(-y) ;;
+        --exclude=*) [[ "${a#--exclude=}" =~ $NAME_RE ]] || usage; args+=("$a") ;;
+        *) usage ;;
       esac
     done
-    guard_dnf_folders "$DNF_STATE_DIR" "$DNF_OFFLINE_PKG_DIR" "$DNF_CACHE_DIR" --
-    offline=()
-    # Only the stage is guarded against a stored release upgrade. A live upgrade does not replace
-    # the stored transaction, but it moves the package set under it, which can leave a stored
-    # release upgrade out of date. It is allowed on purpose: the CLI runs live updates while a
-    # release upgrade waits. docs/security.md says so.
-    if [[ "$verb" == dnf-offline-stage ]]; then
-      guard_stored_release_upgrade "$verb"
-      offline=(--offline)
-    fi
-    run_dnf5 -- upgrade "${offline[@]}" "${assume[@]}" "${excludes[@]}"
+    check_folders
+    # A live update is allowed beside a stored release upgrade: the CLI offers that on purpose.
+    if [[ "$verb" == dnf-offline-stage ]]; then check_stored; fi
     ;;
-  # A staged transaction sits at status="download-complete" and no boot applies it. This is what
-  # ARMS it: status becomes "ready" and /system-update appears, which is the only thing systemd's
-  # system-update-generator looks for. DNF_SYSTEM_UPGRADE_NO_REBOOT is the supported
-  # arm-without-rebooting switch (dnf5-offline(8)) and is not optional here - without it dnf5
-  # reboots the moment the transaction is armed, which is not what "on next restart" promised.
-  # Set on the unit with --setenv, since the unit's environment is its own, so the guard is part of
-  # the command line the ECHO seam prints and the suite can pin.
   dnf-offline-arm)
-    [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
-    guard_dnf_folders "$DNF_STATE_DIR" "$DNF_OFFLINE_PKG_DIR" --
-    guard_stored_release_upgrade "$verb"
-    run_dnf5 --setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1 -- offline reboot -y
+    (( $# == 0 )) || usage
+    check_folders
+    check_stored
+    # Without this, dnf5 reboots the moment the update is set to install.
+    env_extra=(DNF_SYSTEM_UPGRADE_NO_REBOOT=1) args=(offline reboot -y)
     ;;
-  # Discards a staged transaction: drops /system-update and empties the offline directory. Kempt
-  # calls this to unwind a stage it could not arm, and to retire a stage a live update has already
-  # superseded - a staged transaction records the rpmdb cookie it was built against, so once the
-  # rpm set moves the stage can only fail at boot.
   dnf-offline-clean)
-    [[ $# -eq 0 ]] || { echo "invalid arg: $1" >&2; exit 2; }
-    guard_dnf_folders -- "$DNF_STATE_DIR/offline" "$DNF_OFFLINE_PKG_DIR"
-    guard_stored_release_upgrade "$verb"
-    guard_foreign_system_update "$verb"
-    run_dnf5 -- offline clean -y
+    (( $# == 0 )) || usage
+    check_stored
+    check_link
+    args=(offline clean -y)
     ;;
-  *) echo "usage: kempt-apply dnf-upgrade [args]|dnf-offline-stage [args]|dnf-offline-arm|dnf-offline-clean" >&2; exit 2 ;;
+  *) usage ;;
 esac
+
+# A closed terminal sends dnf5 no HUP it will act on, and the scope outlives the login session. Output
+# and exit status stay this process's own, because everything here is exec, with no child to wait for.
+exec "$ROOT/usr/bin/systemd-run" --scope --quiet --collect -- \
+  env -i --default-signal --ignore-signal=PIPE --ignore-signal=HUP \
+  PATH="$PATH" LC_ALL=C.UTF-8 HOME=/root "${env_extra[@]}" "$ROOT/usr/bin/dnf5" "${args[@]}"

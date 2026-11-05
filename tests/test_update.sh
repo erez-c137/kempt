@@ -1362,53 +1362,6 @@ assert_eq "$busy_err" "another kempt update is running" "...saying only that ano
 assert_exit 1 "...without asking the root helper anything first" -- test -e "$TESTTMP/refresh-calls"
 kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
 
-# Another user's update, or the widget's, holds no lock this user can see. The refresh helper then
-# refuses with exit 5 and its update-running sentence, and the pre-flight stops the run with the same
-# plain message instead of a warning, before the lock and before anything is installed.
-cat > "$TESTTMP/refresh-busy-update" <<'STUB'
-#!/usr/bin/env bash
-echo "kempt-refresh: dnf5 was not started, because a Kempt update is running. Nothing changed." >&2
-exit 5
-STUB
-chmod +x "$TESTTMP/refresh-busy-update"
-: > "$WORLD/apply-calls"
-busy_rc=0; busy_err="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-busy-update" "$KEMPT" update --no-flatpak 2>&1 >/dev/null)" || busy_rc=$?
-assert_eq "$busy_rc" 3 "the refresh helper's update-running answer stops the update with exit 3"
-assert_eq "$busy_err" "another kempt update is running" "...saying only that another update is running, no warning"
-assert_eq "$(grep -c 'APPLY' "$WORLD/apply-calls")" 0 "...and nothing is installed"
-assert_exit 0 "...and the lock is left free" -- flock -n "$KEMPT_STATE_DIR/lock" true
-# The helper's 15-minute line is information, never why a check failed: the warning names the
-# real failure, and a check that answered says nothing at all.
-cat > "$TESTTMP/refresh-longrun-fail" <<'STUB'
-#!/usr/bin/env bash
-echo "kempt-refresh: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
-echo "Failed to download metadata for repo 'fedora'" >&2
-[[ "$1" == check ]] && exit 1
-exit 0
-STUB
-cat > "$TESTTMP/refresh-longrun-only" <<'STUB'
-#!/usr/bin/env bash
-echo "Failed to download metadata for repo 'fedora'" >&2
-echo "kempt-refresh: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
-[[ "$1" == check ]] && exit 1
-exit 0
-STUB
-cat > "$TESTTMP/refresh-longrun-ok" <<STUB
-#!/usr/bin/env bash
-echo "kempt-refresh: dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on." >&2
-[[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
-exit 0
-STUB
-chmod +x "$TESTTMP"/refresh-longrun-*
-for stub in refresh-longrun-fail refresh-longrun-only; do
-  lr_err="$(KEMPT_REFRESH_HELPER="$TESTTMP/$stub" "$KEMPT" update --no-flatpak 2>&1 >/dev/null)" || true
-  assert_contains "$lr_err" "warning: could not check for session-critical updates: Failed to download metadata for repo 'fedora'" \
-    "$stub: the pre-flight warning names the real failure"
-  assert_eq "$(grep -c '15 minutes' <<<"$lr_err")" 0 "$stub: ...and never the 15-minute line"
-done
-lr_err="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-longrun-ok" "$KEMPT" update --no-flatpak 2>&1 >/dev/null)" || true
-assert_eq "$(grep -cE 'warning|15 minutes' <<<"$lr_err")" 0 "a check that answered after the 15-minute line warns about nothing"
-
 # ...and a lock whose holder was SIGKILLed must not freeze updates forever (the restic lock that
 # silently froze retention for 8 days). With flock there is nothing to clear: the kernel drops it
 # when the fd closes, however the process died.

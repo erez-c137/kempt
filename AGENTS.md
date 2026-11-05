@@ -56,8 +56,8 @@ stuck probes pile up until the machine runs out of memory.
 restart, say so. Before adding code that reacts to another program, file the problem upstream.
 
 **6. The root helpers stay small and get a real run.** `libexec/kempt-refresh` and
-`libexec/kempt-apply` have a fixed line limit, to be set. Before a release they get a real run on
-Fedora with SELinux enforcing.
+`libexec/kempt-apply` have a fixed limit: 170 lines between them. Before a release they get a real
+run on Fedora with SELinux enforcing.
 
 ## Running things
 

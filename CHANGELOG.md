@@ -9,6 +9,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **A `wheel` user at the computer now updates with no password, and nobody can update over SSH.** Anyone else at the computer is asked for an administrator's password. This is one fixed rule in the package, with no setting. To be asked, take your account out of `wheel`.
+- **The two programs that run as root went from 1,078 lines to 145.** dnf5 now runs directly under a systemd scope, instead of as a service a watchdog follows. Its output is live, its exit status is the real one, and it keeps going when the terminal closes or you log out. [security.md](docs/security.md) says what this inherits from the caller.
 - **Check Installation's full report can be read from the keyboard.** Tab reaches it, the arrow keys and Page Up and Down move a caret, and a screen reader gets its name.
 - **A kernel, NVIDIA driver or desktop update now says so on the status line.** The message that used to sit in the widget before you pressed anything is gone. The status line reads "23 updates available, including a new kernel", and Update Now asks its question only when pressed. That question and the one about another updater's restart now share one message.
 - **One message says why Kempt cannot go ahead:** an image-based Fedora, a system folder with unsafe permissions, or a stored Fedora release upgrade. It shows one cause at a time. The commands for a release upgrade moved to **Check Installation**, whose full report now gives them for every state.
@@ -35,6 +37,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **`kempt enable-passwordless`, `kempt disable-passwordless` and the widget's Password prompts row.** The fixed rule replaces them. Upgrading the package removes the rule an earlier version installed in `/etc/polkit-1/rules.d`, whether it was on or not, and an account outside `wheel` that had turned it on is asked again.
+- **The root helpers' own checks of parent folders, ACL entries, FUSE mounts and the mount namespace, and their refusal on atomic Fedora.** `kempt update` and `kempt doctor` still make them before asking for anything. The helpers keep a short check that the folders dnf5 installs from belong to root.
+- **"dnf5 has been running for 15 minutes", and the plain sentence when a check meets another account's update.** A check that runs out behind another account's update now says the check failed. dnf5 waits for the running update, and the update is not harmed.
 - **A message per failed service, and the Startup Report's folding lists.** The main view has one message however many services failed, so muting one starts from **Startup Report**. The report's **Show All** and **Hide**, its counts and its separate lists are gone, since the report now shows the CLI's text.
 - **Startup time in the Startup Report and `kempt startup --all`.** `boot_time` is gone from `--json`, Kempt no longer runs `systemd-analyze`, and it no longer writes `boot-times.json`. An existing file there stays and nothing reads it, so you can delete it. `systemd-analyze` gives the same figures.
 - **`install.sh`.** Kempt installs as a package. Developers use `tools/build-local.sh`, which builds the packages from a checkout. If you installed from a checkout, run `./install.sh --uninstall` from your current copy before you pull, then install the package. The `kempt doctor` rows that only applied to a checkout go too: `helpers:`, `policy:`, `widget:`, `install: packaged`, the commit line and `getfacl`, which the package requires.
@@ -62,6 +67,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Security
 
+- **The no-dialog helper now refuses a package cache another user can change.** A check and a refresh both exit 3, as an update already did. `dnf-makecache.timer` is Fedora's and has no such check, so this narrows the hole and does not close it.
+- **A second check or refresh started while one runs now stops at once**, and each one ends after two minutes, so a loop of them cannot keep the package lists locked. A refresh does not block an update.
+- **[security.md](docs/security.md) now says what is true about SSH and a program with no session.** A program running as you with no session, started through `systemd-run --user` over SSH, counts as active and local if your account has a session at the computer, even one switched away. PackageKit has the same behaviour. It also adds `--exclude` to what such a program can do: it can leave chosen packages out of an update.
 - **Kempt now stops updating when another user could change dnf's folders or a folder above them.**
   The root helper checks owners, write access, ACL entries and user FUSE mounts on the way to dnf's
   state, staged packages and cache, and refuses to install, stage, set to install or discard while

@@ -320,10 +320,6 @@ event_plain() {  # event text → EVENT_PLAIN
       EVENT_PLAIN="Staged update recorded, but its result after the restart will not be reported" ;;
     "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
     "live update refused by the root helper") EVENT_PLAIN="The update was refused: other users can change dnf's folders" ;;
-    "offline stage not started (another Kempt run is still in progress)")
-      EVENT_PLAIN="Nothing was staged: another Kempt update is still in progress" ;;
-    "offline stage not armed (another Kempt run is still in progress)")
-      EVENT_PLAIN="The update was staged, but not set to install: another Kempt update is still in progress" ;;
     "dnf outcome read from history ("*" ok, "*) EVENT_PLAIN="The update succeeded, as dnf's history records" ;;
     "dnf outcome read from history"*) EVENT_PLAIN="The update failed, as dnf's history records" ;;
     "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
@@ -1233,52 +1229,25 @@ config_set() {  # key value
 # How long each arm of a metadata refresh (dnf, then Flatpak) may take before the check gives up on
 # it. It holds for Flatpak and for a polkit dialog nobody answers, which a background check sits on
 # for the full two minutes. It cannot stop dnf5 itself: once pkexec has started the helper, dnf5
-# runs as root and SIGTERM from this user gets EPERM. So kempt-refresh has systemd bound makecache,
-# as root, with the same 120 s (RuntimeMaxSec=120: SIGTERM, then SIGKILL after TimeoutStopSec=10).
-# Change one and change the other. The widget's CHECK_TIMEOUT_MS allows for both. A seam only so
-# the suite can reach that branch - hardcoded, no test could drive it without waiting two minutes,
-# and it had none. Both helpers exit 4, running nothing, where systemd is not PID 1 or systemd-run
-# is missing; that is recorded as a failed refresh or a failed run like any other, with the
-# helper's own line saying why.
+# runs as root and SIGTERM from this user gets EPERM. So kempt-refresh has systemd bound the dnf5 it
+# starts, as root, with the same 120 s (RuntimeMaxSec=120: SIGTERM, then SIGKILL after
+# TimeoutStopSec=10). Change one and change the other. The widget's CHECK_TIMEOUT_MS allows for both.
+# A seam only so the suite can reach that branch - hardcoded, no test could drive it without waiting
+# two minutes, and it had none.
 KEMPT_REFRESH_TIMEOUT="${KEMPT_REFRESH_TIMEOUT:-120}"
 priv_refresh() { timeout "$KEMPT_REFRESH_TIMEOUT" ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_REFRESH_HELPER" "$@" 9>&-; }
 priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-; }
 
-# kempt-apply exits 3 when it refuses dnf-offline-stage, dnf-offline-arm or dnf-offline-clean because
-# of what dnf5 has stored: a Fedora release upgrade, or a transaction-state file it cannot read. It
-# also refuses clean while /system-update is there and is not dnf5's link. It refuses every verb
-# while other users can change dnf5's folders or the folders above them (guard_dnf_folders in
-# libexec/kempt-apply, with a table of which verb checks what), which apply_unsafe_dir in bin/kempt
-# names. The helper decides all of this as root, on its own, so the
-# CLI's pre-flight is not the only guard. Nothing ran and nothing changed when it does. A caller that sees this status must not unwind with another
-# offline verb (the helper refuses that too, for the same reason) and must not advise
-# `dnf5 offline clean`, which would delete exactly what the refusal protected.
+# kempt-apply exits 3 when it refuses a verb: a stage, arm or clean because of what dnf5 has stored
+# (a Fedora release upgrade, or a transaction-state file it cannot read), a clean while /system-update
+# is there and is not dnf5's link, and every verb but clean while other users can change dnf5's
+# folders. apply_unsafe_dir in bin/kempt names the folder. The helper decides all of this as root, on
+# its own, so the CLI's pre-flight is not the only guard. Nothing ran and nothing changed when it
+# does. A caller that sees this status must not unwind with an offline verb (the helper refuses that
+# too, for the same reason) and must not advise `dnf5 offline clean`, which would delete exactly what
+# the refusal protected.
 # shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
 KEMPT_APPLY_REFUSED=3
-# The helper's exit status when the dnf5 it started earlier for the same verb is still running: it
-# starts nothing, so a second run never lands beside a transaction still in flight. That earlier run
-# may finish while this one waits, so its history entry is never this run's evidence.
-# shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file
-KEMPT_APPLY_BUSY=5
-# kempt-refresh answers the same way, with the same status, and both helpers print this sentence
-# after their own name. dnf_check says it in place of the helper's line, so a check that found an
-# earlier one still going reads as that and not as a broken check.
-# shellcheck disable=SC2034 # read by backends/dnf.sh, which is sourced beside this file
-KEMPT_HELPER_BUSY_TEXT="dnf5 was not started, because the one Kempt started earlier is still running. Nothing changed."
-# kempt-refresh's sentence when the busy unit is one of kempt-apply's: a Kempt update is running,
-# perhaps another user's or the widget's. `kempt update`'s pre-flight stops on it with the plain
-# "another kempt update is running" (exit 3); a check reports it in place of the helper's line.
-# shellcheck disable=SC2034 # read by backends/dnf.sh and bin/kempt
-KEMPT_HELPER_UPDATE_BUSY_TEXT="dnf5 was not started, because a Kempt update is running. Nothing changed."
-# Whether a captured stderr holds either busy sentence (a helper's refusal with exit 5, with or
-# without its name in front): a Kempt run is under way, so a check or refresh skips rather than fails.
-helper_busy_in() {  # file
-  grep -qF -e "$KEMPT_HELPER_BUSY_TEXT" -e "$KEMPT_HELPER_UPDATE_BUSY_TEXT" -- "$1" 2>/dev/null
-}
-# The line both helpers print once when dnf5 has run for 15 minutes. Information for the run log,
-# never why something failed: dnf_check drops it from what it passes on, and run_failure_reason
-# never falls back to it.
-KEMPT_HELPER_LONG_RUN_TEXT="dnf5 has been running for 15 minutes. Kempt will not interrupt it. Keep the computer on."
 apply_refusal_reason() {  # → why the helper refused, as the user's side of the boundary sees it
   local relup
   if relup="$(offline_release_upgrade)"; then
@@ -1450,6 +1419,8 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
       printf '%s\n' "$KEMPT_AUTH_NO_AGENT" ;;
     *"Not authorized"*)
       printf '%s\n' "$KEMPT_AUTH_REFUSED" ;;
+    *"kempt-refresh-"*"already loaded"*)
+      printf 'another check is still running\n' ;;
     *) printf '%s\n' "$1" ;;
   esac
 }
@@ -1464,16 +1435,14 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
 # so it comes after every other line that names a failure, and is never the last-line fallback.
 # Only when no other line names one does the first `>>> ` line saying "error" or "failed" stand in,
 # before the last line. "Remote peer disconnected" is never chosen: a step that restarted a service
-# prints it, and it reads as the update failing when dnf5 itself may have finished fine. Nor is
-# the helpers' 15-minute line (KEMPT_HELPER_LONG_RUN_TEXT), which says only that dnf5 is still going.
+# prints it, and it reads as the update failing when dnf5 itself may have finished fine.
 run_failure_reason() {  # log-file → one line, possibly empty
   local line=""
   [[ -r "$1" ]] || { printf '\n'; return 0; }
   line="$(grep -vE '^[[:space:]]*>>> ' "$1" | grep -m1 -iE 'error|fail|not authorized|dismissed|cannot|denied|refused' || true)"
   [[ -n "$line" ]] || line="$(grep -E '^[[:space:]]*>>> ' "$1" | grep -viF 'remote peer disconnected' \
                               | grep -m1 -iE 'error|failed' || true)"
-  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$|^[[:space:]]*>>> ' "$1" \
-                              | grep -vF -- "$KEMPT_HELPER_LONG_RUN_TEXT" | tail -1 || true)"
+  [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$|^[[:space:]]*>>> ' "$1" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
   line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"
@@ -2642,10 +2611,6 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
       touch "$LAST_REFRESH_DNF_FILE" || true
       rm -f "$REFRESH_DNF_FAILED_FILE" || true
       log_event "refresh ok"
-    elif (( rc == KEMPT_APPLY_BUSY )) && helper_busy_in "$errf"; then
-      # A Kempt run is under way (helper_busy_in): not a failed refresh. The marker and the 3h
-      # stamp stay as they are, so the next check fetches; the check below logs the one line.
-      :
     else
       refresh_error_line "$errf" "$rc" > "$REFRESH_DNF_FAILED_FILE" 2>/dev/null || true
       log_event "refresh failed"
@@ -3422,7 +3387,7 @@ dnf_history_duration() {  # id → seconds; rc 1 = unknown
 #
 # The second line is the status dnf5 recorded for that entry (Ok, Error, ...), or `unknown` when it
 # recorded none Kempt can read. The CLI trusts an Ok over a helper that exited non-zero after dnf5
-# finished: systemd-run can lose its line to PID 1 while a package's setup step restarts it.
+# finished, such as a dnf5 killed on its way out.
 live_history_attribution() {  # before-id command-line → id, status, then names; rc 1 = cannot tell
   local before="$1" cmd="$2" list out n id st res touched
   [[ "$before" =~ ^[0-9]+$ && -n "$cmd" ]] || return 1

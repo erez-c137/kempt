@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs tests/live/offline-gate.sh in a throwaway Fedora container and removes it afterwards.
 # Needs podman and the network; takes several minutes. Exit status is the gate's.
-# The root helpers start dnf5 only through systemd-run, so the container boots systemd as PID 1.
+# The root helpers start dnf5 under systemd-run --scope, so the container boots systemd as PID 1.
 set -euo pipefail
 BASE="${KEMPT_GATE_IMAGE:-registry.fedoraproject.org/fedora:44}"
 ROOT="${KEMPT_GATE_ROOT:-$(cd "$(dirname "$0")/../.." && pwd)}"
