@@ -171,11 +171,11 @@ assert_eq "$(stat -c %a "$T"/run/kempt.*)" "700" "the folder is 0700 under umask
 rm -f "$T/dnf5.slow"; wait "$hp" || true
 
 # Ctrl-C and its like stop the watching, say so, and never reach dnf5.
-stop_watching() {  # signal helper-args...; a process with default signal handling sends it, since bash's own background jobs ignore INT
+stop_watching() {  # signal helper-args...; a signal ignored on entry cannot be caught, and background jobs and nohup ignore some
   local sig="$1" n="${2##*/}" out; fresh; touch "$T/dnf5.slow"
   out="$(python3 - "$@" 3<&- <<EOF
 import signal,subprocess,sys,time,os
-p=subprocess.Popen(['bash']+sys.argv[2:],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,preexec_fn=lambda: [signal.signal(s,signal.SIG_DFL) for s in (signal.SIGINT,signal.SIGQUIT)])
+p=subprocess.Popen(['bash']+sys.argv[2:],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,preexec_fn=lambda: [signal.signal(s,signal.SIG_DFL) for s in (signal.SIGINT,signal.SIGQUIT,signal.SIGHUP,signal.SIGTERM)])
 for _ in range(100):
     if os.path.exists("$T/dnf5.waiting"): break
     time.sleep(0.1)
