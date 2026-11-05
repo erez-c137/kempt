@@ -659,29 +659,15 @@ Its wording is fixed, so you can search it:
 | `offline staged <n>` | An update was staged for the next restart. |
 | `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
-| `offline stage cannot install (...) - announced\|not announced` | The staged update can no longer install on a restart. `not announced` when the notification did not show, and the next check tries again. Once shown, it is not sent again. |
-| `offline stage replaced outside Kempt (<what differs>) - announced\|not announced` | The staged update is no longer the one Kempt made. `not announced` as above. |
-| `offline stage did not finish on the restart (...) - announced\|not announced` | dnf5 stopped during the restart, and nothing of the stage can be shown to have changed. Once shown, it is not sent again. |
-| `offline stage partly installed on a restart that did not finish (<counts>)` | dnf5 stopped during the restart with some staged packages changed. The history entry says `offline (restart did not finish)`. |
-| `offline stage partly installed outside Kempt (<counts>)` | Some of the staged packages changed outside Kempt and the rest did not. The history entry says `offline (partly installed outside Kempt)`. |
-| `offline stage partly installed outside Kempt, after it was announced as lost` | The same, after you were told the stage could no longer install. No history or second notification. |
-| `offline stage result unknown` | The restart moved packages and Kempt could not tell how much of the stage arrived. It claims nothing, and the normal list shows what is pending. |
-| `offline stage installed by another updater (<counts>)` | Another updater installed the staged packages, or newer ones, on the restart or before it. The history entry says `offline (installed by another updater)`. |
 | `offline stage left in place (another updater has prepared the next restart)` | Nothing was left to stage, and the old stage was kept, because removing it would cancel the other updater's restart update. |
-| `offline marker cleared\|dropped\|kept (<why>)` | Kempt's record of a stage was removed, or kept because a newer stage arrived during a check. |
-| `harvest applied (<counts>)` | After a restart, the staged update had installed. |
-| `harvest found the staged transaction did not run (<counts>)` | After a restart, a different transaction had run. The history entry says `restart (staged update did not run)`. |
-| `harvest skipped snapshot failed` / `harvest cleared stale marker` | The other two outcomes after a restart. |
-| `harvest deferred: packages moved outside Kempt while the stage is still armed` | Another tool changed packages while an update was staged. |
-| `harvest entry not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | The history entry could not be saved. The run itself is unaffected. |
-| `harvest log not written (state directory unwritable?)` | The log for a restart install could not be saved, so that run has no **Show Log**. |
+| `restart result: transaction <id> <status> (<counts>)` | After a restart, dnf5's history had a new row for a stage. The history entry says `offline (applied on reboot)` or `offline (restart did not finish)`. |
+| `restart result not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | The history entry could not be saved. The run itself is unaffected. |
 | `unstage discarded the staged update` | `kempt unstage` removed the staged update. |
 | `unstage refused (<what is stored>)` / `unstage refused by the root helper` | A Fedora release upgrade is stored, so `kempt unstage` changed nothing. |
 | `unstage refused (another updater has prepared the next restart)` | Discarding would also cancel the other updater's restart update. Run it again after the restart. |
 | `unstage found nothing staged` | Nothing was staged. |
-| `unstage cleared a marker with no transaction under it` | The stage was already gone, so only Kempt's record was removed. |
 | `unstage failed rc=<n>` | The staged update could not be discarded. |
-| `unstage left a transaction behind (status <status>)` | dnf5 still has a stored transaction, so Kempt kept its record. |
+| `unstage left a transaction behind (status <status>)` | dnf5 still has a stored transaction. |
 | `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused runtimes were removed, by `kempt reclaim` or after an update. `, not all of them: <error>`: Flatpak stopped part-way. `, in use: <id>//<branch>`: extensions an app uses were removed; `flatpak update` puts them back. |
 | `reclaim found nothing to remove` | Nothing was unused after an update. |
 | `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
@@ -785,33 +771,29 @@ The dnf rows fail when other users can change dnf's folders or one above them. E
 
 ### The staged transaction
 
-Doctor compares Kempt's record of a staged update with what dnf5 has stored. It prints nothing
-when neither exists.
+Doctor reads what dnf5 has stored and where `/system-update` points. It prints nothing when dnf5
+stores nothing.
 
 | Line | What it means |
 | --- | --- |
-| `info  staged update: 61 packages install on the next restart` | Normal. |
-| `FAIL  staged update did not finish: dnf5 started it on a restart and stopped before the end ...` | No restart runs it again. Run `sudo dnf5 offline clean` and stage again. |
-| `FAIL  prepared updates can never install: the transaction was downloaded but never set to install ...` | Never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
-| `FAIL  prepared updates can never install: dnf5 says "ready" but /system-update is gone ...` | A restart already skipped it, and no later restart will install it. |
+| `info  staged update: 61 packages install on the next restart ...` | Normal. |
+| `WARN  prepared updates will not install: dnf5 says "ready" but /system-update is gone ...` | Something removed the link, usually PackageKit. Prepare them again, which downloads nothing. |
+| `WARN  prepared updates will not install: they were downloaded but never set to install ...` | Never set up for the restart. Prepare them again. |
+| `WARN  prepared updates will not install: a restart began them and stopped ...` | Power loss or a crash. dnf5 does not run them again. Prepare them again. |
+| `FAIL  staged update did not finish: a restart ran it and dnf5 recorded a failure ...` | `sudo dnf5 offline log` says why. `kempt unstage` clears it, and the row names `sudo dnf5 offline clean` if that fails. |
+| `WARN  staged update: Kempt cannot tell what the stored update will do ...` | The toml cannot be read or says something this version does not know. `sudo dnf5 offline status` shows it. |
+| `WARN  another updater has prepared the next restart (...), so the transaction dnf5 holds will not install then` | The update stored behind it will not install on that restart. |
 | `FAIL  the stored Fedora release upgrade can never install: ...` | The same, for a release upgrade. `sudo dnf5 system-upgrade reboot` sets it up again. |
-| `info  staged update: the transaction is gone, ...` | The next check clears Kempt's leftover record. |
-| `info  an offline transaction is staged outside Kempt ...` | Something else staged it. `dnf5 offline status` describes it. |
 | `info  dnf5 still keeps an offline transaction whose updates are already installed ...` | Another updater installed the same updates. It will not run. `kempt unstage` removes it. |
-| `info  dnf5 still keeps what is left of a staged update that was only partly installed ...` | It will not run again, and a later stage replaces it. `kempt unstage` removes it. If another updater holds the next restart, restart first. |
-| `WARN  staged update: another updater has prepared the next restart ...` | The update Kempt staged will not install on that restart. |
 | `WARN  another updater has prepared the next restart: /system-update points to ...` | Normal while Discover's notifier has an update ready. Kempt will not stage until you have restarted. `is not dnf5's` in place of `points to` means a plain file. |
 | `info  a Fedora release upgrade (44 -> 45) is prepared outside Kempt and installs on the next restart ...` | A release upgrade is ready. `sudo dnf5 offline clean` removes it. `kempt update --surface=offline` stops while it is there. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | No restart installs it yet. `sudo dnf5 system-upgrade reboot` starts it, `sudo dnf5 offline clean` drops it. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was set to install, but the restart marker /system-update is not in place ...` | A restart already skipped it. See the FAIL row above. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and did not finish ...` | `sudo dnf5 offline log` says why. |
-| `info  staged update: Kempt has a marker for a transaction that is no longer stored ...` | A release upgrade replaced Kempt's staged update. The next check clears the record. |
 | `FAIL  boot symlink is live over a transaction that is not set to install ...` | The next restart starts the offline updater and installs nothing. |
 | `FAIL  boot symlink is live with nothing prepared behind it ...` | The same, with nothing stored at all. |
-| `info  staged update: it installs kernel-core on the next restart despite the hold ...` | A hold added after staging. Rebuild with `kempt update --surface=offline`, or remove it with `sudo dnf5 offline clean`. |
+| `info  staged update: it installs kernel-core on the next restart despite the hold ...` | A hold added after staging. Rebuild with `kempt update --surface=offline`, or remove it with `kempt unstage`. |
 | `info  staged update: it may still install held packages on the next restart ...` | The same, when Kempt cannot read the staged update's contents and you hold a dnf package. |
-| `FAIL  staged update is not the one Kempt built ...` | Something replaced it. The line lists up to four differences each way (`+` only in dnf5's, `-` only in Kempt's). |
-| `info  staged update: the marker cannot be read ...` | Kempt's record is damaged. It is left in place. |
 
 ### The install lines
 

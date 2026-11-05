@@ -172,20 +172,19 @@ day.
 | `~/.local/state/kempt/last_refresh_dnf` | Timestamp of the last dnf metadata refresh that succeeded, for `metadata_refreshed` |
 | `~/.local/state/kempt/refresh_dnf_failed` | One line of the latest dnf metadata refresh's error, while it failed, for `backends.dnf.refresh_error` |
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
-| `~/.local/state/kempt/offline_staged.json` | Marker for a staged update waiting for the next restart |
+| `~/.local/state/kempt/stage-shown` | The last restart reported and which stored update a problem was told about, so neither is said twice. Deleting it costs at most one repeat |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
 | `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |
 | `~/.local/state/kempt/discover-unattended-answered` | The widget drew its warning about Discover's automatic updates. Removed when the setting reads false and by `kempt discover-notifier on` |
-| `~/.local/state/kempt/offline-partial` | Which copy of dnf5's stored transaction is what is left of a stage only partly installed, for `kempt doctor`. Removed once that copy changes |
 | `~/.local/state/kempt/discover-entry-written` | The autostart entry Kempt last wrote, so `kempt discover-notifier on` removes only Kempt's own |
-| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock`, `state.lock`, `events.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
+| `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `state.lock`, `events.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
 
 File names use a compact timestamp (`20260824T210511`). The `timestamp` field inside each history
 entry is a full ISO 8601 string with the offset.
 
-**Modes.** `events.log` and `offline_staged.json` are 0600 from the start, because they name your
-holds and your settings' values. `state.json`, `config` and any file rewritten by a removal are
+**Modes.** `events.log` is 0600 from the start, because it names your holds and your settings'
+values. `state.json`, `config` and any file rewritten by a removal are
 0600 too, because Kempt writes them through a `mktemp` file and a rename. `holds` is created by
 `touch`, so it has your umask's mode until the first `kempt unhold` rewrites it.
 

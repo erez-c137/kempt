@@ -20,7 +20,7 @@ Nothing is setuid, and the CLI never runs as root.
 | Path | What it is |
 | --- | --- |
 | `bin/kempt` | Every subcommand: `cmd_check`, `cmd_update`, `cmd_doctor` and the rest. |
-| `lib/common.sh` | State, config, holds, locks, the staged-update marker and the `KEMPT_*` seams. |
+| `lib/common.sh` | State, config, holds, locks, the reader of dnf5's stored update (`stage_read`) and the `KEMPT_*` seams. |
 | `backends/dnf.sh`, `backends/flatpak.sh` | One file per package manager. `docs/architecture.md` explains how to add one. |
 | `libexec/kempt-refresh`, `libexec/kempt-apply` | The only code that runs as root. Start here for a security review. |
 | `libexec/kempt-flatpak-unused` | The one Python file Kempt ships. It lists unused Flatpak runtimes and runs as the user. |

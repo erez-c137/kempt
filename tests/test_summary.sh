@@ -144,7 +144,7 @@ assert_eq "$("$KEMPT" summary | grep -c '^Staged: 2 updates install on the next 
 printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":0,"armed":true}}\n' > "$st"
 assert_eq "$("$KEMPT" summary | grep -c '^Staged: 0 updates install on the next restart$')" "1" \
   "...and zero takes the plural, not the singular"
-# A marker from before the count existed still describes a real pending install, so the line stays
+# A stage whose stored list cannot be read still describes a real pending install, so the line stays
 # - without a number, rather than with a made-up one or the word null.
 printf '{"schema":1,"status":"ok","offline_staged":{"staged_at":"x","count":null,"armed":true}}\n' > "$st"
 assert_eq "$("$KEMPT" summary | grep -c '^Staged: updates install on the next restart$')" "1" \
@@ -224,11 +224,6 @@ assert_eq "$("$KEMPT" summary | head -1 | grep -c '(restart (staged update insta
   "...and the summary names it the same way, while the entry keeps its stored surface"
 assert_eq "$("$KEMPT" summary --json | jq -r .surface)" "offline (applied on reboot)" \
   "...which scripts still read as it was written"
-stg_entry "$sf" '{"surface":"offline (installed by another updater)"}'
-assert_eq "$("$KEMPT" history | grep -c '  staged update (installed by another updater)  ')" "1" \
-  "a stage another updater installed reads in the same words"
-assert_eq "$("$KEMPT" summary --json | jq -r .surface)" "offline (installed by another updater)" \
-  "...and keeps its stored surface too"
 rm -f "$sf"; mv "$TESTTMP/hist-aside"/*.json "$HIST_DIR/"
 
 # --- beyond the plan: the shapes cmd_update actually writes ---
@@ -496,7 +491,7 @@ assert_newest_rejected() {
     "$what: the human path refuses the same bytes"
 }
 
-# Two entries stamped in the SAME second - a live run and the offline harvest that follows it -
+# Two entries stamped in the SAME second - a live run and the restart report that follows it -
 # which is the one case where the file NAMES decide which run is "newest" and the timestamps
 # cannot. `ls | sort -r` is that decision, and `sort` reads the locale, so this is driven under
 # two of them to prove the answer does not move.
@@ -513,7 +508,7 @@ J
 # WHICH of the two is served is left unpinned on purpose, and the reason is worth writing down:
 # `sort -r` reads the locale, and these two names differ only in punctuation. Measured on this box
 # 2026-08-27, LC_ALL=C sorts `20260827T130000.json` last (the live run wins) and en_US.UTF-8 sorts
-# `20260827T130000-offline.json` last (the harvest wins) - because a UTF-8 collation ignores the
+# `20260827T130000-offline.json` last (the report wins) - because a UTF-8 collation ignores the
 # hyphen and a byte comparison does not. Both are real runs from the same second, so neither
 # answer is wrong; what must hold either way is that ONE of them comes out whole.
 for _loc in C en_US.UTF-8; do
@@ -533,8 +528,8 @@ assert_newest_rejected '42'         "bare number entry"
 assert_newest_rejected '"a string"' "bare string entry"
 
 # --- which run is "newest" must not depend on the user's locale --------------------------------
-# History filenames are per-second, and a harvest that fires in the same second as a live run
-# takes the `-offline` suffix rather than overwriting it (bin/kempt, harvest_offline). So two
+# History filenames are per-second, and a restart report in the same second as a live run
+# takes the `-offline` suffix rather than overwriting it (bin/kempt, stage_write_entry). So two
 # entries can differ only by that suffix - and glibc does not order them the same way in every
 # locale. Under C, `-` is 0x2D and `.` is 0x2E, so `...T120000-offline.json` sorts BELOW
 # `...T120000.json`; under en_US.UTF-8, which ignores punctuation at the first level, it sorts

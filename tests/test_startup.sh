@@ -167,31 +167,6 @@ assert_eq "$(jq -c 'has("failed_before")' "$(ls "$HD"/*.json | tail -n 1)")" "fa
   "with systemctl not answering, the entry has no failed_before"
 rm -f "$SD/down-system" "$SD/down-user"
 
-# The stage records it in the marker, the harvest carries it into its entry, and a live run that
-# rebases a pending stage hands it its own baseline, as it does the package snapshot.
-reset_world
-cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
-export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
-failing system 'cups.service=CUPS Scheduler'
-"$KEMPT" update --surface=offline >/dev/null 2>&1 || true
-M="$KEMPT_STATE_DIR/offline_staged.json"
-assert_json_eq "$(jq -c '.failed_before.system' "$M" 2>/dev/null)" '[{"unit":"cups.service","description":"CUPS Scheduler"}]' \
-  "a stage records the baseline in its marker"
-failing system 'cups.service=CUPS Scheduler' 'avahi-daemon.service=Avahi mDNS/DNS-SD Stack'
-touch "$WORLD/no-dnf-change"
-"$KEMPT" update --surface=widget >/dev/null 2>&1 || true
-rm -f "$WORLD/no-dnf-change"
-assert_eq "$(jq -c '[.failed_before.system[].unit]' "$M" 2>/dev/null)" '["avahi-daemon.service","cups.service"]' \
-  "a live run that rebases the pending stage gives it its own baseline"
-# The restart installs it: a new boot, the package set moved, dnf5's transaction gone.
-cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
-export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
-export KEMPT_BOOT_ID=boot-B
-check >/dev/null
-harvested="$(grep -l '"offline (applied on reboot)"' "$HD"/*.json | tail -n 1)"
-assert_eq "$(jq -c '[.failed_before.boot_id, (.failed_before.system | length)]' "$harvested" 2>/dev/null)" '["boot-A",2]' \
-  "the harvest carries the marker's baseline into its history entry"
-
 # --- the first check of a new boot -------------------------------------------------------------
 reset_world
 dnf_max 142

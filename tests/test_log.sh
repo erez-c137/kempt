@@ -165,39 +165,29 @@ export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"
 # ==================================================================================================
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 "$KEMPT" check >/dev/null
-pending="$(jq -r '.backends.dnf.actionable' "$state")"
+
 : > "$EV"
 "$KEMPT" update --surface=offline >/dev/null
-assert_eq "$(text_of "$(events | grep ' offline staged ' | tail -1)")" "offline staged $pending" \
-  "a staged run records the count the check it was made from reported"
+assert_eq "$(text_of "$(events | grep ' offline staged ' | tail -1)")" "offline staged 3" \
+  "a staged run records the count of what dnf5 stored"
 assert_eq "$(events_like ' run done ')" "0" \
   "...and NOT run done: nothing has been applied, the reboot will do that"
 
-# A staged transaction can only be applied by a reboot, and the marker records the boot session it
-# was staged in. Rewriting that field is the only way a test can say "the machine rebooted".
-jq '.boot_id = "00000000-0000-0000-0000-000000000000"' "$KEMPT_STATE_DIR/offline_staged.json" \
-  > "$TESTTMP/m.json" && mv "$TESTTMP/m.json" "$KEMPT_STATE_DIR/offline_staged.json"
-cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"     # the transaction applied during boot
-# ...and applying it removed dnf5's transaction with it, which is the other half of "applied":
-# a moved package set with the transaction still armed is something else having moved it.
+# The restart: dnf5's transaction is gone, and its history has a row the check reports, once.
 export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
+now="$(date +%s)"
+printf '[{"id":9,"command_line":"dnf5 upgrade --offline -y","start_time":%s,"end_time":%s,"user_id":0,"status":"Ok","releasever":"44","altered_count":2}]\n' "$now" "$now" > "$TESTTMP/rl.json"
+jq '.[0] + {rpmdb_version_begin:"a", rpmdb_version_end:"b", packages:[{nevra:"curl-0:8.18.0-10.fc44.x86_64", action:"Upgrade", reason:"User", repository:"updates"},{nevra:"curl-0:8.18.0-9.fc44.x86_64", action:"Replaced", reason:"User", repository:"@System"}]} | [.]' "$TESTTMP/rl.json" > "$TESTTMP/ri.json"
+printf '#!/usr/bin/env bash\ncase "$*" in *"history list"*) cat "%s" ;; *) cat "%s" ;; esac\n' "$TESTTMP/rl.json" "$TESTTMP/ri.json" > "$TESTTMP/hstub"; chmod +x "$TESTTMP/hstub"
 : > "$EV"
-"$KEMPT" check >/dev/null
-assert_eq "$(events_like '^.* harvest applied ')" "1" \
-  "the check after the reboot harvests it, and says so once"
-harvest_hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
-assert_eq "$(text_of "$(events | grep ' harvest applied ' | tail -1)")" \
-  "harvest applied ($(bash -c "source '$REPO_ROOT/lib/common.sh'; run_counts_phrase '$harvest_hist'"))" \
+KEMPT_DNF_HISTORY_CMD="$TESTTMP/hstub" "$KEMPT" check >/dev/null
+KEMPT_DNF_HISTORY_CMD="$TESTTMP/hstub" "$KEMPT" check >/dev/null
+assert_eq "$(events_like 'restart result: transaction 9 Ok')" "1" \
+  "the check after the reboot reports it, and says so once"
+report_hist="$(ls -1t "$KEMPT_STATE_DIR/history"/*.json | awk 'NR==1')"
+assert_eq "$(text_of "$(events | grep ' restart result: ' | tail -1)")" \
+  "restart result: transaction 9 Ok ($(bash -c "source '$REPO_ROOT/lib/common.sh'; run_counts_phrase '$report_hist'"))" \
   "...carrying the same counts phrase the notification carries"
-
-# A marker whose snapshot has been deleted can never be harvested. Clearing it is the right
-# outcome, and it is worth a line: it is the only trace a staged transaction ever left.
-printf '{"staged_at":"x","pre_snapshot":"/nonexistent/gone.tsv","boot_id":"stale"}' \
-  > "$KEMPT_STATE_DIR/offline_staged.json"
-: > "$EV"
-"$KEMPT" check >/dev/null
-assert_eq "$(events_like ' harvest cleared stale marker')" "1" \
-  "a marker pointing at a snapshot that is gone is cleared, and recorded as cleared"
 
 # ==================================================================================================
 # A refused authorization, all the way through.
@@ -372,19 +362,12 @@ plain_in=(
   "run start surface=popup" "run did not start: x" "run done rc=0 updated=7 reboot=needed"
   "run failed rc=1: authentication cancelled" "offline staged 12" "offline restage (holds: a)"
   "offline restage failed (previous stage intact)" "offline stage dropped (superseded by live update)"
-  "offline stage cannot install (status x) - announced" "offline stage found nothing to stage"
-  "offline stage did not finish on the restart (status transaction-incomplete) - announced"
-  "offline stage partly installed on a restart that did not finish (3 updated)"
-  "offline stage cannot install (status ready, but the restart marker is gone) - announced"
-  "offline stage installed by another updater (3 updated)" "offline marker cleared (stage gone)"
-  "offline stage partly installed outside Kempt (3 updated)" "offline stage partly installed outside Kempt, after it was announced as lost" "offline stage result unknown"
-  "harvest applied (3 updated)" "harvest found the staged transaction did not run (1 updated)"
-  "harvest skipped snapshot failed" "harvest cleared stale marker"
-  "harvest deferred: packages moved outside Kempt while the stage is still armed"
-  "harvest entry not written (state directory unwritable?)" "harvest log not written (state directory unwritable?)"
+   "offline stage found nothing to stage"
+  "restart result: transaction 8 Ok (3 updated)"
+  "restart result not written (state directory unwritable?)"
   "history entry not written (state directory unwritable?)" "unstage discarded the staged update"
   "unstage refused (another updater has prepared the next restart)" "unstage refused by the root helper"
-  "unstage found nothing staged" "unstage cleared a marker with no transaction under it" "unstage failed rc=126"
+  "unstage found nothing staged"  "unstage failed rc=126"
   "unstage left a transaction behind (status ready)" "reclaim removed 2 runtimes (2000000 bytes) rc=0"
   "reclaim found nothing to remove" "reclaim changed (digest), nothing removed"
   "reclaim changed (unstable), nothing removed" "reclaim changed (new), nothing removed"
@@ -396,20 +379,12 @@ plain_in=(
   "startup failed after the update: bluetooth.service" "startup failed after the last restart: a.service, b.service"
   "startup recovered: bluetooth.service" "startup muted system:cups.service" "startup unmuted user:foo.service"
   "offline staged 4 (NOT recorded: the state directory could not be written)"
-  "offline stage recorded without its package baseline - the restart result will not be reported"
   "offline stage refused by the root helper" "live update refused by the root helper" "offline stage discarded (the stored one would have installed what is now held)"
   "offline stage found nothing to stage (every pending update is held)"
-  "offline stage installed by another updater (before the restart)"
   "offline stage left in place (another updater has prepared the next restart)"
-  "offline stage replaced outside Kempt (x) - announced"
-  "offline stage replaced outside Kempt (x) - not announced"
   "notification shown: Updates are ready and install on the next restart"
   "notification not shown (no desktop session): Update failed: no network"
   "offline restage failed (stage left in place, another updater has prepared the next restart)"
-  "offline marker dropped (superseded by live update, another updater has prepared the next restart)"
-  "offline marker dropped (a release upgrade (44) replaced our stage)"
-  "offline marker kept (a new stage arrived while the check ran)"
-  "offline marker cleared (rebuild failed, stage discarded)" "harvest applied (the result could not be recorded)"
   "unstage refused (a Fedora release upgrade (44) is stored)"
   "dnf outcome read from history (transaction 10 ok, helper rc=1)"
   "dnf outcome read from history (transaction 10 Error, helper rc=0)"
@@ -440,13 +415,7 @@ done < <(grep -rhoE 'log_event "[^"]*' "$REPO_ROOT/bin" "$REPO_ROOT/lib" "$REPO_
            | sed -e 's/^log_event "//' -e 's/\$.*//' -e 's/ *$//' | sort -u)
 assert_eq "${missing%; }" "" "every kind of event the code writes is in the sample"
 assert_contains "$plain_out" "cli Running again: bluetooth.service" "a recovery reads as the notification does"
-assert_contains "$plain_out" "cli Staged update recorded, but its result after the restart will not be reported" \
-  "a stage without its baseline says what that costs"
 assert_contains "$plain_out" "cli Staged update dropped (a live update replaced it)" "a superseded stage says why"
-assert_contains "$plain_out" "cli Staged update cannot install (it was cancelled outside Kempt), and you were notified" \
-  "a stage cancelled outside Kempt says so without the marker's name"
-assert_contains "$plain_out" "cli Staged update replaced outside Kempt (x), but the notification could not be shown" \
-  "a stage line never claims a notification that did not show"
 assert_contains "$plain_out" "cli Notified: Updates are ready and install on the next restart" \
   "a notification that showed says what it said"
 assert_contains "$plain_out" "cli Notification not shown (no desktop session): Update failed: no network" \
@@ -459,7 +428,7 @@ assert_contains "$plain_out" "cli Staged 4 updates for a restart, but not record
 assert_eq "$(cmp -s "$EV" "$TESTTMP/ev.before" && echo same)" "same" "showing the log leaves events.log as it was"
 assert_contains "$plain_out" "cli Checked: 78 updates to install, 2 held" "a check reads as what the badge shows"
 assert_contains "$plain_out" "cli Checked: 1 update to install"$'\n' "...one update is singular, and no held is left out"
-assert_contains "$plain_out" "cli Staged update installed on restart (3 updated)" "a restart install reads as one"
+assert_contains "$plain_out" "cli After the restart: transaction 8 Ok (3 updated)" "a restart install reads as one"
 assert_contains "$plain_out" "cli Update started in the widget" "a run in the widget says so"
 assert_contains "$plain_out" "cli Setting surface changed to widget (was not set)" "a setting change names widget, not the stored word"
 assert_contains "$plain_out" "cli Removed 2 unused runtimes, 2 MB" "a removal gives its size in a unit"

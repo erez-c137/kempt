@@ -13,7 +13,7 @@
 # range routinely. The tool got less usable the further behind the box was.
 #
 # All three sites are driven through the code that carries them in production - a real check, a
-# real run, a real harvest - because what is under test is the shape of the call, and a stand-in
+# real run - because what is under test is the shape of the call, and a stand-in
 # for the call would test the stand-in. The fixtures are GENERATED rather than committed: the
 # largest committed fixture is ten packages, and a two-thousand-row one would be a file nobody
 # reads guarded by a MANIFEST entry nobody checks.
@@ -94,7 +94,7 @@ grep -q 'check' "$KEMPT_STATE_DIR/events.log" \
 # that takes the widget out of its updating state, so a successful two-thousand-package update
 # would present as a spinner that never stops.
 : > "$WORLD/notifications"
-# History filenames are per-second, and the harvest below appends `-offline` to break a collision -
+# History filenames are per-second, and a restart report appends `-offline` to break a collision -
 # which sorts BEFORE the plain name, not after ("-" is 0x2D, "." is 0x2E). So the newest entry is
 # found by DIFFING the directory, never by `ls | tail -1`: that reads the wrong entry whenever two
 # of these land in the same second, which is a matter of how fast the machine is.
@@ -119,31 +119,5 @@ grep -q NOTIFY "$WORLD/notifications" \
 assert_eq "$(jq -r '.backends.dnf.actionable' "$state")" "0" \
   "...and the state file no longer offers updates that have been installed"
 
-# --- 3. the harvest -------------------------------------------------------------------------
-# The third site, and the one that does not recover on its own: harvest_offline runs at the top of
-# EVERY check and deletes the marker ten lines after writing this entry. A failure here leaves the
-# marker in place, so the next check fails in the same spot, forever - the box stops checking.
-# Reached by staging a transaction, then presenting the world a reboot would leave behind: the
-# installed set moved, and dnf5's transaction went with it.
-pre="$KEMPT_STATE_DIR/snapshots/offline-pre-volume.tsv"
-mkdir -p "$KEMPT_STATE_DIR/snapshots"; cp "$TESTTMP/before.tsv" "$pre"
-jq -n --arg snap "$pre" '{staged_at:"x", pre_snapshot:$snap, armed:true}' \
-  > "$KEMPT_STATE_DIR/offline_staged.json"
-export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"   # applied: dnf5 removed it
-cp "$TESTTMP/after.tsv" "$WORLD/rpm.tsv"
-hist_list > "$TESTTMP/hist-before.txt"
-: > "$WORLD/notifications"
-rc=0
-"$KEMPT" check >/dev/null 2>"$TESTTMP/harvest.err" || rc=$?
-assert_eq "$rc" "0" "the check that harvests $N applied packages exits 0"
-assert_exit 0 "...and consumes the marker, so the next check is an ordinary one" \
-  -- test ! -f "$KEMPT_STATE_DIR/offline_staged.json"
-hist_list > "$TESTTMP/hist-after.txt"
-comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
-assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "1" \
-  "...writing exactly one history entry for the reboot that applied them"
-hh="$(head -1 "$TESTTMP/hist-new.txt")"
-assert_eq "$(jq -r .surface "$hh")" "offline (applied on reboot)" "...which names the surface"
-assert_eq "$(jq '.backends.dnf.updated | length' "$hh")" "$N" "...and every package it found moved"
 
 finish

@@ -55,8 +55,5 @@ assert_eq "$EVENT_PLAIN" "Notified: Your prepared updates are installed." "a sho
 event_plain "notification not shown (no desktop session): Update failed: no network"
 assert_eq "$EVENT_PLAIN" "Notification not shown (no desktop session): Update failed: no network" \
   "...and one that did not keeps its reason"
-event_plain "offline stage cannot install (status ready, but the restart marker is gone) - not announced"
-assert_eq "$EVENT_PLAIN" "Staged update cannot install (it was cancelled outside Kempt), but the notification could not be shown" \
-  "a stage line never claims a notification that did not show"
 
 finish

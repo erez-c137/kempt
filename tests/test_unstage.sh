@@ -8,9 +8,6 @@
 # and nothing here may ever answer with `sudo dnf5 offline clean`, which is the command the refusal
 # exists to protect against.
 #
-# The other rule this file pins: Kempt's marker goes only when dnf5's transaction is really gone. A
-# marker cleared over a transaction that is still armed leaves an install coming that no surface
-# mentions, which is the same failure the harvest's own clearing rule avoids from the other side.
 source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"
 
@@ -36,7 +33,6 @@ TOML="$TESTTMP/offline-transaction-state.toml"
 export KEMPT_OFFLINE_TOML="$TOML"
 stored() { cp "$FIXTURES/$1" "$TOML"; }
 RELUP="$FIXTURES/offline-release-upgrade.toml"
-marker="$KEMPT_STATE_DIR/offline_staged.json"
 
 apply_stub() {  # name 'case arms' → an apply helper recording every call
   cat > "$TESTTMP/apply-$1" <<STUB
@@ -62,16 +58,15 @@ no_clean_advice() {  # label - the one command every message here must never nam
 
 apply_stub ok ''
 apply_stub clean-ok 'dnf-offline-clean) rm -f "'"$TOML"'" ;;'
-stage_real() {  # a real armed stage from this world, so there is a marker to act on
+stage_real() {  # a real armed stage from this world, so there is something to act on
   stored offline-ready.toml
-  rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
   KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 }
 
 # --- nothing staged ------------------------------------------------------------------------------
 # The answer on most boxes, and not a failure. Said in words on stdout, the shape `kempt summary`
 # uses for a box with no runs: empty output would read as a command that did not work.
-rm -f "$marker" "$TOML"; reset_run
+rm -f "$TOML"; reset_run
 rc=0; out="$(KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-ok" "$KEMPT" unstage 2>"$TESTTMP/err")" || rc=$?
 assert_eq "$rc" "0" "unstage with nothing staged is not a failure"
 assert_eq "$out" "Nothing is waiting for the next restart, so there is nothing to discard." "...and says so in words"
@@ -79,27 +74,22 @@ assert_eq "$(calls dnf-offline-clean)" "0" "...without asking root to do anythin
 
 # --- the ordinary discard -------------------------------------------------------------------------
 stage_real
-assert_exit 0 "the fixture starts from a real armed stage" -- test -f "$marker"
 reset_run
 rc=0; out="$(KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-ok" "$KEMPT" unstage 2>"$TESTTMP/err")" || rc=$?
 assert_eq "$rc" "0" "unstage over an armed stage succeeds"
 assert_eq "$(calls dnf-offline-clean)" "1" "...through the helper verb that already existed"
-assert_exit 1 "...and Kempt's marker goes with the transaction" -- test -f "$marker"
 assert_eq "$out" "Discarded the updates waiting for the next restart. That restart installs nothing." \
   "...and says plainly what it did, and what that means"
 logged 'unstage discarded the staged update' \
   && echo "ok: ...and the event log records it" || { echo "FAIL: no unstage event"; _fail=1; }
 
-# --- the marker goes ONLY when the transaction is really gone --------------------------------------
-# The helper can exit 0 having changed less than it meant to. Clearing the marker on that status
-# alone would leave a transaction armed and every Kempt surface silent about it - the popup, the
-# doctor row and the harvest all stop mentioning an install that is still coming.
+# --- discarded means the transaction is really gone --------------------------------------
+# The helper can exit 0 having changed less than it meant to, and "discarded" would then be untrue.
 stage_real
 apply_stub clean-noop 'dnf-offline-clean) : ;;'
 reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-noop" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "1" "a clean that left the transaction behind is a failure"
-assert_exit 0 "...and the marker is KEPT, so doctor can still describe the stage" -- test -f "$marker"
 grep -q 'still reports a stored transaction' "$TESTTMP/err" \
   && echo "ok: ...and the message says what is still there" \
   || { echo "FAIL: no stored-transaction warning"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
@@ -113,7 +103,6 @@ reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-ok" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "5" "a stored release upgrade refuses the unstage before anything is changed"
 assert_eq "$(calls dnf-offline-clean)" "0" "...without asking root to do anything"
-assert_exit 0 "...and the marker is untouched" -- test -f "$marker"
 grep -q 'Fedora 45 upgrade' "$TESTTMP/err" \
   && echo "ok: ...and the message names the upgrade it protected" \
   || { echo "FAIL: the refusal does not name the release upgrade"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
@@ -129,7 +118,6 @@ apply_stub clean-refused 'dnf-offline-clean) echo "kempt-apply: refusing dnf-off
 reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-refused" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "5" "a refusal from the root helper is a refusal here too, not a failed run"
-assert_exit 0 "...and the marker stays, because nothing changed" -- test -f "$marker"
 grep -q 'These updates were left in place. Run kempt doctor.' "$TESTTMP/err" \
   && echo "ok: ...and with nothing odd stored, it points at the doctor, which explains the folders" \
   || { echo "FAIL: the refusal does not point at the doctor"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
@@ -162,20 +150,6 @@ apply_stub clean-stored 'dnf-offline-clean) echo "kempt-apply: refusing dnf-offl
 reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-stored" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_contains "$(cat "$TESTTMP/err")" "refusing dnf-offline-clean: something stored" "...and so does a refusal over something other than the folders"
-
-# --- a marker with no transaction under it ---------------------------------------------------------
-# Nothing for root to do: the transaction is already gone, and all that is left is Kempt's record
-# of it. Cleared without an authentication dialog nobody needed to see.
-stage_real
-rm -f "$TOML"
-reset_run
-rc=0; out="$(KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-ok" "$KEMPT" unstage 2>"$TESTTMP/err")" || rc=$?
-assert_eq "$rc" "0" "a marker whose transaction has gone is cleared, not an error"
-assert_eq "$(calls dnf-offline-clean)" "0" "...without asking root for anything"
-assert_exit 1 "...and the marker is gone" -- test -f "$marker"
-grep -q 'already gone' <<<"$out" \
-  && echo "ok: ...and it says the stage was already gone, never that it discarded one" \
-  || { echo "FAIL: the message claims a discard that did not happen"; _fail=1; echo "  got: $out"; }
 
 assert_exit 2 "unstage takes no arguments" "$KEMPT" unstage --all
 

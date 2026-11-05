@@ -443,9 +443,9 @@ than a second capture.
 
 This is also the suite's DEFAULT: `sandbox()` points `KEMPT_OFFLINE_TOML` here, so the world every
 test runs in is "if a stage exists, it is armed". That is the world the offline tests in
-`test_update.sh` assume - a marker they wrote means an install is genuinely pending - and pinning
-it is what keeps them off the real `/usr/lib/sysimage/libdnf5/offline/` of whatever box runs the
-suite, where a leftover stage (or none) would decide how the reconciliation branches behave.
+`test_update.sh` assume, and pinning it is what keeps them off the real
+`/usr/lib/sysimage/libdnf5/offline/` of whatever box runs the suite, where a leftover stage (or none)
+would decide what they read.
 
 ## tests/fixtures/offline-transaction-full.json
 **Captured live**, 2026-09-05, from `/usr/lib/sysimage/libdnf5/offline/transaction.json` in a
@@ -470,7 +470,7 @@ Three structural details the parser depends on, none of them guesses:
 
 This is also the suite's DEFAULT: `sandbox()` points `KEMPT_OFFLINE_TXJSON` here, so the world every
 test runs in is "the staged transaction contains ca-certificates, librepo and openldap". A test that
-writes a marker and holds one of those three sees a conflict warning by design.
+holds one of those three sees a conflict warning by design.
 
 ## tests/fixtures/offline-identity-*, dnf-history-list.json, dnf-history-info-<id>.json
 **Captured live**, 2026-09-15, in one throwaway Fedora 44 container
@@ -479,11 +479,10 @@ writes a marker and holds one of those three sees a conflict warning by design.
 1. The GA builds of zsh, nano, tree and sqlite installed with the updates repository disabled, so
    the image has updates to stage.
 2. `dnf5 upgrade --offline -y --exclude=tree`, then `DNF_SYSTEM_UPGRADE_NO_REBOOT=1 dnf5 offline
-   reboot -y`: a stage in the shape `kempt-apply dnf-offline-stage` builds. Its state toml and
-   transaction.json are `offline-identity-staged.toml` and `offline-identity-staged-transaction.json`.
+   reboot -y`: a stage in the shape `kempt-apply dnf-offline-stage` builds. Its state toml is
+   `offline-identity-staged.toml`.
 3. `dnf5 offline clean -y`, then `dnf5 upgrade --offline -y --exclude=nano` and the same arm: a
-   stage made over it outside Kempt. `offline-identity-replaced.toml` and
-   `offline-identity-replaced-transaction.json`.
+   stage made over it outside Kempt.
 4. `dnf5 offline _execute`, the command `dnf5-offline-transaction.service` runs at boot. In a
    container it applies the transaction, removes the toml, transaction.json and `/system-update`,
    and then exits 1, because there is no D-Bus to ask for the reboot.
@@ -496,10 +495,10 @@ What they pin:
 
 - **The two tomls carry the same `rpmdb_cookie`.** A stage made over another against an unchanged
   rpm database keeps the cookie, so the cookie alone cannot tell them apart. The command and the
-  package set can: `nano` is in the first transaction and not in the second.
-- **History entry 8 is the applied transaction.** Its `command_line` in the list is the replaced
-  toml's `cmd_line` verbatim, its `rpmdb_version_begin` in `history info` is that toml's
-  `rpmdb_cookie`, and the names it installed equal the replaced transaction.json's. `history info`
+  package set can: `nano` is in the first transaction and not in the second. Kempt no longer tells them apart.
+- **History entry 8 is the applied transaction.** Its `command_line` in the list is the second
+  stage's `cmd_line` verbatim, and its `rpmdb_version_begin` in `history info` is that stage's
+  `rpmdb_cookie`. `history info`
   has no `command_line` key; the same text is in `description`.
 - **Staging records no history entry.** Nothing sits between the last install (7) and the applied
   transaction (8), although two stages and a clean happened there.

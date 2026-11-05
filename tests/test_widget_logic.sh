@@ -643,8 +643,8 @@ assert_eq "$(js "$noru.messageSlots")" '[]' \
 assert_eq "$(js "$noru.updateAsksFirst")" "true" \
   "...naming the safer route, because on that box the route exists"
 # dnf5 has ONE transaction slot, and a transaction whose target release differs from the system's
-# cannot be one Kempt built - so a marker alongside a release upgrade describes a transaction that
-# is gone. A current CLI stops publishing offline_staged there; this is the older file, where the
+# cannot be one Kempt built - so a stage published alongside a release upgrade describes a transaction
+# that is gone. A current CLI stops publishing offline_staged there; this is the older file, where the
 # staged banner would otherwise sit under the release-upgrade one telling the reader to press a
 # Discard button that is no longer on the screen.
 RUS='function () { var s = S("risky-heavy"); s.offline_staged = {staged_at:"2026-09-09T09:00:00+03:00", count:61, armed:true, holds_conflict:["kernel-core"], names_source:"transaction"}; s.release_upgrade = {from:"44",to:"45",armed:true}; return L.viewModel(s,false,"",{}); }'
@@ -1589,13 +1589,13 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"error\":\"d
 # The offline STAGING run: its entry has empty package lists BY CONSTRUCTION - nothing changes
 # until the restart - so the count sentences would call it "No package changes". True about the
 # rpm set, and no answer at all to what the person just did. Exact match on "offline": the
-# harvest writes "offline (applied on reboot)" and its counts are real changes.
+# restart report writes "offline (applied on reboot)" and its counts are real changes.
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":28}"))')" \
   "Updates are ready and install on the next restart." "a staging run reports the staging, not the zero rpm delta"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"the updates were downloaded, but could not be set to install on the next restart\"}"))')" \
   "The update failed: the updates were downloaded, but could not be set to install on the next restart." "a FAILED staging run is a failure, never a promise"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline (applied on reboot)\",\"duration_sec\":0,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"a\"},{\"name\":\"b\"}]}}}"))')" \
-  "Updated 2 packages in 0 s." "the harvest entry is not a staging run - its counts render"
+  "Updated 2 packages in 0 s." "the restart report is not a staging run - its counts render"
 # ...and the staging run that staged NOTHING, which is `offline` and `ok` exactly like the first
 # case above and was described in its words. Every pending update held, or nothing pending: the
 # restart installs nothing, and the line above promised it would install something. Which of the
@@ -2403,7 +2403,7 @@ assert_eq "$(js "L.viewModel($RPS,false).headerText")" "1 update" "a string risk
 assert_eq "$(js "L.viewModel($RPO,false).headerText")" "1 update" "...nor is an object that merely carries a length"
 
 # --- vm.stagedMessage / vm.stagedShowRestart: a transaction that is already waiting --------------
-# The state key exists only when the CLI has reconciled its own marker against dnf5's status and
+# The state key exists only when the CLI has read dnf5's files and
 # found an ARMED transaction (lib/common.sh, offline_staged_state), so the widget does not
 # re-derive that judgement - it renders it or it says nothing.
 STG=',offline_staged:{staged_at:"2026-09-02T10:31:00+03:00",count:61,armed:true}'
@@ -2452,6 +2452,22 @@ assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", startup: true})
   "...and a service that stopped starting keeps its message"
 assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", reclaim: true})')" '["staged","discover"]' \
   "...and it still outranks the reclaim offer"
+
+# --- a stage no restart will install: said in the staged slot, with staging again on offer ------------
+for _w in lost interrupted; do
+  _P=",offline_stage_problem:\"$_w\""
+  assert_eq "$(vm '{}' "$_P" 0 'messageSlots.indexOf("staged") >= 0')" "true" "$_w: in the staged slot"
+  assert_eq "$(vm '{}' "$_P" 0 'stagedType')" "warning" "$_w: as a warning"
+  assert_contains "$(vm '{}' "$_P" 0 'stagedMessage')" "will not install on the next restart" "$_w: says what the restart will not do"
+  assert_contains "$(vm '{}' "$_P" 0 'stagedMessage')" "Install on Next Restart" "$_w: names the way back"
+  assert_eq "$(js "(function (v) { return [v.stagedShowDiscard, v.stagedArmed].join(); })(L.viewModel($(st "$_P"),false,\"\",{}))")" \
+    "false,false" "$_w: nothing to discard and nothing armed"
+  assert_eq "$(vm '{}' "$_P$STG" 0 'stagedMessage')" "They install the next time you restart." "$_w: an armed stage published beside it wins"
+done
+_P=',offline_stage_problem:"unknown"'
+assert_contains "$(vm '{}' "$_P" 0 'blockedMessage')" "cannot tell what the next restart will do" "unknown: said plainly, in the slot with the button that explains it"
+assert_eq "$(vm '{}' "$_P" 0 'stagedMessage')" "$(vm '{}' '' 0 'stagedMessage')" "unknown: no claim about a stage"
+assert_eq "$(vm '{}' ',offline_stage_problem:"failed"' 0 'stagedMessage')" "$(vm '{}' '' 0 'stagedMessage')" "failed: the notification and the status line say it, not a standing banner"
 
 # --- a stage another updater's restart stands in front of ---------------------------------------
 # Discover, through PackageKit, prepared the next restart: dnf5 will not run behind its symlink, so
@@ -2809,7 +2825,7 @@ assert_eq "$(js "L.viewModel($STAGED_ONE,false).headerText")" "1 update ready fo
   "one staged update takes the singular, noun and verb together"
 STAGED_NOCOUNT="$(js "JSON.stringify(Object.assign({}, $STAGED_HDR, {offline_staged:{staged_at:'x',armed:true}}))")"
 assert_eq "$(js "L.viewModel($STAGED_NOCOUNT,false).headerText")" "Updates ready for the next restart" \
-  "a marker written before the CLI recorded a count loses the number, not the sentence"
+  "a stage whose list could not be read loses the number, not the sentence"
 # ...and a box with no stage is untouched.
 assert_eq "$(js 'V("live",false).headerText')" "10 updates" \
   "a box with nothing staged still counts what is available"
