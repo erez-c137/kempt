@@ -189,7 +189,8 @@ row 21 Error 'dnf5 upgrade --offline -y'; check
 assert_contains "$(said)" "did not finish" "c15: says it did not finish"; never c15
 assert_eq "$(jq -r .status "$(newest_entry)")" failed "c15: a failed entry"
 assert_eq "$(jq -c '[.backends.dnf.updated[].name]' "$(newest_entry)")" '["librepo"]' "c15: only what arrived counts as updated"
-assert_contains "$("$KEMPT" doctor 2>&1)" "did not finish" "c15: doctor says it too"
+assert_contains "$("$KEMPT" doctor 2>&1)" "dnf5 recorded a failure" "c15: doctor says what dnf5 recorded"
+assert_contains "$("$KEMPT" status 2>&1)" "dnf5 recorded a failure" "c15: and status"
 assert_contains "$("$KEMPT" doctor 2>&1)" "sudo dnf5 offline clean" "c15: doctor names the fix"
 : > "$WORLD/notifications"; check
 silent c15-again; assert_eq "$(entries)" 1 "c15: told once, one entry"
@@ -198,6 +199,10 @@ silent c15-again; assert_eq "$(entries)" 1 "c15: told once, one entry"
 world transaction-incomplete none; rpm_is "$NEW"; row 22 Error 'dnf5 upgrade --offline -y'; check
 assert_contains "$(said)" "a package's script failed" "posttrans: says the script failed"
 assert_not_contains "$(said)" "did not finish" "posttrans: not called unfinished"
+assert_not_contains "$("$KEMPT" status 2>&1)" "did not finish" "posttrans: nor on status"
+assert_contains "$("$KEMPT" status 2>&1)" "dnf5 recorded a failure" "posttrans: status says what dnf5 recorded"
+assert_not_contains "$("$KEMPT" doctor 2>&1)" "did not finish" "posttrans: nor in doctor"
+assert_contains "$("$KEMPT" doctor 2>&1)" "dnf5 recorded a failure" "posttrans: doctor says what dnf5 recorded"
 assert_eq "$(jq -r .surface "$(newest_entry)")" "offline (applied on reboot)" "posttrans: they were applied"
 
 # transaction-incomplete with no row to report: still a failed restart, and no count is invented
@@ -273,6 +278,18 @@ silent "a package named like the flag"; assert_eq "$(entries)" 0 "...and no entr
 # ...and the flag first or last is still the flag.
 world gone none; rpm_is "$NEW"; echo row=9 > "$SHOWN"; row 27 Ok 'dnf5 --offline upgrade'; row 28 Ok 'dnf5 upgrade --offline'; check
 assert_eq "$(entries)" 2 "the flag anywhere as a word is a restart's row"
+
+# --- downloaded or half downloaded, and never set to install: nothing cancelled them, and nobody is told at a check
+for st in download-complete download-incomplete; do
+  world "$st" none; check; silent "$st"
+  assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" unarmed "$st: published as never set to install"
+  assert_contains "$("$KEMPT" status 2>&1)" "they were never set to install" "$st: status says so"
+  assert_not_contains "$("$KEMPT" status 2>&1)" "cancelled" "$st: status does not say cancelled"
+  assert_contains "$("$KEMPT" doctor 2>&1)" "they were never set to install" "$st: doctor says so"
+  assert_not_contains "$("$KEMPT" doctor 2>&1)" "downloaded" "$st: doctor does not say downloaded"
+done
+world ready none; check
+assert_contains "$("$KEMPT" status 2>&1)" "something cancelled them" "a lost link is what something cancelled"
 
 # --- memory: a history that does not answer writes none, or its old rows are all new at the next check
 world gone none; row 40 Ok 'dnf5 upgrade --offline -y' 400000; row 41 Ok 'dnf5 upgrade --offline -y' 300000

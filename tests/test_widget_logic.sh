@@ -2454,7 +2454,7 @@ assert_eq "$(js 'L.messageStack({staged: true, discover: "mild", reclaim: true})
   "...and it still outranks the reclaim offer"
 
 # --- a stage no restart will install: said in the staged slot, with staging again on offer ------------
-for _w in lost interrupted; do
+for _w in lost unarmed interrupted; do
   _P=",offline_stage_problem:\"$_w\""
   assert_eq "$(vm '{}' "$_P" 0 'messageSlots.indexOf("staged") >= 0')" "true" "$_w: in the staged slot"
   assert_eq "$(vm '{}' "$_P" 0 'stagedType')" "warning" "$_w: as a warning"
@@ -2464,6 +2464,9 @@ for _w in lost interrupted; do
     "false,false" "$_w: nothing to discard and nothing armed"
   assert_eq "$(vm '{}' "$_P$STG" 0 'stagedMessage')" "They install the next time you restart." "$_w: an armed stage published beside it wins"
 done
+assert_contains "$(vm '{}' ',offline_stage_problem:"lost"' 0 'stagedMessage')" "something cancelled them" "lost: something cancelled them"
+assert_contains "$(vm '{}' ',offline_stage_problem:"unarmed"' 0 'stagedMessage')" "never set to install" "unarmed: never set to install"
+assert_not_contains "$(vm '{}' ',offline_stage_problem:"unarmed"' 0 'stagedMessage')" "cancelled" "unarmed: nothing was cancelled"
 _P=',offline_stage_problem:"unknown"'
 assert_contains "$(vm '{}' "$_P" 0 'blockedMessage')" "cannot tell what the next restart will do" "unknown: said plainly, in the slot with the button that explains it"
 assert_eq "$(vm '{}' "$_P" 0 'stagedMessage')" "$(vm '{}' '' 0 'stagedMessage')" "unknown: no claim about a stage"
@@ -2569,7 +2572,7 @@ assert_eq "$(js "var v=L.viewModel({schema:1,status:\"ok\",last_success:\"2026-0
 # all leave this run the newest, and the row must not promise what the banner above it denies.
 assert_eq "$(js "L.lastRunText($LAST,$NOW,false,false)")" "Last update 1 hour ago · no package changes" "not armed: the row promises no restart"
 assert_eq "$(js "L.lastRunText($LAST,$NOW,false)")" "Last update 1 hour ago · no package changes" "...nor with no stage reading at all"
-for word in lost interrupted failed unknown; do
+for word in lost unarmed interrupted failed unknown; do
   assert_eq "$(js "var v=L.viewModel({schema:1,status:\"ok\",last_success:\"2026-08-26T12:00:00+03:00\",$PEND,offline_stage_problem:\"$word\"},false,\"\",{}); L.lastRunText($LAST,$NOW,v.restartHeld,v.stagedArmed)")" \
     "Last update 1 hour ago · no package changes" "the row under a stage read as $word, from the view model's own reading"
 done

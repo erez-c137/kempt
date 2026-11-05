@@ -555,7 +555,7 @@ assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'on the next restart' "...and
 # leaves the transaction at download-complete; only `dnf5 offline reboot` arms it. Unarmed, it
 # installs on no restart ever.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  prepared updates will not install: they were downloaded but never set to install' \
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  prepared updates will not install: they were never set to install' \
   "a stage that was never armed says it will not install, not that it is pending"
 assert_contains "$(cat "$TESTTMP/staged.txt")" 'kempt unstage' "...and names the command that clears it"
 

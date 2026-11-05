@@ -1081,7 +1081,7 @@ p.check("an unknown count loses the number, not the sentence",
         lev("stagedMessage.Accessible.name.split('. ')[0]"), "They install the next time you restart")
 
 # Something cancelled the stage: the warning names the way back, in the real popup.
-for _word in ("lost", "interrupted"):
+for _word in ("lost", "unarmed", "interrupted"):
     _doc = json.load(open(fixture("state-live.json")))
     _doc["offline_stage_problem"] = _word
     _path = os.path.join(p.sandbox, "state-stage-%s.json" % _word)

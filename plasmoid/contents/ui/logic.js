@@ -1982,6 +1982,7 @@ function viewModel(state, updating, cliError, opts) {
     // staging again is already on offer, and that is what the sentence says to use.
     var stageLostMessage = staged || stageBlocked ? ""
         : stageProblem === "lost" ? i18n("The updates you prepared will not install on the next restart, because something cancelled them. Use Install on Next Restart to prepare them again.")
+        : stageProblem === "unarmed" ? i18n("The updates you prepared will not install on the next restart, because they were never set to install. Use Install on Next Restart to prepare them again.")
         : stageProblem === "interrupted" ? i18n("A restart began installing your prepared updates and was interrupted, so they will not install on the next restart. Use Install on Next Restart to prepare them again.")
         : "";
     // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the

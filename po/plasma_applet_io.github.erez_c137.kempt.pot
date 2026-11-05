@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 11:37+0200\n"
+"POT-Creation-Date: 2026-11-05 13:54+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -1047,6 +1047,10 @@ msgstr ""
 
 #: plasmoid/contents/ui/logic.js
 msgid "The updates you prepared will not install on the next restart, because something cancelled them. Use Install on Next Restart to prepare them again."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "The updates you prepared will not install on the next restart, because they were never set to install. Use Install on Next Restart to prepare them again."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js

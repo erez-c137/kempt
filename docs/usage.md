@@ -290,11 +290,11 @@ restart, Kempt reports dnf5's own `--offline` rows from its history, one notific
 entry for each. PackageKit's rows carry no command line, so Kempt does not report them. If Kempt
 cannot tell what the next restart will do, it says that.
 
-**A restart that stops part way.** A package's script can fail during the restart, and dnf5 then
-stops with the earlier packages installed. Kempt says how many of the updates it staged went in, and
-the history shows a failed run, `staged update (restart did not finish)`, with those packages at the
-versions on the box. The normal list shows what is still waiting. If none went in, or Kempt cannot
-tell, the notification says it did not finish, and there is no history entry.
+**A restart that stops part way.** A package's script can fail during the restart, and dnf5 records
+a failure. If every package arrived, the notification says they were installed and a script failed.
+Otherwise it says the install did not finish, and the history shows a failed run, `staged update
+(restart did not finish)`, with the packages that arrived. The normal list shows what is still
+waiting. `kempt status` and `kempt doctor` say dnf5 recorded a failure.
 
 ### A snapshot before every update
 
@@ -776,9 +776,9 @@ stores nothing.
 | --- | --- |
 | `info  staged update: 61 packages install on the next restart ...` | Normal. |
 | `WARN  prepared updates will not install: dnf5 says "ready" but /system-update is gone ...` | Something removed the link, usually PackageKit. Prepare them again, which downloads nothing. |
-| `WARN  prepared updates will not install: they were downloaded but never set to install ...` | Never set up for the restart. Prepare them again. |
+| `WARN  prepared updates will not install: they were never set to install ...` | Never set up for the restart. Prepare them again. |
 | `WARN  prepared updates will not install: a restart began them and stopped ...` | Power loss or a crash. dnf5 does not run them again. Prepare them again. |
-| `FAIL  staged update did not finish: a restart ran it and dnf5 recorded a failure ...` | `sudo dnf5 offline log` says why. `kempt unstage` clears it, and the row names `sudo dnf5 offline clean` if that fails. |
+| `FAIL  staged update failed: a restart ran it and dnf5 recorded a failure ...` | `sudo dnf5 offline log` says why. `kempt unstage` clears it, and the row names `sudo dnf5 offline clean` if that fails. |
 | `WARN  staged update: Kempt cannot tell what the stored update will do ...` | The toml cannot be read or says something this version does not know. `sudo dnf5 offline status` shows it. |
 | `WARN  another updater has prepared the next restart (...), so the transaction dnf5 holds will not install then` | The update stored behind it will not install on that restart. |
 | `FAIL  the stored Fedora release upgrade can never install: ...` | The same, for a release upgrade. `sudo dnf5 system-upgrade reboot` sets it up again. |

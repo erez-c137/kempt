@@ -392,14 +392,15 @@ or a metadata refresh and leaves `ready`, and a power cut leaves the same toml b
 | `armed` | `ready`, link points at dnf5's folder | The count, and that it installs on the next restart |
 | `done` | `ready`, link gone or another updater's, every package already here | Nothing, and `kempt doctor` says the stored copy will not run |
 | `other` | `ready`, another updater's link, packages not here | Those updates will not install on that restart |
-| `lost` | `ready`, no link, no row; or downloaded and never set to install | No restart will install them, and how to prepare them again |
+| `lost` | `ready`, no link, no row | Something cancelled them, no restart will install them, and how to prepare them again |
+| `unarmed` | `download-complete` or `download-incomplete` | They were never set to install, and how to prepare them again |
 | `interrupted` | `ready`, no link, a `Started` row from the toml's cookie | A restart began them and stopped, and how to prepare them again |
-| `failed` | `transaction-incomplete` | A restart ran them and did not finish |
+| `failed` | `transaction-incomplete` | A restart ran them and dnf5 recorded a failure |
 | `upgrade` | the toml's target release differs | The Fedora upgrade's own sentences |
 | `unknown` | unreadable toml, a `state_version` other than 2, a word this build does not know, a package list it cannot read or an empty one, or rpm not answering | Kempt cannot tell what the next restart will do |
 
 `offline_staged_state` publishes `offline_staged` for `armed` only, and `offline_stage_problem` carries
-`lost`, `interrupted`, `failed` or `unknown`.
+`lost`, `unarmed`, `interrupted`, `failed` or `unknown`.
 
 **Staging.** `kempt update --surface=offline` asks dnf for a fresh count, then makes two
 privileged calls inside one authentication:
