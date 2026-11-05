@@ -21,7 +21,7 @@ cd "$root"
 mkdir -p po
 find plasmoid/contents -name '*.qml' -o -name '*.js' | LC_ALL=C sort | xargs xgettext \
     --from-code=UTF-8 --language=JavaScript --add-location=file --sort-by-file \
-    --package-name=kempt --no-wrap \
+    --package-name=kempt --no-wrap --add-comments=TRANSLATORS: \
     --keyword --keyword=i18n:1 --keyword=i18nc:1c,2 --keyword=i18np:1,2 --keyword=i18ncp:1c,2,3 \
     --output="po/$domain.pot"
 # xgettext's placeholder addresses; msginit writes the translator's own.

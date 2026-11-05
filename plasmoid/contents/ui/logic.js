@@ -515,14 +515,23 @@ function familiesOf(names, max) {
 // an unknown family keeps its bare name rather than wearing a description nobody wrote for it.
 function labelFor(family) {
     switch (family) {
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "kernel": return i18n("the Linux kernel");
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "systemd": return i18n("the service manager");
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "glibc": return i18n("the core system library");
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "dbus": return i18n("the system message bus");
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "mesa": return i18n("graphics drivers");
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "qt6": return i18n("the desktop toolkit");
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "kf6": return i18n("KDE framework libraries");
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "plasma": return i18n("the Plasma desktop");
+    // TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
     case "kwin": return i18n("the window manager");
     }
     return "";
@@ -565,8 +574,10 @@ function pendingNamesOf(sections, riskyNames) {
     }
     var all = risky.concat(rest), shown = all.slice(0, PENDING_NAMES_SHOWN);
     if (shown.length === 0) return "";
+    // TRANSLATORS: A list of package names goes into a longer sentence as this. %2 is the names and %1 how many more.
     if (all.length > shown.length) return i18np("%2 and %1 more", "%2 and %1 more", all.length - shown.length, shown.join(", "));
     if (shown.length === 1) return shown[0];
+    // TRANSLATORS: A list of package names goes into a longer sentence as this.
     return i18n("%1 and %2", shown.slice(0, -1).join(", "), shown[shown.length - 1]);
 }
 
@@ -992,14 +1003,18 @@ function relativeTime(iso, nowMs) {
 
     var age = nowMs - at;
     if (age < 0) return formatStamp(iso);
+    // TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
     if (age < 60000) return i18n("just now");
     var n = Math.floor(age / 60000);
+    // TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
     if (n < 60) return i18np("1 min ago", "%1 min ago", n);
     n = Math.floor(age / 3600000);
+    // TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
     if (n < 24) return i18np("1 hour ago", "%1 hours ago", n);
     n = Math.floor(age / 86400000);
     // A week is the last age at which counting days answers "when?" better than the date does.
     // Past it, "23 days ago" makes a person do the arithmetic the stamp would have saved.
+    // TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
     if (n <= 7) return i18np("1 day ago", "%1 days ago", n);
     return formatStamp(iso);
 }
@@ -1026,10 +1041,13 @@ function metadataAgeText(iso, nowMs, floorMs) {
     if (age < floor) return "";
     if (age >= METADATA_STALE_MS) {
         var days = Math.floor(age / METADATA_STALE_MS);
+        // TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
         return i18np("update info 1 day old", "update info %1 days old", days);
     }
     var hours = Math.floor(age / 3600000);
+    // TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
     if (hours >= 1) return i18np("update info 1 hour old", "update info %1 hours old", hours);
+    // TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
     return i18np("update info 1 min old", "update info %1 min old", Math.floor(age / 60000));
 }
 
@@ -2308,6 +2326,8 @@ function viewModel(state, updating, cliError, opts) {
     if (!updating && !noEngine && checkUnfinished !== "") checkAnswerText = checkUnfinished;
     else if (!updating && !noEngine && usable) {
         if (stale) checkAnswerText = staleAnswerOf(state, opts.nowMs);
+        // Two whole sentences joined here, with the period between them written in code. A language
+        // with another full stop gets the Latin one. metadataAgeText's translator note says so too.
         else if (fetchMissedMessage !== "") checkAnswerText = headerText + ". " + fetchMissedMessage;
         else if (metaAge !== "" && refreshMissed(state, opts.refreshAskedMs)) {
             checkAnswerText = headerText + ". " + metaAge.charAt(0).toUpperCase() + metaAge.slice(1);

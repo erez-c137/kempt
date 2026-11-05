@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 05:14+0200\n"
+"POT-Creation-Date: 2026-11-05 05:15+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -540,48 +540,59 @@ msgstr ""
 msgid "%1 (new build)"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "the Linux kernel"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "the service manager"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "the core system library"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "the system message bus"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "graphics drivers"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "the desktop toolkit"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "KDE framework libraries"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "the Plasma desktop"
 msgstr ""
 
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
 #: plasmoid/contents/ui/logic.js
 msgid "the window manager"
 msgstr ""
 
+#. TRANSLATORS: A list of package names goes into a longer sentence as this. %2 is the names and %1 how many more.
 #: plasmoid/contents/ui/logic.js
 msgid "%2 and %1 more"
 msgid_plural "%2 and %1 more"
 msgstr[0] ""
 msgstr[1] ""
 
+#. TRANSLATORS: A list of package names goes into a longer sentence as this.
 #: plasmoid/contents/ui/logic.js
 msgid "%1 and %2"
 msgstr ""
@@ -716,40 +727,47 @@ msgstr ""
 msgid "never"
 msgstr ""
 
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
 #: plasmoid/contents/ui/logic.js
 msgid "just now"
 msgstr ""
 
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
 #: plasmoid/contents/ui/logic.js
 msgid "1 min ago"
 msgid_plural "%1 min ago"
 msgstr[0] ""
 msgstr[1] ""
 
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
 #: plasmoid/contents/ui/logic.js
 msgid "1 hour ago"
 msgid_plural "%1 hours ago"
 msgstr[0] ""
 msgstr[1] ""
 
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
 #: plasmoid/contents/ui/logic.js
 msgid "1 day ago"
 msgid_plural "%1 days ago"
 msgstr[0] ""
 msgstr[1] ""
 
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
 #: plasmoid/contents/ui/logic.js
 msgid "update info 1 day old"
 msgid_plural "update info %1 days old"
 msgstr[0] ""
 msgstr[1] ""
 
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
 #: plasmoid/contents/ui/logic.js
 msgid "update info 1 hour old"
 msgid_plural "update info %1 hours old"
 msgstr[0] ""
 msgstr[1] ""
 
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
 #: plasmoid/contents/ui/logic.js
 msgid "update info 1 min old"
 msgid_plural "update info %1 min old"

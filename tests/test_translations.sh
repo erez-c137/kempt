@@ -22,6 +22,11 @@ if command -v xgettext >/dev/null 2>&1 && command -v msgfmt >/dev/null 2>&1; the
   assert_eq "$(grep -cF 'msgid "%1 failed to start after the update."' "$WORK/repo/$POT")" "1" "...a sentence from logic.js is in it"
   assert_eq "$(grep -cF 'msgid "Mute Until It Starts"' "$WORK/repo/$POT")" "1" "...and one from the QML"
   assert_eq "$(grep -c 'msgid_plural "%1 updates"' "$WORK/repo/$POT")" "1" "...with its plural"
+  # A fragment that goes into another sentence carries a note saying so.
+  for _fragment in "the Linux kernel" "just now" "%1 and %2" "update info %1 days old"; do
+    assert_eq "$(grep -B6 -E "^msgid(_plural)? \"$_fragment\"$" "$WORK/repo/$POT" | grep -c '^#\. TRANSLATORS:')" "1" \
+      "the template tells a translator where this goes: $_fragment"
+  done
   assert_eq "$(grep -c 'msgid "sudo dnf copr enable erez-c137/kempt &&' "$WORK/repo/$POT")" "0" "...and a command to copy is not in it"
 
   mkdir -p "$WORK/out"
