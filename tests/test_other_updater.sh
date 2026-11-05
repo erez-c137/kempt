@@ -303,6 +303,9 @@ assert_contains "$("$KEMPT" discover-notifier status)" "automatic updates: on" "
 out="$("$KEMPT" discover-notifier on)"
 assert_contains "$out" "automatic updates resume" "on says they resume with the setting still on"
 assert_exit 0 "...and on forgets the warning was drawn" -- test ! -e "$KEY"
+"$KEMPT" discover-notifier off >/dev/null
+check_state
+assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "with the notifier off, no warning is owed however the setting reads"
 printf '[Global]\nUseUnattendedUpdates=false\n' > "$CONF"
 "$KEMPT" discover-notifier off >/dev/null
 out="$("$KEMPT" discover-notifier on)"
