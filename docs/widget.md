@@ -123,8 +123,9 @@ list wait. If that hides the restart message, the footer says `restart pending` 
 5. **What the next restart will install**, when updates are ready. See
    [When updates are ready](#when-updates-are-ready).
 6. **A service did not start after the update.** *"Bluetooth failed to start after the
-   update. It stopped with an error. A system service (bluetooth.service)."* Several get a heading
-   and a message each. **Copy Command** copies its `systemctl status` command. **Mute Until It
+   update. System service: bluetooth.service."* Several get a heading and a message each.
+   **Startup Report** opens the report, where **Copy Command** copies its `systemctl status`
+   command. **Mute Until It
    Starts** stops Kempt mentioning it until it starts cleanly again. Services that were already
    failing before the update are listed quietly below. When one runs again, a line says so once,
    ranked under the restart message. The panel count and icon never include this.
@@ -397,10 +398,10 @@ Each button runs a command described in [usage.md](usage.md).
 | **Free Up Space** | `kempt reclaim -y --expect=<digest>` |
 | **Turn Off Discover's Update Checks**, **Turn On Discover's Update Checks**, closing the mild message | `kempt discover-notifier off`, `on`, `keep` |
 | **Allow without password…**, **Require a password…** | `kempt enable-passwordless`, `kempt disable-passwordless` |
-| **Copy Command** for a service | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
+| **Copy Command** for a service, on the Startup report | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |
 | Opening the widget while it says a service runs again | `kempt startup ack --expect=<digest>` |
-| **Startup Report** in the menu, and the arrow on the Startup report | `kempt startup --all --json` |
+| **Startup Report** in the menu and on a service's message, and the arrow on the Startup report | `kempt startup --all --json` |
 | Every setting | `kempt config set` |
 
 The widget's automatic checks run `kempt check --coalesce`.

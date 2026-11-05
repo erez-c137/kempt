@@ -864,8 +864,8 @@ def _code(name):
 # The fourth is the footer button when updates run on the next restart: it reads Install on Next
 # Restart, and its tooltip says the press downloads now and installs at the restart.
 #
-# The fifth and sixth are the startup banner's Copy Command and Mute Until It Starts: one pair
-# per service, so the description (the command, and what muting does) tells them apart by ear.
+# The fifth and sixth are the startup banner's Startup Report and Mute Until It Starts: one pair
+# per service, so the description (the service, and what muting does) tells them apart by ear.
 # The seventh is popup.speakActionsAs binding those two actions' spoken descriptions onto the
 # buttons Kirigami draws for them, since an action cannot reach its own button's.
 #

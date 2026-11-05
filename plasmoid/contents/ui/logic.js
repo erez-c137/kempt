@@ -1207,8 +1207,7 @@ function startupOf(state) {
     var entries = [];
     for (i = 0; i < announced.length; i++) {
         var a = announced[i];
-        var body = "It stopped with an error. " + (a.scope === "user" ? "A service in your session" : "A system service")
-            + " (" + a.unit + ").";
+        var body = (a.scope === "user" ? "Session service: " : "System service: ") + a.unit + ".";
         entries.push({ unit: a.unit, scope: a.scope, name: a.name, command: startupCommandOf(a),
                        text: (announced.length === 1 ? title : a.name) + "\n" + body });
     }

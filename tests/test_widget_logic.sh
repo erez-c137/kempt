@@ -1109,13 +1109,13 @@ su() {  # block fields, vm field [opts]
   js "L.viewModel($(su_state "$1"), false, '', ${3:-{\}}).$2"
 }
 assert_eq "$(su "announced:[$SU_BT]" 'startupEntries.map(function (e) { return e.text; })')" \
-  '["Bluetooth failed to start after the update.\nIt stopped with an error. A system service (bluetooth.service)."]' \
+  '["Bluetooth failed to start after the update.\nSystem service: bluetooth.service."]' \
   "one service: the title names it, the body names the kind and the unit"
 assert_eq "$(su "announced:[$SU_BT]" 'startupHeading')" "" "...and needs no heading above it"
 assert_eq "$(su "announced:[$SU_BT], attribution:'restart'" 'startupTitle')" \
   "Bluetooth failed to start after the last restart." "another tool changed packages since: no update is named"
 assert_eq "$(su "announced:[$SU_USR]" 'startupEntries[0].text.split("\n")[1]')" \
-  "It stopped with an error. A service in your session (plasma-foo.service)." "a session service says so in the body"
+  "Session service: plasma-foo.service." "a session service says so in the body"
 assert_eq "$(su "announced:[$SU_BT, $SU_USR, $SU_ESC]" 'startupHeading')" \
   "3 services failed to start after the update, including Bluetooth and plasma-foo.service." "several: one heading with the count and two names"
 assert_eq "$(su "announced:[$SU_BT, $SU_USR]" 'startupHeading')" \
@@ -1298,7 +1298,9 @@ assert_eq "$(js "L.startupPageOutcomeOf('', 'kempt: could not gather the startup
   "Kempt could not gather the startup list: kempt: could not gather the startup page" "...and one that failed gives the CLI's reason"
 assert_eq "$(js "L.startupPageOutcomeOf('', '', 1, 0).problem")" "Kempt could not gather the startup list (exit 1)." "...or its exit code"
 assert_eq "$(js 'L.STARTUP_PAGE_ARGS')" " startup --all --json" "the page gathers with kempt startup --all --json"
-for _lit in startupPageAction startupPageBack startupPageRefresh startupPageRefreshTip startupPageShowAll startupPageHide; do
+assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.startupPageAction")\"" {} + | wc -l | tr -d ' ')" "2" \
+  "the widget writes COPY.startupPageAction verbatim, in the menu and on a service's message"
+for _lit in startupPageBack startupPageRefresh startupPageRefreshTip startupPageShowAll startupPageHide; do
   assert_eq "$(find "$REPO_ROOT/plasmoid" -name '*.qml' -exec grep -hoF "i18n(\"$(js "L.COPY.$_lit")\"" {} + | wc -l | tr -d ' ')" "1" \
     "the widget writes COPY.$_lit verbatim, as a literal a translator can extract"
 done

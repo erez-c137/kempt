@@ -1274,21 +1274,20 @@ PlasmaExtras.Representation {
                     actions: [
                         // Each button names its service to a screen reader (speakActionsAs):
                         // with three services up, the drawn words are the same three times.
-                        // Copy is the first stop in each message, so its description is the
-                        // message's own news as well as the command it copies.
+                        // The report is the first stop in each message, so its description is
+                        // the message's own news. The command to copy is on the report.
                         Kirigami.Action {
                             // The drawn words first, so voice control finds the button by
                             // what it shows, as the Startup page's Copy Command does.
                             readonly property string spokenName:
                                 i18nc("@action:button a service's name follows",
-                                      "Copy Command: %1", startupEntry.modelData.name)
-                            readonly property string spokenDescription:
-                                startupEntry.whatHappened + "\n" + startupEntry.modelData.command
-                            text: i18n("Copy Command")
-                            icon.name: "edit-copy"
-                            tooltip: startupEntry.modelData.command
+                                      "Startup Report: %1", startupEntry.modelData.name)
+                            readonly property string spokenDescription: startupEntry.whatHappened
+                            text: i18n("Startup Report")
+                            icon.name: "system-run"
+                            tooltip: i18n("Shows what failed, and the command to see why.")
                             Accessible.description: tooltip
-                            onTriggered: source => popup.copyToClipboard(startupEntry.modelData.command)
+                            onTriggered: source => popup.plasmoidItem.showStartupPage()
                         },
                         Kirigami.Action {
                             readonly property bool muting:
