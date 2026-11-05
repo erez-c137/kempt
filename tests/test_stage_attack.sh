@@ -228,6 +228,27 @@ rm -f "$LINK"
 assert_not_contains "$("$KEMPT" status)" "ready for the next restart" "between checks: not ready once the link went"
 assert_contains "$("$KEMPT" status)" "no restart will install them now" "between checks: says so"
 
+# The last run's line promises a restart only over an armed stage, and otherwise says what the run did.
+staging_entry() {
+  mkdir -p "$KEMPT_STATE_DIR/history"
+  jq -n --arg t "$(date -d '1 hour ago' +%Y-%m-%dT%H:%M:%S%:z)" '{timestamp:$t,surface:"offline",status:"ok",staged:3,duration_sec:40,
+    reboot_needed:false,log:"",error:"",backends:{dnf:{status:"ok",skipped_held:[],updated:[],added:[],removed:[]}}}' \
+    > "$KEMPT_STATE_DIR/history/$(date -d '1 hour ago' +%Y%m%dT%H%M%S).json"
+}
+last_line() { "$KEMPT" status 2>&1 | tail -n 1; }
+world ready dnf5; check; staging_entry
+assert_contains "$(last_line)" "· staged 3 updates for a restart" "last run, armed: for a restart"
+world gone none; check; staging_entry
+assert_eq "$(last_line)" "Last update 1 hour ago · staged 3 updates" "last run, none: no restart promised"
+world ready none; rpm_is "$NEW"; check; staging_entry
+assert_eq "$(last_line)" "Last update 1 hour ago · staged 3 updates" "last run, done: no restart promised"
+world ready dnf5; check; sed -i '/^state_version/d' "$TOML"; staging_entry
+assert_eq "$(last_line)" "Last update 1 hour ago · staged 3 updates" "last run, unknown: no restart promised"
+world ready dnf5; check; cp "$FIXTURES/offline-release-upgrade.toml" "$TOML"; staging_entry
+assert_eq "$(last_line)" "Last update 1 hour ago · staged 3 updates" "last run, upgrade: no restart promised"
+world ready none; check; staging_entry
+assert_contains "$(last_line)" "but no restart will install them now" "last run, lost: says so"
+
 # --- PackageKit installed its own: no command line, so not Kempt's to announce
 world gone none; rpm_is "$NEW"; row 24 Ok null; jq '.[0].command_line = null' "$WORLD/hist-list.json" > "$WORLD/l" && mv "$WORLD/l" "$WORLD/hist-list.json"; check
 silent packagekit; assert_eq "$(entries)" 0 "packagekit: no entry"

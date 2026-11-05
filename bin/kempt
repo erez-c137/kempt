@@ -2053,6 +2053,8 @@ status_last_run() {  # now-epoch → "Last update ..." for the newest history en
     case "$(stage_read)" in
       other) phrase="${phrase% for a restart}, but another updater has since prepared the next restart" ;;
       lost|interrupted) phrase="${phrase% for a restart}, but no restart will install them now" ;;
+      armed) ;;
+      *) phrase="${phrase% for a restart}" ;;
     esac
   fi
   failed="${line#*$'\x1f'}"
