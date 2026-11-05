@@ -215,8 +215,8 @@ has no such check [run], and any active local user can ask PackageKit for a refr
 
 Root's code no longer walks the folders above, reads ACL entries, looks for FUSE mounts or compares
 mount namespaces. `kempt update` and `kempt doctor` still do, as you, so a program that calls the
-helper directly skips them. An attempt to turn any of them into an install failed on a stock machine
-[run], but they are a real reduction on a misconfigured one.
+helper directly skips them. This is a real reduction on a misconfigured machine. Whether one of
+those machines can be turned into an install through them has not been tested.
 
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.
