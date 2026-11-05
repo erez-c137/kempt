@@ -179,7 +179,7 @@ KCM.SimpleKCM {
             if (rc !== 0) {
                 page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "",
                                                        i18n("Kempt did not answer in time. The setting may not have changed. Try again.")).text
-                                 || ("Could not save " + key + ".");
+                                 || i18n("Could not save %1.", key);
                 // Apply stays on, so the retry is one click rather than a reopened dialog.
                 page.writeFailed = true;
                 page.unsavedChanges = true;
@@ -229,7 +229,7 @@ KCM.SimpleKCM {
                 // default, the page looks like it loaded, and the next Apply writes that default
                 // over a stored value nobody ever read.
                 page.readFailed[key] = true;
-                page.loadError = Logic.firstLineOf(stderr) || "Could not read the Kempt settings.";
+                page.loadError = Logic.firstLineOf(stderr) || i18n("Could not read the Kempt settings.");
                 return;
             }
             var v = Logic.firstLineOf(stdout);
@@ -298,7 +298,7 @@ KCM.SimpleKCM {
             page.holdsBusy = false;
             if (rc !== 0) {
                 page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "", i18n("Kempt did not answer in time. The hold may not have changed. Try again.")).text
-                                 || ("Could not remove the hold on " + id + ".");
+                                 || i18n("Could not remove the hold on %1.", id);
                 return;
             }
             page.loadHolds();
@@ -323,7 +323,7 @@ KCM.SimpleKCM {
             // theirs to read. A declined dialog and a real failure are both worth showing.
             var out = Logic.lastLinesOf(stdout + "\n" + stderr, 2);
             page.passwordlessResult = out !== "" ? out
-                : (rc === 0 ? "Done." : "That did not complete (exit " + rc + ").");
+                : (rc === 0 ? i18n("Done.") : i18n("That did not complete (exit %1).", String(rc)));
         });
     }
 

@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 05:09+0200\n"
+"POT-Creation-Date: 2026-11-05 05:14+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -313,6 +313,14 @@ msgstr ""
 msgid "Kempt did not answer in time. The setting may not have changed. Try again."
 msgstr ""
 
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not save %1."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not read the Kempt settings."
+msgstr ""
+
 #: plasmoid/contents/ui/configGeneral.qml plasmoid/contents/ui/main.qml
 msgid "%1 is running again, so there is nothing to mute."
 msgstr ""
@@ -327,6 +335,18 @@ msgstr ""
 
 #: plasmoid/contents/ui/configGeneral.qml plasmoid/contents/ui/main.qml
 msgid "Kempt did not answer in time. The hold may not have changed. Try again."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not remove the hold on %1."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Done."
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "That did not complete (exit %1)."
 msgstr ""
 
 #: plasmoid/contents/ui/configGeneral.qml

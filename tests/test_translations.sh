@@ -42,6 +42,10 @@ else
 fi
 
 # The rest needs no gettext.
+# Words on screen in the settings page go through i18n too. A string that reaches a label or a message
+# there is an assignment or a fallback, written bare.
+assert_eq "$(grep -nE '(\|\||\?|:|loadError =|Result =) *\(?"[^"]*[A-Z][a-z]+[^"]* ?[^"]*"' "$UI/configGeneral.qml" | grep -vE 'i18n|Logic\.|^[0-9]+: *//|key:|icon\.' || true)" "" \
+  "no bare sentence in the settings page"
 assert_eq "$(grep -c '\bCOPY\b' "$UI"/*.js "$UI"/*.qml | grep -vc ':0$')" "0" "no copy table, and no file reads one"
 # A call at load time runs once and never again, and prints a warning for an unfilled %1.
 assert_eq "$(grep -cE '^var .*i18n' "$UI/logic.js")" "0" "logic.js calls i18n in no table at load time"
