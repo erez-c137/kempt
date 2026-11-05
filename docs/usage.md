@@ -56,8 +56,8 @@ Most commands use these codes. Each command's section lists its own cases.
 | 7 | `update` only: another program held the package lock. |
 | 8 | Run as root. Run Kempt as your own user, and it asks for a password when it needs one. |
 
-**The writers' lock.** `kempt config set`, `kempt hold`, `kempt unhold` and `kempt discover-notifier
-off|on|keep` each rewrite a file in your home directory. They take a lock at
+**The writers' lock.** `kempt config set`, `kempt hold` and `kempt unhold` each rewrite a file in
+your home directory. They take a lock at
 `~/.local/state/kempt/writer.lock` while they do it, so two at once cannot lose a write. After 30
 seconds of waiting the command gives up, writes nothing, says so on stderr and exits 1. Commands
 that only read take no lock.
@@ -918,5 +918,5 @@ takes that warning out of the state file. The widget runs it.
 | Exit | When |
 | --- | --- |
 | 0 | Done, or nothing needed doing. |
-| 1 | `off` found something at that path that is not Kempt's, or could not write its file. `on` could not remove Kempt's file. Nothing changed in these cases. `on` also exits 1 when a file of your own keeps the notifier off, and names it. If that file is the `.before-kempt` copy it just put back, it says so too, and the copy stays back. The writers' lock was busy. |
+| 1 | `off` found something at that path that is not Kempt's, or could not write its file. `on` could not remove Kempt's file. Nothing changed in these cases. `on` also exits 1 when a file of your own keeps the notifier off, and names it. If that file is the `.before-kempt` copy it just put back, it says so too, and the copy stays back. |
 | 2 | An unknown subcommand or option. |

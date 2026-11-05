@@ -486,11 +486,9 @@ discover_notifier_on() {
   discover_unattended && echo "Discover's automatic updates resume too, because its setting is still on."
   discover_running && return 0
   # Detached so it outlives the command and the widget, and setsid -f says nothing about the result.
-  # Every lock descriptor is closed for the child (6 stage, 7 writers, 8 update, 9 check): bash sets
-  # no FD_CLOEXEC, and a flock lives as long as any descriptor to it, so a notifier started with fd
-  # 7 open would hold the writers' lock for the whole session and every later `config set`, `hold`
-  # or `unhold` would wait 30 s and fail.
-  setsid -f "$KEMPT_DISCOVER_START" --application org.kde.discover.notifier </dev/null >/dev/null 2>&1 6>&- 7>&- 8>&- 9>&- || true
+  # No lock is held here. Bash sets no FD_CLOEXEC, so a lock taken before this line would stay held
+  # by the notifier for the whole session.
+  setsid -f "$KEMPT_DISCOVER_START" --application org.kde.discover.notifier </dev/null >/dev/null 2>&1 || true
   for ((i = 0; i < 30; i++)); do
     if discover_running; then echo "Started it for this session."; return 0; fi
     sleep 0.1

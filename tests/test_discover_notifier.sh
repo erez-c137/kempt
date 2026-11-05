@@ -92,13 +92,14 @@ rm -f "$CALLS"
 sleep 0.3
 assert_eq "$(grep -c kstart "$CALLS" || true)" "0" "a notifier already running is not started again"
 
-# The started notifier outlives the command, and must not take the writers' lock with it: a
-# notifier holding it would make every later `config set`, `hold` or `unhold` wait 30 s and fail.
+# The started notifier outlives the command, and must not take a lock with it: a notifier holding
+# the writers' lock would make every later `config set`, `hold` or `unhold` wait 30 s and fail.
 reset; system_entry
 "$KEMPT" discover-notifier off >/dev/null
-stub lingers ": > $TESTTMP/running; echo \$\$ > $TESTTMP/lingers.pid; exec sleep 60"
+stub lingers ": > $TESTTMP/running; ls -l /proc/\$\$/fd > $TESTTMP/lingers.fds; echo \$\$ > $TESTTMP/lingers.pid; exec sleep 60"
 KEMPT_DISCOVER_START="$TESTTMP/lingers" "$KEMPT" discover-notifier on >/dev/null
-wait_for_call "^lingers"
+for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$TESTTMP/lingers.pid" ]] && break; sleep 0.1; done
+assert_eq "$(grep -c 'lock' "$TESTTMP/lingers.fds" || true)" "0" "the started notifier holds no lock file open"
 rc=0; timeout 10 "$KEMPT" config set auto_accept true >/dev/null 2>&1 || rc=$?
 assert_eq "$rc" "0" "config set right after on does not wait for the notifier's lock"
 kill "$(cat "$TESTTMP/lingers.pid")" 2>/dev/null || true

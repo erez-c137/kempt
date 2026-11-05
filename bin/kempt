@@ -3290,9 +3290,6 @@ cmd_doctor() {
 cmd_discover_notifier() {
   case "${1:-}" in
     off|on|keep) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
-            # The widget and Settings run these on separate queues: one at a time. `on` holds it
-            # until the notifier is up, so a concurrent off cannot slip in between.
-            writer_lock || exit 1
             if ! discover_installed; then echo "Discover's update notifier is not installed. Nothing changed."
             elif [[ $1 == keep ]]; then
               discover_mark_answered
@@ -3312,7 +3309,7 @@ cmd_discover_notifier() {
 #   1 the run itself failed (a backend returned non-zero), `check --strict` had a backend fail,
 #     could not list the Flatpak apps installed for you only or served the previous state, `doctor` found a
 #     problem, or a writer
-#     (config set / hold / unhold / discover-notifier off|on|keep) could not take the writers' lock. docs/usage.md carries the
+#     (config set / hold / unhold) could not take the writers' lock. docs/usage.md carries the
 #     same table. Keep the two in step.
 #     Also reclaim when flatpak failed or a runtime it was given is still there
 #   2 usage error (unknown command, option or argument)

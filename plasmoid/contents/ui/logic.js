@@ -1472,7 +1472,7 @@ function discardStagedMessage(rc, stdout, stderr) {
 }
 
 // --- answering an offer, or changing a setting through a CLI verb ----------------------------------
-// How long the widget waits for `kempt config set` or `kempt discover-notifier`. Each takes the
+// How long the widget waits for `kempt config set` or `kempt discover-notifier`. The first takes the
 // CLI's writers' lock, which waits up to 30 s for another writer before it gives up, so anything
 // shorter would report a write as lost while the CLI was still about to make it.
 var ANSWER_TIMEOUT_MS = 40000;
