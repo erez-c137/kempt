@@ -138,6 +138,21 @@ attempt on
 assert_eq "$rc" "0" "on with the person's own file that starts it succeeds"
 assert_eq "$(cat "$USER_ENTRY")" "$own" "...and leaves that file alone"
 
+# The mark counts only as a whole line. In a comment or a value it is the person's words.
+for line in '# X-Kempt-Override=true' 'Comment=X-Kempt-Override=true'; do
+  reset; system_entry
+  printf '[Desktop Entry]\nType=Application\nExec=/usr/libexec/DiscoverNotifier\n%s\n' "$line" > "$USER_ENTRY"
+  own="$(cat "$USER_ENTRY")"
+  attempt off
+  assert_eq "$rc|$(cat "$USER_ENTRY")" "1|$own" "off refuses a file with \"$line\" and leaves it alone"
+  attempt on
+  assert_eq "$rc|$(cat "$USER_ENTRY")" "0|$own" "...and on leaves it alone too"
+  printf 'Hidden=true\n' >> "$USER_ENTRY"
+  own="$(cat "$USER_ENTRY")"
+  attempt on
+  assert_eq "$rc|$(cat "$USER_ENTRY")" "1|$own" "...and refuses it when it hides the notifier"
+done
+
 # A plain copy of the system entry is the person's too.
 reset; system_entry
 cp "$SYS/$ENTRY" "$USER_ENTRY"
