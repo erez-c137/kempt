@@ -370,22 +370,6 @@ assert_not_contains "$("$KEMPT" log 2>&1)" "Flatpak lists downloaded" "...and th
 export KEMPT_SKIP_REFRESH=1
 
 # ==================================================================================================
-# The passwordless grant: the setting with the largest security consequence Kempt can change, and
-# the only one that used to leave no trace of having been attempted.
-# ==================================================================================================
-: > "$EV"
-# `install -o root` cannot succeed as an ordinary user, which is the realistic unprivileged
-# outcome and exactly what the rc in the line is for.
-assert_exit 1 "enable-passwordless fails unprivileged" \
-  env KEMPT_RULES_DST="$TESTTMP/pw.rules" "$KEMPT" enable-passwordless
-assert_eq "$(text_of "$(last_event)")" "passwordless enable rc=1" \
-  "...and the attempt is recorded with the exit status it ended on"
-: > "$EV"
-assert_exit 0 "disabling something never enabled is a clean no-op" \
-  env KEMPT_RULES_DST="$TESTTMP/pw.rules" "$KEMPT" disable-passwordless
-assert_eq "$(text_of "$(last_event)")" "passwordless disable rc=0" "...and is recorded as rc 0"
-
-# ==================================================================================================
 # kempt log itself.
 # ==================================================================================================
 : > "$EV"
@@ -428,7 +412,6 @@ plain_in=(
   "reclaim changed (unstable), nothing removed" "reclaim changed (new), nothing removed"
   "reclaim needs authorization, nothing removed" "reclaim failed rc=1: error: x"
   "reclaim failed (flatpak did not answer)" "reclaim refused (running as root)" "reclaim refused (reclaim=off)"
-  "passwordless enable rc=0" "passwordless enable rc=1" "passwordless disable rc=0" "passwordless disable rc=126"
   "discover-notifier off" "discover-notifier on" "discover-notifier keep" "config set surface=popup (was unset)"
   "hold dnf:kernel-core" "unhold dnf:kernel-core"
   "run start surface=bogus"
@@ -449,7 +432,7 @@ plain_in=(
   "offline marker dropped (a release upgrade (44) replaced our stage)"
   "offline marker kept (a new stage arrived while the check ran)"
   "offline marker cleared (rebuild failed, stage discarded)" "harvest applied (the result could not be recorded)"
-  "unstage refused (a Fedora release upgrade (44) is stored)" "passwordless enable rc=2"
+  "unstage refused (a Fedora release upgrade (44) is stored)"
   "dnf outcome read from history (transaction 10 ok, helper rc=1)"
   "dnf outcome read from history (transaction 10 Error, helper rc=0)"
   "offline stage not started (another Kempt run is still in progress)"

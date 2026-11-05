@@ -69,8 +69,7 @@ assert_exit 0 "...and the ways to ask for this list" -- grep -qw -- '-h' "$TESTT
 # go through the same line of the dispatcher; they are left out here so that no test can ever start
 # a run if that line goes.
 # What it prints is that command's own usage, never the whole list.
-for sub in check summary history log doctor config hold unhold holds unstage reclaim discover-notifier \
-           enable-passwordless disable-passwordless; do
+for sub in check summary history log doctor config hold unhold holds unstage reclaim discover-notifier; do
   for flag in --help -h; do
     assert_exit 0 "kempt $sub $flag prints its usage and exits 0" "$KEMPT" "$sub" "$flag"
     grep -q "^usage: kempt $sub" "$TESTTMP/last_output" \
@@ -89,12 +88,9 @@ assert_exit 2 "help with an empty name is a usage error" "$KEMPT" help ''
 assert_contains "$(cat "$TESTTMP/last_output")" "unknown command: ''" "...and shows the empty name as ''"
 assert_contains "$("$KEMPT" summary --help)" "usage: kempt summary [N | --json]" \
   "summary's help is one synopsis, so each description belongs to it"
-assert_contains "$("$KEMPT" help enable-passwordless)" "an administrator's password once" \
-  "enable-passwordless says whose password it asks for"
 assert_contains "$("$KEMPT" check --help)" "Flatpak apps installed" "check's help names the Flatpak apps installed for you only"
 assert_contains "$("$KEMPT" config --help)" "widget or offline" "config's help lists the surface values"
-assert_contains "$("$KEMPT" enable-passwordless --help)" "without a password" "enable-passwordless says what it does"
-assert_contains "$("$KEMPT" disable-passwordless --help)" "ask for a password again" "...and so does disable-passwordless"
+assert_exit 2 "the opt-in's command is gone" "$KEMPT" enable-passwordless
 assert_not_contains "$("$KEMPT" help)" "popup" "the usage list never says popup"
 # doctor answers "which build is this?" too - it is the command people are asked to paste.
 KEMPT_POLICY_FILE="$TESTTMP/nopolicy" "$KEMPT" doctor > "$TESTTMP/doctor.txt" 2>&1 || true
@@ -195,7 +191,7 @@ if command -v unshare >/dev/null && unshare -r true 2>/dev/null; then
   assert_eq "$rc|$err" "8|kempt: run Kempt as your own user, without sudo. It asks for a password when it needs one." \
     "kempt check as root exits 8 with one line"
   assert_exit 1 "...and creates no state directory" -- test -e "$KEMPT_STATE_DIR"
-  for c in "update" "config get surface" "hold dnf:vim" "enable-passwordless" "nonsense"; do
+  for c in "update" "config get surface" "hold dnf:vim" "nonsense"; do
     # shellcheck disable=SC2086  # each entry is a command and its words
     rc=0; as_root $c >/dev/null 2>&1 || rc=$?
     assert_eq "$rc" "8" "kempt $c as root exits 8"

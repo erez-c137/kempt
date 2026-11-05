@@ -246,7 +246,7 @@ EOF
         KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
         KEMPT_INSTALL_ECHO KEMPT_APPLY_ECHO KEMPT_REFRESH_ECHO \
         KEMPT_BOOT_ID KEMPT_POLICY_FILE KEMPT_VIA KEMPT_ROOT \
-        KEMPT_KPACKAGETOOL KEMPT_LIVE_OUTPUT KEMPT_RULES_DST KEMPT_CHECK_LOCK_WAIT \
+        KEMPT_KPACKAGETOOL KEMPT_LIVE_OUTPUT KEMPT_CHECK_LOCK_WAIT \
         KEMPT_REFRESH_HELPER_PATH KEMPT_APPLY_HELPER_PATH KEMPT_PLASMOID_DIR
   # A shell reached through sudo or pkexec announces itself with these, and reclaim_as_root then
   # switches the reclaim feature off. Unset so a developer's elevated shell cannot decide which

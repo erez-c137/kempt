@@ -366,21 +366,6 @@ function logTailOf(text) {
     return text.replace(/[ \t]{2,}(\d+\/\d+)[ \t]*$/gm, " $1");
 }
 
-// lastLinesOf(text, max) -> the last `max` non-blank lines, trimmed, joined with " ". The result
-// line under the passwordless buttons. The LAST lines: pkexec and polkit print their progress
-// before their verdict, and the verdict is the part worth showing.
-function lastLinesOf(text, max) {
-    var kept = [], lines, i, line;
-    if (typeof text !== "string") return "";
-    if (!max || max < 1) max = 2;
-    lines = text.split("\n");
-    for (i = 0; i < lines.length; i++) {
-        line = lines[i].trim();
-        if (line !== "") kept.push(line);
-    }
-    return kept.slice(Math.max(0, kept.length - max)).join(" ");
-}
-
 // firstLineOf(text) -> the first non-blank line, trimmed, or "". Trimming here rather than in QML
 // is what lets a node test pin it.
 function firstLineOf(text) {
@@ -2556,7 +2541,6 @@ if (typeof module !== "undefined" && module.exports) {
         updatingLabelOf: updatingLabelOf,
         holdsOf: holdsOf,
         discoverSettingOf: discoverSettingOf,
-        lastLinesOf: lastLinesOf,
         snapIconSize: snapIconSize,
         collectItems: collectItems,
         resolveReclaimSetting: resolveReclaimSetting,

@@ -371,10 +371,6 @@ event_plain() {  # event text → EVENT_PLAIN
       fi ;;
     "reclaim refused (running as root)") EVENT_PLAIN="Unused runtimes: refused, Kempt ran as root" ;;
     "reclaim refused (reclaim=off)") EVENT_PLAIN="Unused runtimes: refused, the reclaim setting is off" ;;
-    "passwordless enable rc=0") EVENT_PLAIN="Passwordless updates turned on" ;;
-    "passwordless enable rc="*) EVENT_PLAIN="Passwordless updates not turned on (exit code ${t#passwordless enable rc=})" ;;
-    "passwordless disable rc=0") EVENT_PLAIN="Passwordless updates turned off" ;;
-    "passwordless disable rc="*) EVENT_PLAIN="Passwordless updates not turned off (exit code ${t#passwordless disable rc=})" ;;
     "discover-notifier off") EVENT_PLAIN="Discover's update notifier turned off" ;;
     "discover-notifier on") EVENT_PLAIN="Discover's update notifier turned on" ;;
     "discover-notifier keep") EVENT_PLAIN="Discover's update notifier kept as it is" ;;
@@ -2258,57 +2254,6 @@ startup_page_gather() {
        else {changed: ($changed[0] | .added |= described | .removed |= described)} end)
     + (if $starts[0] == null then {} else {starts: $starts[0]} end)
     + (if $schedule[0] == null then {} else {schedule: $schedule[0]} end)'
-}
-
-# --- passwordless polkit rule rendering ---
-# Split out of bin/kempt so the render and its self-check are unit-testable without touching
-# /etc: the ONLY thing this file's caller then does is hand the result to install(1).
-# The rule is rendered, checked and printed from memory, never from a file. The caller pipes that
-# output straight into root's install(1), so the bytes root installs are the bytes that were
-# checked. A rendered file on disk would be the user's own file, and another process running as the
-# user could rewrite it after the check while the authentication dialog waits.
-render_passwordless_rule() {  # template_file → the verified rule on stdout, or 2 with nothing printed
-  local tmpl="$1" u text
-  # $(id -un), never $USER: a crafted USER env var used to be sed-injected into the render and
-  # could drop the scope clause. id -un is kernel truth, awk -v never interprets it, and the
-  # guard below also keeps the name clear of gsub's replacement metachars (& and backslash).
-  u="$(id -un)"
-  [[ "$u" =~ ^[a-z_][a-z0-9._-]*$ ]] || {
-    echo "unexpected username: $u. Install the rules file manually; see polkit/49-kempt.rules.in" >&2
-    return 2; }
-  text="$(awk -v u="$u" '{gsub(/@USER@/, u); print}' "$tmpl")" || return 2
-  # Printable ASCII, tab and newline only, checked before the comment strip below. That strip
-  # splits lines on \n alone, but polkit's JavaScript parser also ends a line at \r, U+2028 and
-  # U+2029, so `// note<CR>if (...) return polkit.Result.YES;` is one comment line to the check
-  # and live code to polkit. Refusing every other control byte and all non-ASCII closes that class
-  # instead of listing its members; the shipped template is plain ASCII.
-  if LC_ALL=C grep -q $'[^\t -~]' <<<"$text"; then
-    echo "rendered rule contains a control or non-ASCII character, so Kempt will not install it" >&2
-    return 2
-  fi
-  # Self-check by EXACT MATCH against the rule this function is allowed to produce, never by
-  # grepping for the clauses that ought to be in it. Greps catch subtraction and miss ADDITION: a
-  # template carrying the scope clause, the action id and a single addRule block passes every such
-  # test while also carrying, one line earlier inside that same block, an unconditional
-  # `if (subject.user == "...") return polkit.Result.YES;` - passwordless root for every polkit
-  # action, from any session, including over SSH. This is the one file Kempt can write that grants
-  # root, so what reaches install(1) is the one string below or nothing.
-  #
-  # Comments are stripped and the rest is collapsed to a single whitespace-normalised line, so
-  # reflowing or re-indenting the template is fine and changing a token is not. A deliberate
-  # change to the rule means changing this string too - which is the review the file deserves.
-  local code expected
-  code="$(grep -v '^[[:space:]]*//' <<<"$text" | tr '\n' ' ' | tr -s '[:space:]' ' ')"
-  code="${code# }"; code="${code% }"
-  expected='polkit.addRule(function(action, subject) {'
-  expected+=' if (action.id == "io.github.erez_c137.kempt.apply" &&'
-  expected+=" subject.user == \"$u\" && subject.active && subject.local) {"
-  expected+=' return polkit.Result.YES; } });'
-  if [[ "$code" != "$expected" ]]; then
-    echo "rendered rule is not the rule this command installs, so Kempt will not install it" >&2
-    return 2
-  fi
-  printf '%s\n' "$text"
 }
 
 # --- holds: one "backend:name" per line ---

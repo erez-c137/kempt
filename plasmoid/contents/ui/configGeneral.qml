@@ -70,8 +70,6 @@ KCM.SimpleKCM {
     property var muted: []
     property bool mutedBusy: false
     property var lastUnmuted: null
-    property string passwordlessResult: ""
-    property bool passwordlessBusy: false
     // Discover's update notifier: what to say and which button to offer (Logic.discoverSettingOf),
     // or null to show nothing. An action, like the password buttons: it runs at once, not on Apply.
     property var discoverSetting: null
@@ -305,28 +303,6 @@ KCM.SimpleKCM {
         });
     }
 
-    // Runs on pwExecutor, NOT cfgExecutor. This call sits on a 120-second timeout because it opens
-    // an authentication dialog and then waits for a human. Sharing the settings queue would send an
-    // Apply pressed while that dialog is up to the BACK of it: the writes are real and land
-    // eventually, but up to two minutes later, with no way for the page to say so.
-    //
-    // Gating Apply on passwordlessBusy instead is worse: the shell's OK button calls saveConfig()
-    // and then closes regardless of what it returns, so a gated save would discard the user's
-    // changes silently on OK - trading a slow write for a lost one.
-    function runPasswordless(verb) {
-        passwordlessBusy = true;
-        passwordlessResult = "";
-        pwExecutor.run(kemptCmd + " " + verb + "-passwordless", 120000,
-                       function (stdout, stderr, rc) {
-            page.passwordlessBusy = false;
-            // Whatever it said, verbatim: the authentication dialog is the user's, the outcome is
-            // theirs to read. A declined dialog and a real failure are both worth showing.
-            var out = Logic.lastLinesOf(stdout + "\n" + stderr, 2);
-            page.passwordlessResult = out !== "" ? out
-                : (rc === 0 ? i18n("Done.") : i18n("That did not complete (exit %1).", String(rc)));
-        });
-    }
-
     function loadDiscover() {
         cfgExecutor.run(kemptCmd + " discover-notifier status --json", 15000,
                         function (stdout, stderr, rc) {
@@ -351,11 +327,6 @@ KCM.SimpleKCM {
     // Its OWN queue. The action executor in main.qml can be sitting on a 120-second `kempt check`,
     // and a settings dialog that takes two minutes to populate is a broken dialog.
     Executor { id: cfgExecutor }
-
-    // And the same argument one level down: the passwordless buttons wait on a human in an
-    // authentication dialog, so they get a queue of their own rather than parking every read,
-    // write and hold on this page behind that wait.
-    Executor { id: pwExecutor }
 
     Component.onCompleted: {
         readKey("include_flatpak", function (v) { includeFlatpak.checked = Logic.isTrue(v); });
@@ -759,55 +730,5 @@ KCM.SimpleKCM {
             Layout.maximumWidth: Kirigami.Units.gridUnit * 20
         }
 
-        Item {
-            Kirigami.FormData.isSection: true
-            visible: page.discoverSetting !== null
-        }
-
-        // --- passwordless ------------------------------------------------------------------------
-        // No state is displayed, and that is not an oversight: the polkit rules directory is
-        // 0750 root:polkitd, so a widget running as the user genuinely cannot read whether the
-        // rule is installed. Claiming either way would be a guess, and a guess about whether the
-        // machine asks for a password is the wrong thing to guess about.
-        QQC2.Label {
-            Kirigami.FormData.label: i18n("Password prompts:")
-            text: i18n("Updates normally ask for your password once per run. You can allow Kempt's update action to run without one. That applies only to this action, and only while you are logged in at this machine.")
-            wrapMode: Text.WordWrap
-            font: Kirigami.Theme.smallFont
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
-        }
-
-        RowLayout {
-            spacing: Kirigami.Units.smallSpacing
-
-            QQC2.Button {
-                text: i18n("Allow without password…")
-                icon.name: "unlock"
-                enabled: !page.passwordlessBusy
-                onClicked: page.runPasswordless("enable")
-            }
-            QQC2.Button {
-                text: i18n("Require a password…")
-                icon.name: "lock"
-                enabled: !page.passwordlessBusy
-                onClicked: page.runPasswordless("disable")
-            }
-        }
-
-        QQC2.Label {
-            visible: page.passwordlessResult.length > 0
-            text: page.passwordlessResult
-            wrapMode: Text.WordWrap
-            font: Kirigami.Theme.smallFont
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
-        }
-
-        QQC2.Label {
-            text: i18n("Kempt cannot read whether this is currently on: the rule it writes lives in a directory only root can list. Use the buttons to set it either way.")
-            wrapMode: Text.WordWrap
-            font: Kirigami.Theme.smallFont
-            opacity: 0.7
-            Layout.maximumWidth: Kirigami.Units.gridUnit * 20
-        }
     }
 }

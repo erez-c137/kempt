@@ -4805,77 +4805,6 @@ cmd_discover_notifier() {
   esac
 }
 
-# Where the passwordless rule lives. polkit reads FOUR rules directories (polkit(8)); Kempt uses the
-# ADMINISTRATOR's one, because the other three belong to packages and to the runtime.
-RULES_DST_FIXED=/etc/polkit-1/rules.d/49-kempt.rules
-RULES_DST="$RULES_DST_FIXED"
-
-# This path goes to a ROOT install(1) and a ROOT rm, so a real run uses exactly the fixed path.
-# A list of allowed directories is not enough: a check on a path the user can write to can be
-# defeated by swapping a directory on it for a symlink after the check. Every directory on the fixed
-# path is root-owned, so nothing running as the user can change where it leads.
-# KEMPT_RULES_DST lets the suite drive the real install and removal commands. It is honoured only
-# where those commands run as the user, with no pkexec wrapper and not as root, so it can never
-# point a root write anywhere. Set in any other run it is refused rather than ignored, so nobody is
-# told a rule went somewhere it did not.
-check_rules_dst() {
-  [[ -n "${KEMPT_RULES_DST:-}" ]] || return 0
-  if [[ -n "$KEMPT_PKEXEC" || $EUID -eq 0 ]]; then
-    echo "invalid rules destination: KEMPT_RULES_DST is a test setting, honoured only without pkexec and not as root. The rule always goes to $RULES_DST_FIXED" >&2
-    exit 2
-  fi
-  if [[ "$KEMPT_RULES_DST" != /* || "$KEMPT_RULES_DST" != *.rules ]]; then
-    echo "invalid rules destination: $KEMPT_RULES_DST" >&2; exit 2
-  fi
-  RULES_DST="$KEMPT_RULES_DST"
-}
-
-cmd_enable_passwordless() {
-  local rule
-  check_rules_dst
-  # render_passwordless_rule (lib/common.sh) renders from $(id -un), self-checks the result and
-  # prints it only when the check passed, so an unverified rule can never reach install(1).
-  # One event per invocation carrying this command's exit status - a grant refused at the
-  # authentication dialog is recorded as plainly as one that succeeded. Largest security
-  # consequence Kempt can change.
-  if ! rule="$(render_passwordless_rule "$ROOT/polkit/49-kempt.rules.in")"; then
-    log_event "passwordless enable rc=2"; exit 2
-  fi
-  # The checked text goes to root on a pipe, never as a file path. A file here would be the user's
-  # own, and any process running as the user could rewrite it between the check and root's copy,
-  # which waits on a person at the authentication dialog. pkexec asks for the password on its own
-  # agent or the terminal, not on stdin, so the pipe carries the rule and nothing else.
-  # ${VAR:+$VAR} matches priv_refresh/priv_apply: empty KEMPT_PKEXEC means "no wrapper" (test
-  # sandbox). lib/common.sh always sets the variable, so there is no fallback case to cover.
-  # Full paths here and in disable: pkexec finds a bare name through the caller's PATH, where
-  # ~/.local/bin comes first on Fedora.
-  if ! printf '%s\n' "$rule" | ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} /usr/bin/install -m 0644 -o root -g root /dev/stdin "$RULES_DST"; then
-    log_event "passwordless enable rc=1"
-    echo "could not install $RULES_DST, so passwordless is NOT enabled" >&2; exit 1
-  fi
-  log_event "passwordless enable rc=0"
-  echo "Passwordless updates ENABLED for $(id -un) ($RULES_DST)"
-}
-
-cmd_disable_passwordless() {
-  check_rules_dst
-  # Nothing to remove is not a failure, and discovering that must not raise an auth prompt. The
-  # negative test is trusted only where the directory is searchable: the real /etc/polkit-1/rules.d
-  # is 0750 root:polkitd, so an unprivileged [[ -e ]] reports "absent" for a file that exists, and
-  # "not enabled" would leave a live grant in place.
-  if [[ -x "$(dirname "$RULES_DST")" && ! -e "$RULES_DST" ]]; then
-    log_event "passwordless disable rc=0"
-    echo "passwordless was not enabled"; return 0
-  fi
-  local rc=0
-  ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} /usr/bin/rm -f "$RULES_DST" || rc=$?
-  log_event "passwordless disable rc=$rc"
-  # The rc is still the command's own: captured only so the event can name it, then handed back
-  # unchanged - exactly what errexit would have done here.
-  [[ $rc -eq 0 ]] || return $rc
-  echo "Passwordless updates disabled"
-}
-
 # Exit codes (one contract, every command):
 #   0 success - including a user who declines at the risky-transaction prompt
 #   1 the run itself failed (a backend returned non-zero), `check --strict` had a backend fail,
@@ -4896,7 +4825,7 @@ cmd_disable_passwordless() {
 # lines (two spaces in), each followed by its description at column 24. `kempt help` prints them
 # all; `kempt <command> --help` and `kempt help <command>` print one (usage_of).
 KEMPT_USAGE_ORDER="check update run status summary history log doctor hold unhold holds unstage reclaim startup config
-discover-notifier enable-passwordless disable-passwordless version help"
+discover-notifier version help"
 usage_block() {  # command → its block, or nothing for a command Kempt does not have
   case "$1" in
     check) cat <<'EOF'
@@ -5002,15 +4931,6 @@ EOF
                         warning, or say whether it is installed, on and running
 EOF
     ;;
-    enable-passwordless) cat <<'EOF'
-  enable-passwordless   let your desktop session install dnf updates without a password. Asks
-                        for an administrator's password once, to install a polkit rule
-EOF
-    ;;
-    disable-passwordless) cat <<'EOF'
-  disable-passwordless  remove that rule, so dnf updates ask for a password again
-EOF
-    ;;
     version|--version|-V) cat <<'EOF'
   --version | version | -V   print the version and exit
 EOF
@@ -5086,8 +5006,6 @@ case "${1:-help}" in
   reclaim) shift; cmd_reclaim "$@" ;;
   startup) shift; cmd_startup "$@" ;;
   discover-notifier) shift; cmd_discover_notifier "$@" ;;
-  enable-passwordless)  [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_enable_passwordless ;;
-  disable-passwordless) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }; cmd_disable_passwordless ;;
   version|--version|-V) shift; cmd_version "$@" ;;
   help|--help|-h)
     if [[ $# -le 1 ]]; then usage
