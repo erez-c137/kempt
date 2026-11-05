@@ -4,13 +4,8 @@
 # action by this file's path, so this file holds no upgrade verb and never shares one with kempt-apply.
 # docs/security.md explains each line.
 
-# pkexec clears the environment, but passes on the umask, limits, directory and ignored signals.
-umask 022
-cd /
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
-ulimit -c 0
-ulimit -f unlimited -t unlimited -d unlimited -v unlimited -m unlimited -s 8192 -n 4096 || (( EUID ))
 
 ROOT="" OWNER=0 GROUP=0
 version="$(rpm -q --qf '%{VERSION}' dnf5 2>/dev/null || true)"
@@ -45,9 +40,24 @@ if [[ -e "$CACHE" ]]; then
   [[ -z "$hit" ]] || refuse "Updates paused for safety: users other than root can change $CACHE. Run kempt doctor for the fix."
 fi
 
-# One fixed scope per verb: a second one started while the first runs gets exit 1 and starts nothing.
-# The time limit is here because the CLI's `timeout` cannot signal a root process.
-exec "$ROOT/usr/bin/systemd-run" --scope --quiet --collect --unit="kempt-refresh-$1" \
-  -p RuntimeMaxSec=120 -p TimeoutStopSec=10 -- \
-  env -i --default-signal --ignore-signal=PIPE --ignore-signal=HUP \
-  PATH="$PATH" LC_ALL=C.UTF-8 HOME=/root "$ROOT/usr/bin/dnf5" "${args[@]}"
+# Started the way kempt-apply starts it, and its comment explains each step. Same lines but for the
+# bound: root's dnf5 from a helper with no dialog ends by itself within two minutes.
+d="$(mktemp -d -p "$ROOT/run" kempt.XXXXXXXX)"
+: > "$d/out"; : > "$d/err"; : > "$d/rc"
+exec {o}<"$d/out" {e}<"$d/err" {r}<"$d/rc"
+w="" a="" b="" rc=0
+trap '[[ -z "$a$b$w" ]] || kill $a $b $w 2>/dev/null; echo "kempt-refresh: stopped watching. dnf5 stops by itself within two minutes." >&2; exit 130' INT QUIT HUP TERM
+"$ROOT/usr/bin/systemd-run" --quiet --collect --service-type=exec --unit="kempt-refresh-$1" --expand-environment=no \
+  -p UMask=0022 -p LimitCORE=0 -p "StandardOutput=file:$d/out" -p "StandardError=file:$d/err" \
+  -p "ExecStopPost=/usr/bin/sh -c 'echo \"\$EXIT_CODE \$EXIT_STATUS\" > $d/rc; rm -rf -- $d'" \
+  -p RuntimeMaxSec=120 -p TimeoutStopSec=10 --setenv=PATH="$PATH" --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root \
+  -- "$ROOT/usr/bin/dnf5" "${args[@]}" </dev/null >/dev/null || rc=$?
+if (( rc )); then rm -rf -- "$d"; exit "$rc"; fi
+( while [[ -d "$d" ]]; do sleep 0.5; done ) & w=$!
+tail -c +1 -s 0.2 --pid="$w" -f <&"$o" & a=$!
+tail -c +1 -s 0.2 --pid="$w" -f <&"$e" >&2 & b=$!
+wait "$w" "$a" "$b" || true
+read -r how status <&"$r" || how=""
+# Killed, or no record at all: not a success. dnf5's history says how a killed update ended.
+if [[ "$how" == exited ]]; then exit "$status"; fi
+exit 137

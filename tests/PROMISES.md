@@ -6,7 +6,7 @@ kept yet and why. The pending parts show up as skips in the suite's summary.
 | # | Promise | File | Case |
 | --- | --- | --- | --- |
 | 1 | Never install what was held or not asked for. | `test_update.sh` | `hold became --exclude`; `every pending app held → flatpak is not run at all, rather than run on all of them`; `abort runs no privileged command` |
-| 2 | An update survives a closed terminal, a crashed widget or a dead plasmashell. **Partly pending:** see below. | `test_promises.sh`, `test_helpers.sh` | `...so killing that session leaves it running to the end`; `dnf-upgrade runs under a scope, ignoring HUP` |
+| 2 | An update survives a closed terminal, a crashed widget or a dead plasmashell. **Partly pending:** see below. | `test_promises.sh`, `test_helpers.sh` | `...so killing that session leaves it running to the end`; `dnf-upgrade: a service, its output in files, its own record of how it ended` |
 | 3 | Never show "Up to date" over a failed check. | `test_widget_logic.sh`, `test_status.sh` | `failed check, nothing waiting: says the check failed`; `status after a failed check: says so, no Up to date` |
 | 4 | A failed run reads as failed, with the reason. | `test_widget_logic.sh`, `qml/probe_popup.py`, `test_other_updater.sh` | `...and so does any other failed run`; `...and the row left behind still says the update failed`; `status reads it as failed` |
 | 5 | "Will this install on restart?" is answered truthfully, and "cannot tell" is a valid answer. **Partly pending:** see below. | `test_stage_unknown.sh`, `test_other_updater.sh` | `...and above all nothing was installed, as far as anyone says`; `...and stops saying staged` |

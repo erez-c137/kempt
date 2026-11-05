@@ -4,13 +4,8 @@
 # the desk, an admin password; over SSH, nobody. pkexec picks the action by this file's path, which
 # is why the no-dialog helper, kempt-refresh, is a separate file. docs/security.md explains each line.
 
-# pkexec clears the environment, but passes on the umask, limits, directory and ignored signals.
-umask 022
-cd /
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
-ulimit -c 0
-ulimit -f unlimited -t unlimited -d unlimited -v unlimited -m unlimited -s 8192 -n 4096 || (( EUID ))
 
 NAME_RE='^[A-Za-z0-9][A-Za-z0-9._+-]*$'
 ROOT="" OWNER=0 GROUP=0
@@ -53,7 +48,7 @@ check_link() {
 
 verb="${1:-}"
 (( $# == 0 )) || shift
-env_extra=()
+props=()
 case "$verb" in
   dnf-upgrade|dnf-offline-stage)
     args=(upgrade)
@@ -74,7 +69,7 @@ case "$verb" in
     check_folders
     check_stored
     # Without this, dnf5 reboots the moment the update is set to install.
-    env_extra=(DNF_SYSTEM_UPGRADE_NO_REBOOT=1) args=(offline reboot -y)
+    props=(--setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1) args=(offline reboot -y)
     ;;
   dnf-offline-clean)
     (( $# == 0 )) || usage
@@ -85,8 +80,28 @@ case "$verb" in
   *) usage ;;
 esac
 
-# A closed terminal sends dnf5 no HUP it will act on, and the scope outlives the login session. Output
-# and exit status stay this process's own, because everything here is exec, with no child to wait for.
-exec "$ROOT/usr/bin/systemd-run" --scope --quiet --collect -- \
-  env -i --default-signal --ignore-signal=PIPE --ignore-signal=HUP \
-  PATH="$PATH" LC_ALL=C.UTF-8 HOME=/root "${env_extra[@]}" "$ROOT/usr/bin/dnf5" "${args[@]}"
+# dnf5 runs as a service PID 1 starts, so nothing of the caller reaches it: no timer, terminal, memory
+# score or scheduling. Its output goes to files only root can reach and children copy them to the
+# caller, so a stuck or dead reader stops a copy and never dnf5. The fixed unit name makes a second
+# run fail with nothing started. The service's last step writes how dnf5 ended to rc and deletes the
+# folder, even after the caller has died. rc stays open here, so that is the answer read: systemd-run
+# --wait hears over the bus, and a package step that disturbs the bus makes it hang or say 0 too soon.
+d="$(mktemp -d -p "$ROOT/run" kempt.XXXXXXXX)"
+: > "$d/out"; : > "$d/err"; : > "$d/rc"
+exec {o}<"$d/out" {e}<"$d/err" {r}<"$d/rc"
+w="" a="" b="" rc=0
+trap '[[ -z "$a$b$w" ]] || kill $a $b $w 2>/dev/null; echo "kempt-apply: stopped watching. An update that has started carries on to the end, and dnf5 history list shows how it ended." >&2; exit 130' INT QUIT HUP TERM
+"$ROOT/usr/bin/systemd-run" --quiet --collect --service-type=exec --unit="kempt-apply-$verb" --expand-environment=no \
+  -p UMask=0022 -p LimitCORE=0 -p "StandardOutput=file:$d/out" -p "StandardError=file:$d/err" \
+  -p "ExecStopPost=/usr/bin/sh -c 'echo \"\$EXIT_CODE \$EXIT_STATUS\" > $d/rc; rm -rf -- $d'" \
+  "${props[@]}" --setenv=PATH="$PATH" --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root \
+  -- "$ROOT/usr/bin/dnf5" "${args[@]}" </dev/null >/dev/null || rc=$?
+if (( rc )); then rm -rf -- "$d"; exit "$rc"; fi
+( while [[ -d "$d" ]]; do sleep 0.5; done ) & w=$!
+tail -c +1 -s 0.2 --pid="$w" -f <&"$o" & a=$!
+tail -c +1 -s 0.2 --pid="$w" -f <&"$e" >&2 & b=$!
+wait "$w" "$a" "$b" || true
+read -r how status <&"$r" || how=""
+# Killed, or no record at all: not a success. dnf5's history says how a killed update ended.
+if [[ "$how" == exited ]]; then exit "$status"; fi
+exit 137

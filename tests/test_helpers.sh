@@ -11,23 +11,47 @@ FIX="$FIXTURES"
 
 make_tree() {  # dir → a tree shaped like the real one, with recording stand-ins for dnf5 and systemd-run
   local t="$1"
-  mkdir -p "$t/usr/bin" "$t/var/cache/libdnf5" "$t/usr/lib/sysimage/libdnf5/offline" "$t/var/lib/dnf/offline"
-  # The stand-in runs what follows `--`, as the real one does for a scope. -p, so that a BASH_ENV
-  # reaching this stand-in cannot look as if it had reached the helper.
+  mkdir -p "$t/usr/bin" "$t/run" "$t/var/cache/libdnf5" "$t/usr/lib/sysimage/libdnf5/offline" "$t/var/lib/dnf/offline"
+  # The stand-in does what PID 1 does with such a unit: start dnf5 away from the caller, with only
+  # the environment it was given and its output in the named files, answer once dnf5 has started,
+  # and run the stop step when dnf5 ends, with how it ended in the environment. The files in the
+  # tree pick a case: run.refuse a start refused, run.noexec a dnf5 that cannot start, run.norecord
+  # a stop step that leaves no record. -p, so that a BASH_ENV reaching this stand-in cannot look as
+  # if it had reached the helper. What the real one resets is proved on a real machine: VM log.
   cat > "$t/usr/bin/systemd-run" <<EOF
 #!/bin/bash -p
 printf '%s\n' "\$@" > "$t/run.argv"
-while [[ "\$1" != -- ]]; do shift; done; shift
-exec "\$@"
+if [[ -e "$t/run.refuse" ]]; then
+  echo "Failed to start transient service unit: Unit kempt-x.service was already loaded or has a fragment file." >&2; exit 1
+fi
+out="" err="" stop="" envs=()
+while [[ "\$1" != -- ]]; do
+  case "\$1" in
+    StandardOutput=file:*) out="\${1#*:}" ;;
+    StandardError=file:*) err="\${1#*:}" ;;
+    ExecStopPost=*) stop="\${1#*=}" ;;
+    --setenv=*) envs+=("\${1#*=}") ;;
+  esac
+  shift
+done
+shift
+if [[ -e "$t/run.noexec" ]]; then
+  export EXIT_CODE=exited EXIT_STATUS=203; eval "\$stop"; echo "Job for kempt-x.service failed." >&2; exit 1
+fi
+(
+  c=0; env -i "\${envs[@]}" "\$@" </dev/null >"\$out" 2>"\$err" || c=\$?
+  if (( c > 128 )); then export EXIT_CODE=killed EXIT_STATUS=KILL; else export EXIT_CODE=exited EXIT_STATUS=\$c; fi
+  if [[ -e "$t/run.norecord" ]]; then stop="rm -rf -- \${out%/out}"; fi
+  eval "\$stop"
+) </dev/null >/dev/null 2>&1 &
 EOF
   cat > "$t/usr/bin/dnf5" <<EOF
 #!/bin/bash
 printf '%s\n' "\$@" > "$t/dnf5.argv"
 env -0 | LC_ALL=C sort -z | tr '\0' '\n' | grep -vE '^(_|PWD|SHLVL)=' > "$t/dnf5.env"
-umask > "$t/dnf5.umask"
-pwd > "$t/dnf5.cwd"
-grep -E '^(SigIgn):' /proc/\$\$/status > "$t/dnf5.sig"
-ulimit -f > "$t/dnf5.fsize"; ulimit -c > "$t/dnf5.core"; ulimit -n > "$t/dnf5.nofile"
+if [[ -e "$t/dnf5.slow" ]]; then echo "before the wait"; touch "$t/dnf5.waiting"; while [[ -e "$t/dnf5.slow" ]]; do sleep 0.1; done; touch "$t/dnf5.finished"; fi
+if [[ -e "$t/dnf5.kill" ]]; then kill -9 \$\$; fi
+if [[ -e "$t/dnf5.lines" ]]; then seq 1 20000; fi
 echo "dnf5 on stdout"; echo "dnf5 on stderr" >&2
 exit "\$(cat "$t/dnf5.rc" 2>/dev/null || echo 0)"
 EOF
@@ -37,7 +61,7 @@ T="$TESTTMP/tree"; make_tree "$T"
 export KEMPT_HELPER_ROOT="$T"
 ran() { [[ -e "$T/dnf5.argv" ]] && echo ran || echo "did not run"; }
 argv() { tr '\n' ' ' < "$T/dnf5.argv" | sed 's/ $//'; }
-fresh() { rm -f "$T"/dnf5.* "$T"/run.argv; }
+fresh() { rm -f "$T"/dnf5.* "$T"/run.*; }
 STATE="$T/usr/lib/sysimage/libdnf5"; CACHE="$T/var/cache/libdnf5"; STAGED="$T/var/lib/dnf/offline"
 STORED="$STATE/offline/offline-transaction-state.toml"; LINK="$T/system-update"
 
@@ -76,7 +100,7 @@ ok_verb() {  # label want-dnf5-argv helper args...
   assert_eq "$(argv)" "$want" "...exact dnf5 command"
 }
 ok_verb "dnf-upgrade" "upgrade -y --exclude=vim-common --exclude=kernel-core" "$AH" dnf-upgrade -y --exclude=vim-common --exclude=kernel-core
-ok_verb "dnf-upgrade with no answer given, so dnf5 can ask" "upgrade" "$AH" dnf-upgrade
+ok_verb "dnf-upgrade with no -y, the run that shows what it would do" "upgrade" "$AH" dnf-upgrade
 ok_verb "dnf-offline-stage" "upgrade --offline -y --exclude=g++" "$AH" dnf-offline-stage -y --exclude=g++
 ok_verb "dnf-offline-arm" "offline reboot -y" "$AH" dnf-offline-arm
 ok_verb "dnf-offline-clean" "offline clean -y" "$AH" dnf-offline-clean
@@ -87,19 +111,26 @@ KEMPT_DNF5_VERSION=5.10.0.0 ok_verb "...compared as versions, so 5.10 is newer t
 KEMPT_DNF5_VERSION=garbage ok_verb "...and a version it cannot read gets text" "--cacheonly check-update --quiet" "$RH" check
 ok_verb "refresh" "makecache --refresh" "$RH" refresh
 
-# --- how dnf5 starts: a scope, direct exec, HUP and PIPE ignored ------------------------------------
-run_argv() { awk '$0 == "--" { exit } { print }' "$T/run.argv" | tr '\n' ' ' | sed 's/ $//'; }
+# --- how dnf5 starts: a service of PID 1's, with the folder named in full -----------------------------
+run_argv() { awk '$0 == "--" { exit } { print }' "$T/run.argv" | sed "s|$T/run/kempt\.[A-Za-z0-9]*|D|g" | tr '\n' ' ' | sed 's/ $//'; }
+WANT_START='--quiet --collect --service-type=exec'
+WANT_UNIT='--expand-environment=no -p UMask=0022 -p LimitCORE=0 -p StandardOutput=file:D/out -p StandardError=file:D/err -p ExecStopPost=/usr/bin/sh -c '"'"'echo "$EXIT_CODE $EXIT_STATUS" > D/rc; rm -rf -- D'"'"
+WANT_ENV='--setenv=PATH=/usr/sbin:/usr/bin:/sbin:/bin --setenv=LC_ALL=C.UTF-8 --setenv=HOME=/root'
 fresh; bash "$AH" dnf-upgrade -y >/dev/null 2>&1
-assert_eq "$(run_argv)" "--scope --quiet --collect" "dnf-upgrade runs under a scope, ignoring HUP"
-fresh; bash "$RH" refresh >/dev/null 2>&1
-assert_eq "$(run_argv)" "--scope --quiet --collect --unit=kempt-refresh-refresh -p RuntimeMaxSec=120 -p TimeoutStopSec=10" \
-  "refresh: the same, one at a time, bounded as root"
-fresh; bash "$RH" check >/dev/null 2>&1
-assert_eq "$(run_argv)" "--scope --quiet --collect --unit=kempt-refresh-check -p RuntimeMaxSec=120 -p TimeoutStopSec=10" \
-  "check: the same, one at a time, bounded as root"
-for h in "$AH" "$RH"; do
-  assert_eq "$(grep -vE '^[[:space:]]*#' "$h" | grep -c 'exec "\$ROOT/usr/bin/systemd-run"')" "1" "${h##*/}: one way to start dnf5, by exec"
+assert_eq "$(run_argv)" "$WANT_START --unit=kempt-apply-dnf-upgrade $WANT_UNIT $WANT_ENV" "dnf-upgrade: a service, its output in files, its own record of how it ended"
+fresh; bash "$AH" dnf-offline-arm >/dev/null 2>&1
+assert_eq "$(run_argv)" "$WANT_START --unit=kempt-apply-dnf-offline-arm $WANT_UNIT --setenv=DNF_SYSTEM_UPGRADE_NO_REBOOT=1 $WANT_ENV" "arm: the same, with its one switch"
+for v in refresh check; do
+  fresh; KEMPT_DNF5_VERSION=5.2 bash "$RH" "$v" >/dev/null 2>&1
+  assert_eq "$(run_argv)" "$WANT_START --unit=kempt-refresh-$v $WANT_UNIT -p RuntimeMaxSec=120 -p TimeoutStopSec=10 $WANT_ENV" "$v: the same, and bounded as root"
 done
+for h in "$AH" "$RH"; do
+  assert_eq "$(grep -vE '^[[:space:]]*#' "$h" | grep -c '"$ROOT/usr/bin/systemd-run"')" "1" "${h##*/}: one way to start dnf5"
+  assert_eq "$(grep -vE '^[[:space:]]*#' "$h" | grep -cE -- '--wait|--scope|--pipe|--pty')" "0" "${h##*/}: nothing that ties dnf5 or the answer to the caller or the bus"
+done
+# The two start the same way, so one comment can explain both.
+same_tail() { sed -n '/^d="\$(mktemp/,$p' "$1" | sed -E 's/kempt-(apply|refresh)/kempt-X/g; s/-\$(verb|1)"/-V"/; /^  (-p RuntimeMaxSec=120 -p TimeoutStopSec=10 |"\$\{props\[@\]\}" )--setenv/s/^  [^-]*(-p [A-Za-z]*=[0-9]* )*--setenv/  --setenv/; /^trap /s/watching\. .*" >&2/watching" >\&2/'; }
+assert_eq "$(same_tail "$AH")" "$(same_tail "$RH")" "both helpers start and watch dnf5 with the same lines"
 
 # The exit status and both output streams are the caller's own. The CLI reads stdout as data.
 fresh; echo 100 > "$T/dnf5.rc"
@@ -110,25 +141,72 @@ fresh; out="$(bash "$RH" check 2>/dev/null)"
 assert_eq "$out" "dnf5 on stdout" "check: stderr is not merged into the stdout the CLI parses"
 fresh; out="$(bash "$AH" dnf-upgrade -y 2>&1 >/dev/null)"
 assert_eq "$out" "dnf5 on stderr" "apply: stderr stays stderr"
+fresh; touch "$T/dnf5.lines"
+assert_eq "$(bash "$AH" dnf-upgrade -y 2>/dev/null | wc -l)" "20001" "apply: all of dnf5's output arrives, up to the end"
 
-# --- what pkexec passes on from the caller never reaches dnf5 ---------------------------------------
-# HUP (bit 0) and PIPE (bit 12) are ignored, and everything the caller ignored is back to default.
-# QUIT (bit 2) is the stand-in's own: bash ignores it in every script it runs. The real dnf5's mask is
-# read from /proc on a real run in the release check's VM log.
-WANT_IGN="SigIgn:	0000000000001005"
+# --- how it ends ---------------------------------------------------------------------------------------
+run_empty() { find "$T/run" -mindepth 1 -maxdepth 1 | wc -l; }
+for h in "$AH dnf-upgrade -y" "$RH refresh"; do
+  n="${h%% *}"; n="${n##*/}"
+  fresh; assert_exit 0 "$n: a clean run" -- bash $h
+  assert_eq "$(run_empty)" "0" "...leaves no folder under /run"
+  fresh; touch "$T/dnf5.kill"; assert_exit 137 "$n: a dnf5 killed outright is not a success" -- bash $h
+  assert_eq "$(run_empty)" "0" "...and leaves no folder"
+  fresh; touch "$T/run.norecord"; assert_exit 137 "$n: no record of how dnf5 ended is not a success" -- bash $h
+  fresh; touch "$T/run.refuse"; assert_exit 1 "$n: a refused start is a failure, at once" -- bash $h
+  assert_contains "$(cat "$TESTTMP/last_output")" "already loaded" "...saying so"
+  assert_eq "$(ran)" "did not run" "...with nothing started"
+  assert_eq "$(run_empty)" "0" "...and no folder left"
+  fresh; touch "$T/run.noexec"; assert_exit 1 "$n: a dnf5 that cannot start is a failure, at once" -- bash $h
+  assert_eq "$(run_empty)" "0" "...and no folder left"
+  # A crash or a power cut mid-run: /run is gone after a power cut, and what a crash leaves is in no one's way.
+  fresh; mkdir "$T/run/kempt.STALE00"; : > "$T/run/kempt.STALE00/rc"
+  assert_exit 0 "$n: a folder left by an earlier crash does not block the next run" -- bash $h
+  rm -rf "$T/run/kempt.STALE00"
+done
+# Only root can reach the output: the folder is 0700 whatever the caller's umask.
+fresh; touch "$T/dnf5.slow"; ( umask 000; exec bash "$AH" dnf-upgrade -y ) >/dev/null 2>&1 & hp=$!
+for _ in {1..100}; do [[ -e "$T/dnf5.waiting" ]] && break; sleep 0.1; done
+assert_eq "$(stat -c %a "$T"/run/kempt.*)" "700" "the folder is 0700 under umask 000"
+rm -f "$T/dnf5.slow"; wait "$hp" || true
+
+# Ctrl-C and its like stop the watching, say so, and never reach dnf5.
+stop_watching() {  # signal helper-args...; a process with default signal handling sends it, since bash's own background jobs ignore INT
+  local sig="$1" n="${2##*/}" out; fresh; touch "$T/dnf5.slow"
+  out="$(python3 - "$@" 3<&- <<EOF
+import signal,subprocess,sys,time,os
+p=subprocess.Popen(['bash']+sys.argv[2:],stdout=subprocess.PIPE,stderr=subprocess.STDOUT,preexec_fn=lambda: [signal.signal(s,signal.SIG_DFL) for s in (signal.SIGINT,signal.SIGQUIT)])
+for _ in range(100):
+    if os.path.exists("$T/dnf5.waiting"): break
+    time.sleep(0.1)
+time.sleep(0.5)
+p.send_signal(getattr(signal,'SIG'+sys.argv[1]))
+o=p.communicate(timeout=20)[0].decode()
+print(p.returncode); print(o)
+EOF
+)"
+  assert_eq "${out%%$'\n'*}" "130" "$n: $sig ends the watching with 130"
+  assert_contains "$out" "$n: stopped watching" "...and says so"
+  assert_contains "$out" "before the wait" "...after what dnf5 had said so far"
+  assert_eq "$([[ -e "$T/dnf5.finished" ]] && echo yes || echo no)" "no" "...while dnf5 is still going"
+  assert_eq "$(run_empty)" "1" "...and its folder is still there"
+  rm -f "$T/dnf5.slow"
+  for _ in {1..100}; do [[ -e "$T/dnf5.finished" && "$(run_empty)" == 0 ]] && break; sleep 0.1; done
+  assert_eq "$([[ -e "$T/dnf5.finished" ]] && echo yes || echo no)" "yes" "...and dnf5 finishes"
+  assert_eq "$(run_empty)" "0" "...and the service removes the folder"
+}
+for sig in INT QUIT HUP TERM; do stop_watching "$sig" "$AH" dnf-upgrade -y; done
+stop_watching INT "$RH" refresh
+assert_contains "$(cat "$AH")" 'An update that has started carries on to the end, and dnf5 history list shows how it ended.' "apply: Ctrl-C tells what happens to the update"
+
+# --- what the caller's environment can do ------------------------------------------------------------
+# dnf5's environment is what the unit names, and nothing a caller set.
 for h in "$AH" "$RH"; do
   v=dnf-upgrade; [[ "$h" == "$RH" ]] && v=check
   fresh
-  ( trap '' TERM INT QUIT USR1; umask 000; ulimit -S -f 1024 -n 64; ulimit -S -c 1024 2>/dev/null || true; cd /tmp
-    env -i PATH="$PATH" KEMPT_HELPER_ROOT="$T" KEMPT_DNF5_VERSION=5.2 LD_PRELOAD= BASH_ENV="$TESTTMP/evil" EVIL=1 \
+  ( env -i PATH="$PATH" KEMPT_HELPER_ROOT="$T" KEMPT_DNF5_VERSION=5.2 LD_PRELOAD= BASH_ENV="$TESTTMP/evil" EVIL=1 \
       DNF_SYSTEM_UPGRADE_NO_REBOOT=0 "$h" "$v" >/dev/null 2>&1 ) || true
   n="${h##*/}"
-  assert_eq "$(cat "$T/dnf5.umask")" "0022" "$n: the caller's umask 000 does not reach dnf5"
-  assert_eq "$(cat "$T/dnf5.cwd")" "/" "$n: nor its directory"
-  assert_eq "$(cat "$T/dnf5.sig")" "$WANT_IGN" "$n: nor its ignored signals, and HUP and PIPE are ignored"
-  assert_eq "$(cat "$T/dnf5.fsize")" "unlimited" "$n: nor its low file size limit"
-  assert_eq "$(cat "$T/dnf5.core")" "0" "$n: core files stay off"
-  assert_eq "$(cat "$T/dnf5.nofile")" "4096" "$n: open files are reset"
   assert_eq "$(cut -d= -f1 "$T/dnf5.env" | tr '\n' ' ')" "HOME LC_ALL PATH " "$n: dnf5's environment is these three and nothing else"
   assert_contains "$(cat "$T/dnf5.env")" "PATH=/usr/sbin:/usr/bin:/sbin:/bin" "$n: PATH is pinned"
 done
@@ -154,7 +232,7 @@ assert_exit 1 "refresh: the same" -- env -u KEMPT_HELPER_ROOT bash "$RH" refresh
 for h in "$AH" "$RH"; do
   assert_eq "$(awk '/^if \(\( EUID \)\); then/ { if ($0 !~ /; fi$/) b = 1; next } b && /^fi$/ { b = 0; next } b { next } /KEMPT_/ && !/^[[:space:]]*#/' "$h" \
     | grep -vc 'if (( EUID )); then ROOT=' )" "0" "${h##*/}: reads no KEMPT_ setting outside the block root never enters"
-  assert_eq "$(grep -cE '^(if \(\( EUID \)\); then|ROOT="" OWNER=0 GROUP=0$)' "$h")" "2" "${h##*/}: real paths unless not root"
+  assert_eq "$(grep -cE '^(if \(\( EUID \)\); then|ROOT="" OWNER=0 GROUP=0( version="")?$)' "$h")" "2" "${h##*/}: real paths unless not root"
 done
 assert_contains "$(cat "$AH")" 'STATE="$ROOT/usr/lib/sysimage/libdnf5" STAGED="$ROOT/var/lib/dnf/offline" CACHE="$ROOT/var/cache/libdnf5"' \
   "apply: the three real folders"
