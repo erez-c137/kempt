@@ -3090,7 +3090,7 @@ p.check("the row is really built", _built, True)
 p.check("...saying nothing at all on the way, warnings included", _noise, [])
 p.check("...titled by logic.js rather than by a second copy of that rule written here",
         lev("lastRunView.itemAtIndex(0).title"),
-        ev("Logic.lastRunText(root.lastRun, root.nowMs)"))
+        ev("Logic.lastRunText(root.lastRun, root.nowMs, false, false)"))
 p.check("...and expandable, so the run's package list is one click away",
         lev("lastRunView.itemAtIndex(0).hasExpandableContent"), True)
 p.check("...with no log offered for a run that went well",
@@ -3099,6 +3099,28 @@ p.check("...and the packages it installed under it",
         lev("lastRunView.itemAtIndex(0).customExpandedViewContent !== null"), True)
 p.check("...with no second line for a run that went well and took nothing an app uses",
         lev("lastRunView.itemAtIndex(0).subtitle"), "")
+
+# A staging run's row, wired to the machine's reading: it promises a restart only over an armed stage.
+stage_run = json.loads(json.dumps(LAST_RUN))
+stage_run["surface"] = "offline"
+stage_run["backends"] = {}
+open(RUNJSON, "w").write(json.dumps(stage_run))
+ev("root.loadLastRun()")
+settle()
+ev('root.postRunLine = ""')
+p.pump(50)
+p.check("a staging run's row over no stage promises nothing",
+        str(lev("lastRunView.itemAtIndex(0).title")).split(" · ")[-1], "no package changes")
+state_was = ev("JSON.stringify(root.kemptState)")
+ev("root.kemptState = Object.assign({}, root.kemptState, "
+   '{offline_staged: {staged_at: "2026-09-02T10:31:00+03:00", count: 3, armed: true}})')
+p.pump(50)
+p.check("...and over an armed one says it is ready",
+        str(lev("lastRunView.itemAtIndex(0).title")).split(" · ")[-1], "ready for the next restart")
+ev("root.kemptState = JSON.parse(%s)" % json.dumps(state_was))
+open(RUNJSON, "w").write(json.dumps(LAST_RUN))
+ev("root.loadLastRun()")
+settle()
 
 # A run that failed still reads as failed once the transient line is gone: open, close, open again.
 failed_run = json.loads(json.dumps(LAST_RUN))

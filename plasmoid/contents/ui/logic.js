@@ -1598,11 +1598,11 @@ function reclaimSaid(rc, stdout, stderr) {
     return { ok: true, text: ((tail !== "" ? tail : i18n("Nothing to remove. Every installed Flatpak runtime is in use.")) + " " + msg).trim() };
 }
 
-// lastRunText(run, nowMs) -> the persistent Last update row's title. "no package changes" is the
+// lastRunText(run, nowMs, restartHeld, armed) -> the persistent Last update row's title. "no package changes" is the
 // CLI's own wording, emitted verbatim by KEMPT_JQ_COUNTS in lib/common.sh, and this line quotes the
 // terminal (lowercase because it sits mid sentence after the dot). Do NOT reword it here alone -
 // the tests tie all three spellings together.
-function lastRunText(run, nowMs, restartHeld) {
+function lastRunText(run, nowMs, restartHeld, armed) {
     if (!run) return "";
     // An entry we cannot DATE gets no row. relativeTime answers "never" for a missing stamp, so
     // the sentence would describe a run in the same breath as denying there was one; an unreadable
@@ -1626,7 +1626,11 @@ function lastRunText(run, nowMs, restartHeld) {
         if (restartHeld === true) {
             return i18n("Last update %1 · another updater has prepared the next restart", relativeTime(run.when, nowMs));
         }
-        return i18n("Last update %1 · ready for the next restart", relativeTime(run.when, nowMs));
+        // The promise is the machine's to make, not the run's: after a lost link, an unstage or a
+        // restart that installed nothing this run is still the newest, and nothing is coming.
+        if (armed === true) {
+            return i18n("Last update %1 · ready for the next restart", relativeTime(run.when, nowMs));
+        }
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var when = relativeTime(run.when, nowMs);

@@ -1844,7 +1844,7 @@ assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"timestamp\":\"2
 # The staging run's row, between the stage and the restart that applies it. Same reasoning as
 # postRunLine's branch: zero changes is true and misleading. A FAILED staging run staged
 # nothing, and its row must not say otherwise.
-assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN, false, true)")" \
   "Last update 1 min ago · ready for the next restart" "a staging run's row says the changes are deferred, not absent"
 assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"failed\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\"}'), $W + $MIN)")" \
   "Last update failed 1 min ago · no package changes" "a failed staging run reads as failed, over counts that are honestly zero"
@@ -1859,7 +1859,7 @@ assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"off
   "Last update 1 min ago · the next restart has nothing to install" "a row for a run that staged nothing promises no restart"
 assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"staged_nothing\":\"nothing_pending\"}'), $W + $MIN)")" \
   "Last update 1 min ago · the next restart has nothing to install" "...the same row for the other reason, which this line has no room to tell apart"
-assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"staged_nothing\":false}'), $W + $MIN)")" \
+assert_eq "$(js "L.lastRunText(L.lastRunOf('{\"status\":\"ok\",\"surface\":\"offline\",\"timestamp\":\"2026-08-26T22:24:06+03:00\",\"staged_nothing\":false}'), $W + $MIN, false, true)")" \
   "Last update 1 min ago · ready for the next restart" "...and a value that is not one of the two words leaves the row as it was"
 # An entry this file cannot DATE gets no row at all. "Last update never · 1 package" was the
 # shape of that bug: relativeTime answers "never" for a missing or empty stamp, and the sentence
@@ -2562,7 +2562,17 @@ LAST='{when:"2026-08-26T11:00:00+03:00",surface:"offline",failed:false,stagedNot
 NOW='Date.parse("2026-08-26T12:00:00+03:00")'
 assert_contains "$(js "L.lastRunText($LAST,$NOW,true)")" "another updater has prepared the next restart" "the footer says who holds it"
 assert_not_contains "$(js "L.lastRunText($LAST,$NOW,true)")" "ready for the next restart" "...and not that it is staged"
-assert_contains "$(js "L.lastRunText($LAST,$NOW,false)")" "ready for the next restart" "...which it says with nobody holding it"
+assert_contains "$(js "L.lastRunText($LAST,$NOW,false,true)")" "ready for the next restart" "...which it says with an armed stage and nobody holding it"
+assert_eq "$(js "var v=L.viewModel({schema:1,status:\"ok\",last_success:\"2026-08-26T12:00:00+03:00\",$PEND,offline_staged:{staged_at:\"2026-08-26T11:00:00+03:00\",count:3,armed:true}},false,\"\",{}); L.lastRunText($LAST,$NOW,v.restartHeld,v.stagedArmed)")" \
+  "Last update 1 hour ago · ready for the next restart" "the row over an armed stage, from the view model's own reading"
+# The stage is the machine's to report: a lost link, an unstage, a restart that installed nothing
+# all leave this run the newest, and the row must not promise what the banner above it denies.
+assert_eq "$(js "L.lastRunText($LAST,$NOW,false,false)")" "Last update 1 hour ago · no package changes" "not armed: the row promises no restart"
+assert_eq "$(js "L.lastRunText($LAST,$NOW,false)")" "Last update 1 hour ago · no package changes" "...nor with no stage reading at all"
+for word in lost interrupted failed unknown; do
+  assert_eq "$(js "var v=L.viewModel({schema:1,status:\"ok\",last_success:\"2026-08-26T12:00:00+03:00\",$PEND,offline_stage_problem:\"$word\"},false,\"\",{}); L.lastRunText($LAST,$NOW,v.restartHeld,v.stagedArmed)")" \
+    "Last update 1 hour ago · no package changes" "the row under a stage read as $word, from the view model's own reading"
+done
 
 # Discover's setting.
 DU='discover_unattended:true,discover_unattended_warn:true,discover_offer:true'
