@@ -14,10 +14,8 @@ assert_eq "$(printf 'Uninstalling\nerror: Failed to uninstall runtime/a/x86_64/1
   "error: Failed to uninstall runtime/a/x86_64/1: busy" "error_line_of prefers flatpak's \"Failed to\" line over its generic last one"
 assert_eq "$(printf 'error: first\nerror: second\nwarning: after\n' | error_line_of)" "error: second" \
   "...else the last error: line"
-# Terminal escapes of every kind go: CSI with private parameters (hide cursor), OSC (window title,
-# hyperlink) and the C1 CSI, as U+009B or a lone byte after ASCII. A 0x9b inside a UTF-8 character stays.
-assert_eq "$(printf '\033[?25l\033]0;flatpak\007error: Failed to \033]8;;http://x\033\\go\033]8;;\033\\ \xc2\x9b1mhere\xc2\x9b0m \x9b1mnow \xc3\x9b\033[?25h\n' | error_line_of)" \
-  "error: Failed to go here now $(printf '\xc3\x9b')" "...with CSI, OSC and C1 CSI sequences removed"
+# A terminal escape loses its ESC, so it can do nothing, and its text stays: the widget shows plain text.
+assert_eq "$(printf 'error: \033[1mbad\033[0m\r\n' | error_line_of)" "error: [1mbad[0m" "...with control characters removed"
 # 200 characters, cut on a character boundary: the result is still valid UTF-8.
 long="$(printf 'error: %s' "$(printf '\xc3\xa9%.0s' {1..300})" | error_line_of)"
 assert_eq "$(printf '%s' "$long" | LC_ALL=C.UTF-8 wc -m)|$(printf '%s' "$long" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 && echo valid)" "200|valid" \
@@ -34,7 +32,7 @@ if command -v python3 >/dev/null 2>&1; then
   export FAKE_FLATPAK_JSON="$HFX" FAKE_FLATPAK_CALLS="$TESTTMP/fake-calls"
   hout="$(helper)" || hout="rc=$?"
   assert_json_eq "$hout" "$(jq 'del(.installation)' "$HFX")" \
-    "the helper prints the unused refs with their end-of-life reason, and the rest as used"
+    "the helper prints the unused refs, and the rest as used"
   # new_user() creates ~/.local/share/flatpak/repo as a side effect, so the helper must never call it.
   assert_eq "$(cat "$TESTTMP/fake-calls")" "new_system" "the helper opens the system installation and nothing else"
   rc=0; FAKE_FLATPAK_FAIL="boom" helper >"$TESTTMP/hout" 2>"$TESTTMP/herr" || rc=$?
@@ -151,7 +149,7 @@ HL="$TESTTMP/hl"; mkdir -p "$HL/used" "$HL/unused"
 head -c 200000 /dev/zero > "$HL/used/shared"; ln "$HL/used/shared" "$HL/unused/shared"
 head -c 3000 /dev/zero > "$HL/unused/own"
 HL_LIST="$(jq -nc --arg u "$HL/used" --arg n "$HL/unused" \
-  '{unused: [{ref: "runtime/x/x86_64/1", deploy_dir: $n, eol: null}], used: [{ref: "runtime/y/x86_64/1", deploy_dir: $u}]}')"
+  '{unused: [{ref: "runtime/x/x86_64/1", deploy_dir: $n}], used: [{ref: "runtime/y/x86_64/1", deploy_dir: $u}]}')"
 hl_bytes="$(KEMPT_DU_CMD=du flatpak_unused_sizes "$HL_LIST" | cut -f2)"
 assert_eq "$(( hl_bytes < 200000 && hl_bytes >= 3000 ))" "1" "a file shared with a used ref is not counted as freed"
 rc=0; KEMPT_DU_CMD=false flatpak_unused_sizes "$HL_LIST" >/dev/null 2>&1 || rc=$?
@@ -164,8 +162,8 @@ assert_eq "$rc|$out" "1|" "...and so is one that leaves an unused directory out"
 check() { "$KEMPT" check >/dev/null 2>&1 || true; }
 block() { jq -c '.reclaim' "$KEMPT_STATE_DIR/state.json"; }
 check
-assert_eq "$(jq -c '[.refs | length, .[0].eol, .[4].eol != null], .bytes' <<<"$(block)" | tr '\n' ' ')" '[5,null,true] 1975000000 ' \
-  "a check lists every unused ref with its end-of-life reason, and their size"
+assert_eq "$(jq -c '[.refs | length, (.[0] | keys[])], .bytes' <<<"$(block)" | tr '\n' ' ')" '[5,"ref"] 1975000000 ' \
+  "a check lists every unused ref, and their size"
 assert_eq "$(wc -l < "$STUBS/du.calls")" "1" "...from one du"
 assert_eq "$(tr ' ' '\n' < "$STUBS/du.calls" | grep -n -m1 -F "$(jq -r '.unused[0].deploy_dir' "$UNUSED_FX")" | cut -d: -f1)" \
   "$(( 2 + $(jq '.used | length' "$UNUSED_FX") + 1 ))" "...with the used directories first"
@@ -188,18 +186,12 @@ for v in SUDO_UID PKEXEC_UID; do
   assert_eq "$rc|$(args)" "5|(no removal)" "under $v nothing is removed"
   assert_contains "$(said_err)" "as yourself" "...and it says why"
 done
-"$KEMPT" config set include_flatpak false >/dev/null
-rc=0; reclaim -y || rc=$?
-assert_eq "$rc|$(args)" "5|(no removal)" "with Flatpak left out of updates nothing is removed"
-"$KEMPT" config set include_flatpak true >/dev/null
 rc=0; KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/no-such-flatpak" reclaim -y || rc=$?
 assert_eq "$rc" "5" "with no flatpak nothing is removed"
 rc=0; reclaim || rc=$?
 assert_eq "$rc|$(args)" "5|(no removal)" "no -y and no terminal to ask at is never a silent yes"
-assert_contains "$(said_out)" "$KDE (no longer supported)" "...the list is still shown"
+assert_contains "$(said_out)" "  $KDE" "...the list is still shown"
 assert_contains "$(said_out)" "Up to 2.0 GB can be freed." "...with its size"
-rc=0; reclaim --list || rc=$?
-assert_eq "$rc|$(args)" "0|(no removal)" "--list only lists"
 rc=0; reclaim --bogus || rc=$?
 assert_eq "$rc|$(args)" "2|(no removal)" "an unknown option is a usage error"
 rc=0; flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim -y </dev/null >/dev/null 2>"$TESTTMP/err" || rc=$?

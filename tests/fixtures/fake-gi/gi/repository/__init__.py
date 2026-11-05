@@ -27,9 +27,6 @@ class _Ref:
     def get_deploy_dir(self):
         return self._d["deploy_dir"]
 
-    def get_eol(self):
-        return self._d.get("eol")
-
 
 class _Installation:
     def __init__(self):

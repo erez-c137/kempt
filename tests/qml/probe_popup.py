@@ -1716,7 +1716,7 @@ def reclaim_from(source, name, offer=True):
     block = {"refs": [], "bytes": 0}
     if offer:
         block = {"bytes": 1530000000, "refs": [
-            {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "eol": "no longer supported"}]}
+            {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08"}]}
     doc["reclaim"] = block
     path = os.path.join(p.sandbox, name)
     open(path, "w").write(json.dumps(doc))

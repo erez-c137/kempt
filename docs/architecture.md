@@ -299,7 +299,7 @@ answered.
 
 | Key | Meaning |
 | --- | --- |
-| `refs[]` | Every unused ref: `ref` and `eol` (flatpak's end-of-life reason, or `null`). |
+| `refs[]` | Every unused ref: `ref`. |
 | `bytes` | The most they would free, from one `du` over the used and unused folders. `null` when unknown. |
 
 The widget offers the list from 1 GB and names those refs to `kempt reclaim`. The CLI keeps no copy.

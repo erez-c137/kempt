@@ -173,9 +173,9 @@ flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when th
       and (.ref | type == "string" and test("^(runtime|app)/[A-Za-z0-9._-]+/[A-Za-z0-9_-]+/[A-Za-z0-9._-]+$"))
       and (.deploy_dir | type == "string" and test("^/[^\t\n]*$"));
     select(type == "object" and (.unused | type == "array") and (.used | type == "array")
-           and all(.unused[]; okref and (.ref | startswith("runtime/")) and ((.eol == null) or (.eol | type == "string")))
+           and all(.unused[]; okref and (.ref | startswith("runtime/")))
            and all(.used[]; okref))
-    | {unused: [.unused[] | {ref, deploy_dir, eol}], used: [.used[] | {ref, deploy_dir}]}' <<<"$out" 2>/dev/null
+    | {unused: [.unused[] | {ref, deploy_dir}], used: [.used[] | {ref, deploy_dir}]}' <<<"$out" 2>/dev/null
 }
 
 # The most each unused ref would free, as TSV ref<TAB>bytes: du counts apparent size, and less comes

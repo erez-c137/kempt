@@ -27,7 +27,7 @@ reclaim_check_block() {  # fp_enabled(true|false) → JSON object, or nothing
   if sizes="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then
     bytes="$(reclaim_bytes_of "$sizes" "$(reclaim_unused_refs "$listing")")"
   fi
-  jq -c --argjson bytes "${bytes:-0}" '{refs: [.unused[] | {ref, eol}], bytes: $bytes}' <<<"$listing" 2>/dev/null || true
+  jq -c --argjson bytes "${bytes:-0}" '{refs: [.unused[] | {ref}], bytes: $bytes}' <<<"$listing" 2>/dev/null || true
 }
 
 reclaim_unused_refs() { jq -r '.unused[].ref' <<<"$1" | LC_ALL=C sort; }  # listing → sorted refs
@@ -69,7 +69,7 @@ reclaim_remove() {  # refs(sorted, one per line) → 0, or 1 when anything is le
   elif [[ $n -eq 1 ]]; then said="${reason}Removed 1 runtime."
   else said="${reason}Removed $n runtimes."
   fi
-  [[ -z "$left" ]] || said+=" Still installed: $(tr '\n' ' ' <<<"$left" | sed 's/ $//')."
+  [[ -z "$left" ]] || said+=" Still installed: ${left//$'\n'/ }."
   # The refs, so a person can look up what to reinstall.
   log_event "Unused runtimes: $said${gone:+ Gone: ${gone//$'\n'/ }.}"
   if [[ $rc -eq 0 && -z "$left" ]]; then echo "$said"; return 0; fi
@@ -2290,10 +2290,9 @@ cmd_unstage() {
 # just deployed is left alone unless it was already shown. Writes no history entry: a removal is not
 # an update run.
 cmd_reclaim() {
-  local list="" yes="" named=()
+  local yes="" named=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --list) list=1; shift ;;
       -y|--yes) yes=1; shift ;;
       --) shift; named+=("$@"); break ;;
       -*) echo "unknown option: $1" >&2; exit 2 ;;
@@ -2303,10 +2302,6 @@ cmd_reclaim() {
   kempt_init_dirs
   if reclaim_as_root; then
     echo "Nothing was removed. Run kempt reclaim as yourself, not as root: as root, Flatpak does not see your own apps and could remove a runtime one of them needs." >&2
-    exit 5
-  fi
-  if ! is_true "$(config_get include_flatpak)"; then
-    echo "Nothing was removed. Flatpak is not part of Kempt's updates here (include_flatpak is false)." >&2
     exit 5
   fi
   if ! flatpak_present; then
@@ -2322,11 +2317,9 @@ cmd_reclaim() {
   fi
   [[ -n "$shown" ]] || { echo "Nothing to remove."; return 0; }
   echo "No installed app uses these Flatpak runtimes:"
-  jq -r --arg shown "$shown" '($shown | split("\n")) as $s | .unused[] | select(.ref | IN($s[]))
-    | "  \(.ref)" + (if .eol != null then " (no longer supported)" else "" end)' <<<"$listing"
+  sed 's/^/  /' <<<"$shown"
   if sizes="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then bytes="$(reclaim_bytes_of "$sizes" "$shown")"; fi
   [[ "$bytes" == 0 ]] || echo "Up to $(human_bytes "$bytes") can be freed."
-  [[ -z "$list" ]] || return 0
   if [[ -z "$yes" ]]; then
     # No -y and nobody to ask: never a silent yes.
     if [[ ! -t 0 ]]; then
@@ -3413,8 +3406,7 @@ EOF
 EOF
     ;;
     reclaim) cat <<'EOF'
-  reclaim [--list] [-y] [REF...]
-                        remove the Flatpak runtimes no installed app uses (--list only shows them)
+  reclaim [-y] [REF...]  remove the Flatpak runtimes no installed app uses
 EOF
     ;;
     startup) cat <<'EOF'

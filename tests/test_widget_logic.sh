@@ -2961,7 +2961,7 @@ assert_eq "$(js "L.viewModel($STACK_ALL,false,'',{reportShown:false,surface:'pop
 # The CLI's `reclaim` block, rendered as an Information message LAST in the stack. An empty list is
 # no offer, and neither is one under the size threshold or one with no size.
 RC_REFS='["runtime/org.kde.Platform/x86_64/5.15-23.08","runtime/org.freedesktop.Platform.GL.default/x86_64/24.08"]'
-RC_OFFER='{refs:[{ref:"runtime/org.kde.Platform/x86_64/5.15-23.08",eol:"org.kde.Platform 5.15 is no longer supported"},{ref:"runtime/org.freedesktop.Platform.GL.default/x86_64/24.08",eol:null}],bytes:1530000000}'
+RC_OFFER='{refs:[{ref:"runtime/org.kde.Platform/x86_64/5.15-23.08"},{ref:"runtime/org.freedesktop.Platform.GL.default/x86_64/24.08"}],bytes:1530000000}'
 assert_eq "$(js 'L.RECLAIM_MIN_BYTES')" "1000000000" "the threshold is 1 GB, in the SI bytes the footer uses"
 assert_eq "$(js "L.reclaimOffered($RC_OFFER)")" "true" "an offer of 1.5 GB is shown"
 assert_eq "$(js "L.reclaimOffered(Object.assign($RC_OFFER,{bytes:999999999}))")" "false" \
@@ -2981,11 +2981,9 @@ assert_eq "$(js "L.reclaimMessageOf($RC_OFFER)")" \
   "Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes." \
   "the line says at most how much, with the download footer's ~, and why it is safe"
 
-assert_eq "$(js "L.reclaimRefLineOf({ref:'runtime/org.freedesktop.Platform.GL.default/x86_64/24.08',eol:null})")" \
+assert_eq "$(js "L.reclaimRefLineOf({ref:'runtime/org.freedesktop.Platform.GL.default/x86_64/24.08'})")" \
   "org.freedesktop.Platform.GL.default 24.08" "a ref reads as its id and branch"
-assert_eq "$(js "L.reclaimRefLineOf({ref:'runtime/org.kde.Platform/x86_64/5.15-23.08',eol:'gone'})")" \
-  "org.kde.Platform 5.15-23.08 (no longer supported)" "...and an end-of-life one says so"
-assert_eq "$(js "L.reclaimRefLineOf({ref:'odd',eol:null})")" "odd" \
+assert_eq "$(js "L.reclaimRefLineOf({ref:'odd'})")" "odd" \
   "a ref of a shape this build does not know is shown as the CLI wrote it"
 assert_eq "$(js 'L.reclaimRefLineOf(null)')" "" "...and a missing entry is nothing"
 
@@ -3001,7 +2999,7 @@ assert_eq "$(js "L.viewModel($RC_STATE,false).messageSlots")" '["reclaim"]' \
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimMessage")" \
   "Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes." "...with its line"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimLines")" \
-  '["org.kde.Platform 5.15-23.08 (no longer supported)","org.freedesktop.Platform.GL.default 24.08"]' \
+  '["org.kde.Platform 5.15-23.08","org.freedesktop.Platform.GL.default 24.08"]' \
   "...one line per runtime for Show Runtimes"
 assert_eq "$(js "L.viewModel($RC_STATE,false).reclaimRefs")" "$RC_REFS" \
   "...and the refs the button names to the CLI: what was shown, and nothing else"

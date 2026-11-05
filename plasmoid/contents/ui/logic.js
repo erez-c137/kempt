@@ -816,13 +816,12 @@ function reclaimMessageOf(reclaim) {
     return i18n("Up to %1 can be freed. No installed app uses these Flatpak runtimes.", formatDownload(reclaimBytesOf(reclaim)));
 }
 
-// reclaimRefLineOf({ref, eol}) -> "org.kde.Platform 5.15-23.08", the id and branch of a
+// reclaimRefLineOf({ref}) -> "org.kde.Platform 5.15-23.08", the id and branch of a
 // kind/id/arch/branch ref. Any other shape is shown as the CLI wrote it.
 function reclaimRefLineOf(entry) {
     if (!entry || typeof entry !== "object" || typeof entry.ref !== "string") return "";
     var parts = entry.ref.split("/");
-    var line = parts.length === 4 ? parts[1] + " " + parts[3] : entry.ref;
-    return typeof entry.eol === "string" && entry.eol !== "" ? i18n("%1 (no longer supported)", line) : line;
+    return parts.length === 4 ? parts[1] + " " + parts[3] : entry.ref;
 }
 
 // stagedHeaderOf(offline_staged) -> what the popup header and the panel tooltip say while a

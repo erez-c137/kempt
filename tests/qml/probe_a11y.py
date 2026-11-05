@@ -619,8 +619,8 @@ def reclaim_from(source, name):
     doc = json.load(open(source))
     doc["reclaim"] = {
         "bytes": 1530000000,
-        "refs": [{"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "eol": "no longer supported"},
-                 {"ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/23.08", "eol": None}]}
+        "refs": [{"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08"},
+                 {"ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/23.08"}]}
     path = os.path.join(p.sandbox, name)
     open(path, "w").write(json.dumps(doc))
     return path
@@ -646,7 +646,7 @@ p.pump(60)
 p.check("Show Runtimes puts one line per runtime under it, and the name read out says them too",
         lev("reclaimMessage.Accessible.name"),
         "Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes.\n"
-        "org.kde.Platform 5.15-23.08 (no longer supported)\n"
+        "org.kde.Platform 5.15-23.08\n"
         "org.freedesktop.Platform.GL.default 23.08")
 lev("reclaimMessage.showingWhat = false")
 # The close button: hidden until the widget next starts.

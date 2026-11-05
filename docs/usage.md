@@ -380,7 +380,7 @@ record of the stage only once dnf5 confirms the transaction is gone.
 ## reclaim
 
 ```
-kempt reclaim [--list] [-y] [REF...]
+kempt reclaim [-y] [REF...]
 ```
 
 Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes, and
@@ -391,14 +391,13 @@ only.
 No installed app uses these Flatpak runtimes:
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra
-  runtime/org.kde.Platform/x86_64/5.15-23.08 (no longer supported)
+  runtime/org.kde.Platform/x86_64/5.15-23.08
 Up to 1.5 GB can be freed.
 Remove them? [y/N]
 ```
 
 | Option | Effect |
 | --- | --- |
-| `--list` | Shows the list and stops. |
 | `-y`, `--yes` | Removes without asking. |
 | `REF...` | Removes only these, of the runtimes on the list. Put them after `--`. |
 
@@ -418,9 +417,8 @@ It never asks for a password. Removing needs an administrator (on Fedora, a memb
 group) logged in at the desktop. Otherwise Flatpak refuses, and Kempt shows its reason.
 
 The result comes from the list read afterwards: Flatpak's reason if it failed, how many runtimes
-went, and what is still installed. A
-removal writes an event line naming what went, so you can look up what to reinstall, and no history
-entry.
+went, and what is still installed. A removal writes an event line naming what went, so you can look
+up what to reinstall, and no history entry.
 
 | Exit | When |
 | --- | --- |
@@ -428,7 +426,7 @@ entry.
 | 1 | Flatpak could not list the runtimes, it failed, or a runtime it was given is still installed. Kempt says why, what went and what remained. If the list afterwards could not be read, it says it cannot tell. |
 | 2 | Unknown option. |
 | 3 | Another update is running. |
-| 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set or under sudo or pkexec, Flatpak is off or missing, or there is no `-y` and no terminal to ask at. |
+| 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set or under sudo or pkexec, Flatpak is missing, or there is no `-y` and no terminal to ask at. |
 
 ## startup
 

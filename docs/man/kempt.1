@@ -181,11 +181,9 @@ failed, or dnf5 still has the transaction. Exit 3: another update is running. Ex
 release upgrade is stored, another updater has prepared the next restart, or the root helper
 refused.
 .TP
-.BR reclaim " [" \-\-list "] [" \-y "] [\fIref\fR ...]"
+.BR reclaim " [" \-y "] [\fIref\fR ...]"
 Remove the system Flatpak runtimes no installed app uses, after showing them and their estimated
 size.
-.B \-\-list
-only shows them.
 .BR \-y ", " \-\-yes
 removes without asking. Named refs narrow it to those of the runtimes on the list.
 .IP

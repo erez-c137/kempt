@@ -8,9 +8,9 @@
 # and what is pinned, and that is the whole decision: Kempt removes what it names and nothing else.
 #
 # JSON on stdout:
-#   {"unused": [{"ref", "deploy_dir", "eol"}],
+#   {"unused": [{"ref", "deploy_dir"}],
 #    "used":   [{"ref", "deploy_dir"}]}          every other installed ref
-# eol is the reason string or null. The used refs are there for the size estimate: a file an unused
+# The used refs are there for the size estimate: a file an unused
 # ref shares with a used one is not freed, and du can only tell the two apart when it sees both sets
 # of directories.
 #
@@ -51,7 +51,7 @@ def main():
         print("flatpak did not answer: %s" % e, file=sys.stderr)
         return 1
     names = {r.format_ref() for r in unused}
-    json.dump({"unused": [dict(entry(r), eol=r.get_eol() or None) for r in unused],
+    json.dump({"unused": [entry(r) for r in unused],
                "used": [entry(r) for r in installed if r.format_ref() not in names]}, sys.stdout)
     sys.stdout.write("\n")
     return 0
