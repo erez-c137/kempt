@@ -156,12 +156,14 @@ _live_err="$("$KEMPT" update --surface=popup 2>&1 >/dev/null || true)"
 assert_contains "$_live_err" "updating now may stop what it prepared" "...saying what a live update risks"
 assert_not_contains "$_live_err" "nothing was staged" "...not that a stage was refused"
 # Held, and other users can change a dnf folder: the helper would refuse a terminal run too, so the
-# refusal names both and does not offer one.
+# folder speaks first, and no terminal run is offered.
 _unsafe="$TESTTMP/unsafe-cache"; mkdir -p "$_unsafe"; chmod 777 "$_unsafe"
-gate_refuses "held with an unsafe folder" KEMPT_DNF_CACHE_DIR="$_unsafe" "$KEMPT" update --surface=popup
 for _args in "--surface=popup" "--surface=offline"; do
   _err="$(KEMPT_DNF_CACHE_DIR="$_unsafe" "$KEMPT" update $_args 2>&1 >/dev/null || true)"
-  assert_contains "$_err" "other users can change files in $_unsafe" "$_args: names the folder"
+  _rc=0; : > "$WORLD/calls"; KEMPT_DNF_CACHE_DIR="$_unsafe" "$KEMPT" update $_args >/dev/null 2>&1 || _rc=$?
+  assert_eq "$_rc" "5" "$_args: stops with exit 5"
+  assert_eq "$(cat "$WORLD/calls")" "" "$_args: no download and no Flatpak"
+  assert_contains "$_err" "nothing was changed, because other users can change files in $_unsafe" "$_args: names the folder"
   assert_contains "$_err" "See: kempt doctor" "$_args: sends the reader to the fix"
   assert_not_contains "$_err" "in a terminal" "$_args: offers no run the helper would refuse"
 done

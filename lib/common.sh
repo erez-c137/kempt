@@ -1076,7 +1076,7 @@ apply_refusal_reason() {  # → why the helper refused, as the user's side of th
   elif [[ -e "$KEMPT_OFFLINE_TOML" || -L "$KEMPT_OFFLINE_TOML" ]] && ! offline_stored_is_readable; then
     printf 'the stored offline transaction could not be read\n'
   else
-    printf 'Kempt could not check the folders dnf uses\n'
+    printf "Kempt's system helper refused\n"
   fi
 }
 

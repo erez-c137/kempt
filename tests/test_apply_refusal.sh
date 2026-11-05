@@ -148,7 +148,7 @@ dnf-offline-clean) echo "kempt-apply: refusing dnf-offline-clean: the stored off
 stage_real
 reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-live-clean-refused" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-grep -q 'superseded the staged transaction. These updates were left in place. Run kempt doctor.' "$TESTTMP/err" \
+grep -q 'superseded the staged transaction, but it could not be discarded. See: kempt doctor' "$TESTTMP/err" \
   && echo "ok: ...and warns that it was left in place" || { echo "FAIL: no warning"; _fail=1; cat "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean"
 
@@ -275,21 +275,6 @@ apply_stub w-stale "dnf-upgrade) echo 'kempt-apply: $S_CHECK' >&2; echo 'somethi
 stored offline-ready.toml; reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stale" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
 assert_not_contains "$(last_error)" "could not check" "a sentence that is not the helper's last line is not its reason"
-# A clean refused over the folders, with a release upgrade stored by then.
-stage_real
-apply_stub w-clean "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) $(says "$S_CHECK") ;;"
-reset_run
-KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-assert_contains "$(cat "$TESTTMP/err")" "this update superseded the staged transaction. These updates were left in place. $S_CHECK" \
-  "a clean refused over the folders says the helper's sentence"
-no_clean_advice "...and does not advise a clean"
-# ...with a stored record it cannot read by then: the helper's word still stands.
-stage_real
-apply_stub w-clean-unread "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) sed -i '/releasever/d' '$TOML'; $(says "$S_CHECK") ;;"
-reset_run
-KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean-unread" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-assert_contains "$(cat "$TESTTMP/err")" "These updates were left in place. $S_CHECK" "an unreadable record is not blamed when the helper named the folders"
-assert_not_contains "$(cat "$TESTTMP/err")" "could not be read" "...and is not mentioned"
 
 # dnf_status starts unknown and every path names it. A run that reached history says ok or failed.
 assert_eq "$(cat "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | jq -r 'select(.dnf != null) | .dnf.status' | grep -vxE 'ok|failed' | sort -u)" "" \

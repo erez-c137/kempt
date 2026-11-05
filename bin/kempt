@@ -875,11 +875,6 @@ refuse_run_behind_other_updater() {
   local rc=0
   run_pending_count || rc=$?
   [[ $rc -eq 0 && "$REPLY" == 0 ]] && return 0
-  # The root helper would refuse the terminal run named below, so that is not the way out here.
-  local unsafe_dir
-  if unsafe_dir="$(apply_unsafe_dir)"; then
-    preflight_abort "another updater has prepared the next restart, and $(apply_unsafe_words "$unsafe_dir"), so nothing was changed. See: kempt doctor"
-  fi
   if [[ "$wanted_stage" != true ]]; then
     preflight_abort "another updater has prepared the next restart, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now by typing this in a terminal: kempt update --surface=widget"
   fi
@@ -1182,8 +1177,6 @@ reconcile_stage_after_live_run() {
   apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?
   if [[ $clean_rc -eq 0 ]]; then
     log_event "Staged update dropped (a live update replaced it)"
-  elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]] && clean_refused_over_folders "$log"; then
-    log_warn "$log" "warning: this update superseded the staged transaction. $(clean_left_words "$log")"
   else
     log_warn "$log" "warning: this update superseded the staged transaction, but it could not be discarded. See: kempt doctor"
   fi
@@ -1278,9 +1271,11 @@ cmd_update() {
   fi
   local wanted_stage=false
   [[ "$surface" == offline ]] && wanted_stage=true
-  refuse_run_behind_other_updater
   local dnf_apply_skipped=false
+  # In this order: the refusal over the other updater offers a terminal run, which root would refuse
+  # over the folders.
   refuse_run_over_unsafe_folders
+  refuse_run_behind_other_updater
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
   trap release_lock EXIT
 
@@ -1432,11 +1427,7 @@ cmd_update() {
           log_event "Staged update discarded (the stored one would have installed what is now held)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
-          if clean_refused_over_folders "$log"; then
-            reason_override="nothing new was prepared. $(clean_left_words "$log")"
-          else
-            reason_override="nothing new was prepared, and the earlier updates were left in place because $(apply_refusal_reason). See: kempt doctor"
-          fi
+          reason_override="nothing new was prepared, and the earlier updates were left in place because $(apply_refusal_reason). See: kempt doctor"
         else
           dnf_status="failed"; status="failed"
           reason_override="nothing new was prepared, and the earlier updates could not be removed, so they still install on the next restart, held packages included. See: kempt doctor"
@@ -1465,13 +1456,8 @@ cmd_update() {
         fi
         if [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Never "run: sudo dnf5 offline clean" here: that is the command the refusal protects against.
-          if clean_refused_over_folders "$log"; then
-            notify_tail=". $(clean_left_words "$log")"
-            log_warn "$log" "warning: the updates could not be set to install$notify_tail"
-          else
-            log_warn "$log" "warning: the staged update that could not be set to install was left in place because $(apply_refusal_reason). See: kempt doctor"
-            notify_tail=". The stored transaction was left in place. See: kempt doctor"
-          fi
+          log_warn "$log" "warning: the staged update that could not be set to install was left in place because $(apply_refusal_reason). See: kempt doctor"
+          notify_tail=". The stored transaction was left in place. See: kempt doctor"
         elif [[ $clean_rc -ne 0 ]]; then
           log_warn "$log" "warning: could not discard the staged update that could not be set to install. See: kempt doctor"
           # Escalated past stderr because this is state (d): the toml and the boot symlink
@@ -1519,11 +1505,7 @@ cmd_update() {
           reason_override="the earlier updates were removed and could not be prepared again"
           log_event "Staged update discarded (rebuild failed)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
-          if clean_refused_over_folders "$log"; then
-            reason_override="could not replace the prepared updates. $(clean_left_words "$log")"
-          else
-            reason_override="could not replace the prepared updates, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
-          fi
+          reason_override="could not replace the prepared updates, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
         else
           reason_override="the earlier updates were removed and could not be prepared again or cleaned up. See: kempt doctor"
         fi
@@ -2594,20 +2576,11 @@ cmd_unstage() {
   fi
   # NOT through apply_with_retry: that tees into a run log this command does not have, and this is
   # one short verb rather than a transaction. A package lock held by something else fails plainly.
-  local rc=0 err="" refused_why=""
+  local rc=0 err=""
   { err="$(priv_apply dnf-offline-clean 2>&1 >&3)" || rc=$?; } 3>&1
-  if [[ $rc -eq $KEMPT_APPLY_REFUSED ]] && refused_why="$(helper_folder_refusal "$err")"; then
-    err=""
-  fi
   [[ -z "$err" ]] || printf '%s\n' "$err" >&2
   if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
-    if [[ -n "$refused_why" ]]; then
-      echo "These updates were left in place. $refused_why" >&2
-    elif clean_refused_over_folders; then
-      echo "$KEMPT_CLEAN_LEFT" >&2
-    else
-      echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
-    fi
+    echo "Nothing was discarded, because $(apply_refusal_reason). See: kempt doctor" >&2
     log_event "Discard was refused by Kempt's system helper"
     exit 5
   fi
@@ -3448,36 +3421,18 @@ apply_unsafe_dir() {  # → the first such folder; rc 1 when there is none
 apply_unsafe_words() {  # folder → the end of a sentence
   printf 'other users can change files in %s' "$(doctor_plain_name "$1")"
 }
-# A clean the helper refused. Over a folder problem, the unwind's words are these. Over what is
-# stored, the caller keeps its own sentence with the reason in it.
-clean_refused_over_folders() {  # run log or "" → 0 when the folders are why
-  local relup
-  [[ -n "${1:-}" ]] && log_folder_refusal "$1" >/dev/null && return 0
-  relup="$(offline_release_upgrade)" && return 1
-  [[ -e "$KEMPT_OFFLINE_LINK" || -L "$KEMPT_OFFLINE_LINK" ]] && [[ "$(offline_link_state)" != dnf5 ]] && return 1
-  [[ -e "$KEMPT_OFFLINE_TOML" || -L "$KEMPT_OFFLINE_TOML" ]] && ! offline_stored_is_readable && return 1
-  return 0
-}
-KEMPT_CLEAN_LEFT="These updates were left in place. Run kempt doctor."
-clean_left_words() {  # run log → KEMPT_CLEAN_LEFT, in the helper's words when it gave a folder reason
-  local why
-  if why="$(log_folder_refusal "$1")"; then printf 'These updates were left in place. %s\n' "$why"
-  else printf '%s\n' "$KEMPT_CLEAN_LEFT"; fi
-}
 # The helper's own sentence for a refusal over the folders. It alone knows
 # which: a user's reading cannot see what root was denied, and what is stored may be a second problem
 # the helper never reached. Its line is the last thing it prints.
-helper_folder_refusal() {  # the helper's output → the sentence; rc 1 when the last line is about something else
-  local line="${1##*$'\n'}"
+log_folder_refusal() {  # run log → the sentence; rc 1 when the last line is about something else
+  [[ -f "$1" ]] || return 1
+  local line
+  line="$(tail -n 1 -- "$1")"
   case "$line" in
     "kempt-apply: Updates paused for safety: "*|"kempt-apply: Kempt could not check "*)
       doctor_plain_name "${line#kempt-apply: }"; echo ;;
     *) return 1 ;;
   esac
-}
-log_folder_refusal() {  # run log → the sentence, as above
-  [[ -f "$1" ]] || return 1
-  helper_folder_refusal "$(tail -n 1 -- "$1")"
 }
 # Every byte outside printable ASCII becomes ?: control characters, C1 bytes and Unicode bidi
 # controls alike, so a planted name cannot move the cursor or reorder the line. Root's dnf5 paths
