@@ -45,30 +45,31 @@ reclaim_bytes_of() {  # sizes TSV, refs one per line → bytes
 # 9>&- keeps check.lock's descriptor out of flatpak. The update lock (fd 8) is inherited on purpose:
 # if kempt is killed, no update starts until flatpak exits.
 reclaim_remove() {  # refs(sorted, one per line) → 0, or 1 when anything is left to say
-  local out rc=0 after err gone left n said
+  local out rc=0 after err reason="" gone left n said
   local -a refs; readarray -t refs <<<"$1"
   # shellcheck disable=SC2086  # the seam carries its own arguments
   out="$(timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD -- "${refs[@]}" </dev/null 2>&1 9>&-)" || rc=$?
   [[ -z "$out" ]] || printf '%s\n' "$out"
-  err=""
-  if [[ $rc -ne 0 ]]; then
+  # The reason first: a refusal names every ref as still installed, and the widget wraps this line.
+  if [[ $rc -eq 124 ]]; then
+    reason="Flatpak took too long, so Kempt stopped it. "
+  elif [[ $rc -ne 0 ]]; then
     err="$(error_line_of <<<"$out")"
-    err=" Flatpak stopped with exit code $rc${err:+: $err}"
+    reason="Flatpak stopped with exit code $rc${err:+: ${err%.}}. "
   fi
   if ! after="$(flatpak_unused_list 2>/dev/null)"; then
-    said="Kempt could not read the list afterwards, so it cannot say what was removed.$err"
+    said="${reason}Kempt could not read the list afterwards, so it cannot say what was removed."
     echo "$said" >&2; log_event "Unused runtimes: $said"
     return 1
   fi
   gone="$(comm -23 <(printf '%s\n' "$1") <(reclaim_all_refs "$after"))"
   left="$(comm -12 <(printf '%s\n' "$1") <(reclaim_all_refs "$after"))"
   n=0; [[ -z "$gone" ]] || n="$(wc -l <<<"$gone")"
-  if [[ $n -eq 0 ]]; then said="Nothing was removed."
-  elif [[ $n -eq 1 ]]; then said="Removed 1 runtime."
-  else said="Removed $n runtimes."
+  if [[ $n -eq 0 ]]; then said="${reason}Nothing was removed."
+  elif [[ $n -eq 1 ]]; then said="${reason}Removed 1 runtime."
+  else said="${reason}Removed $n runtimes."
   fi
   [[ -z "$left" ]] || said+=" Still installed: $(tr '\n' ' ' <<<"$left" | sed 's/ $//')."
-  said+="$err"
   # The refs, so a person can look up what to reinstall.
   log_event "Unused runtimes: $said${gone:+ Gone: ${gone//$'\n'/ }.}"
   if [[ $rc -eq 0 && -z "$left" ]]; then echo "$said"; return 0; fi

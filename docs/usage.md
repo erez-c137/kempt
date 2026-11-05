@@ -417,14 +417,15 @@ What it removes:
 It never asks for a password. Removing needs an administrator (on Fedora, a member of the `wheel`
 group) logged in at the desktop. Otherwise Flatpak refuses, and Kempt shows its reason.
 
-The result comes from the list read afterwards: how many runtimes went, and what is still installed. A
+The result comes from the list read afterwards: Flatpak's reason if it failed, how many runtimes
+went, and what is still installed. A
 removal writes an event line naming what went, so you can look up what to reinstall, and no history
 entry.
 
 | Exit | When |
 | --- | --- |
 | 0 | Removed, nothing to remove, or you answered no. |
-| 1 | Flatpak could not list the runtimes, it failed, or a runtime it was given is still installed. Kempt says what went and what remained. If the list afterwards could not be read, it says it cannot tell. |
+| 1 | Flatpak could not list the runtimes, it failed, or a runtime it was given is still installed. Kempt says why, what went and what remained. If the list afterwards could not be read, it says it cannot tell. |
 | 2 | Unknown option. |
 | 3 | Another update is running. |
 | 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set or under sudo or pkexec, Flatpak is off or missing, or there is no `-y` and no terminal to ask at. |

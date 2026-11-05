@@ -264,11 +264,15 @@ assert_eq "$(ls "$KEMPT_STATE_DIR/history" 2>/dev/null | wc -l)" "0" "...and a r
 reset; ERR='error: Failed to uninstall runtime/x: busy'
 rc=0; UNINSTALL_RC=1 UNINSTALL_SAY="$(printf 'Uninstalling\n%s\nerror: There were one or more errors' "$ERR")" reclaim -y || rc=$?
 assert_eq "$rc" "1" "flatpak failing is exit 1"
-assert_contains "$(said_err)" "Nothing was removed." "...it says nothing went"
-assert_contains "$(said_err)" "Still installed: $(tr '\n' ' ' <<<"$ALL5" | sed 's/ $//')." "...and what remained"
-assert_contains "$(said_err)" "Flatpak stopped with exit code 1: $ERR" "...and flatpak's reason"
+assert_eq "$(said_err)" "Flatpak stopped with exit code 1: $ERR. Nothing was removed. Still installed: $(tr '\n' ' ' <<<"$ALL5" | sed 's/ $//')." \
+  "...its reason first, then that nothing went, then what remained"
 assert_not_contains "$(said_out)$(said_err)" "Removed" "...and never that anything went"
 assert_eq "$(said_err | wc -l)" "1" "...in one line, the one the widget shows"
+# The removal ran out of time: timeout's exit status, said in words.
+reset; rc=0; UNINSTALL_RC=124 UNINSTALL_SAY="error: late" reclaim -y || rc=$?
+assert_eq "$rc" "1" "a removal that ran out of time is exit 1"
+assert_contains "$(said_err)" "Flatpak took too long, so Kempt stopped it. Nothing was removed." "...and says it waited too long"
+assert_not_contains "$(said_err)" "124" "...not an exit code"
 # Flatpak said yes and nothing went: the command running is no success.
 reset
 rc=0; reclaim -y || rc=$?
@@ -279,7 +283,7 @@ assert_not_contains "$(said_out)" "Removed" "...and claims nothing"
 reset; only "$KDE" > "$AFTER"
 rc=0; UNINSTALL_RC=1 reclaim -y || rc=$?
 assert_eq "$rc" "1" "part gone and flatpak failing is exit 1"
-assert_contains "$(said_err)" "Removed 4 runtimes. Still installed: $KDE. Flatpak stopped with exit code 1" \
+assert_contains "$(said_err)" "Flatpak stopped with exit code 1. Removed 4 runtimes. Still installed: $KDE." \
   "...with what went, counted from the refs really gone, and what remained"
 assert_not_contains "$(tail -1 "$KEMPT_STATE_DIR/events.log" | sed 's/.* Gone: //')" "$KDE" "...and the event line names only what went"
 # Flatpak said yes and left one.
@@ -301,7 +305,7 @@ assert_contains "$(said_err)" "Removed 4 runtimes." "...and it is not counted as
 reset; only > "$AFTER"
 rc=0; UNINSTALL_RC=1 reclaim -y || rc=$?
 assert_eq "$rc" "1" "all gone with flatpak failing is still exit 1"
-assert_contains "$(said_err)" "Removed 5 runtimes. Flatpak stopped with exit code 1" "...and says both"
+assert_contains "$(said_err)" "Flatpak stopped with exit code 1. Removed 5 runtimes." "...and says both"
 # The list afterwards cannot be read: Kempt does not know, flatpak's exit status or not.
 for frc in 0 1; do
   reset; only > "$AFTER"; touch "$STUBS/unused.fail.3"
