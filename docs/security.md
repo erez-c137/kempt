@@ -7,7 +7,7 @@ To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 A fact about another program is marked **[run]** when it was seen on a real Fedora 44 with SELinux
 enforcing, dnf5 5.4.6, polkit 127 and systemd 259, or **[source]** when it was read in that
-program's code or manual.
+program's code or manual. A claim marked **[reasoned]** was worked out and has not been run.
 
 ## What runs as root
 
@@ -193,10 +193,14 @@ No SELinux denial appeared in any of these runs [run].
 ### The folders dnf5 installs from
 
 One check guards these folders, and root makes it. `kempt-apply` exits 3 while anything under dnf's
-state, staged packages or cache is not root's, or is writable by anyone other than root and its
-group. rpm checks only a digest after dnf5's signature check, which is why the cache counts. A link
+state, staged packages or cache is not root's, or by its mode bits is writable by anyone other than
+root and its group. An ACL entry that grants write passes. rpm checks only a digest after dnf5's signature check, which is why the cache counts. A link
 is judged by its owner and never followed. `dnf-offline-clean` skips this check, because discarding
 the stage is the fix, and it installs nothing.
+
+Root checks when a step starts: a live update, a stage, an arm. Nothing checks at the restart that
+installs a staged update, because Kempt does not run then. A folder changed after the arm reaches
+root's dnf5 unchecked.
 
 The CLI runs the same `find` as you, read-only. Root can read everything you can, so what you find
 root refuses over too. `kempt update` stops on such a folder with exit 5, before any password prompt,
@@ -217,7 +221,7 @@ Kempt no longer walks the folders above these, reads ACL entries or looks for FU
 as you. A writable `/var/lib` or an ACL entry that grants write no longer stops an update, and doctor
 does not report them. This is a real reduction on a misconfigured machine, and it takes root's own
 act to make one. On such a machine a local user could plant a package and wait for any root dnf5
-run, Kempt's or not. Whether one of those machines can be turned into an install through these
+run, Kempt's or not [reasoned]. Whether one of those machines can be turned into an install through these
 removed checks has not been tested.
 
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets

@@ -245,6 +245,17 @@ for sentence in "$S_CHECK" "$S_UNSAFE"; do
   KEMPT_APPLY_HELPER="$TESTTMP/apply-w-live-$i" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
   assert_eq "$(last_error)" "nothing was installed. $sentence" "...and a refused live update"
 done
+# A problem this account cannot see gets past the CLI to root. That refusal is exit 1, and Flatpak still updates.
+printf '#!/usr/bin/env bash\ntouch "%s/flatpak-ran"\n' "$WORLD" > "$TESTTMP/flatpak-update-log"; chmod +x "$TESTTMP/flatpak-update-log"
+apply_stub w-seen-live "dnf-upgrade) $(says "$S_UNSAFE") ;;"
+apply_stub w-seen-stage "dnf-offline-stage) $(says "$S_UNSAFE") ;;"
+for _sf in widget offline; do
+  rm -f "$WORLD/flatpak-ran"; stored offline-ready.toml; reset_run
+  rc=0; _stub="$TESTTMP/apply-w-seen-live"; [[ "$_sf" == offline ]] && _stub="$TESTTMP/apply-w-seen-stage"
+  KEMPT_FLATPAK_UPDATE_CMD="$TESTTMP/flatpak-update-log" KEMPT_APPLY_HELPER="$_stub" "$KEMPT" update --surface=$_sf >/dev/null 2>&1 </dev/null || rc=$?
+  assert_eq "$rc" "1" "root's refusal of a $_sf run the CLI could not foresee is exit 1"
+  assert_eq "$([[ -e "$WORLD/flatpak-ran" ]] && echo yes)" "yes" "...and Flatpak still updates"
+done
 # Folders caused it, and a release upgrade is stored as well: the helper's word stands.
 apply_stub w-stage-relup "dnf-offline-stage) cp '$RELUP' '$TOML'; $(says "$S_CHECK") ;;"
 stored offline-ready.toml; reset_run

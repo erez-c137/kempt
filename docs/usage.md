@@ -261,7 +261,8 @@ Live updates still work, and the risky-transaction prompt offers only `[u]` and 
 changed, Flatpak included, before any password prompt. The message names the folder, and `kempt
 doctor` has the fix. With no system updates waiting, a live run still updates Flatpak. This is the
 root helper's own test, read as you. Its answer is the one that counts: anything you cannot read, it
-checks as root.
+checks as root. When your account cannot see the problem, root refuses later, so the run exits 1 and
+Flatpak still updates.
 
 **When another updater holds the next restart, `--surface=offline` stops too,** with exit 5 and
 nothing changed, Flatpak included, because a quiet fall to a live run
