@@ -58,7 +58,7 @@ case "$1" in
       sleep "$(cat %(DELAY)s)"
       cat %(PAGE)s
       rc="$(cat %(RC)s)"
-      [[ "$rc" == 0 ]] || echo "kempt: could not gather the startup page" >&2
+      [[ "$rc" == 0 ]] || echo "kempt: could not gather the Startup Report" >&2
       exit "$rc"
     fi
     exit 0 ;;
@@ -227,7 +227,7 @@ serve("", rc=1)
 pev("refreshButton.clicked()")
 settle()
 p.check("a failed gather gives the CLI's reason",
-        pev("noteLabel.text"), "Kempt could not gather the startup list: kempt: could not gather the startup page")
+        pev("noteLabel.text"), "Kempt could not gather the startup list: kempt: could not gather the Startup Report")
 p.check("...and says it out loud, since no text area is there to read",
         json.loads(str(sev("JSON.stringify(said)")))[-1], pev("noteLabel.text"))
 

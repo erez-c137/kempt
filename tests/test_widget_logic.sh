@@ -1147,8 +1147,8 @@ assert_eq "$(js "JSON.stringify(L.startupPageOutcomeOf(' \n', '', 0))")" \
   '{"ok":false,"problem":"Kempt could not read the startup list."}' "...and an empty answer is a calm problem"
 assert_eq "$(js "L.startupPageOutcomeOf('', 'timeout after 20000ms', 124).problem")" \
   "Kempt did not answer in time. Press Refresh to try again." "a gather that timed out says so"
-assert_eq "$(js "L.startupPageOutcomeOf('', 'kempt: could not gather the startup page\n', 1).problem")" \
-  "Kempt could not gather the startup list: kempt: could not gather the startup page" "...and one that failed gives the CLI's reason"
+assert_eq "$(js "L.startupPageOutcomeOf('', 'kempt: could not gather the Startup Report\n', 1).problem")" \
+  "Kempt could not gather the startup list: kempt: could not gather the Startup Report" "...and one that failed gives the CLI's reason"
 assert_eq "$(js "L.startupPageOutcomeOf('', '', 1).problem")" "Kempt could not gather the startup list (exit 1)." "...or its exit code"
 assert_eq "$(js 'L.STARTUP_PAGE_ARGS')" " startup --all" "the page gathers with kempt startup --all"
 
@@ -1241,9 +1241,9 @@ assert_eq "$(js 'L.versionTextOf("?","1.0-1.fc44")')" "new → 1.0-1.fc44" \
   "a package that was not installed still reads new, exactly as it did before"
 assert_eq "$(js 'L.versionTextOf("3.105","3.106")')" "3.105 → 3.106" \
   "and an ordinary upgrade is untouched"
-# The word comes from the copy table, like every other string the popup draws.
+# The word is the widget's own, like every other string the popup draws.
 assert_eq "$(js 'L.versionTextOf("9","9").indexOf("new build") > 0')" "true" \
-  "...in the copy table's words"
+  "...in the widget's words"
 
 # --- riskyMessageOf: what a session-critical transaction is actually told to DO -----------------
 # riskySummaryOf answers "how much of this is risky" and is unchanged (its assertions are above).
@@ -1255,11 +1255,11 @@ KN='["kernel-core","akmod-nvidia"]'
 assert_eq "$(js "L.riskyMessageOf($K)")" \
   "The next restart is the safest time to install a new kernel." \
   "a kernel in the set names the kernel, and recommends the button underneath it"
-assert_eq "$(js "L.riskyMessageOf($K)")" "The next restart is the safest time to install a new kernel." "...in the copy table's words"
+assert_eq "$(js "L.riskyMessageOf($K)")" "The next restart is the safest time to install a new kernel." "...in the widget's words"
 assert_eq "$(js "L.riskyMessageOf($KN)")" \
   "The next restart is the safest time to install a new kernel and NVIDIA driver." \
   "a kernel plus the NVIDIA driver names both"
-assert_eq "$(js "L.riskyMessageOf($KN)")" "The next restart is the safest time to install a new kernel and NVIDIA driver." "...in the copy table's words too"
+assert_eq "$(js "L.riskyMessageOf($KN)")" "The next restart is the safest time to install a new kernel and NVIDIA driver." "...in the widget's words too"
 # The two tests are shaped DIFFERENTLY on purpose, and this is what pins the difference.
 # "kernel" is a FAMILY test: kernel-core, kernel-modules and kernel.x86_64 are one decision, which
 # is precisely what familiesOf already exists to collapse (name up to the first - or .).
@@ -3070,7 +3070,7 @@ assert_eq "$(js "L.viewModel($REBOOT_TIP,false).tooltipSub.indexOf('restart pend
 assert_eq "$(js "L.viewModel($FRESH_FTR,false).tooltipSub.indexOf('restart pending') >= 0")" "false" \
   "...and one that does not, does not"
 
-# --- the copy table -----------------------------------------------------------------------------
+# --- the widget's words --------------------------------------------------------------------------
 # One place where the wording is decided, so a change is one edit and a node test can pin it. The
 # QML still writes each literal itself: i18n() extracts LITERALS, and i18n(someVariable) extracts
 # nothing at all, so routing these through i18n() at runtime would ship an untranslatable widget.
@@ -3086,7 +3086,7 @@ assert_eq "$(js 'L.updatingLabelOf("wat")')" "Updating…" \
   "an unknown surface reads as the one the CLI would actually run"
 assert_eq "$(js 'L.updatingLabelOf("terminal")')" "Updating…" "...and so does a saved terminal"
 assert_eq "$(js 'L.updatingLabelOf("")')" "Updating…" "...and so does no answer at all"
-# ...and the word nobody outside this repo knows is gone from the copy table entirely.
+# ...and the word nobody outside this repo knows is gone from the widget's words entirely.
 assert_eq "$(widget_text | grep -ci 'surface')" "0" "no string the popup shows a person uses the word surface"
 
 # The HEADER while a transaction is armed. Three spellings, the same three the banner has and for
@@ -3712,7 +3712,7 @@ assert_eq "$(printf 'text: i18n("Wait...")\n' | sed 's://.*::' | grep -c '\.\.\.
 
 # --- docs/install.md quotes what the widget shows ------------------------------------------------
 # docs/install.md is where a store-first user lands, so the sentence it promises them is
-# the sentence the widget actually shows. Derived from the copy table, not typed.
+# the sentence the widget actually shows. Derived from the widget's words, not typed.
 INSTALL_DOC="$REPO_ROOT/docs/install.md"
 assert_eq "$(grep -cF "Nothing can check for updates yet." "$INSTALL_DOC")" "1" \
   "docs/install.md quotes the message a widget with no engine really shows"

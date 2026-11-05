@@ -22,7 +22,7 @@
 #   interactive and non-interactive are identical. There is no prompt, no y/N, no TTY test. The
 #   rebuild is a command the user types, or a button the widget offers.
 #
-# Copy is quoted verbatim from the spec's copy table, and quoted here rather than built from the
+# Copy is quoted verbatim, here rather than built from the
 # helpers, so a rewrite of the renderers cannot silently rewrite what the user reads.
 source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"

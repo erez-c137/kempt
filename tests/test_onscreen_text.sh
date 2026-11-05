@@ -74,7 +74,7 @@ if command -v node >/dev/null 2>&1; then
   assert_eq "$(grep -c '^postRunLine(failed)' "$TEXT")" "1" "the sentences built from a run are collected"
   assert_eq "$([[ "$(grep -c '^template' "$TEXT")" -gt 200 ]] && echo yes)" "yes" "the widget's sentences are collected"
 else
-  skip "node is not installed, so the widget's copy table was NOT checked in this run"
+  skip "node is not installed, so the widget's sentences were NOT checked in this run"
   : > "$TEXT"
 fi
 

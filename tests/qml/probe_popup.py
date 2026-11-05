@@ -692,7 +692,7 @@ ev("root.promptRestart()")
 settle()
 p.check("a prompt that will not open says so instead of failing silently",
         ev("root.restartError"), "Could not open the restart prompt.")
-p.check("...in the words the copy table agreed", ev("root.restartError"),
+p.check("...in the agreed words", ev("root.restartError"),
         "Could not open the restart prompt.")
 open(DBUSRC, "w").write("0")
 ev("root.promptRestart()")
@@ -760,7 +760,7 @@ ev('root.actionMessage = ""')
 # So the witness says the line ran, and the assertions under it say the action itself is wired -
 # which is the half that could break silently in a real panel.
 p.check("the contextual action was registered", ev("root.contextualActionsClaimed"), True)
-p.check("...named exactly what the copy table agreed", ev("checkAction.text"),
+p.check("...named exactly as agreed", ev("checkAction.text"),
         "Check for Updates")
 p.check("...with the icon Plasma uses for a refresh", ev("checkAction.icon.name"), "view-refresh")
 before_check = p.call_count("check")
@@ -1672,7 +1672,7 @@ p.check("a run puts the answer away, and its end does not bring it back",
 open(DOCTOROUT, "w").write("")
 open(DOCTORRC, "w").write("0")
 
-# ...and a status with nothing on either stream, which is the case the copy table is FOR.
+# ...and a status with nothing on either stream, which is the case the fallback sentence is FOR.
 open(UNSTAGERC, "w").write("3")
 open(UNSTAGEERR, "w").write("")
 p.clear_calls()

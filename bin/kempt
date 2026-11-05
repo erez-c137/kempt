@@ -3471,7 +3471,7 @@ startup_page_cmd() {
     --json) json=1 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
-  page="$(startup_page_gather)" || { echo "kempt: could not gather the startup page" >&2; exit 1; }
+  page="$(startup_page_gather)" || { echo "kempt: could not gather the Startup Report" >&2; exit 1; }
   if [[ -n "$json" ]]; then printf '%s\n' "$page"; return 0; fi
   # Today, yesterday and tomorrow are calendar days, worked out in UTC: the days the clocks change
   # are 23 and 25 hours long. KEMPT_NOW (seconds since the epoch) pins the clock for the tests.

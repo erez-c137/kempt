@@ -1924,8 +1924,8 @@ startup_patch_state() {
 
 # --- the Startup Report (`kempt startup --all`) ---
 # One gatherer for the terminal and the widget: what did not start this boot, what changed since
-# the last run's baseline, what starts with the computer, what runs on a schedule, and how long
-# startup took. Every outside call is a read-only query as the user through startup_timed, and a
+# the last run's baseline, what starts with the computer and what runs on a schedule.
+# Every outside call is a read-only query as the user through startup_timed, and a
 # unit name reaches a command only as an argument of its own. What a command printed reaches jq on
 # stdin or as a file, never as an argument: one argument holds 128 KB, and a long journal would
 # lose the whole section. A section with nothing in it is left out.
@@ -4157,8 +4157,8 @@ render_summary() {  # history-json-file → human text
 # The widget derives what it shows in plasmoid/contents/ui/logic.js, and a terminal over SSH has no
 # JavaScript to run it with. So the few rules `kempt status` needs are ported here, and
 # tests/test_status.sh holds the two copies together: for each fixture and a fixed clock, the header
-# and the numbers must match what logic.js derives, and every string below that mirrors a COPY entry
-# must equal it. Only those rules: the rest of status is this side's own wording.
+# and the numbers must match what logic.js derives, and every string below that the widget also
+# says must appear in the widget's own sentences. Only those rules: the rest of status is this side's own wording.
 # NO APOSTROPHES IN HERE: these jq programs are single-quoted bash strings, and one closes them.
 
 # Time words, as logic.js says them (formatStamp, relativeTime, metadataAgeText). $now is in whole
