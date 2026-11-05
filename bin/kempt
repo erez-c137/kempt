@@ -2331,10 +2331,9 @@ cmd_reclaim() {
     [[ "${answer,,}" == y || "${answer,,}" == yes ]] || { echo "Nothing was removed."; return 0; }
   fi
   # The update lock, without waiting, like a second `kempt update`: a run in progress may be
-  # installing the very runtime this would call unused. On exit only this process's descriptor
+  # installing the very runtime this would call unused. No `release_lock` here: at exit only this process's descriptor
   # closes, never `flock -u`: that would free the lock for a flatpak still holding it.
   acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
-  trap 'exec 8>&-' EXIT
   fresh="$(flatpak_unused_list 2>/dev/null)" || { echo "$no_list" >&2; exit 1; }
   refs="$(comm -12 <(printf '%s\n' "$shown") <(reclaim_unused_refs "$fresh"))"
   if [[ -z "$refs" ]]; then
