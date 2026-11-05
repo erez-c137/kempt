@@ -1184,22 +1184,14 @@ PlasmaExtras.Representation {
         }
 
         // The full report, at most a third of the popup tall, so the list keeps its room.
-        PlasmaComponents.ScrollView {
+        ReportText {
             id: doctorReportView
+            name: i18n("Full report")
+            text: popup.plasmoidItem.doctorReport
             Layout.fillWidth: true
-            Layout.preferredHeight: Math.min(doctorReportText.implicitHeight,
-                                             Math.round(popup.height / 3))
+            Layout.preferredHeight: Math.min(contentHeight, Math.round(popup.height / 3))
             visible: doctorMessage.visible && doctorMessage.showingReport
                      && popup.plasmoidItem.doctorReport.length > 0
-            PlasmaComponents.TextArea {
-                id: doctorReportText
-                readOnly: true
-                textFormat: TextEdit.PlainText
-                wrapMode: TextEdit.Wrap
-                font.family: "monospace"
-                text: popup.plasmoidItem.doctorReport
-                Accessible.name: i18n("Full report")
-            }
         }
 
         // A service that stopped starting after an update, in the `startup` slot above the restart. A Warning per service, each with its own two buttons, under

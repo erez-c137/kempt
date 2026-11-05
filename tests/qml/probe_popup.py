@@ -1549,8 +1549,8 @@ p.check("...and the full report is folded away until asked for",
 lev("doctorMessage.actions[0].trigger()")
 p.pump(50)
 p.check("Show Full Report opens everything doctor printed, where it can be selected",
-        [lev("doctorReportView.visible"), lev("doctorReportText.text"),
-         lev("doctorReportText.readOnly")], [True, DOCTOR_ONE.rstrip("\n"), True])
+        [lev("doctorReportView.visible"), lev("doctorReportView.text"),
+         lev("doctorReportView.area.readOnly")], [True, DOCTOR_ONE.rstrip("\n"), True])
 p.check("...and the button says it is open", lev("doctorMessage.actions[0].checked"), True)
 lev('engineCopyClip.text = ""')
 lev("doctorMessage.actions[1].trigger()")
