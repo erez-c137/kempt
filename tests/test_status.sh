@@ -278,6 +278,7 @@ jq '.offline_staged = {count: 12}' "$L" > "$PAR/x-staged.json"
 jq '.offline_staged = {count: 1}' "$L" > "$PAR/x-staged-one.json"
 jq '.offline_staged = {}' "$L" > "$PAR/x-staged-nocount.json"
 jq '.offline_staged = {count: 12} | .release_upgrade = {from: "44", to: "45", state: "downloaded"}' "$L" > "$PAR/x-staged-relup.json"
+jq '.risky_pending = ["plasma-desktop"]' "$L" > "$PAR/x-session-only.json"
 jq '.schema = 2' "$L" > "$PAR/x-schema2.json"
 jq '{schema: 1, status: "ok"}' "$L" > "$PAR/x-no-shape.json"
 jq '.backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0
@@ -328,7 +329,7 @@ node_facts() {  # state file → the same, from logic.js
     // The widget says System and Apps and puts the risk on its status line. The terminal keeps the
     // names of the tools whose output it shows, and says the risk under the question.
     const cli = (t) => ({ System: "System (dnf)", Apps: "Apps (flatpak)" }[t] || t);
-    console.log(JSON.stringify({ header: vm.headerText.replace(/, including a new kernel$/, ""),
+    console.log(JSON.stringify({ header: vm.headerText.replace(/, including (a new kernel|parts your desktop is using)$/, ""),
       sections: usable ? L.collectItems(st).sections.map((s) => [cli(s.title), s.items.length]) : [],
       held: Number((/(\d+) held/.exec(vm.footerText) || [0, 0])[1]),
       security: Number((/(\d+) security update/.exec(vm.tooltipSub) || [0, 0])[1]) }));
