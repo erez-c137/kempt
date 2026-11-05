@@ -67,28 +67,6 @@ assert_eq "$(config_get notify_startup 2>&1)" "true" "a leftover startup_page li
 assert_eq "$(config_get startup_page)" "true" "...and left where it was"
 printf '%s\n' "$_cfg_before" > "$KEMPT_CONFIG_DIR/config"
 
-# --- reclaim: what happens to the Flatpak runtimes no installed app uses --------------------------
-# ask is the default, and the resolver is the only reader. Anything that is not exactly `off` reads as
-# ask, so a typo never hides space the person could free.
-assert_eq "$(kempt_default reclaim)" "ask" "the defaults table knows reclaim, and it is ask"
-assert_contains " $KEMPT_CONFIG_KEYS " " reclaim " "...and it is a known setting"
-assert_eq "$(reclaim_mode)" "ask" "an unset reclaim reads as ask"
-for v in ask off; do
-  config_set reclaim "$v"
-  assert_eq "$(reclaim_mode)" "$v" "reclaim=$v reads as $v"
-done
-config_set reclaim OFF
-assert_eq "$(reclaim_mode)" "off" "...case-folded, because the file is edited by hand"
-for v in automatic Automatic auto always yes true bogus ""; do
-  config_set reclaim "$v"
-  assert_eq "$(reclaim_mode)" "ask" "reclaim='$v' reads as ask"
-done
-rc=0; "$KEMPT" config set reclaim auto 2>"$TESTTMP/rc-err" >/dev/null || rc=$?
-assert_eq "$rc" "0" "an unknown reclaim value is stored and warned about, like surface"
-assert_contains "$(cat "$TESTTMP/rc-err")" "Accepted: ask, off" "...and the warning lists the two values"
-assert_eq "$("$KEMPT" config set reclaim off 2>&1 >/dev/null)" "" "...and a value it accepts says nothing"
-sed -i '/^reclaim=/d' "$KEMPT_CONFIG_DIR/config"
-
 # A surface that merged into the widget is stored as the widget, and the person is told.
 assert_eq "$("$KEMPT" config set surface terminal 2>&1)" "Stored surface=popup, the widget, because terminal is no longer a choice." \
   "config set surface terminal says what was stored"

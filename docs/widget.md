@@ -148,9 +148,9 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    turns the checks back on.
 9. **"~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
    is at least 1 GB to free. **Show Runtimes** lists the runtimes, and **Free Up Space** removes
-   them, without a password. It removes only the list you saw. If the list changed, or removing
-   needs an administrator, nothing is removed and the widget says so. Closing it hides it until the
-   list changes or Plasma restarts.
+   them, without a password. It removes only runtimes you saw and that are still unused. The widget
+   then says what was freed and what remained, or Flatpak's reason if it refused. Closing it hides it
+   until Plasma restarts.
 
 **Check Installation** checks Kempt's own files and settings without a password. A message under
 the one you pressed says *"Checking Kempt's installation…"*, then quotes the first problem it found,
@@ -359,9 +359,6 @@ runtimes. Without Flatpak, it is greyed out.
 **Check every** (`refresh_interval_min`, 60 minutes by default) sets how often the widget checks.
 The lowest value it offers is 15 minutes.
 
-**Unused Flatpak runtimes** (`reclaim`) is **Ask me first** (the default) or **Never**. It is greyed
-out without Flatpak, or when Flatpak apps are left out of updates.
-
 **Discover** shows only when Discover's update notifier is installed. It says whether the notifier
 is on, with **Turn Off Discover's Update Checks**, or turned off by Kempt, with
 **Turn On Discover's Update Checks**, which acts at once, without **Apply**. When a startup file of your
@@ -389,7 +386,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Update Now**, while another updater holds the next restart | `kempt run --surface=<a live surface>`, after its own question when system updates are waiting |
 | The padlock | `kempt hold` or `kempt unhold` |
 | **Check Installation** | `kempt doctor` |
-| **Free Up Space** | `kempt reclaim -y --expect=<digest>` |
+| **Free Up Space** | `kempt reclaim -y -- <refs>` |
 | **Turn Off Discover's Update Checks**, **Turn On Discover's Update Checks**, closing the mild message | `kempt discover-notifier off`, `on`, `keep` |
 | **Copy Command** for a service, on the Startup report | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |

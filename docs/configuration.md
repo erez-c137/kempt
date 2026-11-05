@@ -38,7 +38,6 @@ half a minute.
 | `surface` | `popup`, `offline` | `popup` | How `kempt run` and `kempt update` install. `kempt config set surface widget` stores `popup`. `kempt config set surface terminal` stores `popup` too and says so. A config that still names `background` or `terminal`, from an older version, reads as `popup`. An unrecognised value logs a warning and falls back to `popup`. |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
 | `notify_startup` | boolean | `true` | Whether Kempt tells you when a service that started before an update fails after it. Kempt only looks. It never turns anything on or off, and the update count never includes this. Each check asks systemd which services failed. See [kempt startup](usage.md#startup). |
-| `reclaim` | `ask`, `off` | `ask` | What to do with Flatpak runtimes no installed app uses. See [Unused Flatpak runtimes](#unused-flatpak-runtimes). |
 | `risky_regex` | POSIX extended regex | `^(kernel\|systemd\|glibc\|dbus\|mesa\|qt6\|kf6\|plasma-workspace\|kwin)` | Which package names count as session-critical. This drives the advice to install on the next restart and `risky_pending`. |
 
 You can store other keys too. Any key matching `^[a-z][a-z0-9_]+$` is accepted, but nothing reads
@@ -52,7 +51,7 @@ kempt config set surfce offline
 ```
 
 ```
-warning: unknown setting 'surfce'. Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, risky_regex, reclaim, notify_startup
+warning: unknown setting 'surfce'. Kempt does not read it. Known settings: include_flatpak, auto_accept, surface, refresh_interval_min, risky_regex, notify_startup
 ```
 
 ```bash
@@ -79,16 +78,6 @@ including `on`, `enabled` and `y`:
 kempt config set auto_accept on    # accepted, and means OFF
 kempt config set auto_accept true  # what you meant
 ```
-
-### Unused Flatpak runtimes
-
-The `reclaim` key decides what happens to Flatpak runtimes no installed app uses.
-[`kempt reclaim`](usage.md#reclaim) has the details of what is removed.
-
-- **`ask`** shows them and removes them when you agree.
-- **`off`** hides them, and `kempt reclaim` removes nothing.
-
-An unrecognised value means `ask`, and so does a saved `automatic` from an earlier version.
 
 ## Run surfaces
 
@@ -173,8 +162,6 @@ day.
 | `~/.local/state/kempt/refresh_dnf_failed` | One line of the latest dnf metadata refresh's error, while it failed, for `backends.dnf.refresh_error` |
 | `~/.local/state/kempt/last_refresh_skip` | Timestamp for the once-a-day skipped-refresh line. Separate from `last_refresh`, so logging a skip never delays a fetch |
 | `~/.local/state/kempt/stage-shown` | The last restart reported and which stored update a problem was told about, so neither is said twice. Deleting it costs at most one repeat |
-| `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
-| `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |
 | `~/.local/state/kempt/discover-unattended-answered` | The widget drew its warning about Discover's automatic updates. Removed when the setting reads false and by `kempt discover-notifier on` |
 | `~/.local/state/kempt/discover-entry-written` | The autostart entry Kempt last wrote, so `kempt discover-notifier on` removes only Kempt's own |
@@ -193,8 +180,7 @@ Retention runs automatically whenever the CLI sets up its directories:
 - **History:** the newest 50 entries are kept.
 - **Logs:** deleted after 60 days. The history entry outlives its log.
 - **The event log:** past 2500 lines, it is cut to the last 2000.
-- **Stray temporary files:** deleted after 60 minutes. These are interrupted writes (`.atomic.*`)
-  and `reclaim-out.*` files from a killed removal.
+- **Stray temporary files:** deleted after 60 minutes. These are interrupted writes (`.atomic.*`).
 
 Nothing else prunes these directories, so back them up if a run's raw log matters to you.
 

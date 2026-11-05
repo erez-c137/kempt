@@ -195,12 +195,6 @@ function usableSteps(steps) {
     return out.length ? out : ICON_STEPS.slice();
 }
 
-// resolveReclaimSetting(value) -> ask | off, read as the CLI's reclaim_mode reads it: case-folded,
-// and anything that is not exactly off is ask.
-function resolveReclaimSetting(value) {
-    return String(value === undefined || value === null ? "" : value).toLowerCase() === "off" ? "off" : "ask";
-}
-
 // --- the watcher stamp -----------------------------------------------------------------------
 // main.qml polls eight mtimes every 30 seconds. WHICH of them moved is the part that matters,
 // because /var/lib/rpm is rewritten continuously all the way through a dnf transaction: comparing
@@ -787,32 +781,33 @@ function startupPageOutcomeOf(stdout, stderr, rc) {
 // --- the reclaim offer ------------------------------------------------------------------------
 // Below 1 GB the message is not worth one of the two slots. SI bytes, as formatDownload counts.
 var RECLAIM_MIN_BYTES = 1000 * 1000 * 1000;
-var RECLAIM_DIGEST_RE = /^[0-9a-f]{16}$/;
 // How long Free Up Space waits for `kempt reclaim`. Above the engine's worst case, from
-// backends/flatpak.sh and lib/common.sh: KEMPT_RECLAIM_PKCHECK_TIMEOUT (10 s),
-// KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s, both removal passes together), five listings of
-// KEMPT_RECLAIM_LIST_TIMEOUT (15 s: the offer, the removal's own, the re-check, the one between
-// the two passes, the after-list), two runs of KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing
-// check: KEMPT_CHECK_LOCK_WAIT (60 s) and the check itself (CHECK_BODY_MS, 150 s). 955 s in all,
-// plus over half a minute of margin.
+// backends/flatpak.sh and lib/common.sh: KEMPT_RECLAIM_UNINSTALL_TIMEOUT (600 s), three listings of
+// KEMPT_RECLAIM_LIST_TIMEOUT (15 s), one KEMPT_RECLAIM_DU_TIMEOUT (30 s), then the closing check:
+// KEMPT_CHECK_LOCK_WAIT (60 s) and the check itself (CHECK_BODY_MS, 150 s). 885 s in all, plus over
+// half a minute of margin.
 // Killing the CLI sooner frees the update lock while the uninstall still runs. A test ties the two.
-var RECLAIM_TIMEOUT_MS = 990000;
+var RECLAIM_TIMEOUT_MS = 920000;
 
 // The size on offer, or null when the CLI could not work it out. A value of the wrong type is
 // read as unknown, never coerced.
 function reclaimBytesOf(reclaim) {
-    var b = reclaim.offerable_bytes;
+    var b = reclaim.bytes;
     return (typeof b === "number" && isFinite(b) && b >= 0) ? b : null;
 }
 
-// reclaimOffered(state.reclaim) -> may the popup offer to remove these? Only with a digest: the
-// CLI leaves it empty when nothing is unused or part of the list is younger than an hour. A size
-// the CLI could not work out is not known to reach the minimum, so it is no offer.
+// reclaimOffered(state.reclaim) -> may the popup offer to remove these? A size the CLI could not
+// work out is not known to reach the minimum, so it is no offer.
 function reclaimOffered(reclaim) {
     if (!reclaim || typeof reclaim !== "object" || isArray(reclaim)) return false;
-    if (typeof reclaim.digest !== "string" || !RECLAIM_DIGEST_RE.test(reclaim.digest)) return false;
     var bytes = reclaimBytesOf(reclaim);
-    return bytes !== null && bytes >= RECLAIM_MIN_BYTES;
+    return bytes !== null && bytes >= RECLAIM_MIN_BYTES && reclaimRefsOf(reclaim).length > 0;
+}
+
+// reclaimRefsOf(state.reclaim) -> the refs Free Up Space names to `kempt reclaim`.
+function reclaimRefsOf(reclaim) {
+    return arrayOf(reclaim.refs).filter(function (e) { return e && typeof e.ref === "string"; })
+                                .map(function (e) { return e.ref; });
 }
 
 // reclaimMessageOf(state.reclaim) -> the offer's one line.
@@ -1587,7 +1582,7 @@ function doctorVerdictOf(rc, stdout, stderr) {
 
 // reclaimSaid(rc, stdout, stderr) -> {ok, text}: what the popup reports after Free Up Space, in the
 // CLI's words. With -y stdout starts with the list of runtimes, so on success its LAST line is the
-// outcome, followed by what stderr added. On failure stderr's first line is the outcome.
+// outcome. On failure stderr's first line is the outcome.
 function reclaimSaid(rc, stdout, stderr) {
     if (isExecutorTimeout(rc, stderr)) return { ok: false, text: i18n("Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes.") };
     var msg = firstLineOf(stderr);
@@ -1595,7 +1590,7 @@ function reclaimSaid(rc, stdout, stderr) {
     var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
     var tail = "";
     for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
-    return { ok: true, text: ((tail !== "" ? tail : i18n("Nothing to remove. Every installed Flatpak runtime is in use.")) + " " + msg).trim() };
+    return { ok: true, text: tail !== "" ? tail : i18n("Nothing to remove.") };
 }
 
 // lastRunText(run, nowMs, restartHeld, armed) -> the persistent Last update row's title. "no package changes" is the
@@ -1783,8 +1778,7 @@ function staleSaidOf(state) {
 //   nowMs            - the clock. Absent means every relative time falls back to its absolute
 //                      stamp rather than guessing.
 //   restartDismissed - closed in THIS plasmashell session. Nothing persists it, by design.
-//   reclaimDismissed - the reclaim digest whose offer was closed in this session, or "". A new
-//                      digest (a different set of runtimes) shows the offer again.
+//   reclaimDismissed - the reclaim offer was closed in THIS plasmashell session. Nothing persists it.
 //   engineFault      - "" when the engine answered, else WHICH way it did not: "missing" (rc 127,
 //                      nothing to run) or "unrunnable" (rc 126, there and would not start). Any
 //                      other value reads as "", because this replaces the popup's whole body and
@@ -2209,16 +2203,16 @@ function viewModel(state, updating, cliError, opts) {
     // --- unused Flatpak runtimes ------------------------------------------------------------------
     var reclaim = usable ? state.reclaim : null;
     var reclaimMessage = reclaimMessageOf(reclaim);
-    var reclaimDigest = reclaimMessage !== "" ? reclaim.digest : "";
+    var reclaimRefs = reclaimMessage !== "" ? reclaimRefsOf(reclaim) : [];
     var reclaimLines = [];
     if (reclaimMessage !== "") {
-        var reclaimRefs = arrayOf(reclaim.refs);
-        for (var r = 0; r < reclaimRefs.length; r++) {
-            var refLine = reclaimRefLineOf(reclaimRefs[r]);
+        var reclaimEntries = arrayOf(reclaim.refs);
+        for (var r = 0; r < reclaimEntries.length; r++) {
+            var refLine = reclaimRefLineOf(reclaimEntries[r]);
             if (refLine !== "") reclaimLines.push(refLine);
         }
     }
-    var reclaimShown = reclaimMessage !== "" && opts.reclaimDismissed !== reclaimDigest;
+    var reclaimShown = reclaimMessage !== "" && !opts.reclaimDismissed;
 
     // --- which messages actually fit ------------------------------------------------------------
     // Decided HERE and not in the popup, because the footer depends on the answer: a restart the
@@ -2448,11 +2442,11 @@ function viewModel(state, updating, cliError, opts) {
         // Which messages the popup may draw, in order, and never more than two. The rule and its
         // reasons are messageStack above.
         messageSlots: messageSlots,
-        // The reclaim offer: its line, one line per runtime for Show Runtimes, and the digest the
-        // popup passes to `kempt reclaim --expect`.
+        // The reclaim offer: its line, one line per runtime for Show Runtimes, and the refs the
+        // popup names to `kempt reclaim`.
         reclaimMessage: reclaimMessage,
         reclaimLines: reclaimLines,
-        reclaimDigest: reclaimDigest,
+        reclaimRefs: reclaimRefs,
         // The startup banner: one entry per service with its text and the command Copy Command
         // copies, a heading only when there are several, the quiet already-failing line, the
         // one-time recovered line, and the digest `kempt startup ack` takes. The digest is ""
@@ -2557,7 +2551,6 @@ if (typeof module !== "undefined" && module.exports) {
         discoverSettingOf: discoverSettingOf,
         snapIconSize: snapIconSize,
         collectItems: collectItems,
-        resolveReclaimSetting: resolveReclaimSetting,
         ICON_STEPS: ICON_STEPS,
         watchChange: watchChange,
         watchFieldsOf: watchFieldsOf,

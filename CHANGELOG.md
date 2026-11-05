@@ -66,9 +66,13 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Kempt's record of a stage**, its package snapshots and `stage.lock`. A check removes what 0.2.0 left. Reports that needed them go too: "N of your staged updates", a stage replaced outside Kempt, updates another updater installed reported as yours, and a restart's "did not run" history row. Old `harvest` and `offline marker` lines in `kempt log` stay as written until they age out.
 - **Flatpak end-of-life notes after a run.** `kempt summary` and the history no longer name the app behind flatpak's notice. flatpak's own line stays in the run log, and `kempt reclaim` still marks an unused runtime as no longer supported.
 - **Security notifications and `notify_security`.** Kempt no longer sends a notification or animates the panel icon for security updates, and the setting is gone. The **Security** word on a package and the count stay, for everyone. Open the widget or run `kempt status` to see them.
-- **`reclaim=automatic`.** Kempt no longer removes unused Flatpak runtimes after an update. A saved `automatic` reads as `ask`. Press **Free Up Space** in the widget, shown when at least 1 GB can be freed, or run `kempt reclaim`.
+- **`reclaim=automatic` and the `reclaim` setting.** Kempt no longer removes unused Flatpak runtimes after an update, and **Never** is gone from the settings. A saved value is ignored. Press **Free Up Space** in the widget, shown when at least 1 GB can be freed and until you close it, or run `kempt reclaim`.
+- **`kempt reclaim`'s waiting hour, `--expect`, and its second pass for extensions.** Kempt reads the list just before removing and passes only the runtimes on both lists, by name. A runtime that goes unused is offered straight away. An app installed in the moment between that list and the removal can lose an extension, and `flatpak update` puts it back.
+- **"What Flatpak can remove changed" and "needs an administrator".** When Flatpak refuses, Kempt shows Flatpak's reason, then what is still installed.
+- **The warning about an extension in use, `reclaim-last.json` and `reclaim-sizes.json`.** The result comes from the list read after the removal, and the size is measured each time. A leftover file does nothing.
 - **Panel icon size and restart reminder settings.** The icon always sizes itself to the panel, and the restart message always shows when a restart is owed. A saved `widget_icon_size` or `restart_reminder` is ignored. Close the message with its **X**, which lasts until Plasma restarts.
-- **`security.attention`, `security.digest`, `security.advisories` and `reclaim.mode` in `kempt check` output.** Nothing read them. `security.count`, `security.packages` and the rest of `reclaim` stay.
+- **`security.attention`, `security.digest`, `security.advisories` in `kempt check` output.** Nothing read them. `security.count` and `security.packages` stay.
+- **`reclaim.digest`, `offerable_bytes`, `status`, `last`, and each ref's `commit` and `since` in `kempt check` output.** `reclaim` is now `refs[]`, each with `ref` and `eol`, and `bytes`.
 
 ### Security
 

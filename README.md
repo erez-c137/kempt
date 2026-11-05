@@ -61,7 +61,7 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
 - **Flatpak runtimes too.** Updating an app can also update the runtime it runs on. Kempt lists
   runtimes in their own section, so the count matches what changes.
 - **Space back from old runtimes.** Old Flatpak runtimes stay on disk after apps move on. Kempt
-  shows how much space the unused ones take and removes them when you agree, or after each update.
+  shows how much space the unused ones take and removes them when you agree.
 - **Holds.** A held package stays out of updates but stays in the list, so you do not forget it.
   Click its padlock, or run `kempt hold dnf:kernel-core`.
 - **Two ways to update.** Now, in the widget, or staged to install on the next restart. `kempt update`

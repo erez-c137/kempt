@@ -38,7 +38,6 @@ CONFIG_DEFAULTS = {
     "auto_accept": "true",
     "surface": "popup",
     "refresh_interval_min": "60",
-    "reclaim": "ask",
 }
 
 

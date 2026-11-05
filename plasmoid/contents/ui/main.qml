@@ -123,9 +123,8 @@ PlasmoidItem {
     // restart is the exact event that makes the underlying fact go away.
     property bool restartDismissed: false
 
-    // The reclaim digest whose offer was closed in this session. Per digest, so a different set of
-    // unused runtimes is offered again; not persisted, like restartDismissed.
-    property string reclaimDismissed: ""
+    // Whether the reclaim offer was closed in this session. Not persisted, like restartDismissed.
+    property bool reclaimDismissed: false
     // The Check for Updates press (its refreshAskedMs) whose missed-fetch notice was closed. A
     // later press can show the notice again.
     // The last_check of the state the latest Check for Updates press was answered with. The
@@ -953,19 +952,17 @@ PlasmoidItem {
 
     // Free Up Space: the discardStaged pattern, with a longer wait (Logic.RECLAIM_TIMEOUT_MS) that
     // outlasts the engine's own, so actionPending keeps Update Now off for the whole removal.
-    // --expect is the consent: the CLI removes nothing
-    // unless the set on offer is still the one this popup showed (exit 6 otherwise), so no
-    // re-read is needed first. The CLI asks polkit without a dialog, so a press where an
-    // administrator is needed ends in exit 5.
+    // The press is the consent, for the refs this popup showed: the CLI removes only those of them
+    // still unused. No dialog: where polkit needs an administrator, Flatpak's refusal is reported.
     function reclaimSpace() {
         if (updating || runRequested || actionPending) return;
-        var digest = vm.reclaimDigest;
-        if (digest === "") return;
+        var refs = vm.reclaimRefs;
+        if (refs.length === 0) return;
         actionPending = true;
         reclaimRunning = true;
         actionMessage = "";
         actionDone = "";
-        executor.run(root.kemptCmd + " reclaim -y --expect=" + Logic.shellQuote(digest),
+        executor.run(root.kemptCmd + " reclaim -y -- " + refs.map(Logic.shellQuote).join(" "),
                      Logic.RECLAIM_TIMEOUT_MS, function(stdout, stderr, rc) {
             root.actionPending = false;             // first, so no outcome below can skip it
             root.reclaimRunning = false;
@@ -1010,9 +1007,8 @@ PlasmoidItem {
         doctorReport = "";
     }
 
-    // Closing the reclaim offer: hidden until the CLI offers a different set (a new digest).
     function dismissReclaim() {
-        reclaimDismissed = vm.reclaimDigest;
+        reclaimDismissed = true;
     }
 
     // Check Anyway: one check that fetches even on battery or a metered connection. Only this

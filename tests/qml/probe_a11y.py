@@ -618,12 +618,9 @@ p.check("...and which half failed is on the button that acts",
 def reclaim_from(source, name):
     doc = json.load(open(source))
     doc["reclaim"] = {
-        "status": "ok", "offerable_bytes": 1530000000,
-        "digest": "0123456789abcdef",
-        "refs": [{"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
-                  "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"},
-                 {"ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/23.08",
-                  "commit": "b" * 64, "since": "2026-09-28T10:00:00+03:00", "eol": ""}]}
+        "bytes": 1530000000,
+        "refs": [{"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "eol": "no longer supported"},
+                 {"ref": "runtime/org.freedesktop.Platform.GL.default/x86_64/23.08", "eol": None}]}
     path = os.path.join(p.sandbox, name)
     open(path, "w").write(json.dumps(doc))
     return path
@@ -631,7 +628,7 @@ def reclaim_from(source, name):
 
 RECLAIM = reclaim_from(UPTODATE, "state-reclaim.json")
 state(RECLAIM)
-ev('root.reclaimDismissed = ""')
+ev('root.reclaimDismissed = false')
 p.pump(120)
 p.check("the reclaim offer is on screen", lev("reclaimMessage.visible"), True)
 p.check("...and announces its own sentence",
@@ -641,7 +638,7 @@ p.check("...as the alert every message is",
         lev("reclaimMessage.Accessible.role === Accessible.AlertMessage"), True)
 p.check("Free Up Space is named by its label, which is what the message's button hands over",
         lev("reclaimMessage.actions[0].text"), "Free Up Space")
-p.check("...and says what pressing it does before a polkit dialog takes the focus",
+p.check("...and says what pressing it does",
         lev("reclaimMessage.actions[0].Accessible.description"),
         "Removes the Flatpak runtimes listed under Show Runtimes.")
 lev("reclaimMessage.showingWhat = true")
@@ -652,16 +649,14 @@ p.check("Show Runtimes puts one line per runtime under it, and the name read out
         "org.kde.Platform 5.15-23.08 (no longer supported)\n"
         "org.freedesktop.Platform.GL.default 23.08")
 lev("reclaimMessage.showingWhat = false")
-# The close button: hidden for this digest only.
+# The close button: hidden until the widget next starts.
 lev("reclaimMessage.visible = false")
 p.pump(60)
-p.check("closing it dismisses this set of runtimes", ev("root.reclaimDismissed"),
-        "0123456789abcdef")
+p.check("closing it dismisses the offer", ev("root.reclaimDismissed"), True)
 p.check("...and it stays closed", lev("reclaimMessage.visible"), False)
-ev('root.reclaimDismissed = ""')
+ev('root.reclaimDismissed = false')
 p.pump(60)
-p.check("...until the set it was closed for is no longer the one on offer",
-        lev("reclaimMessage.visible"), True)
+p.check("...until the widget starts again", lev("reclaimMessage.visible"), True)
 
 # --- the placeholder stays inside its area, measured where a layout really runs -----------------
 # At the smallest popup size, with the restart message and the offer both up, the space left for
@@ -696,7 +691,7 @@ def placeholder_walk(widths):
 
 state(BOTH)
 ev("root.restartDismissed = false")
-ev('root.reclaimDismissed = ""')
+ev('root.reclaimDismissed = false')
 ev('root.postRunLine = ""')
 p.pump(120)
 p.check("up to date with a restart owed and space to free: both messages are up",
@@ -858,8 +853,8 @@ def _code(name):
 # tooltip discloses the authorization and that the downloaded packages go with the transaction, and
 # polkit takes the focus the instant it is pressed.
 #
-# The third is Free Up Space on the reclaim offer: Flatpak's polkit dialog can take the focus the
-# same way, so the tooltip that says so is its description too.
+# The third is Free Up Space on the reclaim offer: it removes things, so the tooltip that says which
+# is its description too.
 #
 # The fourth is the footer button when updates run on the next restart: it reads Install on Next
 # Restart, and its tooltip says the press downloads now and installs at the restart.

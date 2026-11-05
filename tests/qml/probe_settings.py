@@ -33,14 +33,14 @@ for d in (VALUES, FAILGET, FAILSET, SLOWSET):
 
 DEFAULTS = (("include_flatpak", "true"),
             ("surface", "popup"), ("refresh_interval_min", "60"),
-            ("notify_startup", "true"), ("reclaim", "off"))
+            ("notify_startup", "true"))
 # Whether flatpak is installed, as the page asks it: `command -v` on the first word of the CLI's
 # own uninstall command. Pointed at a file in the sandbox, so this probe decides the answer
 # rather than the box it runs on; removing the file is "flatpak is not installed".
 FLATPAK_BIN = os.path.join(p.sandbox, "flatpak")
 open(FLATPAK_BIN, "w").write("#!/bin/sh\nexit 0\n")
 os.chmod(FLATPAK_BIN, 0o755)
-os.environ["KEMPT_FLATPAK_UNINSTALL_CMD"] = FLATPAK_BIN + " uninstall --unused --no-related --system -y"
+os.environ["KEMPT_FLATPAK_UNINSTALL_CMD"] = FLATPAK_BIN + " uninstall --system --no-related -y"
 
 
 def setval(k, v):
@@ -163,40 +163,27 @@ p.check("an Apply before the settings have been read writes NOTHING", p.calls_ma
 p.check("...so the stored surface is untouched", stored("surface"), "popup")
 p.check("...and the stored interval", stored("refresh_interval_min"), "60")
 p.check("...and the boolean the QML default disagrees with", stored("include_flatpak"), "true")
-# The reclaim setting is the sharpest version of this: the page's own default is "ask" and the stored
-# value is "off", so an Apply that ran on the page's defaults would be visible immediately.
-p.check("...and the stored reclaim setting", stored("reclaim"), "off")
 p.wait_for(ev0, "page.pendingReads", 0)
 p.check("once the reads land the controls come back", ev0("includeFlatpak.enabled"), True)
 p.check("...and the page holds the stored values, not its defaults", ev0("interval.value"), 60)
-p.check("...including the reclaim setting it was never told to guess", ev0("page.reclaimKey"),
-        "off")
-p.check("...shown as the selected radio, not merely held in a property",
-        ev0("reclaimRepeater.itemAt(1).checked"), True)
 
-# A screen reader stopping on a radio hears its option and nothing else: "Never, radio button"
-# says neither what never happens nor which group it sits in. Each radio's accessible name
+# A screen reader stopping on a radio hears its option and nothing else. Each radio's accessible name
 # carries its group's label, and the spin box, which has no words of its own, carries its label
 # (its text field too, which is the part a reader lands on when typing).
 NAMES = ("(function () { var r = [], i;"
          " for (i = 0; i < %(r)s.count; i++) r.push(%(r)s.itemAt(i).Accessible.name);"
          " return r.join('|'); })()")
-p.check("each unused-runtimes radio is named with its setting",
-        ev0(NAMES % {"r": "reclaimRepeater"}),
-        "|".join(["Unused Flatpak runtimes: Ask me first",
-                  "Unused Flatpak runtimes: Never"]))
-p.check("...and each surface radio",
+p.check("each surface radio is named with its setting",
         ev0(NAMES % {"r": "surfaceRepeater"}),
         "|".join(["Run updates in: In this widget", "Run updates in: On the next restart"]))
 p.check("...while the words drawn beside them stay the option alone",
-        ev0("reclaimRepeater.itemAt(1).text"), "Never")
+        ev0("surfaceRepeater.itemAt(1).text"), "On the next restart")
 p.check("the interval spin box is named by its label, and so is the text field inside it",
         [ev0("interval.Accessible.name"), ev0("interval.contentItem.Accessible.name")],
         ["Check every", "Check every"])
 
 # ==================================================================================================
-# The three radio groups are INDEPENDENT of each other (the third, unused Flatpak runtimes, came
-# later and joins the same FormLayout parent, so it would have joined the same group).
+# A radio group here must not join anything else under the same FormLayout parent.
 # Measured on a fresh install: the settings page opened with NOTHING selected under "Panel icon
 # size". Both Repeaters put their delegates under the same Kirigami.FormLayout, and a QQC2
 # RadioButton with autoExclusive left on takes its exclusive group from its PARENT - so the four
@@ -225,8 +212,6 @@ p.clear_calls()
 pageR, evR = build()
 p.check("opening checks exactly one surface radio, the stored one",
         group(evR, "surfaceRepeater"), [1, 0])
-p.check("...and exactly one unused-runtimes radio, the stored one",
-        group(evR, "reclaimRepeater"), [1, 1])
 
 # Driven the way a user drives it, in the two steps a click really is: toggle() flips `checked`
 # through the same C++ setter the mouse goes through - which is where QQC2 would uncheck the rest
@@ -234,29 +219,16 @@ p.check("...and exactly one unused-runtimes radio, the stored one",
 # listens to. Deliberately NOT `checked = true` from JS: that assignment DESTROYS the delegate's
 # `checked` binding, so the button would stay lit whatever the page property said afterwards and
 # this section would be proving nothing. The other group must not move.
-before_reclaim = group(evR, "reclaimRepeater")
 evR("surfaceRepeater.itemAt(1).toggle()")
 evR("surfaceRepeater.itemAt(1).toggled()")
 p.pump(60)
 p.check("clicking a surface radio moves the surface choice", evR("page.surfaceKey"), "offline")
 p.check("...leaving exactly one of its own buttons checked", group(evR, "surfaceRepeater"), [1, 1])
-p.check("...and the unused-runtimes group exactly as it was",
-        group(evR, "reclaimRepeater"), before_reclaim)
-
-before_surface = group(evR, "surfaceRepeater")
-evR("reclaimRepeater.itemAt(0).toggle()")
-evR("reclaimRepeater.itemAt(0).toggled()")
-p.pump(60)
-p.check("clicking an unused-runtimes radio moves that choice", evR("page.reclaimKey"), "ask")
-p.check("...leaving exactly one of its own buttons checked",
-        group(evR, "reclaimRepeater"), [1, 0])
-p.check("...and the surface group untouched", group(evR, "surfaceRepeater"), before_surface)
 
 # Clicking the radio that is ALREADY selected unchecks it in C++, and the page puts it back. Put
 # back by assignment, `checked` stops following the page property, so the next click on another
 # radio would leave both lit. Every group, clicked the way a mouse clicks.
-for _rep, _key, _other in (("surfaceRepeater", "surfaceKey", 0),
-                           ("reclaimRepeater", "reclaimKey", 1)):
+for _rep, _key, _other in (("surfaceRepeater", "surfaceKey", 0),):
     _sel = group(evR, _rep)[1]
     evR("%s.itemAt(%d).toggle()" % (_rep, _sel))
     evR("%s.itemAt(%d).toggled()" % (_rep, _sel))
@@ -549,8 +521,7 @@ p.clear_calls()
 page6, ev6 = build()
 p.check("every setting the page writes is read back on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
-        ["include_flatpak", "notify_startup", "reclaim", "refresh_interval_min",
-         "surface"])
+        ["include_flatpak", "notify_startup", "refresh_interval_min", "surface"])
 p.check("...and the holds list too", p.call_count("holds"), 1)
 p.check("a true boolean renders as a ticked box", ev6("includeFlatpak.checked"), True)
 p.check("the stored surface is the selected radio", ev6("page.selectedSurface()"), "popup")
@@ -559,58 +530,16 @@ p.check("the holds list is populated", ev6("page.holds.length"), 3)
 p.check("...with the CLI's own ids", ev6("page.holds[0].id"), "dnf:vim-common")
 p.check("an untouched page writes nothing at all", p.calls_matching("config set"), [])
 
-# --- unused Flatpak runtimes ----------------------------------------------------------------------
-p.check("the stored reclaim setting is the selected radio", ev6("page.reclaimKey"), "off")
-p.check("...and with flatpak installed and included, the group is usable",
-        ev6("reclaimRepeater.itemAt(0).enabled"), True)
-p.check("...under the label the plan gives it",
-        ev6("reclaimRepeater.itemAt(0).Kirigami.FormData.label"), "Unused Flatpak runtimes:")
-p.check("...with its two choices in words",
-        [ev6("reclaimRepeater.itemAt(%d).text" % i) for i in range(2)],
-        ["Ask me first", "Never"])
-ev6("reclaimRepeater.itemAt(0).toggle()")
-ev6("reclaimRepeater.itemAt(0).toggled()")
-p.clear_calls()
-ev6("page.saveConfig()")
-p.wait_idle(ev6, "cfgExecutor")
-p.check("choosing Ask me first writes it through the CLI", stored("reclaim"), "ask")
-p.check("...and with Ask me first the group says nothing more", ev6("reclaimNote.visible"), False)
-p.check("...and only that key", [c.split()[2] for c in p.calls_matching("config set")], ["reclaim"])
-
-# Leaving Flatpak out of updates turns the feature off in the CLI, so the group greys out.
-ev6("includeFlatpak.checked = false")
-p.pump(30)
-p.check("with Flatpak apps left out of updates the group is greyed out",
-        ev6("reclaimRepeater.itemAt(0).enabled"), False)
-p.check("...and says why", ev6("reclaimNote.text"),
-        "Only applies when Flatpak apps are included in updates.")
-ev6("includeFlatpak.checked = true")
-
 # No flatpak on the box at all.
 os.remove(FLATPAK_BIN)
 for k, v in DEFAULTS:
     setval(k, v)
 pageNF, evNF = build()
-p.check("with flatpak not installed the group is greyed out",
-        evNF("reclaimRepeater.itemAt(0).enabled"), False)
-p.check("...and so is Include Flatpak apps", evNF("includeFlatpak.enabled"), False)
+p.check("with flatpak not installed Include Flatpak apps is greyed out", evNF("includeFlatpak.enabled"), False)
 p.check("...which says why, under it", [evNF("includeFlatpakNote.visible"), evNF("includeFlatpakNote.text")],
         [True, "Flatpak is not installed."])
-p.check("...said once, so the group adds nothing", evNF("reclaimNote.visible"), False)
-p.check("...while the stored choice still shows", evNF("page.reclaimKey"), "off")
 open(FLATPAK_BIN, "w").write("#!/bin/sh\nexit 0\n")
 os.chmod(FLATPAK_BIN, 0o755)
-
-# An older CLI answers "" for a key it has never heard of: unknown, not ask.
-os.remove(os.path.join(VALUES, "reclaim"))
-p.clear_calls()
-pageOR, evOR = build()
-p.check("an empty answer for reclaim is remembered as unknown",
-        evOR("page.readFailed['reclaim']"), True)
-evOR("page.saveConfig()")
-p.wait_idle(evOR, "cfgExecutor")
-p.check("...so an untouched Apply writes nothing over it", stored("reclaim"), "(absent)")
-setval("reclaim", "off")
 
 p.clear_calls()
 ev6('page.removeHold("dnf:vim-common")')

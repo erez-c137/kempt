@@ -746,7 +746,7 @@ assert_exit 2 "check refuses --anyway with a value" "$KEMPT" check --anyway=yes
 # may export a variable that carries it.
 internal_calls="$(grep -nE '(^|[^_a-z])cmd_check( |$)' "$REPO_ROOT/bin/kempt" | grep -v 'cmd_check()' \
                   | grep -vF 'check)   shift; cmd_check "$@" ;;' | grep -v '^[0-9]*: *#')"
-assert_eq "$(grep -c . <<<"$internal_calls")" "8" "bin/kempt has its eight internal checks (premise)"
+assert_eq "$(grep -c . <<<"$internal_calls")" "6" "bin/kempt has its six internal checks (premise)"
 assert_eq "$(grep -cvE 'cmd_check >/dev/null 2>&1 \|\| true$' <<<"$internal_calls")" "0" \
   "...and every one runs cmd_check with no arguments, so none can pass --anyway"
 assert_eq "$(grep -ciE 'export[^#]*anyway|KEMPT_ANYWAY' "$REPO_ROOT/bin/kempt" "$REPO_ROOT/lib/common.sh" \
@@ -1456,8 +1456,8 @@ assert_eq "$(jq -r .actionable "$STATE_FILE")" "6" "write_state still writes a r
 # not resolve) there is no key at all, so every reader that predates it sees the state it always saw.
 out="$(KEMPT_SKIP_REFRESH=1 "$KEMPT" check 2>/dev/null)"
 assert_eq "$(jq -c 'has("reclaim")' <<<"$out")" "false" "no flatpak: the state has no reclaim key"
-# Everything the block runs, broken at once: a listing that dies, a du that dies and an account
-# lookup that dies. The check still answers, still writes, and its counts are untouched.
+# Everything the block runs, broken at once: a listing that dies and a du that dies. The check still
+# answers, still writes, and its counts are untouched.
 cat > "$TESTTMP/dies" <<'STUB'
 #!/usr/bin/env bash
 exit 1
@@ -1468,9 +1468,9 @@ rc=0
 out="$(KEMPT_SKIP_REFRESH=1 KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/dies" KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/dies" \
        KEMPT_DU_CMD="$TESTTMP/dies" "$KEMPT" check 2>/dev/null)" || rc=$?
 assert_eq "$rc" "0" "a reclaim listing that fails never fails the check"
-assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "failed" "...it is reported inside the block instead"
+assert_eq "$(jq -c 'has("reclaim")' <<<"$out")" "false" "...it only means no offer"
 assert_eq "$(jq -c 'del(.last_check, .last_success, .reclaim)' <<<"$out")" "$before" "...and the rest of the state is unchanged"
-assert_eq "$(jq -r '.reclaim.status' "$STATE_FILE")" "failed" "...and written"
+assert_eq "$(jq -c 'has("reclaim")' "$STATE_FILE")" "false" "...and nothing about it is written"
 
 # --- discover_offer: the widget's one offer to turn off Discover's notifier --------------------------
 assert_eq "$(jq -c 'has("discover_offer")' <<<"$out")" "false" "with no Discover notifier installed, nothing is offered"

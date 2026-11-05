@@ -147,13 +147,10 @@ sandbox() {  # fresh dirs per test file; call first
   # `flatpak uninstall`, and a test that forgot its stub must not remove the host's runtimes. The
   # uninstall seam doubles as the "is flatpak here" test (flatpak_present), so with it poisoned the
   # feature is off in every file that does not opt in, and no existing state.json grows a block.
-  # The other four fail loudly the moment a file turns the feature on without stubbing them:
-  # the listing and du report failed and unknown_size, pkcheck says no, and getent reads as
-  # "cannot tell".
+  # The other two fail loudly the moment a file turns the feature on without stubbing them.
   export KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/UNSTUBBED-flatpak-uninstall"
   export KEMPT_FLATPAK_UNUSED_CMD="$TESTTMP/UNSTUBBED-flatpak-unused"
   export KEMPT_DU_CMD="$TESTTMP/UNSTUBBED-du"
-  export KEMPT_PKCHECK="$TESTTMP/UNSTUBBED-pkcheck"
   export KEMPT_SYSTEMCTL_CMD="$TESTTMP/UNSTUBBED-systemctl"
   # PINNED at `true`, not poisoned, and this is the seam where the usual "a path that does not
   # exist" would be exactly wrong. Unset, the runtime arms fall back to the REAL flatpak and every

@@ -29,7 +29,7 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .B kempt reclaim
 .RB [ \-\-list ]
 .RB [ \-y ]
-.RB [ \-\-expect=\fIdigest\fR ]
+.RI [ ref ...]
 .br
 .B kempt startup
 .RB [ \-\-all ]
@@ -181,36 +181,28 @@ failed, or dnf5 still has the transaction. Exit 3: another update is running. Ex
 release upgrade is stored, another updater has prepared the next restart, or the root helper
 refused.
 .TP
-.BR reclaim " [" \-\-list "] [" \-y "] [" \-\-expect= \c
-.IR digest ]
+.BR reclaim " [" \-\-list "] [" \-y "] [\fIref\fR ...]"
 Remove the system Flatpak runtimes no installed app uses, after showing them and their estimated
 size.
 .B \-\-list
 only shows them.
 .BR \-y ", " \-\-yes
-removes without asking.
-.BI \-\-expect= digest
-removes only if the list still matches
-.B reclaim.digest
-from the state file.
+removes without asking. Named refs narrow it to those of the runtimes on the list.
 .IP
-A runtime is removed only after it has been unused for an hour, counted from the first check that
-listed it. Runtimes go first, then the extensions still unused, so an app installed meanwhile keeps
-its own. A pinned runtime is never removed: use
+Kempt reads the list again just before removing and passes only the runtimes on both lists, by
+name. A pinned runtime is never removed: use
 .B "flatpak pin"
 to keep one.
 .IP
-It never asks for a password. Removing needs an administrator logged in at the desktop. Exit 5: nothing removed, because it ran as root with
+It never asks for a password. Removing needs an administrator logged in at the desktop; otherwise
+Flatpak refuses, and Kempt shows its reason. The result comes from the list read afterwards. Exit 5:
+nothing removed, because it ran as root with
 .B KEMPT_ALLOW_ROOT=1
 set or under sudo or pkexec,
-Flatpak is off or missing,
-.B reclaim=off
-is set, removing needs an administrator, or there is no
+Flatpak is off or missing, or there is no
 .B \-y
-and no terminal to ask at. Exit 6: the list is not the set you were shown, or part of it became
-unused less than an hour ago. Exit 1: Flatpak failed, possibly after removing some. Run
-.B "kempt reclaim \-\-list"
-to see what is left.
+and no terminal to ask at. Exit 1: Flatpak failed or a runtime is still installed. Kempt says what
+went and what remained.
 .TP
 .BR startup " [" \-\-all "] [" \-\-json ]
 List the services that stopped starting after a Kempt update. Kempt only looks.
@@ -358,7 +350,6 @@ or in the widget's settings. The keys are
 .BR surface " (default " popup "),"
 .BR refresh_interval_min " (default " 60 "),"
 .BR risky_regex ,
-.BR reclaim " (" ask " or " off "; default " ask ")",
 and
 .BR notify_startup " (default " true ).
 A boolean is true when it is
@@ -447,8 +438,8 @@ is running.
 Stopped before changing anything.
 .TP
 .B 6
-.B reclaim
-only: the list changed. Nothing was removed.
+.B startup
+only: what you were shown changed.
 .TP
 .B 7
 .B update
