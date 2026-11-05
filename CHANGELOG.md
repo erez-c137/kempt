@@ -39,7 +39,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
-- **`kempt enable-passwordless`, `kempt disable-passwordless` and the widget's Password prompts row.** The fixed rule replaces them. Upgrading the package removes the rule an earlier version installed in `/etc/polkit-1/rules.d`, whether it was on or not, and an account outside `wheel` that had turned it on is asked again.
+- **`kempt enable-passwordless`, `kempt disable-passwordless` and the widget's Password prompts row.** The fixed rule replaces them. Upgrading from before 0.3.0 removes the rule an earlier version generated in `/etc/polkit-1/rules.d`, once, and an account outside `wheel` that had turned it on is asked again. A file there that an earlier version did not generate stays, on that upgrade and every later one.
 - **The root helpers' own checks of parent folders, ACL entries, FUSE mounts and the mount namespace, and their refusal on atomic Fedora.** `kempt update` and `kempt doctor` still make them before asking for anything. The helpers keep a short check that the folders dnf5 installs from belong to root.
 - **"dnf5 has been running for 15 minutes", and the plain sentence when a check meets another account's update.** A check that runs out behind another account's update now says the check failed. dnf5 waits for the running update, and the update is not harmed.
 - **A message per failed service, and the Startup Report's folding lists.** The main view has one message however many services failed, so muting one starts from **Startup Report**. The report's **Show All** and **Hide**, its counts and its separate lists are gone, since the report now shows the CLI's text.

@@ -54,7 +54,24 @@ assert_contains "$POLTXT" '<allow_inactive>no</allow_inactive>' "...and to a ses
 # --- the package owns the rule, and an upgrade leaves one rule and no other -----------------------------
 assert_contains "$(sed -n '/^%install/,/^%files/p' "$SPEC")" '%{buildroot}%{_datadir}/polkit-1/rules.d/49-kempt.rules' "the package installs the rule"
 assert_contains "$(sed -n '/^%files$/,/^%package\|^%files /p' "$SPEC")" '%{_datadir}/polkit-1/rules.d/49-kempt.rules' "...and lists it"
-POST="$(sed -n '/^%post$/,/^%/{/^%post$/d;/^%/d;p}' "$SPEC")"
-assert_contains "$POST" 'rm -f /etc/polkit-1/rules.d/49-kempt.rules' "%post removes the rule the old opt-in wrote, which %files never owned"
+assert_not_contains "$(cat "$SPEC")" '%post' "no step on every install or upgrade touches an override"
+# The rule the old opt-in wrote goes once, on the upgrade from before 0.3.0, and only if it is that rule.
+TRIG="$(sed -n '/^%triggerun -- kempt < 0\.3\.0$/,/^%/{/^%/d;p}' "$SPEC")"
+assert_contains "$TRIG" 'rm -f "$f"' "the upgrade from before 0.3.0 can remove the old rule"
+DST="$TESTTMP/49-kempt.rules"
+trigger_on() { sed "s|/etc/polkit-1/rules.d/49-kempt.rules|$DST|" <<<"$TRIG" | sh; }
+old_rule() { sed "s/@USER@/${2:-someone.else-2}/g" "$FIXTURES/old-rule-$1.rules.in"; }
+gone() { local rc=0; trigger_on || rc=$?; assert_eq "$rc" "0" "...the step exits 0"; assert_eq "$([[ -e "$DST" || -L "$DST" ]] && echo stays || echo gone)" "$1" "$2"; rm -f "$DST"; }
+gone gone "nothing there: nothing to do"
+for v in 0.1.0 0.2.0; do
+  old_rule "$v" > "$DST"; gone gone "the rule $v wrote is removed"
+  old_rule "$v" _u1 > "$DST"; gone gone "...whatever user it names"
+  { old_rule "$v"; echo '// mine'; } > "$DST"; gone stays "...a line added to it makes it the admin's, and it stays"
+  old_rule "$v" | sed 's/polkit.Result.YES/polkit.Result.AUTH_ADMIN/' > "$DST"; gone stays "...and so does a changed answer"
+  old_rule "$v" 'a b' > "$DST"; gone stays "...and a user no opt-in could have written"
+done
+printf 'polkit.addRule(function(action, subject) { return polkit.Result.NOT_HANDLED; });\n' > "$DST"; gone stays "a hand-written override stays"
+: > "$DST"; gone stays "an empty file stays"
+old_rule 0.2.0 > "$DST.target"; ln -s "$DST.target" "$DST"; gone stays "a link stays"; rm -f "$DST.target"
 assert_not_contains "$(cat "$REPO_ROOT/bin/kempt")" 'passwordless' "the CLI has no opt-in left"
 finish

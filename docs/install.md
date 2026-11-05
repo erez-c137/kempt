@@ -56,7 +56,7 @@ a symlink into your home directory.
 | `/usr/libexec/kempt-refresh` | `root:root` 0755 | Root helper: package metadata only, no authentication dialog. |
 | `/usr/libexec/kempt-apply` | `root:root` 0755 | Root helper: the dnf upgrade verbs. A `wheel` user at the desk gets no dialog, and anyone else at the desk gets one per run. |
 | `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | The two polkit actions. Their `exec.path` pins `/usr/libexec`. |
-| `/usr/share/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | Lets a `wheel` user at the desk update with no password. Installing or upgrading the package also removes the old `/etc/polkit-1/rules.d/49-kempt.rules`, if an earlier version left one. |
+| `/usr/share/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | Lets a `wheel` user at the desk update with no password. Upgrading from before 0.3.0 removes `/etc/polkit-1/rules.d/49-kempt.rules` once, only if it is the file the old command generated. A file of your own there stays and takes priority. |
 | `/usr/share/plasma/plasmoids/io.github.erez_c137.kempt/` | `root:root` | The panel widget. **From `kempt-plasmoid`.** |
 | `/usr/share/icons/hicolor/*/apps/kempt.svg` | `root:root` 0644 | The icon at each size. **From `kempt-plasmoid`.** |
 | `/usr/share/man/man1/kempt.1` | `root:root` 0644 | `man kempt`. |

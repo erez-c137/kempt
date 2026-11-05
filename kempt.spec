@@ -252,10 +252,18 @@ grep -q 'KEMPT_APPLY_HELPER_PATH:-%{_libexecdir}/kempt-apply' \
 ! grep -rq '/usr/local/libexec' %{buildroot}%{_datadir}/%{name}/lib/common.sh \
     %{buildroot}%{_datadir}/polkit-1/actions/io.github.erez_c137.kempt.policy
 
-%post
+%triggerun -- kempt < 0.3.0
 # Up to 0.2.0, `kempt enable-passwordless` wrote this file. The packaged rule replaces it, and a rule
-# left here would keep granting whoever it named.
-rm -f /etc/polkit-1/rules.d/49-kempt.rules
+# left here would keep granting whoever it named. It goes once, on the upgrade from such a version,
+# and only if it is word for word one of the two forms that command wrote, whatever user it named.
+# Anything else in this path is an admin's own override of the packaged rule, and stays.
+f=/etc/polkit-1/rules.d/49-kempt.rules
+[ -f "$f" ] && [ ! -L "$f" ] || exit 0
+case "$(sed -E -e 's|^(// Kempt passwordless updates for )[a-z_][a-z0-9._-]* - |\1@USER@ - |' \
+    -e 's|(subject\.user == ")[a-z_][a-z0-9._-]*(")|\1@USER@\2|' "$f" | sha256sum)" in
+  3c98df529de172d8086c38974eb7fa2b59e57f0ead00746c41c5f319cda1353d*|7bc8a303352743f7241bb52a715f38fd4d7b37e635241fc434f2271c9694ae7f*) rm -f "$f" ;;
+esac
+exit 0
 
 %files
 %license LICENSE
