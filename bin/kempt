@@ -3925,6 +3925,12 @@ doctor_stale_done_row() {  # link-state
   fi
 }
 
+# While another updater holds the restart, Kempt refuses to stage or unstage, and a clean would remove
+# that updater's link. The row about the link says who holds it, so these rows offer nothing then.
+doctor_fix_unless_held() {  # holder, the advice → " advice", or nothing
+  [[ "$1" == other ]] || printf ' %s' "$2"
+}
+
 doctor_offline_rows() {
   # The stored transaction, one row for what stage_read says it is. Silent when nothing is stored,
   # which is most boxes.
@@ -3945,13 +3951,13 @@ doctor_offline_rows() {
       doctor_staged_conflict_row ;;
     done) doctor_stale_done_row "$dr_link" ;;
     lost)
-      doctor_warn "prepared updates will not install: dnf5 says \"$dr_toml\", and no restart will install them now. Prepare them again with: kempt update --surface=offline. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean" ;;
+      doctor_warn "prepared updates will not install: dnf5 says \"$dr_toml\", and no restart will install them now.$(doctor_fix_unless_held "$dr_holder" "Prepare them again with: kempt update --surface=offline. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean")" ;;
     interrupted)
       doctor_warn "prepared updates will not install: a restart began them and stopped, and dnf5 does not run them again. See what happened with: dnf5 history info. Prepare them again with: kempt update --surface=offline. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean" ;;
     failed)
-      doctor_fail "staged update failed: a restart ran it and dnf5 recorded a failure (status \"$dr_toml\"), and no restart runs it again. See what happened with: sudo dnf5 offline log. Clear it with: kempt unstage. If that fails: sudo dnf5 offline clean" ;;
+      doctor_fail "staged update failed: a restart ran it and dnf5 recorded a failure (status \"$dr_toml\"), and no restart runs it again. See what happened with: sudo dnf5 offline log.$(doctor_fix_unless_held "$dr_holder" "Clear it with: kempt unstage. If that fails: sudo dnf5 offline clean")" ;;
     unknown)
-      doctor_warn "staged update: Kempt cannot tell what the stored update will do, because $KEMPT_OFFLINE_TOML cannot be read or says something this version does not know. It may be a Fedora release upgrade. See it with: sudo dnf5 offline status. Clear it with: sudo dnf5 offline clean" ;;
+      doctor_warn "staged update: Kempt cannot tell what the stored update will do, because $KEMPT_OFFLINE_TOML cannot be read or says something this version does not know. It may be a Fedora release upgrade. See it with: sudo dnf5 offline status.$(doctor_fix_unless_held "$dr_holder" "Clear it with: sudo dnf5 offline clean")" ;;
     upgrade)
       # A release upgrade answers for the whole section: dnf5 has one slot, and Kempt's own stage is
       # not in it. Which of the states it is in decides the sentence.

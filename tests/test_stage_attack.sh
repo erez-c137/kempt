@@ -312,6 +312,19 @@ for how in empty missing; do
   assert_contains "$dr" "another updater has prepared the next restart" "$how list: doctor names the holder"
 done
 
+# --- the same for the other words that offer a fix: neither a clean nor a refused command
+for st in download-complete download-incomplete transaction-incomplete garbage; do
+  world ready other
+  if [[ "$st" == garbage ]]; then sed -i 's/^[[:space:]]*state_version.*/state_version = 99/' "$KEMPT_OFFLINE_TOML"
+  else sed -i "s/^[[:space:]]*status[[:space:]]*=.*/status = \"$st\"/" "$KEMPT_OFFLINE_TOML"; fi
+  dr="$("$KEMPT" doctor 2>&1)"
+  assert_not_contains "$dr" "offline clean" "$st behind another updater: doctor offers no clean"
+  assert_not_contains "$dr" "kempt unstage" "$st behind another updater: doctor offers no unstage"
+  assert_contains "$dr" "another updater has prepared the next restart" "$st behind another updater: doctor names the holder"
+done
+world download-complete none
+assert_contains "$("$KEMPT" doctor 2>&1)" "If that fails: sudo dnf5 offline clean" "with no other updater, doctor still offers the fix"
+
 # --- two restarts since the last check: told oldest first, and the newest is what is remembered
 world gone none; rpm_is "$NEW"; echo row=59 > "$SHOWN"; row 60 Ok 'dnf5 upgrade --offline -y'; row 61 Ok 'dnf5 upgrade --offline -y'; check
 assert_eq "$(entries)" 2 "two rows: two entries"
