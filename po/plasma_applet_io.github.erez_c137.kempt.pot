@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 04:29+0200\n"
+"POT-Creation-Date: 2026-11-05 05:09+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -51,7 +51,7 @@ msgstr ""
 msgid "Check interval, where updates run, and the packages you hold."
 msgstr ""
 
-#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+#: plasmoid/contents/ui/FullRepresentation.qml
 msgid "Check Installation"
 msgstr ""
 

@@ -1721,11 +1721,39 @@ assert_eq "$(widget_text | grep -c 'doctor in a terminal')" "0" "...and none of 
 assert_eq "$(js 'L.mentionsDoctor("Nothing was discarded. A Fedora release upgrade (45) is stored. See: kempt doctor")')" \
   "true" "a refusal from the CLI that ends in kempt doctor offers the button"
 assert_eq "$(js 'L.mentionsDoctor("Nothing was discarded. Press Check Installation to find out why.")')" "true" "...and so does the widget's own fallback"
-assert_eq "$(js 'L.mentionsDoctor("These updates could not be discarded (exit %1). Press Check Installation to find out why.")')" "true" "...both of them, which name the button"
+assert_eq "$(js 'L.mentionsDoctor("These updates could not be discarded (exit 1). Press Check Installation to find out why.")')" "true" "...both of them, which name the button"
 assert_eq "$(js 'L.mentionsDoctor("Could not change the hold on bash.")')" "false" \
   "a failure that does not mention doctor offers nothing"
 assert_eq "$(js 'L.mentionsDoctor(undefined)')" "false" "...and no text offers nothing"
 assert_eq "$(js 'L.mentionsDoctor("see kempt doctors")')" "false" "...matching the command as a word"
+# In a translated widget. This stand-in alters every string and inflects the button's name inside a
+# sentence, so the button's own label is nowhere in the sentences that name it.
+translated_doctor() {
+  node -e '
+    const L = require(process.argv[1]);
+    const fill = (s, args, from) => { for (let i = from; i < args.length; i++) s = s.replace("%" + (i - from + 1), args[i]); return s; };
+    global.i18n = function (s) {
+      return "<" + fill(s === "Check Installation" ? "LABEL" : s.replace("Check Installation", "the checkup"), arguments, 1) + ">";
+    };
+    global.i18np = function (a, b, n) { return "<" + fill(n === 1 ? a : b, arguments, 2) + ">"; };
+    const unsafe = L.lastRunSubtitle({ failed: true, error: "other users can change /etc/dnf" });
+    console.log([
+      L.mentionsDoctor(unsafe), L.mentionsDoctor(L.discardStagedMessage(5, "", "")),
+      L.mentionsDoctor(L.discardStagedMessage(1, "", "")), L.mentionsDoctor("Refused. See: kempt doctor"),
+      L.mentionsDoctor(L.discardStagedMessage(3, "", "")), L.mentionsDoctor("Check Installation"),
+      L.mentionsDoctor(undefined)
+    ].join(" "));
+  ' "$REPO_ROOT/plasmoid/contents/ui/logic.js"
+}
+assert_eq "$(translated_doctor)" "true true true true false false false" \
+  "translated: the button stays for each sentence naming it and the CLI's pointer, and for nothing else"
+# A sentence that names the button either earns it here, or is one of these, which have their own.
+NAMES_BUTTON_ELSEWHERE='^msgid "(Check Installation|Check Installation can find out why\.|Press Check Installation to find the problem\.|A Fedora %1 upgrade .*)"$'
+while IFS= read -r _named; do
+  _named="${_named#msgid \"}"; _named="${_named%\"}"
+  assert_eq "$(node -e 'console.log(require(process.argv[1]).mentionsDoctor(process.argv[2]))' "$REPO_ROOT/plasmoid/contents/ui/logic.js" "${_named//%1/7}")" "true" \
+    "a sentence naming the button is on mentionsDoctor's list: $_named"
+done < <(grep '^msgid ' "$POT" | grep 'Check Installation' | grep -vE "$NAMES_BUTTON_ELSEWHERE")
 
 # Beside the button, the pointer at the command it runs goes. The button test reads the raw string.
 assert_eq "$(js 'L.withoutDoctorPointer("These updates could not be discarded. See: kempt doctor")')" \

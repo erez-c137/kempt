@@ -1502,10 +1502,22 @@ function answerOutcomeOf(rc, stdout, stderr, fallback, timedOut) {
 var DOCTOR_TIMEOUT_MS = 60000;
 
 // mentionsDoctor(text) -> does this message tell the person to run `kempt doctor`? The CLI's own
-// refusals end "See: kempt doctor", and the copy table's sentences name the button. Each one gets it.
+// refusals end "See: kempt doctor", and these sentences of the widget's name the button. A translator
+// may inflect the button's name inside a sentence, so the test reads whole sentences, never the name.
+// Digits become %1 because the one number in them is an exit code.
 function mentionsDoctor(text) {
-    return typeof text === "string"
-        && (/\bkempt doctor\b/.test(text) || text.indexOf(i18n("Check Installation")) >= 0);
+    if (typeof text !== "string") return false;
+    if (/\bkempt doctor\b/.test(text)) return true;
+    var shape = text.replace(/\d+/g, "%1");
+    var naming = [
+        i18n("A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it."),
+        i18n("Nothing was discarded. Press Check Installation to find out why."),
+        i18n("These updates could not be discarded (exit %1). Press Check Installation to find out why.", "%1")
+    ];
+    for (var i = 0; i < naming.length; i++) {
+        if (shape.indexOf(naming[i]) >= 0) return true;
+    }
+    return false;
 }
 
 // The CLI's pointer at the command, for a message drawn beside Check Installation, which is that
