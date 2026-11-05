@@ -77,15 +77,11 @@ LAST_REFRESH_DNF_FILE="$KEMPT_STATE_DIR/last_refresh_dnf"
 # publishes it as backends.dnf.refresh_error, so the widget can tell a failed fetch from one never
 # tried, and a network failure from any other.
 REFRESH_DNF_FAILED_FILE="$KEMPT_STATE_DIR/refresh_dnf_failed"
-OFFLINE_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
 LOCK_FILE="$KEMPT_STATE_DIR/lock"
 # The writers' lock (see writer_lock). In the STATE dir, never the config dir: the config
 # directory holds the two files the user owns and may edit by hand, and architecture.md's "Where
 # Kempt writes" promises Kempt puts nothing else there.
 WRITER_LOCK_FILE="$KEMPT_STATE_DIR/writer.lock"
-# The stage lock (see stage_lock): held while a stage is replacing dnf5's transaction and Kempt's
-# marker has not caught up yet.
-STAGE_LOCK_FILE="$KEMPT_STATE_DIR/stage.lock"
 # Short locks, held for milliseconds on a descriptor bash picks: the state file's read-modify-write
 # and the event log's append and trim. A lock that cannot be opened is skipped, never the write. Separate files, because a rename gives the guarded file a new inode.
 STATE_LOCK_FILE="$KEMPT_STATE_DIR/state.lock"
@@ -116,10 +112,8 @@ NOTIFY_TIMEOUT=5
 # writers' lock.
 STARTUP_FILE="$KEMPT_STATE_DIR/startup.json"
 STARTUP_MUTES_FILE="$KEMPT_STATE_DIR/startup-mutes"
-# dnf5's own record of a staged offline transaction, and the other half of the marker above: the
-# marker says Kempt staged something, this says whether the transaction is still there and whether
-# it is armed. 0644 on Fedora, so an ordinary check READS it with no privileged call and can
-# reconcile the two. Nothing here ever writes it; dnf5 owns it.
+# dnf5's own record of a staged offline transaction. 0644 on Fedora, so an ordinary check READS it
+# with no privileged call. Nothing here ever writes it; dnf5 owns it.
 KEMPT_OFFLINE_TOML="${KEMPT_OFFLINE_TOML:-/usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml}"
 # The staged transaction ITSELF, as dnf5 stores it: the resolved package set the next restart will
 # install, resolver-added packages included. Root-owned 0644 in a 0755 directory, so an
@@ -311,35 +305,16 @@ event_plain() {  # event text → EVENT_PLAIN
     "offline restage failed"*) EVENT_PLAIN="Rebuilding the staged update failed${t#offline restage failed}" ;;
     "offline restage"*) EVENT_PLAIN="Staged update rebuilt${t#offline restage}" ;;
     "offline stage found nothing to stage"*) EVENT_PLAIN="Nothing to stage${t#offline stage found nothing to stage}" ;;
-    "offline stage partly installed outside Kempt"*)
-      EVENT_PLAIN="Some of the staged update was installed outside Kempt${t#offline stage partly installed outside Kempt}" ;;
-    "offline stage result unknown"*)
-      EVENT_PLAIN="Kempt could not tell what became of the staged update" ;;
-    "offline stage installed by another updater"*)
-      EVENT_PLAIN="Another updater installed the staged update${t#offline stage installed by another updater}" ;;
-    "offline stage recorded without its package baseline"*)
-      EVENT_PLAIN="Staged update recorded, but its result after the restart will not be reported" ;;
     "offline stage refused by the root helper") EVENT_PLAIN="Staging was refused by Kempt's system helper" ;;
     "live update refused by the root helper") EVENT_PLAIN="The update was refused: other users can change dnf's folders" ;;
     "dnf outcome read from history ("*" ok, "*) EVENT_PLAIN="The update succeeded, as dnf's history records" ;;
     "dnf outcome read from history"*) EVENT_PLAIN="The update failed, as dnf's history records" ;;
     "offline stage "*) EVENT_PLAIN="Staged update ${t#offline stage }" ;;
-    "offline marker "*) EVENT_PLAIN="Record of the staged update ${t#offline marker }" ;;
-    "harvest applied"*) EVENT_PLAIN="Staged update installed on restart${t#harvest applied}" ;;
-    "harvest found the staged transaction did not run"*)
-      EVENT_PLAIN="After the restart: the staged update did not run${t#harvest found the staged transaction did not run}" ;;
-    "harvest skipped snapshot failed")
-      EVENT_PLAIN="After the restart: the installed packages could not be read, so the result was not recorded" ;;
-    "harvest cleared stale marker") EVENT_PLAIN="After the restart: an old record of a staged update was cleared" ;;
-    "harvest deferred: "*)
-      EVENT_PLAIN="Restart result not recorded yet: packages changed outside Kempt while an update is staged" ;;
-    "harvest entry not written"*) EVENT_PLAIN="Restart result not saved${t#harvest entry not written}" ;;
-    "harvest log not written"*) EVENT_PLAIN="Restart log not saved${t#harvest log not written}" ;;
+    "restart result: "*) EVENT_PLAIN="After the restart: ${t#restart result: }" ;;
+    "restart result not written"*) EVENT_PLAIN="Restart result not saved${t#restart result not written}" ;;
     "history entry not written"*) EVENT_PLAIN="Update history not saved${t#history entry not written}" ;;
     "unstage discarded the staged update") EVENT_PLAIN="Staged update discarded" ;;
     "unstage found nothing staged") EVENT_PLAIN="Discard: nothing was staged" ;;
-    "unstage cleared a marker with no transaction under it")
-      EVENT_PLAIN="Discard: the staged update was already gone, so its record was cleared" ;;
     "unstage refused by the root helper") EVENT_PLAIN="Discard was refused by Kempt's system helper" ;;
     "unstage refused"*) EVENT_PLAIN="Discard refused${t#unstage refused}" ;;
     "unstage failed rc="*) EVENT_PLAIN="Discard failed (exit code ${t#unstage failed rc=})" ;;
@@ -384,9 +359,6 @@ event_plain() {  # event text → EVENT_PLAIN
   # A stage a live update made obsolete, in words.
   EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update)/(a live update replaced it)}"
   EVENT_PLAIN="${EVENT_PLAIN//(superseded by live update, /(a live update replaced it, and }"
-  # A stage whose /system-update link went while dnf5 still read "ready": a live dnf run cancels a
-  # stage that way, and nothing else in the file's words would tell a person that.
-  EVENT_PLAIN="${EVENT_PLAIN//(status ready, but the restart marker is gone)/(it was cancelled outside Kempt)}"
   # A notification the line records, in words.
   [[ "$EVENT_PLAIN" != *" - announced" ]] || EVENT_PLAIN="${EVENT_PLAIN% - announced}, and you were notified"
   [[ "$EVENT_PLAIN" != *" - not announced" ]] \
@@ -454,8 +426,7 @@ log_event_write() {  # via text locked
 
 # Byte-for-byte equality of two readable files, with coreutils alone. `cmp` is diffutils, which is
 # NOT on a minimal Fedora image (a container, a server install): there it exits 127, which every
-# caller reads as "the files differ" - harvesting an unchanged box as "applied, no package changes"
-# and reporting every helper as drifted from the checkout. Two files that cannot be read are NOT
+# caller reads as "the files differ" - reporting every helper as drifted from the checkout. Two files that cannot be read are NOT
 # equal either: a caller that could read neither has no grounds to say the package set did not
 # move, so the unreadable case is its own status.
 same_content() {  # file file → 0 equal, 1 different, 2 unreadable
@@ -1225,7 +1196,7 @@ config_set() {  # key value
 # held for as long as ANY descriptor referring to it stays open - a child's included. fd 9 is the
 # CHECK lock (cmd_check), so a grandchild outliving the `timeout 120` above goes on holding it: the
 # next `kempt check` blocks for the straggler's whole life, and past 60s every check after it
-# serves stale state while saying nothing. harvest_offline runs inside that lock too.
+# serves stale state while saying nothing. stage_report_restart runs inside that lock too.
 # fd 8, the UPDATE lock, is left inherited on purpose - see acquire_lock.
 # How long each arm of a metadata refresh (dnf, then Flatpak) may take before the check gives up on
 # it. It holds for Flatpak and for a polkit dialog nobody answers, which a background check sits on
@@ -1606,7 +1577,7 @@ startup_enabled() {  # system|user [pattern...] → the enabled unit files, sort
   jq -c 'if type == "array" then [.[] | objects | .unit_file | strings] | sort else error("shape") end' <<<"$list" 2>/dev/null
 }
 
-# What a run records at its start, as `failed_before` in its history entry and its stage marker:
+# What a run records at its start, as `failed_before` in its history entry:
 # the failed units of each scope that answered, and the enabled units of each. Nothing with the
 # setting off or with neither scope answering, and the entry then looks as it did before.
 startup_baseline() {
@@ -1667,7 +1638,7 @@ startup_digest() {  # stdin: startup.json → the recovered set's digest, or not
   jq -r '(.recovered // [])[] | .scope + ":" + .unit' 2>/dev/null | set_digest
 }
 
-# The check's step, right after harvest_offline. Every check asks systemd what is failing now, to
+# The check's step, right after stage_report_restart. Every check asks systemd what is failing now, to
 # keep announced units current. Only two moments compare against a baseline and may announce:
 # - the first check of a new boot, against the EARLIEST run since the previous boot began that
 #   changed packages (a failure the first of two runs caused sits in the second run's baseline as
@@ -2334,8 +2305,7 @@ tsv_diff_updates() {  # before_file after_file
   # So each row may carry a third field, its IDENTITY, and that is what decides whether it moved.
   # The report still carries the VERSIONS, because that is what a person reads. A file with two
   # fields is normalised to identity = version, which is exactly what dnf wants and what every
-  # snapshot written by an older Kempt already is - no migration, and an old offline marker's stored
-  # baseline still diffs correctly.
+  # snapshot written by an older Kempt already is, so no migration.
   local n1 n2 out rc=0
   n1="$(mktemp)"; n2="$(mktemp)"
   awk -F'\t' '{ id = (NF >= 3 && $3 != "") ? $3 : $2; print $1 "\t" $2 "\t" id }' "$1" > "$n1"
@@ -2432,7 +2402,7 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
     # Absent when there is none, for the same reason as staged above. NOT part of offline_staged:
     # that key describes the transaction KEMPT staged, and a release upgrade is by definition one
     # it did not - the two can even be true at once for a moment, which is the state the refusal in
-    # cmd_update and the marker-drop in reconcile_stage_after_live_run exist to end.
+    # cmd_update exists to end.
     def relupgrade: if $relup == null then {} else {release_upgrade: $relup} end;
     # true or absent, never false: this says "dnf is not how this machine updates", and a box where
     # it IS has nothing to declare. A reader that has never heard of the key behaves correctly on
@@ -2703,30 +2673,7 @@ acquire_lock() {
 }
 release_lock() { flock -u 8 2>/dev/null || true; { exec 8>&-; } 2>/dev/null || true; }  # braces: see writer_unlock
 
-# --- stage lock ------------------------------------------------------------------------------------
-# fd 6 (7, 8 and 9 are taken, see writer_lock). `kempt update` holds it from the moment it asks dnf5
-# to build an offline transaction until the marker describing that transaction is written. For that
-# whole stretch dnf5's record and Kempt's marker disagree, because Kempt is in the middle of
-# replacing one with the other - and a check comparing them then (reconcile_replaced_stage) would
-# announce Kempt's own rebuild as somebody else's.
-# Exclusive and WAITED for on the stage's side, shared and only TRIED on the check's: the check
-# holds it for a few milliseconds, and a stage that refused instead of waiting would fail a click
-# over nothing. Best-effort on both sides, because all it guards is an announcement: a stage that
-# cannot take it stages anyway, and a check that cannot take it compares nothing this time.
-# `>>`, never `>`, for acquire_lock's reason.
-stage_lock()     { { exec 6>>"$STAGE_LOCK_FILE"; } 2>/dev/null || return 0; flock -w 30 6 2>/dev/null || true; }
-stage_lock_try() {
-  { exec 6>>"$STAGE_LOCK_FILE"; } 2>/dev/null || return 1
-  flock -n -s 6 2>/dev/null && return 0
-  { exec 6>&-; } 2>/dev/null || true
-  return 1
-}
-stage_unlock()   { flock -u 6 2>/dev/null || true; { exec 6>&-; } 2>/dev/null || true; }
-
-# The boot session. A staged transaction can only be applied by a REBOOT, so the marker records
-# this and the harvest compares: same session means the stage is still pending, whatever else
-# happened to the rpm database in the meantime. "unknown" (no procfs) degrades to the old
-# snapshot-comparison behaviour rather than blocking the harvest forever.
+# The boot session, which the services' baseline records. "unknown" without procfs.
 current_boot_id() {
   [[ -n "$KEMPT_BOOT_ID" ]] && { printf '%s\n' "$KEMPT_BOOT_ID"; return 0; }
   cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo unknown
@@ -2736,7 +2683,7 @@ current_boot_id() {
 # exists and the next boot installs it) and `absent` are acted on, but anything else dnf5 writes
 # passes through unflattened, so a status this build has never heard of reaches `kempt doctor` as
 # itself instead of as a guess. `download-complete` is the one that matters: staged, downloaded,
-# never armed, and indistinguishable from `ready` to anything that only looks at the marker.
+# never armed, and not the same as `ready`.
 # grep/sed, not a toml parser: the file is dnf5's, read and never written, and one quoted scalar
 # does not justify a dependency. The line anchor keeps it honest - `status` is the ninth of eleven
 # keys, and a reader taking the first quoted value would answer with the rpmdb cookie.
@@ -2758,23 +2705,6 @@ offline_toml_value() {  # key → its value, or nothing; rc 1 if the file cannot
 # exits 0 and leaves the old transaction exactly as it was, files untouched, so the next restart
 # installs all of it - the package just held included. A real stage rewrites both files, and the
 # mtime catches a rewrite whose content happens to match.
-# A stage partly installed outside Kempt leaves dnf5's copy behind, and removing that needs root, so
-# it stays until someone asks or a later stage replaces it. This file says which copy it is: doctor
-# explains that one and no other, and any change to dnf5's files retires the note.
-OFFLINE_PARTIAL_FILE="$KEMPT_STATE_DIR/offline-partial"
-offline_partial_record() {
-  { offline_stored_fingerprint > "$OFFLINE_PARTIAL_FILE"; } 2>/dev/null || true
-}
-offline_partial_current() {
-  [[ -s "$OFFLINE_PARTIAL_FILE" ]] && [[ "$(offline_stored_fingerprint)" == "$(cat "$OFFLINE_PARTIAL_FILE" 2>/dev/null)" ]]
-}
-offline_partial_tidy() {
-  if [[ -e "$OFFLINE_PARTIAL_FILE" ]] && [[ "$(offline_system_status)" != unknown ]] && ! offline_partial_current; then
-    rm -f "$OFFLINE_PARTIAL_FILE" 2>/dev/null || true
-  fi
-  return 0
-}
-
 offline_stored_fingerprint() {  # → one opaque line, or nothing
   [[ -r "$KEMPT_OFFLINE_TOML" ]] || return 0
   local f
@@ -2795,19 +2725,15 @@ offline_stored_fingerprint() {  # → one opaque line, or nothing
 # package-based machine that is not there.
 on_ostree() { [[ -e "$KEMPT_OSTREE_MARKER" ]]; }
 
-# Three answers, and the third is a real one. `absent` needs proof that nothing is stored: a file that
-# is there and yields no status, or a folder that cannot be looked in, is `unknown`, and nobody acts
-# on unknown. Reading it as absent cleared the note of a stage that was still armed.
+# Three answers, and the third is a real one. `absent` needs proof: stat has to say there is no such
+# file. A file that is there and yields no status, or a path Kempt may not look down, is `unknown`,
+# and nobody acts on unknown.
 offline_system_status() {  # → ready | absent | unknown | dnf5's own status word
-  local s dir
+  local s why
   s="$(offline_toml_value status 2>/dev/null)" || s=""
   if [[ -n "$s" ]]; then printf '%s\n' "$s"; return 0; fi
-  dir="$(dirname "$KEMPT_OFFLINE_TOML")"
-  if [[ -e "$KEMPT_OFFLINE_TOML" || ( -d "$dir" && ! -x "$dir" ) ]]; then
-    printf 'unknown\n'
-  else
-    printf 'absent\n'
-  fi
+  why="$(LC_ALL=C stat -c %F -- "$KEMPT_OFFLINE_TOML" 2>&1 >/dev/null)" || true
+  if [[ "$why" == *"No such file or directory"* ]]; then printf 'absent\n'; else printf 'unknown\n'; fi
 }
 
 # Is the transaction dnf5 has stored a Fedora RELEASE upgrade rather than an ordinary offline
@@ -2887,12 +2813,6 @@ offline_release_upgrade_state() {  # → downloaded | armed | stranded | foreign
   esac
 }
 
-# The same four states answer for ANY stored transaction, Kempt's own included, and `armed` is the
-# only one a restart installs. Every reader that publishes a stage as pending asks this and never
-# the status alone: any live dnf5 transaction, run in a terminal outside Kempt, removes
-# /system-update and leaves the toml at `ready`, which is `stranded` - a stage no restart runs.
-offline_armed() { [[ "$(offline_release_upgrade_state)" == armed ]]; }
-
 # Whose the boot symlink is: none, dnf5's (it points at dnf5's offline directory), or another
 # updater's. PackageKit replaces the symlink whenever it prepares an update, while dnf5 only
 # creates one when none is there, so a dnf5 stage can be `ready` behind PackageKit's symlink.
@@ -2927,6 +2847,83 @@ restart_holder() {  # → none | kempt | other
 
 # The test every reader asks, including one that reports a stage as still waiting.
 restart_held_by_other() { [[ "$(restart_holder)" == other ]]; }
+
+# --- what is stored, read from the machine ---------------------------------------------------------
+# The one answer every surface takes about a stage: dnf5's toml, its link, its history and rpm, read
+# without root. Kempt stores nothing about a stage. Each word was measured on real dnf5 5.4.6
+# (docs/architecture.md has the table):
+#
+#   none         nothing stored, with proof
+#   armed        `ready` and dnf5's link: the next restart installs it
+#   other        `ready`, and another updater's link decides the next restart
+#   done         `ready` with no link of dnf5's, and every stored package is already installed
+#   lost         no restart installs it: `ready` with no link, or `download-complete` or
+#                `download-incomplete`
+#   interrupted  lost because a restart began it and stopped: the newest history row for this very
+#                stage is still `Started`
+#   failed       `transaction-incomplete`: a restart ran it and dnf5 recorded a failure
+#   upgrade      a Fedora release upgrade holds the slot, and has its own sentences
+#   unknown      the record cannot be read, or says something this build does not know
+#
+# Never `ready` alone: PackageKit removes dnf5's link on an rpm change or a refresh and leaves the
+# toml at `ready`, and a power cut leaves the same toml behind.
+# One check's answer takes one reading, which costs seconds on a lost stage: cmd_check holds it here.
+STAGE_WORD_NOW=""
+stage_read() {  # → one word from the table above
+  [[ -z "$STAGE_WORD_NOW" ]] || { printf '%s\n' "$STAGE_WORD_NOW"; return 0; }
+  local st
+  st="$(offline_system_status)"
+  case "$st" in
+    absent) printf 'none\n'; return 0 ;;
+    unknown) printf 'unknown\n'; return 0 ;;
+  esac
+  # Only the format this build was measured against. A new dnf5 format is what `unknown` is for.
+  [[ "$(sed -n 's/^[[:space:]]*state_version[[:space:]]*=[[:space:]]*\([^[:space:]#]*\).*/\1/p' "$KEMPT_OFFLINE_TOML" 2>/dev/null | head -1)" == 2 ]] \
+    || { printf 'unknown\n'; return 0; }
+  if offline_release_upgrade >/dev/null; then printf 'upgrade\n'; return 0; fi
+  case "$st" in
+    transaction-incomplete) printf 'failed\n' ;;
+    download-complete|download-incomplete) printf 'lost\n' ;;
+    ready)
+      local holder rc=0 names
+      holder="$(restart_holder)"
+      # A package list this build cannot read, or an empty one, is no promise about a restart.
+      # Another updater's link says who holds the restart whatever the list reads.
+      if ! names="$(offline_txjson_names)" || [[ -z "$names" ]]; then
+        if [[ "$holder" == other ]]; then printf 'other\n'; else printf 'unknown\n'; fi
+        return 0
+      fi
+      if [[ "$holder" == kempt ]]; then printf 'armed\n'; return 0; fi
+      offline_stage_satisfied || rc=$?
+      if [[ $rc -eq 0 ]]; then printf 'done\n'
+      elif [[ "$holder" == other ]]; then printf 'other\n'
+      elif [[ $rc -ne 1 ]]; then printf 'unknown\n'
+      elif stage_row_started; then printf 'interrupted\n'
+      else printf 'lost\n'; fi ;;
+    *) printf 'unknown\n' ;;
+  esac
+}
+
+# A row is a restart's install when the command that built it says so. PackageKit's rows carry none,
+# so they are never Kempt's to announce.
+# shellcheck disable=SC2016
+KEMPT_JQ_OFFLINE_ROW='
+  def offline_row: (.command_line | strings | test("(^|\\s)--offline(\\s|$)"));'
+
+# Is the newest restart's install in dnf5's history this stored stage, and still unfinished? The
+# cookie the row began from says which stage it was, and a row that never ended still says `Started`.
+stage_row_started() {
+  local id cookie
+  cookie="$(offline_toml_value rpmdb_cookie 2>/dev/null)" || return 1
+  [[ -n "$cookie" ]] || return 1
+  id="$(dnf_history_json list | jq -r "$KEMPT_JQ_OFFLINE_ROW"'
+          [.[] | select(offline_row)] | max_by(.id) // empty
+          | select(.status == "Started") | .id' 2>/dev/null)" || return 1
+  [[ "$id" =~ ^[0-9]+$ ]] || return 1
+  dnf_history_json info "$id" \
+    | jq -e --arg c "$cookie" '.[0].rpmdb_version_begin == $c' >/dev/null 2>&1
+}
+
 
 # rpm's version comparison (rpmvercmp in rpm's lib/rpmvercmp.c), for one version or release field.
 # Written out here rather than asked of rpm: the tests run on boxes with no rpm at all, and this is
@@ -3124,14 +3121,6 @@ offline_stage_satisfied() {
   [[ "$proof" == true ]]
 }
 
-# offline_stage_satisfied, asked about the stage a marker records. It reads dnf5's stored
-# transaction, and once a check has found that replaced, the stored one is somebody else's: its
-# packages being installed says nothing about Kempt's stage.
-offline_marker_stage_satisfied() {  # marker-json → rc as offline_stage_satisfied; replaced is 2
-  jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1 && return 2
-  offline_stage_satisfied
-}
-
 # One gate for every package name Kempt writes down or prints, and it is KEMPT_NAME_RE - the same
 # shape a hold is validated against and the root helper mirrors. Shared because the staged set can
 # come from two places (dnf5's stored transaction, or the check made just before staging) and a name
@@ -3172,7 +3161,7 @@ names_all_valid() {  # stdin: one name per line → 0 when every line passes KEM
 # line-based caller as two names, each passing the gate on its own; comparing the count against the
 # lines received refuses that.
 #
-# Size cap: KEMPT_TXJSON_MAX_BYTES, its own and not the marker's, because this file is dnf5's and
+# Size cap: KEMPT_TXJSON_MAX_BYTES, because this file is dnf5's and
 # grows with the transaction - roughly 200 bytes per entry, two entries per upgraded package, so a
 # 1 MB cap would refuse an ordinary 2,500-package update. 8 MB is past any transaction a desktop
 # stages and still refuses a file that is not a record. Past it: no list, and Kempt warns
@@ -3195,7 +3184,7 @@ offline_txjson_names() {  # → sorted unique names, or nothing with a non-zero 
   local out
   # `error` for every surprise, so jq's own exit status carries the degradation out - one mechanism
   # instead of a shape check per branch on the shell side. `[inputs][0]` is the corrupt-tolerance
-  # state_prev_items and offline_marker_read use: a multi-document or truncated file dies inside jq
+  # state_prev_items uses: a multi-document or truncated file dies inside jq
   # rather than out here.
   out="$(jq -r -n "$KEMPT_JQ_NEVRA_NAME"'
       ([inputs][0] // error("no document")) as $t
@@ -3224,67 +3213,6 @@ offline_txjson_names() {  # → sorted unique names, or nothing with a non-zero 
   [[ "$(grep -c '' <<<"$rest")" == "$n" ]] || return 1
   names_all_valid <<<"$rest" || return 1
   printf '%s\n' "$rest"
-}
-
-# --- transaction identity --------------------------------------------------------------------------
-# WHICH dnf5 transaction a stage is. When dnf5 builds an offline transaction it writes two facts into
-# its state toml: `rpmdb_cookie`, a hash of the rpm database the transaction was built against, and
-# `cmd_line`, the command that built it. The marker records both. Before the restart they are
-# compared with the toml as it is now; after the restart they are looked up in dnf5's transaction
-# history, where the applied transaction carries the same command as `command_line` (in `history
-# list`) and the cookie as `rpmdb_version_begin` (in `history info`). Verified against dnf5 5.4.3 in
-# a Fedora 44 container: `dnf5 offline _execute`, the command the offline boot runs, recorded exactly
-# that pair, and a stage on its own records no history entry at all.
-#
-# The format-stability rule holds for every read here. A value that is not the shape dnf5 writes
-# today is not recorded and not compared, so a dnf5 that changes either format costs Kempt the
-# identity and leaves the harvest doing what it did before the identity existed. It must never cost
-# a wrong attribution.
-
-# Kempt's own stage command is `dnf5 upgrade --offline -y --exclude=<name>...`, every name through
-# KEMPT_NAME_RE. The charset is wider than that and still excludes a quote and a backslash, the two
-# characters offline_toml_value cannot carry through intact.
-KEMPT_CMD_LINE_RE='^[A-Za-z0-9._+=:/,@*-]+( [A-Za-z0-9._+=:/,@*-]+)*$'
-
-# The identity dnf5 recorded for the transaction it holds now, as JSON with only the keys that read
-# cleanly: `{}` when neither did. Absent rather than empty, like every marker field.
-offline_toml_identity() {  # → {rpmdb_cookie?, cmd_line?}
-  local cookie cmd
-  cookie="$(offline_toml_value rpmdb_cookie)" || cookie=""
-  cmd="$(offline_toml_value cmd_line)" || cmd=""
-  [[ "$cookie" =~ ^[0-9a-f]{64}$ ]] || cookie=""
-  if (( ${#cmd} > 4096 )) || [[ ! "$cmd" =~ $KEMPT_CMD_LINE_RE ]]; then cmd=""; fi
-  jq -cn --arg c "$cookie" --arg l "$cmd" \
-    '(if $c == "" then {} else {rpmdb_cookie: $c} end) + (if $l == "" then {} else {cmd_line: $l} end)'
-}
-
-# Before the restart: is the transaction dnf5 holds now a different one from the stage this marker
-# records? Three differences, any one enough - another cookie (built against another rpm database),
-# another command, or another package set - printed one per line, rc 0. rc 1 when there is none or
-# nothing could be compared.
-# Only a marker that recorded a cookie is asked at all, so a marker from an older build keeps exactly
-# the behaviour it had. Each difference needs BOTH sides read: a value that could not be read is not
-# a difference. The live command is compared raw, because a command Kempt did not write is allowed to
-# be any shape and is a difference whatever shape it is. The package sets are compared only when the
-# marker's list came from the transaction, for doctor_staged_drift_row's reason: a check-derived list
-# disagrees with the stored transaction routinely and legitimately.
-offline_stage_replaced() {  # marker-json → differences, one per line
-  local mc ml lc ll names rec live_sorted diffs=""
-  mc="$(jq -r '.rpmdb_cookie // empty | strings' <<<"$1" 2>/dev/null || true)"
-  [[ "$mc" =~ ^[0-9a-f]{64}$ ]] || return 1
-  ml="$(jq -r '.cmd_line // empty | strings' <<<"$1" 2>/dev/null || true)"
-  lc="$(offline_toml_value rpmdb_cookie)" || return 1
-  ll="$(offline_toml_value cmd_line)" || ll=""
-  if [[ "$lc" =~ ^[0-9a-f]{64}$ && "$lc" != "$mc" ]]; then diffs+="rpmdb cookie"$'\n'; fi
-  if [[ -n "$ml" && -n "$ll" && "$ll" != "$ml" ]]; then diffs+="command"$'\n'; fi
-  if jq -e '(.staged_names_source? == "transaction") and ((.staged_names | type) == "array")' \
-       <<<"$1" >/dev/null 2>&1 && names="$(offline_txjson_names)"; then
-    rec="$(jq -r '.staged_names[] | strings' <<<"$1" 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u)"
-    live_sorted="$(printf '%s\n' "$names" | sed '/^$/d' | LC_ALL=C sort -u)"
-    if [[ "$live_sorted" != "$rec" ]]; then diffs+="packages"$'\n'; fi
-  fi
-  [[ -n "$diffs" ]] || return 1
-  printf '%s' "$diffs"
 }
 
 # dnf5's transaction history, as it serves it to an unprivileged reader: the database is 0644, and
@@ -3360,22 +3288,8 @@ history_entry_lists() {  # id → cookie, --installed, names, --touched, names
   printf '%s\n' "$res"
 }
 
-# How long dnf5 recorded transaction <id> taking, in whole seconds. rc 1 when the entry does not read
-# as a span (no times, or an end before the start), so the caller leaves the duration out.
-dnf_history_duration() {  # id → seconds; rc 1 = unknown
-  local info
-  info="$(dnf_history_json info "$1")" || return 1
-  jq -e -r -n --argjson id "$1" '
-      ([inputs][0] // error("no document")) as $i
-      | if ($i | type) != "array" or ($i | length) != 1 then error("shape") else $i[0] end
-      | if .id != $id then error("id") else . end
-      | if (.start_time | type) != "number" or (.end_time | type) != "number"
-           or .end_time < .start_time then error("times") else (.end_time - .start_time | floor) end
-    ' <<<"$info" 2>/dev/null
-}
-
-# The same question for a LIVE run, where it is far simpler to ask: nothing has to survive a restart,
-# so the identity is just the id the history stood at before the apply and the command Kempt ran.
+# Which dnf5 transaction a LIVE run was. The identity is just the id the history stood at before the
+# apply and the command Kempt ran.
 #
 #   <id>\n<names>  Exactly one entry arrived after that id running exactly that command. The lines
 #                  after the id are every package name it touched.
@@ -3423,109 +3337,6 @@ live_history_attribution() {  # before-id command-line → id, status, then name
   printf '%s\n%s\n%s\n' "$id" "$st" "$touched"
 }
 
-# After the restart: did the stage this marker records run, and which history entry is it?
-#
-#   applied <id>  Exactly one entry began at the recorded cookie and ran the recorded command. The
-#                 lines after the verdict are every package name that entry touched.
-#   did-not-run   The history answered in full and none of it can be the stage: nothing began at
-#                 the cookie, or what did ran another command with another package set. Also the
-#                 answer for a marker the check before the restart already found `replaced`.
-#   rc 1          Cannot tell. The caller then does exactly what it did before identity existed.
-#
-# "did-not-run" is a claim, so it needs evidence, and three things are required before it is made.
-# Every entry since the stage was read in a shape this build knows. dnf5 recorded at least one of
-# them: the package set moved across the restart, so a history with nothing in it is not telling
-# the whole story. And no entry is the one shape a dnf5 that recorded its commands differently
-# would leave, an entry that began at the cookie with another command and the SAME packages the
-# marker recorded - that one is cannot-tell, never evidence either way.
-#
-# The window opens a day before `staged_at`. The offline transaction runs early in boot, before the
-# clock has been synced, and a real-time clock kept in local time (as on a machine that also boots
-# Windows) can put it hours before the stage. The cookie is the identity; the window only keeps the
-# lookup small, and past 20 entries it gives up rather than asking dnf5 twenty times.
-offline_history_attribution() {  # marker-json → verdict, then names; rc 1 = cannot tell
-  if jq -e '.replaced == true' <<<"$1" >/dev/null 2>&1; then printf 'did-not-run\n'; return 0; fi
-  local cookie cmd at since list out n
-  cookie="$(jq -r '.rpmdb_cookie // empty | strings' <<<"$1" 2>/dev/null || true)"
-  cmd="$(jq -r '.cmd_line // empty | strings' <<<"$1" 2>/dev/null || true)"
-  at="$(jq -r '.staged_at // empty | strings' <<<"$1" 2>/dev/null || true)"
-  [[ "$cookie" =~ ^[0-9a-f]{64}$ && -n "$cmd" && -n "$at" ]] || return 1
-  since="$(date -d "$at" +%s 2>/dev/null)" || return 1
-  [[ "$since" =~ ^[0-9]+$ ]] || return 1
-  list="$(dnf_history_json list)" || return 1
-  # Every entry is shape-checked, not only the ones inside the window: a list with one entry dnf5
-  # shaped differently is a list this build cannot claim to have read. The command comparison
-  # happens in here so a command line carrying a tab or a newline never meets a line-based reader.
-  out="$(jq -r -n --argjson since "$since" --arg cmd "$cmd" '
-      ([inputs][0] // error("no document")) as $l
-      | if ($l | type) != "array" then error("not an array") else . end
-      | [ $l[]
-          | if type != "object" then error("entry") else . end
-          # A null command_line is a PackageKit transaction: another command, as above.
-          | if (.id | type) != "number" or (.id | floor) != .id or .id < 0
-               or (.start_time | type) != "number"
-               or ((.command_line | type) as $c | $c != "string" and $c != "null")
-            then error("fields") else . end
-          | select(.start_time >= $since - 86400) ]
-      | (length | tostring), (.[] | "\(.id) \(.command_line == $cmd)")' <<<"$list" 2>/dev/null)" || return 1
-  n="${out%%$'\n'*}"
-  [[ "$n" =~ ^[0-9]+$ ]] || return 1
-  (( n >= 1 && n <= 20 )) || return 1
-  local recorded="" have_recorded=false
-  if jq -e '(.staged_names_source? == "transaction") and ((.staged_names | type) == "array")' \
-       <<<"$1" >/dev/null 2>&1; then
-    recorded="$(jq -r '.staged_names[] | strings' <<<"$1" 2>/dev/null | sed '/^$/d' | LC_ALL=C sort -u)"
-    have_recorded=true
-  fi
-  # The rows after the count, or none: `${out#*$'\n'}` on a count with nothing after it would hand
-  # the loop the count itself as an entry.
-  local rows=""
-  if [[ "$out" == *$'\n'* ]]; then rows="${out#*$'\n'}"; fi
-  local id same res installed touched applied="" applied_names="" other=0 seen=0
-  while IFS=' ' read -r id same; do
-    [[ -n "$id" ]] || continue
-    [[ "$id" =~ ^[0-9]+$ && ( "$same" == true || "$same" == false ) ]] || return 1
-    seen=$(( seen + 1 ))
-    # One entry asked for, one entry back, and it has to be that entry (history_entry_lists). Its
-    # first line is the rpm database it began at: another one, and this is not the stage.
-    res="$(history_entry_lists "$id")" || return 1
-    [[ "${res%%$'\n'*}" == "$cookie" ]] || continue
-    installed="$(sed -n '/^--installed$/,/^--touched$/p' <<<"$res" | sed '1d;$d')"
-    touched="$(sed -n '/^--touched$/,$p' <<<"$res" | sed '1d')"
-    if [[ "$same" == true ]]; then
-      [[ -z "$applied" ]] || return 1      # two candidates: cannot tell which ran
-      applied="$id"; applied_names="$touched"
-    elif [[ "$have_recorded" == true && "$installed" != "$recorded" ]]; then
-      other=$(( other + 1 ))               # another transaction, from the same starting point
-    else
-      return 1                             # another command, and nothing to tell it apart by
-    fi
-  done <<<"$rows"
-  (( seen == n )) || return 1
-  if [[ -n "$applied" ]]; then
-    # Two transactions began at the same cookie, so the first cannot have changed anything. Which of
-    # them was the restart's is not something this can settle.
-    (( other == 0 )) || return 1
-    printf 'applied %s\n%s\n' "$applied" "$applied_names"
-    return 0
-  fi
-  printf 'did-not-run\n'
-}
-
-# The marker's ONE write. It records what a restart is about to install, so it goes down the way
-# state.json and events.log do: atomically, and private to the user.
-# 0600 comes from atomic_write's temp - mktemp creates it 0600 and the rename carries that mode
-# over whatever the old file had. A bare `>` redirect lands at the umask's 0644, which publishes a
-# per-box inventory of pending updates to every account on the machine.
-# Atomic matters as much as the mode, for a reason a single-writer file would not have: `update`
-# and `check` take DIFFERENT locks, so a check can read this at any instant of a stage. A redirect
-# truncates at open, making the whole write a window where the marker reads empty - and an empty
-# marker reads as "the stage is gone".
-write_offline_marker() { atomic_write "$OFFLINE_MARKER"; }
-
-# KEMPT_MARKER_MAX_BYTES, two lines down: no marker Kempt writes is anywhere near a megabyte (the
-# largest is a few hundred bytes), so past it the file is not a marker - it is whatever else ended
-# up at that path, and a reader that parses it anyway will parse whatever it is handed.
 # KEMPT_CHECK_LOCK_WAIT is how long a check waits for the check lock before serving the previous
 # state instead. A seam only so the suite can reach that branch: at a fixed 60 the timeout path -
 # the one that hands a reader the state file directly - costs a minute per test and goes uncovered.
@@ -3559,111 +3370,37 @@ state_checked_since() {  # requested-epoch → state on stdout, or 1
   printf '%s\n' "$doc"
 }
 
-KEMPT_MARKER_MAX_BYTES=1048576
 # dnf5's stored transaction has its own cap, sized for a file that grows with the transaction -
 # see offline_txjson_names.
 KEMPT_TXJSON_MAX_BYTES=8388608
 
-# Compare-and-swap on the stage's identity, for the two commands that BOTH write this file while
-# holding DIFFERENT locks: the harvest runs under check.lock (fd 9), `kempt update` writes the
-# marker under the update lock (fd 8), so neither waits for the other. A full package snapshot and
-# diff sit between a harvest's read and its delete - 0.5 to 1.5s on a 2700-package box - and
-# without this a stage landing inside that window is deleted by it: the user clicks "Install on
-# Next Restart", is told the update is staged, and a second later the panel shows nothing staged
-# over a transaction that is armed and will install. `staged_at` is the identity because it is what
-# the widget's own click-time re-verify already compares.
-offline_marker_still() {  # marker-json → 0 when the file still holds that same stage
-  local now
-  now="$(offline_marker_read)"
-  [[ "$(jq -r '.staged_at // empty' <<<"$now" 2>/dev/null)" \
-     == "$(jq -r '.staged_at // empty' <<<"$1" 2>/dev/null)" ]]
-}
-
-# The marker, read defensively, or nothing - and "nothing" means SKIP THIS CHECK, never "the stage
-# is gone". A reader can arrive mid-write (write_offline_marker says why), so a marker that will
-# not parse is evidence about the READ, not about the transaction, and treating it as a vanished
-# stage is how Kempt disowns an armed transaction sitting there perfectly staged. Clearing needs
-# the other evidence: a marker that parses, over a transaction dnf5 says is gone.
-# `[inputs][0]` plus the type guard is state_prev_items' corrupt-tolerance.
-offline_marker_read() {  # → the marker as one line of JSON, or nothing
-  [[ -f "$OFFLINE_MARKER" ]] || return 0
-  local sz
-  sz="$(stat -c %s "$OFFLINE_MARKER" 2>/dev/null || echo 0)"
-  (( sz > 0 && sz <= KEMPT_MARKER_MAX_BYTES )) || return 0
-  jq -c -n '[inputs][0] | select(type == "object")' "$OFFLINE_MARKER" 2>/dev/null || true
-}
-
-# The staged transaction as state.json publishes it, or nothing at all. BOTH facts have to agree:
-# the marker says Kempt staged something and how big it was, dnf5 says it is armed. A marker alone
-# promises a restart that will install these updates, and a transaction that never armed installs
-# on no restart while every surface goes on advertising it. So the key exists for `ready` and
-# nothing else; an unarmed or vanished stage is a discrepancy for `kempt doctor`, not a pending
-# install to publish.
+# The armed stage as state.json publishes it, or nothing. Everything comes from dnf5's files: the
+# stamp is when dnf5 last wrote its record, the count and the names are what it stored.
 #
 # It also answers what a hold added AFTER a stage raises: which held packages are in there anyway.
 # dnf5 cannot edit a stored transaction, so a hold applies from the NEXT one Kempt builds - correct,
-# and invisible without this. The predicate is a set intersection and never a clock (staged names
-# against dnf names currently held), which is order-free, restore-proof and immune to the
-# in-flight-stage race a timestamp comparison loses whichever way round it is written. Flatpak
-# holds never enter it: the offline surface stages dnf and nothing else.
+# and invisible without this. The predicate is a set intersection and never a clock. Flatpak holds
+# never enter it: the offline surface stages dnf and nothing else.
 #
 # `names_source` is what keeps that answer honest: an empty `holds_conflict` means NO CONFLICT under
-# `transaction` and `marker` (both transaction-derived) and CANNOT TELL under `none` (a legacy
-# marker, or names from a check, which cannot see resolver-added packages). docs/architecture.md's
-# state.json table is the full contract each value carries.
+# `transaction` and CANNOT TELL under `none`. docs/architecture.md's state.json table is the contract.
 # $1, optional: a file of the dnf updates the check found pending and not held, one name a line.
 # With it, and with the staged names readable, `not_staged` counts the pending ones the stage leaves
 # out: updates published after the stage was built. Absent whenever either list is missing.
 offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, holds_conflict, names_source[, not_staged]} JSON, or nothing
-  local marker
-  marker="$(offline_marker_read)"
-  [[ -n "$marker" ]] || return 0
-  # Armed, not merely `ready`: a stranded stage (see offline_release_upgrade_state) is what a live
-  # dnf5 transaction outside Kempt leaves behind in the SAME boot, where the harvest cannot demote
-  # it yet, and publishing it put "staged" in the widget over a stage no restart installs.
-  offline_armed || return 0
-  # A marker the harvest has DEMOTED describes a stage that cannot install, whatever dnf5's status
-  # and the symlink still say - a supersede whose clean failed leaves exactly that. Publishing it
-  # anyway would re-make, on every check, the promise reconcile_detour_stage exists to withdraw.
-  # `.armed == false` and never `.armed // true`: jq's alternative operator treats false as empty.
-  jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
-  # ...and one recorded as REPLACED describes a stage that is no longer what dnf5 holds. The next
-  # restart installs somebody else's transaction, so publishing Kempt's count would promise it.
-  jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1 && return 0
-  # A stored RELEASE upgrade is proof the transaction is not ours, whatever the marker says. dnf5
-  # keeps one stored transaction; Kempt only ever runs `dnf5 upgrade --offline` at the releasever
-  # the box is already on, so a transaction whose target differs from the system's cannot be one
-  # Kempt built - it replaced ours as it was stored. Publishing the marker anyway tells the widget
-  # that sixty-one packages install on the next restart when what installs is a whole new Fedora.
-  # The marker is dropped by the next live run's reconcile; until then it simply says nothing.
-  offline_release_upgrade >/dev/null && return 0
-  local names="" names_source=none not_staged=""
+  [[ "$(stage_read)" == armed ]] || return 0
+  local names="" names_source=none not_staged="" count=""
   if names="$(offline_txjson_names)"; then
     names_source=transaction
-  elif jq -e '(.staged_names_source? == "transaction") and ((.staged_names | type) == "array")' \
-         <<<"$marker" >/dev/null 2>&1; then
-    # Shape-tested before it is read: a marker claiming a transaction-derived list without one is
-    # a marker that cannot deny anything, and `.staged_names[]?` alone would have said "no names"
-    # in exactly the same words as a list that was genuinely empty.
-    names="$(jq -r '.staged_names[] | select(type == "string")' <<<"$marker" 2>/dev/null || true)"
-    names_source=marker
+    count="$(printf '%s' "$names" | grep -c . || true)"
   fi
   local conflict='[]'
   if [[ "$names_source" != none ]]; then
-    # Both lists reach jq as FILES. The names are a whole staged transaction, and a release
-    # upgrade stages every package on the box: past roughly 6,800 names that list is larger than
-    # the 128 KiB Linux allows a single argv entry, and this runs on EVERY check. Failing here
-    # fails the check, so the widget would go blank on exactly the machine with the most staged.
-    # printf '%s' rather than a here-string: <<< appends a newline, and an empty list would arrive
-    # as one empty-string element - which is why both sides drop empty lines below.
+    # Both lists reach jq as FILES. The names are a whole staged transaction, and past roughly 6,800
+    # names that is larger than the 128 KiB Linux allows a single argv entry. Every failure lands in
+    # names_source `none`, which is the value that means nobody could tell.
     local names_f holds_f
     names_f="$(mktemp)"; holds_f="$(mktemp)"
-    # Every step guarded, and every failure lands in the SAME place: names_source `none`. An empty
-    # conflict list under `transaction` or `marker` is a finding - this file's contract three lines
-    # up says so, and every reader relies on it to deny a conflict. Publishing `[]` because the
-    # comparison could not be made would turn "nobody could tell" into "there is no conflict",
-    # which is the one answer the data does not support. `none` is the value that means the first.
-    # The two files are removed on every path, including the ones that give up early.
     if printf '%s' "$names" > "$names_f" 2>/dev/null \
        && holds_for dnf > "$holds_f" 2>/dev/null; then
       # `. as $x` first, for the index() trap mark_held carries the note about.
@@ -3685,29 +3422,35 @@ offline_staged_state() {  # [pending-names file] → {staged_at, count, armed, h
     rm -f "$names_f" "$holds_f"
   fi
   [[ "$not_staged" =~ ^[0-9]+$ ]] || not_staged=""
-  # count: markers written before the field existed carry no number, and null is the honest answer.
-  # Every reader drops the figure from its sentence rather than inventing one.
-  jq -c --argjson conflict "$conflict" --arg nsrc "$names_source" --arg ns "$not_staged" \
-    '{staged_at: (.staged_at // null), count: (.staged // null), armed: true,
+  jq -cn --argjson conflict "$conflict" --arg nsrc "$names_source" --arg ns "$not_staged" \
+    --arg at "$(offline_stage_stamp)" --arg n "$count" \
+    '{staged_at: (if $at == "" then null else $at end),
+      count: (if $n == "" then null else ($n | tonumber) end), armed: true,
       holds_conflict: $conflict, names_source: $nsrc}
-     + (if $ns == "" then {} else {not_staged: ($ns | tonumber)} end)' <<<"$marker"
+     + (if $ns == "" then {} else {not_staged: ($ns | tonumber)} end)'
 }
 
-# Kempt's stage, when it is `ready` but another updater's symlink decides the next restart: that
-# restart runs the other updater, and dnf5 exits without installing Kempt's stage. Published beside
-# offline_staged rather than inside it, because a reader that predates this key reads the
-# presence of offline_staged as "installs on the next restart". Same gates as offline_staged_state
-# otherwise: a demoted marker, a stored release upgrade, or packages already installed (the stage
-# is then done, not blocked) publish nothing. A replaced stage is never done that way.
+# When dnf5 last wrote its record of the stage: what the widget's restart question is tied to, and it
+# moves with any new stage.
+offline_stage_stamp() { date -Is -r "$KEMPT_OFFLINE_TOML" 2>/dev/null || true; }
+
+# A stage another updater's link stands in front of: that restart runs the other updater, and dnf5
+# exits without installing this one. Published beside offline_staged rather than inside it, because
+# a reader that predates this key reads the presence of offline_staged as "installs on the next
+# restart".
 offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
-  local marker
-  marker="$(offline_marker_read)"
-  [[ -n "$marker" ]] || return 0
-  [[ "$(offline_release_upgrade_state)" == foreign ]] || return 0
-  jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 0
-  offline_release_upgrade >/dev/null && return 0
-  offline_marker_stage_satisfied "$marker" && return 0
-  jq -c '{staged_at: (.staged_at // null), count: (.staged // null)}' <<<"$marker"
+  [[ "$(stage_read)" == other ]] || return 0
+  local names count=""
+  if names="$(offline_txjson_names)"; then count="$(printf '%s' "$names" | grep -c . || true)"; fi
+  jq -cn --arg at "$(offline_stage_stamp)" --arg n "$count" \
+    '{staged_at: (if $at == "" then null else $at end),
+      count: (if $n == "" then null else ($n | tonumber) end)}'
+}
+
+# What state.json says about a stage no restart will install, for the words the surfaces show. Only
+# the four words that have a sentence.
+offline_stage_problem_of() {  # stage word → the word to publish, or nothing
+  case "$1" in lost|interrupted|failed|unknown) printf '%s\n' "$1" ;; esac
 }
 
 # Put what the next restart will install into the state file NOW, without a check.
@@ -3724,103 +3467,59 @@ offline_stage_blocked_state() {  # → {staged_at, count} JSON, or nothing
 # ONLY `.offline_staged` is touched. last_check and last_success date a CHECK, and this is not one:
 # moving them would put a fresh timestamp on counts nobody re-read.
 #
-# ...and it CLEARS as well as sets, which is the half a live run needs: reconcile_stage_after_live_run
-# can discard a stage the run superseded, and a state file still promising it would have the popup
-# offering a restart that installs nothing.
+# ...and it CLEARS as well as sets, which is the half a live run needs: a stage the run superseded is
+# discarded, and a state file still promising it would have the popup offering a restart that
+# installs nothing.
 #
 # Best-effort throughout, like log_event: a run's verdict must never turn on the state file. No
 # state file at all means a box that has never checked, and there is nothing to keep consistent.
 publish_staged_state() {
   [[ -f "$STATE_FILE" ]] || return 0
-  local staged
-  # Not a bare call: this runs under errexit on the far side of an update that has already
-  # downloaded and armed a transaction, and a marker this cannot read is not a reason to end the
-  # run there.
-  #
-  # ...and NOT `|| staged=""` either, which is what it used to be. offline_staged_state produces
-  # nothing in two quite different ways: rc 0 with no output for every path where there is
-  # genuinely no stage (no marker, not `ready`, demoted, a stored release upgrade that proves the
-  # transaction is not ours), and non-zero when it could not work the answer out. Flattening the
-  # second into the first published "nobody could tell" as "nothing is staged", and the else branch
-  # below then DELETED a promise the machine is already armed to keep - after which every surface
-  # offers to stage what is downloaded, or to upgrade live over it, which makes the CLI discard it
-  # as superseded and throw the download away. Rule 1 of the schema, on the writing side: a reader
-  # that learned nothing leaves what was there.
+  # Not a bare call: this runs under errexit on the far side of an update that has already armed a
+  # transaction. A reader that could not work the answer out leaves what was there.
+  local staged blocked problem lfd
   staged="$(offline_staged_state "")" || return 0
+  blocked="$(offline_stage_blocked_state)" || blocked=""
+  problem="$(offline_stage_problem_of "$(stage_read)")" || problem=""
   # state.lock rather than check.lock. The holder of check.lock is always a check that runs for
   # tens of seconds, and this exists to publish without that wait: tests/test_update.sh holds
-  # check.lock for ten seconds and asserts a run publishes anyway. state.lock is held only for
-  # this read and write and for each write_state, so a check's write cannot land between them.
-  # The order is always check.lock, then state.lock, so the two cannot deadlock.
-  #
-  # `[inputs][0] | select(type == "object")`: the house guard for a state file that is corrupt or
-  # holds more than one document (see cmd_check). select yields NOTHING on either, so `out` is
-  # empty and the file is left exactly as it was for the check behind us to rewrite properly.
-  # offline_stage_blocked travels with it: a stage just armed behind another updater's symlink
-  # is published as what it is, not as nothing.
-  local blocked lfd
-  blocked="$(offline_stage_blocked_state)" || blocked=""
+  # check.lock for ten seconds and asserts a run publishes anyway. The order is always check.lock,
+  # then state.lock, so the two cannot deadlock.
   state_lock_open
-  publish_staged_state_write "$staged" "$blocked" 2>/dev/null || true
+  publish_staged_state_write "$staged" "$blocked" "$problem" 2>/dev/null || true
   state_lock_close
   return 0
 }
 
 # The read and write behind publish_staged_state, run while it holds state.lock.
-publish_staged_state_write() {  # staged blocked
-  local staged="$1" blocked="$2" out
-  if [[ -n "$staged" ]]; then
-    out="$(jq -c -n --argjson st "$staged" \
-             '[inputs][0] | select(type == "object") | .offline_staged = $st | del(.offline_stage_blocked)' \
-             "$STATE_FILE" 2>/dev/null)" || return 0
-  elif [[ -n "$blocked" ]]; then
-    out="$(jq -c -n --argjson b "$blocked" \
-             '[inputs][0] | select(type == "object") | del(.offline_staged) | .offline_stage_blocked = $b' \
-             "$STATE_FILE" 2>/dev/null)" || return 0
-  else
-    out="$(jq -c -n '[inputs][0] | select(type == "object") | del(.offline_staged) | del(.offline_stage_blocked)' \
-             "$STATE_FILE" 2>/dev/null)" || return 0
-  fi
+# `[inputs][0] | select(type == "object")`: the house guard for a state file that is corrupt or holds
+# more than one document. It leaves the file for the check behind this one to rewrite.
+publish_staged_state_write() {  # staged blocked problem
+  local out
+  out="$(jq -c -n --arg st "$1" --arg b "$2" --arg p "$3" '
+           [inputs][0] | select(type == "object")
+           | del(.offline_staged, .offline_stage_blocked, .offline_stage_problem)
+           | if $st != "" then .offline_staged = ($st | fromjson) else . end
+           | if $b != "" then .offline_stage_blocked = ($b | fromjson) else . end
+           | if $p != "" then .offline_stage_problem = $p else . end' \
+           "$STATE_FILE" 2>/dev/null)" || return 0
   [[ -n "$out" ]] || return 0
   # Who holds the restart may have changed during the run, and this is the moment it is news.
   out="$(jq -c --arg h "$(restart_holder)" '. + {restart_holder: $h}' <<<"$out" 2>/dev/null)" || return 0
-  # ...and the write is best-effort like everything above it. This runs on the far side of a
-  # transaction that is downloaded and armed, under a caller that reports the run's verdict: a
-  # state directory that cannot be written is the same degrade the history entry beside it takes,
-  # not a staged update reported as a failed run. Without this, the one case where the marker
-  # cannot be written - where atomic_write is already failing - turned a successful stage into rc 1.
+  # Best-effort like everything above it: this runs under a caller that reports the run's verdict.
   _KEMPT_STATE_LOCK_HELD=1
   printf '%s\n' "$out" | write_state 2>/dev/null || true
   _KEMPT_STATE_LOCK_HELD=""
   return 0
 }
 
-# The unhold mirror's predicate: was this armed stage built WITHOUT the package the user has just
-# released? It needs its own recorded answer, because the transaction can never supply one - a
-# package absent from it was either excluded at stage time or simply had no update, and those look
-# identical from the inside. `staged_excluded` is that answer, written when the stage was made.
-# The legacy fallback, for a marker written before the field existed: warn only when the package is
-# pending RIGHT NOW, since a package with no update to miss cannot have been missed.
+# The unhold mirror's predicate: was this armed stage built WITHOUT the package just released? dnf5
+# wrote the command that built it into its record, and Kempt's holds reach it as `--exclude=`.
 offline_stage_built_without() {  # name → 0 when an armed stage left it out
-  # The same proof of ownership offline_staged_state uses, for the same reason: dnf5 keeps ONE
-  # stored transaction, Kempt only ever stages at the releasever the box is already on, so a stored
-  # release upgrade means the transaction our marker describes is gone. Without this, `kempt unhold`
-  # asserted a stage the check one command earlier had already stopped publishing, and pointed at a
-  # rebuild that pre-flight refuses.
-  offline_release_upgrade >/dev/null && return 1
-  local marker
-  marker="$(offline_marker_read)"
-  [[ -n "$marker" ]] || return 1
-  offline_armed || return 1
-  # Same demote gate as offline_staged_state: a stage that can no longer install cannot have
-  # missed anything the user is about to release.
-  jq -e '.armed == false' <<<"$marker" >/dev/null 2>&1 && return 1
-  if jq -e '(.staged_excluded | type) == "array"' <<<"$marker" >/dev/null 2>&1; then
-    jq -e --arg n "$1" '.staged_excluded | index($n)' <<<"$marker" >/dev/null 2>&1
-    return
-  fi
-  jq -e -n --arg n "$1" '[inputs][0].backends.dnf.items[]? | select(.name == $n)' \
-    "$STATE_FILE" >/dev/null 2>&1
+  [[ "$(stage_read)" == armed ]] || return 1
+  local cmd
+  cmd="$(offline_toml_value cmd_line 2>/dev/null)" || return 1
+  [[ " $cmd " == *" --exclude=$1 "* ]]
 }
 
 # --- what a hold over an armed stage says ---------------------------------------------------------
@@ -3855,7 +3554,7 @@ names_phrase() {  # stdin: one name per line → "a" | "a and b" | "a, b and c" 
 # Both remedies, on every surface that warns: the frightened holder may want the stage GONE rather
 # than rebuilt, and a warning that only offers the rebuild leaves them looking for the other half.
 # shellcheck disable=SC2034  # read by cmd_hold in bin/kempt, which sources this through a runtime $ROOT
-KEMPT_STAGED_RECIPE='When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo dnf5 offline clean (removes it).'
+KEMPT_STAGED_RECIPE='When ready: kempt update --surface=offline (rebuilds it with your holds) or kempt unstage (removes it).'
 
 hold_staged_warning() {  # stdin: the conflicting names → the sentence naming them
   local names total phrase
@@ -3871,8 +3570,7 @@ hold_staged_warning() {  # stdin: the conflicting names → the sentence naming 
   fi
 }
 
-# What is said when no list may be trusted: a legacy marker with no names, or one whose names came
-# from a check. "may still install" is the whole difference from the sentence above: this warning
+# What is said when no list may be trusted, because dnf5's stored list cannot be read. "may still install" is the whole difference from the sentence above: this warning
 # may be wrong about a package that is not in the transaction, and must never be wrong by staying
 # quiet about one that is.
 hold_generic_warning() {  # name → the sentence
@@ -3915,15 +3613,11 @@ KEMPT_JQ_COUNTS='
       + (if .stage_blocked == true then ", but another updater had already prepared a restart"
          else " for a restart" end)
     else empty end;
-  # How a run reads in kempt history and kempt summary. The stored surface of a harvested
+  # How a run reads in kempt history and kempt summary. The stored surface of a reported
   # restart keeps its old words, so scripts and old entries read the same. Only the display moves.
   # A run in the widget is stored as "popup" and shown as "widget".
   def surface_label:
     if .surface == "offline (applied on reboot)" then "restart (staged update installed)"
-    elif .surface == "offline (installed by another updater)"
-    then "staged update (installed by another updater)"
-    elif .surface == "offline (partly installed outside Kempt)"
-    then "staged update (partly installed outside Kempt)"
     elif .surface == "offline (restart did not finish)"
     then "staged update (restart did not finish)"
     elif .surface == "popup" then "widget"
@@ -3931,7 +3625,7 @@ KEMPT_JQ_COUNTS='
 '
 
 # One-line count of what a run actually changed. Shared by cmd_update's notification and the
-# offline harvest's: a transaction that only installs or removes packages must never be
+# restart report's: a transaction that only installs or removes packages must never be
 # announced as "0 packages" by one surface and correctly by the other.
 run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N removed" | "no package changes"
   jq -r "$KEMPT_JQ_COUNTS"'
@@ -3954,10 +3648,8 @@ history_phrase() {  # history-json-file → one phrase
 
 # What the next restart will install, in one line, or nothing. Deliberately NOT part of
 # render_summary: that renders one history entry, and a staged transaction is not something a past
-# run did - it is something the box is about to do. Read from the state the last check wrote, the
-# only place the marker and dnf5's status have already been reconciled.
-# The count can legitimately be unknown (a marker written before the field existed), and the
-# sentence drops the figure rather than printing "null" or guessing a number.
+# run did - it is something the box is about to do. Read from the state the last check wrote.
+# The count can be unknown (dnf5's list could not be read), and the sentence then drops the figure.
 # The argument lets a caller that has already read the state hand over that same copy (kempt status
 # passes /dev/stdin), so one command never answers from two different reads.
 staged_summary_line() {  # [state file, the published one by default] → one line, or nothing

@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 05:41+0200\n"
+"POT-Creation-Date: 2026-11-05 15:01+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -846,6 +846,10 @@ msgid "Kempt did not answer in time, so your answer may not be saved. Try again.
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js
+msgid "Kempt cannot tell what the next restart will do. Check Installation shows why."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
 msgid "Kempt found a problem with its installation: %2"
 msgid_plural "Kempt found %1 problems with its installation. The first: %2"
 msgstr[0] ""
@@ -1039,6 +1043,14 @@ msgstr ""
 
 #: plasmoid/contents/ui/logic.js
 msgid "A Fedora %1 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "No restart will install your prepared updates now. Use Install on Next Restart to prepare them again."
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "A restart began installing your prepared updates and was interrupted, so they will not install on the next restart. Use Install on Next Restart to prepare them again."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js

@@ -505,12 +505,9 @@ assert_not_contains "$(cat "$TESTTMP/skew.txt")" 'panel widget not installed' \
   "...and stays quiet once the widget package is there"
 
 # --- the staged transaction, which doctor is the only surface that can explain --------------------
-# TWO facts in two places: Kempt's marker, and dnf5's own transaction status. Every other surface
-# reads them reconciled; doctor reads them side by side, and its whole value is the case where they
-# disagree. A real box spent a day in exactly that state - a marker over a transaction that was
-# downloaded and never armed - with every surface reporting a pending install that no restart
-# could deliver, and nothing anywhere able to say so.
-D_MARKER="$KEMPT_STATE_DIR/offline_staged.json"
+# Every surface says what the stage is; doctor also says what to do about it, with the command. A
+# real box spent a day with a transaction downloaded and never armed, and every surface reporting a
+# pending install that no restart could deliver.
 # Armed is TWO things - dnf5 at `ready` AND the /system-update symlink - and the sandbox pins the
 # symlink at a path that does not exist, because that is the state of every box that has not just
 # staged something. So the whole staged section below runs with a live one, and the cases that are
@@ -520,72 +517,47 @@ ln -sfn "$TESTTMP" "$KEMPT_OFFLINE_LINK"
 NO_LINK="$TESTTMP/no-system-update"
 mkdir -p "$KEMPT_STATE_DIR"
 doctor_out() { "$KEMPT" doctor > "$TESTTMP/staged.txt" 2>&1 || true; }
+tx_of() { jq -n '{version:"1.0", rpms:[$ARGS.positional[] | {nevra:., action:"Upgrade"}]}' --args "$@" > "$TESTTMP/tx-of.json"; }
 
-# Nothing staged and no marker: nothing to say, and doctor does not say it. A line per run about a
-# transaction that does not exist is noise on every box that has never staged one.
-rm -f "$D_MARKER"
-KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out   # nothing staged means no symlink either
+# Nothing staged: nothing to say, and doctor does not say it. A line per run about a transaction that
+# does not exist is noise on every box that has never staged one.
+KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
 grep -qiE '^(ok|info|WARN|FAIL)  .*staged' "$TESTTMP/staged.txt" \
   && { echo "FAIL: a box with nothing staged still reported on it"; _fail=1; } \
   || echo "ok: no staged transaction, no line about one"
 
 # ARMED and pending: the normal case, and information rather than a problem. It is the one thing
 # the report can say that answers "why is `kempt check` still listing these packages?".
-printf '{"staged_at":"2026-09-02T10:31:00+03:00","pre_snapshot":"/x.tsv","boot_id":"b","staged":61,"armed":true}\n' > "$D_MARKER"
 assert_exit 0 "an armed staged transaction is not a problem" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" 'info  staged update: 61 packages install on the next restart' \
+assert_contains "$(cat "$TESTTMP/last_output")" 'info  staged update: 3 packages install on the next restart' \
   "...and doctor says how many, and when"
+assert_contains "$(cat "$TESTTMP/last_output")" 'If that fails: sudo dnf5 offline clean' \
+  "...and names the fix for when the discard fails, which is what the failed discard points here for"
 # One package is its own sentence here too. Doctor's rows are read by people pasting them into bug
 # reports, and "1 packages" is the line that gets quoted back.
-printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":1,"armed":true}\n' > "$D_MARKER"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+tx_of a-1-1.noarch
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-of.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
 assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: 1 package installs on the next restart' \
   "a single staged package reads as one"
-printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":2,"armed":true}\n' > "$D_MARKER"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+tx_of a-1-1.noarch b-1-1.noarch
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-of.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
 assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: 2 packages install on the next restart' \
   "...and two is back to the plural"
-# A marker from before the count existed still describes a real pending install.
-printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b"}\n' > "$D_MARKER"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: it installs on the next restart' \
-  "an unknown count loses the number, not the line"
+# dnf5's list unreadable is no promise about a restart.
+printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  staged update: Kempt cannot tell what the stored update will do' \
+  "an unreadable list: cannot tell, not installs"
+assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'on the next restart' "...and no promise about the restart"
 
 # THE STUCK STAGE FROM A REAL BOX, and the reason this section exists. `dnf5 upgrade --offline`
-# leaves the transaction at download-complete; only `dnf5 offline reboot` arms it. Unarmed, it
-# installs on no restart ever, and the marker over it makes every other surface promise it will.
-printf '{"staged_at":"2026-09-01T10:31:00+03:00","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' > "$D_MARKER"
-assert_exit 1 "a stage that was never armed is a problem, and doctor exits on it" \
-  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
-grep -qE '^FAIL  prepared updates can never install' "$TESTTMP/last_output" \
-  && echo "ok: ...saying it can never install, not that it is pending" \
-  || { echo "FAIL: no never-install line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
-# The exact command, because a diagnosis a person cannot act on is half a diagnosis - and this one
-# needs root, so it cannot be a kempt subcommand.
-assert_contains "$(cat "$TESTTMP/last_output")" 'sudo dnf5 offline clean' \
-  "...and names the exact command that clears it"
-
-# A marker whose transaction is gone. Nothing for the user to do: the next check clears it, and
-# saying so is more useful than either silence or an alarm.
-KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
-grep -qE '^info  staged update: the transaction is gone' "$TESTTMP/staged.txt" \
-  && echo "ok: a marker with no transaction left is reported, and not as a problem" \
-  || { echo "FAIL: no gone-transaction line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
-grep -qE '^FAIL' "$TESTTMP/staged.txt" \
-  && { echo "FAIL: a marker the next check clears was reported as a problem"; _fail=1; } \
-  || echo "ok: ...and it does not fail the checkup"
-
-# Somebody else's transaction: `dnf5 upgrade --offline` typed in a terminal, or another tool. Kempt
-# did not stage it, will not harvest it, and must not claim it - but a person reading this report
-# because a restart installed something they did not expect deserves to be told it is there.
-rm -f "$D_MARKER"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-grep -qE '^info  an offline transaction is staged outside Kempt' "$TESTTMP/staged.txt" \
-  && echo "ok: a transaction Kempt did not stage is named as somebody else's" \
-  || { echo "FAIL: no outside-Kempt line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'dnf5 offline status' \
-  "...pointing at the command that describes it"
+# leaves the transaction at download-complete; only `dnf5 offline reboot` arms it. Until then it
+# installs on no restart ever.
+KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  prepared updates will not install: dnf5 says "download-complete"' \
+  "a stage that was never armed says it will not install, not that it is pending"
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'kempt unstage' "...and names the command that clears it"
 
 # --- an image-based Fedora ------------------------------------------------------------------------
 # The report that used to end "all checks passed" on a machine Kempt cannot update at all. Kinoite
@@ -679,19 +651,6 @@ case "$ic_info" in
   *"has been downloaded"*) echo "FAIL: download-incomplete is called downloaded"; _fail=1 ;;
   *) echo "ok: ...and never called downloaded, which is the opposite of what dnf5 recorded" ;;
 esac
-# A marker beside it must not swallow the row: blanking the marker variable dropped into the
-# branch for a marker that will not parse, so a perfectly readable one was reported as unreadable
-# and the release upgrade was never named.
-cp "$FIXTURES/offline-ready.toml" "$TESTTMP/unused.toml" 2>/dev/null || true
-printf '{"staged_at":"x","staged":3,"armed":true}' > "$D_MARKER"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
-grep -qE '^info  a Fedora release upgrade' "$TESTTMP/staged.txt" \
-  && echo "ok: a readable marker beside a release upgrade does not swallow the row about it" \
-  || { echo "FAIL: the release upgrade was never named - got: $(grep -i staged "$TESTTMP/staged.txt" | awk 'NR<=2')"; _fail=1; }
-assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'the marker cannot be read' \
-  "...and does not call a marker that parsed unreadable"
-rm -f "$D_MARKER"
-
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
 assert_contains "$(cat "$TESTTMP/staged.txt")" 'will not prepare updates over it' \
   "...saying why Kempt refuses to stage while it is there"
@@ -699,40 +658,23 @@ grep -qE '^FAIL' "$TESTTMP/staged.txt" \
   && { echo "FAIL: a release upgrade waiting to install was reported as a fault"; _fail=1; } \
   || echo "ok: ...and it is information, not a fault: nothing here is broken"
 
-# --- the marker read the way every other reader reads it ------------------------------------------
-# doctor used to jq the marker file directly, so a torn or garbage one answered `empty` for the
-# count and fell straight through to the armed row: a report whose whole job is to catch a
-# disagreement between two files was describing a pending install off a file it could not parse.
-printf '{"staged_at":"2026-09-02T10:31:00+03:0' > "$D_MARKER"
-assert_exit 0 "a marker that will not parse does not crash the checkup" \
-  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-grep -qE '^info  staged update: the marker cannot be read' "$TESTTMP/last_output" \
-  && echo "ok: ...and says so instead of describing a pending install it cannot see" \
-  || { echo "FAIL: no unreadable-marker line - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
-assert_not_contains "$(cat "$TESTTMP/last_output")" 'installs on the next restart' \
+# --- what stops a stage, one row each -------------------------------------------------------------
+# A stored file that cannot be read, or says something this version does not know: a real answer,
+# with the fix, and never dnf5 "saying" a word Kempt made up. (Skipped as root, who can read anything.)
+garbage_toml="$TESTTMP/garbage.toml"; printf 'not a transaction-state file\n' > "$garbage_toml"
+KEMPT_OFFLINE_TOML="$garbage_toml" doctor_out
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  staged update: Kempt cannot tell what the stored update will do' \
+  "a stored record nobody can read is reported as exactly that"
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'sudo dnf5 offline clean' "...with the fix"
+assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'says "unknown"' "...and without putting a word in dnf5's mouth"
+assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'installs on the next restart' \
   "...and claims nothing about what a restart would do"
 
-# The marker a detour boot demoted: `armed: false`, over a transaction that is not ready. The row
-# that matters is unchanged - this transaction can never install - and it is still a FAIL, which is
-# the whole reason reconciliation demotes the marker instead of clearing it.
-jq -n '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:"/x.tsv", boot_id:"b", staged:61,
-        armed:false}' > "$D_MARKER"
-assert_exit 1 "a demoted marker still fails the checkup over a transaction that cannot install" \
-  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
-grep -qE '^FAIL  prepared updates can never install' "$TESTTMP/last_output" \
-  && echo "ok: ...with the same precise row, which is what clearing the marker would have lost" \
-  || { echo "FAIL: no never-install line for a demoted marker - got: $(grep -i staged "$TESTTMP/last_output")"; _fail=1; }
-
-# The stage a refresh took the restart step from: the answer is staging again, packages moved or not.
-D_PRE="$TESTTMP/d-pre.tsv"; cp "$FIXTURES/snap-before.tsv" "$D_PRE"
-jq -n --arg pre "$D_PRE" --arg cookie "$(sed -n 's/^rpmdb_cookie *= *"\(.*\)"/\1/p' "$FIXTURES/offline-ready.toml")" \
-  '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:$pre, boot_id:"b", staged:61, armed:false, rpmdb_cookie:$cookie}' > "$D_MARKER"
-D_LINK_WAS="$(readlink "$KEMPT_OFFLINE_LINK" 2>/dev/null || true)"; rm -f "$KEMPT_OFFLINE_LINK"
-env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_DNF_INSTALLED_CMD="cat $FIXTURES/snap-before.tsv" "$KEMPT" doctor >"$TESTTMP/last_output" 2>&1 || true
-assert_contains "$(cat "$TESTTMP/last_output")" 'prepared updates can never install' "a stage that lost its restart step fails the checkup"
-assert_contains "$(cat "$TESTTMP/last_output")" 'Prepare them again with: kempt update --surface=offline' "...and says to stage again"
-rm -f "$D_MARKER"
-[[ -z "$D_LINK_WAS" ]] || ln -sfn "$D_LINK_WAS" "$KEMPT_OFFLINE_LINK"
+# The stage a refresh took the restart step from: the answer is staging again.
+printf 'bash-0:5.3.9-1.fc44.x86_64\n' > "$TESTTMP/rpm-qa-other"
+KEMPT_RPM_QA_CMD="cat $TESTTMP/rpm-qa-other" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'prepared updates will not install' "a stage that lost its restart step says so"
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'Prepare them again with: kempt update --surface=offline' "...and says to stage again"
 
 # --- the hold that arrived after the stage, on the report a worried person runs --------------------
 # info and not FAIL: doctor has ok/info/FAIL and nothing between, and a package installing despite a
@@ -740,20 +682,13 @@ rm -f "$D_MARKER"
 # to edit a stored one). A FAIL for something legitimate is how a report teaches people to ignore
 # FAILs. The bluntness lives in the sentence, and the sentence ends with BOTH remedies: the person
 # who held a kernel may want the stage gone rather than rebuilt.
-d_marker() {  # names-source names-json
-  jq -n --arg src "$1" --argjson names "$2" \
-    '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:"/x.tsv", boot_id:"b", staged:3,
-      armed:true, staged_names_source:$src, staged_names:$names, staged_excluded:[]}' > "$D_MARKER"
-}
-printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
-d_marker transaction '["ca-certificates","librepo","openldap"]'
 "$KEMPT" hold dnf:librepo >/dev/null 2>&1
 assert_exit 0 "a hold behind an armed stage is reported, and is not a failure" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
 assert_contains "$(cat "$TESTTMP/last_output")" 'info  staged update: it installs librepo on the next restart despite the hold.' \
   "...leading with what happens and naming the package"
 grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
-  && grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
+  && grep -qF 'kempt unstage' "$TESTTMP/last_output" \
   && echo "ok: ...and ending with both remedies, rebuild it or remove it" \
   || { echo "FAIL: the conflict line does not carry both remedies"; _fail=1; }
 
@@ -766,88 +701,33 @@ assert_contains "$(cat "$TESTTMP/staged.txt")" 'staged update: it installs ca-ce
 
 # Six, which is where the cap earns its place: a Qt or KDE bump legitimately puts dozens of names in
 # the set, and a doctor row that lists them all is a row nobody reads to the end.
-d_marker transaction '["bash","curl","glibc","kernel-core","mesa","systemd"]'
+tx_of bash-1-1.noarch curl-1-1.noarch glibc-1-1.noarch kernel-core-1-1.noarch mesa-1-1.noarch systemd-1-1.noarch
 for n in bash curl glibc kernel-core mesa systemd; do "$KEMPT" hold "dnf:$n" >/dev/null 2>&1; done
-KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
+KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-of.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
 assert_contains "$(cat "$TESTTMP/staged.txt")" 'staged update: it installs bash, curl, glibc, kernel-core, and 2 more on the next restart despite the holds.' \
   "past four names the rest are counted, not listed"
 
-# No list may be trusted - the names came from a check, which cannot see the packages the resolver
-# added - and there is a dnf hold on the box. The generic form fires: it can be wrong by warning
-# about a package that is not in there, and must never be wrong by staying quiet about one that is.
-d_marker check '["kernel-core"]'
-KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: it may still install held packages on the next restart.' \
-  "a list that cannot deny anything gets the generic line, not silence"
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'sudo dnf5 offline clean' \
-  "...carrying both remedies as well"
 
 # Nothing held: no line at all. The row exists to answer a question nobody has asked otherwise.
 for n in librepo ca-certificates openldap bash curl glibc kernel-core mesa systemd; do
   "$KEMPT" unhold "dnf:$n" >/dev/null 2>&1
 done
-d_marker transaction '["ca-certificates","librepo","openldap"]'
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
 grep -qE 'despite the hold|may still install held packages' "$TESTTMP/staged.txt" \
   && { echo "FAIL: a conflict line with nothing held"; _fail=1; } \
   || echo "ok: no hold, no conflict line"
-
-# --- and the drift line: the staged transaction is not the one Kempt built -------------------------
-# The marker records what Kempt staged; dnf5's own transaction file says what is stored right now.
-# They can disagree - anything running as this user inside the authentication keep window can
-# replace an armed transaction - and then every Kempt surface is describing a set that is not there.
-# FAIL, because unlike the hold above this is nothing anyone chose.
-d_marker transaction '["ca-certificates","kernel-core"]'
-assert_exit 1 "a staged transaction that is not the one Kempt built fails the checkup" \
-  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  staged update is not the one Kempt built' \
-  "...saying whose record it is reading, not just that something is wrong"
-grep -qF -- "+librepo and +openldap in dnf5's record only" "$TESTTMP/last_output" \
-  && grep -qF -- "-kernel-core in Kempt's only" "$TESTTMP/last_output" \
-  && echo "ok: ...and names both directions of the difference" \
-  || { echo "FAIL: the drift line does not name both directions - got: $(grep -i 'not the one' "$TESTTMP/last_output")"; _fail=1; }
-grep -qF 'kempt update --surface=offline' "$TESTTMP/last_output" \
-  && grep -qF 'sudo dnf5 offline clean' "$TESTTMP/last_output" \
-  && echo "ok: ...and ends with both remedies too" \
-  || { echo "FAIL: the drift line does not carry both remedies"; _fail=1; }
-
-# The same two sets, agreeing: no line. A report that fires on equality is a report that gets muted.
-d_marker transaction '["ca-certificates","librepo","openldap"]'
-assert_exit 0 "a transaction that matches what Kempt staged is not drift" \
-  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-assert_not_contains "$(cat "$TESTTMP/last_output")" 'is not the one Kempt built' \
-  "equal sets say nothing"
-
-# A CHECK-derived list is not evidence of drift: a check cannot see the packages the resolver added,
-# so it disagrees with the stored transaction routinely and legitimately. There is nothing to
-# compare honestly, so nothing is claimed.
-d_marker check '["kernel-core"]'
-assert_exit 0 "a check-derived list is never compared against dnf5's record" \
-  env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-assert_not_contains "$(cat "$TESTTMP/last_output")" 'is not the one Kempt built' \
-  "nothing to compare, nothing claimed"
-
-# ...and neither is a record that will not parse: the marker's list may be perfect and there is
-# simply nothing to hold it against.
-d_marker transaction '["ca-certificates","kernel-core"]'
-assert_exit 0 "a transaction record that will not parse is not drift either" \
-  env KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-assert_not_contains "$(cat "$TESTTMP/last_output")" 'is not the one Kempt built' \
-  "an unreadable record makes no claim about the marker"
-rm -f "$D_MARKER"
 
 # --- the boot symlink, and the state nothing in Kempt could see -----------------------------------
 # Arming creates /system-update, and systemd's system-update-generator looks for that symlink and
 # nothing else. Leave it behind over a transaction that is not `ready` - which is exactly what a
 # replace-stage leaves in the middle, since dnf5 destroys the old transaction the moment the new one
 # begins - and the next boot detours into the offline updater, installs nothing, and comes back with
-# no trace anywhere. Kempt read the toml and never the symlink, so with no marker on the box this
-# state was invisible to the one command whose job is to see it.
+# no trace anywhere. Kempt read the toml and never the symlink, so this state was invisible to the
+# one command whose job is to see it.
 D_LINK="$TESTTMP/system-update"
 # DANGLING on purpose: the symlink is the mechanism, its target is not, and a check that resolved
 # the target would answer "no problem" for the boot that is about to detour.
 ln -s "$TESTTMP/nothing-here" "$D_LINK"
-rm -f "$D_MARKER"
 
 # The normal armed state, which must stay silent: symlink present, transaction ready. This is what
 # every successfully staged box looks like between the stage and the restart.
@@ -856,9 +736,9 @@ grep -qE '^FAIL' "$TESTTMP/staged.txt" \
   && { echo "FAIL: an armed transaction was reported as a problem"; _fail=1; } \
   || echo "ok: symlink plus a ready transaction is the armed state, not a fault"
 
-# Symlink over a transaction that was never armed, with NO marker: somebody else's stage, or ours
-# replaced mid-rebuild. The remedy needs root, so it is spelled out.
-assert_exit 1 "a live boot symlink over an unarmed transaction fails the checkup" \
+# Symlink over a transaction that was never armed: somebody else's stage, or ours replaced
+# mid-rebuild. The remedy needs root, so it is spelled out.
+assert_exit 1 "a live boot symlink over a transaction not set to install fails the checkup" \
   env KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" doctor
 assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  boot symlink is live over a transaction that is not set to install (status "download-complete")' \
   "...naming the status the boot will detour on"
@@ -872,40 +752,24 @@ assert_exit 1 "a boot symlink with nothing staged behind it fails the checkup" \
 assert_contains "$(cat "$TESTTMP/last_output")" 'FAIL  boot symlink is live with nothing prepared behind it' \
   "...and says the transaction is not there rather than quoting a status"
 
-# Marker or no marker, and both rows when both apply: they are two different facts about the same
-# box - one says the stage can never install, the other says the next boot detours on the way to
-# finding that out - and each has a reader who needs it.
-printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":61}\n' > "$D_MARKER"
+# Both rows when both apply: they are two different facts about the same box - one says the stage
+# will not install, the other says the next boot detours on the way to finding that out.
 KEMPT_OFFLINE_LINK="$D_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" doctor_out
 assert_eq "$(grep -c '^FAIL  boot symlink is live over a transaction that is not set to install' "$TESTTMP/staged.txt" || true)" "1" \
-  "a marker does not suppress the symlink row"
-assert_eq "$(grep -c '^FAIL  prepared updates' "$TESTTMP/staged.txt" || true)" "1" \
-  "...and the symlink does not suppress the marker's"
-
-# No symlink is no row, whatever the toml says: the marker's own FAIL is the only one left. Without
-# this the two conditions could be read as one and the check would fire on the toml alone.
+  "a stage that will not install does not suppress the symlink row"
+assert_eq "$(grep -c '^WARN  prepared updates' "$TESTTMP/staged.txt" || true)" "1" \
+  "...and the symlink does not suppress the stage's"
+# No symlink is no row, whatever the toml says.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_OFFLINE_LINK="$NO_LINK" doctor_out
 assert_eq "$(grep -c '^FAIL  boot symlink' "$TESTTMP/staged.txt" || true)" "0" \
   "no boot symlink, no symlink row"
-assert_eq "$(grep -c '^FAIL  prepared updates' "$TESTTMP/staged.txt" || true)" "1" \
-  "...and the unarmed transaction is reported exactly once"
-# The INVERSE of the row above, and it had no row at all: dnf5 says `ready` and the symlink is
-# GONE. Arming is both, systemd removes the symlink once system-update.target has been reached,
-# and only `dnf5 offline reboot` makes it again - so this transaction installs on no restart,
-# ever. Every surface used to call it a pending install and doctor exited 0.
-printf '{"staged_at":"x","pre_snapshot":"/x.tsv","boot_id":"b","staged":7,"armed":true}\n' > "$D_MARKER"
-assert_exit 1 "a ready transaction with no boot symlink fails the checkup" \
-  env KEMPT_OFFLINE_LINK="$NO_LINK" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
-assert_contains "$(cat "$TESTTMP/last_output")" 'prepared updates can never install: dnf5 says "ready" but' \
-  "...and the row says the transaction can never install"
-assert_contains "$(cat "$TESTTMP/last_output")" 'kempt update --surface=offline' \
-  "...and offers the re-stage that fixes it"
-# ...and with the symlink there, the same transaction is fine. The two conditions are one row, and
-# reading them as one would make every armed stage a failure.
-assert_exit 0 "the same transaction with its symlink standing is not a problem" \
+assert_eq "$(grep -c 'prepared updates' "$TESTTMP/staged.txt" || true)" "1" \
+  "...and the transaction not set to install is reported exactly once"
+# ...and with the symlink there, a ready transaction is fine.
+assert_exit 0 "a ready transaction with its symlink standing is not a problem" \
   env KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" "$KEMPT" doctor
 
-rm -f "$D_MARKER" "$D_LINK"
+rm -f "$D_LINK"
 # ...and out of the staged section: back to a box with no restart marker, which is what every
 # case below assumes and what a box that has not just staged something actually looks like.
 export KEMPT_OFFLINE_LINK="$NO_LINK"

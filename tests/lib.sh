@@ -70,19 +70,15 @@ sandbox() {  # fresh dirs per test file; call first
   # of the box running the suite. A path that does not exist is "dnf did
   # not answer", which publishes nothing and is the safe default.
   export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/UNSTUBBED-dnf-advisory"
-  # Poisoned too: unset, every harvest the suite drives would ask the REAL dnf5 history of the box
-  # running it which transaction ran, and the answer would depend on that box's past. A path that
-  # does not exist is "the history did not answer", which is also the branch every harvest test
-  # written before transaction identity expects: the harvest behaves exactly as it did then.
+  # Poisoned too: unset, every check the suite drives would ask the REAL dnf5 history of the box
+  # running it what the last restart did, and the answer would depend on that box's past. A path that
+  # does not exist is "the history did not answer".
   export KEMPT_DNF_HISTORY_CMD="$TESTTMP/UNSTUBBED-dnf-history"
   # PINNED rather than poisoned, and it is the one seam where "a path that does not exist" would be
   # the wrong default. Unset, this reads the REAL
   # /usr/lib/sysimage/libdnf5/offline/offline-transaction-state.toml, so whether the box running
-  # the suite happens to have a staged transaction would decide which reconciliation branch every
-  # offline test takes. Pointed at nothing, "no transaction" is the answer - and a marker with no
-  # transaction under it is exactly the case the check CLEARS, which would delete the marker out
-  # from under every staging test in test_update.sh before it could be harvested. The fixture says
-  # `ready`: if a stage exists in a test's world, it is armed. Files that need another status (or
+  # the suite happens to have a staged transaction would decide which branch every offline test
+  # takes. The fixture says `ready`: if a stage exists in a test's world, it is armed. Files that need another status (or
   # none) point the seam somewhere else themselves.
   # Pinned at a path that does not exist, for the same reason as the seams above: unset, this reads
   # the REAL /run/ostree-booted, so running the suite on Silverblue or Kinoite would refuse every
@@ -99,7 +95,7 @@ sandbox() {  # fresh dirs per test file; call first
   # and every conflict test would have to opt into it. So the fixture is the default, exactly like
   # the `ready` toml: if a stage exists in a test's world, it is armed, and its contents are the
   # three packages this fixture records.
-  # Consequence, by design: any test that writes a marker and then holds ca-certificates, librepo or
+  # Consequence, by design: any test that holds ca-certificates, librepo or
   # openldap sees a conflict warning. Files that need a different transaction (or none) point the
   # seam somewhere else themselves.
   export KEMPT_OFFLINE_TXJSON="$FIXTURES/offline-transaction-full.json"
@@ -135,7 +131,7 @@ sandbox() {  # fresh dirs per test file; call first
     export KEMPT_GETFACL="$TESTTMP/no-acl-getfacl"
   fi
   # The installed-package list offline_stage_satisfied reads. Unset, it is the REAL rpm database,
-  # and whether a fixture's packages happen to be installed on the box would decide a harvest. A
+  # and whether a fixture's packages happen to be installed on the box would decide a report. A
   # command that fails reads as "cannot tell", which is never satisfied.
   export KEMPT_RPM_QA_CMD="$TESTTMP/UNSTUBBED-rpm-qa"
   # dnf's config, read for installonlypkgs. Unset, the box's own /etc/dnf/dnf.conf would decide.
@@ -250,8 +246,8 @@ STUB
 # A PATH prefix on which `cmp` is absent, the way it is on any box without diffutils (a minimal
 # container image, a server install). The shipped code must decide "did the package set move" from
 # content it can read with coreutils alone: found by the live container gate on 2026-09-05, where
-# a missing cmp made every boot-changed check harvest an unchanged box as "applied - no package
-# changes" and delete the marker. Use as: PATH="$(nocmp_dir):$PATH" "$KEMPT" ...
+# a missing cmp made every boot-changed check report an unchanged box as "applied - no package
+# changes". Use as: PATH="$(nocmp_dir):$PATH" "$KEMPT" ...
 nocmp_dir() {
   local d="$TESTTMP/nocmp"
   if [[ ! -x "$d/cmp" ]]; then

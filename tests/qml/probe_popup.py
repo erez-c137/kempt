@@ -965,9 +965,9 @@ def staged_from(source, name, count):
 
         Derived rather than added to tests/fixtures/ for the same reason as uptodate_from: it is
         the shipped capture plus exactly one key, so it cannot drift away from the real document.
-        `offline_staged` is what the CLI publishes only after reconciling its own marker against
-        dnf5's transaction status (lib/common.sh, offline_staged_state) - its presence here is the
-        widget being told the reconciliation already happened.
+        `offline_staged` is what the CLI publishes only for a transaction it read as armed from
+        dnf5's own files (lib/common.sh, offline_staged_state), so its presence here is the widget
+        being told that reading already happened.
         """
     doc = json.load(open(fixture(source)))
     doc["offline_staged"] = {"staged_at": "2026-09-02T10:31:00+03:00",
@@ -1073,12 +1073,23 @@ stack("staged, on a box that already owed a restart", "restartMessage", "stagedM
 p.check("...and the staged message stands its button down rather than showing a second one",
         lev("stagedMessage.actions[0].visible"), False)
 
-# A marker from before the CLI recorded a count still describes a real pending install.
+# dnf5's list unreadable: no count, and still a real pending install.
 STAGED_NOCOUNT = staged_from("state-live.json", "state-staged-nocount.json", None)
 state(STAGED_NOCOUNT)
 # The fixture's pending Flatpak apps add their own sentence after it, so only the first is compared.
 p.check("an unknown count loses the number, not the sentence",
         lev("stagedMessage.Accessible.name.split('. ')[0]"), "They install the next time you restart")
+
+# No restart will install the stage: the warning names the way back, in the real popup.
+for _word, _says in (("lost", "No restart will install"), ("interrupted", "will not install on the next restart")):
+    _doc = json.load(open(fixture("state-live.json")))
+    _doc["offline_stage_problem"] = _word
+    _path = os.path.join(p.sandbox, "state-stage-%s.json" % _word)
+    json.dump(_doc, open(_path, "w"))
+    state(_path)
+    p.check("%s: the warning is on screen" % _word, lev("stagedMessage.visible"), True)
+    p.check("%s: it says the restart will not install them" % _word,
+            lev("stagedMessage.Accessible.name.indexOf('%s') >= 0" % _says), True)
 
 # --- the banner FLIPS when a hold lands behind the stage ------------------------
 # The trap, in the user's own order: stage 61 updates with a kernel among them, read something
@@ -3079,7 +3090,7 @@ p.check("the row is really built", _built, True)
 p.check("...saying nothing at all on the way, warnings included", _noise, [])
 p.check("...titled by logic.js rather than by a second copy of that rule written here",
         lev("lastRunView.itemAtIndex(0).title"),
-        ev("Logic.lastRunText(root.lastRun, root.nowMs)"))
+        ev("Logic.lastRunText(root.lastRun, root.nowMs, false, false)"))
 p.check("...and expandable, so the run's package list is one click away",
         lev("lastRunView.itemAtIndex(0).hasExpandableContent"), True)
 p.check("...with no log offered for a run that went well",
@@ -3088,6 +3099,28 @@ p.check("...and the packages it installed under it",
         lev("lastRunView.itemAtIndex(0).customExpandedViewContent !== null"), True)
 p.check("...with no second line for a run that went well and took nothing an app uses",
         lev("lastRunView.itemAtIndex(0).subtitle"), "")
+
+# A staging run's row, wired to the machine's reading: it promises a restart only over an armed stage.
+stage_run = json.loads(json.dumps(LAST_RUN))
+stage_run["surface"] = "offline"
+stage_run["backends"] = {}
+open(RUNJSON, "w").write(json.dumps(stage_run))
+ev("root.loadLastRun()")
+settle()
+ev('root.postRunLine = ""')
+p.pump(50)
+p.check("a staging run's row over no stage promises nothing",
+        str(lev("lastRunView.itemAtIndex(0).title")).split(" · ")[-1], "no package changes")
+state_was = ev("JSON.stringify(root.kemptState)")
+ev("root.kemptState = Object.assign({}, root.kemptState, "
+   '{offline_staged: {staged_at: "2026-09-02T10:31:00+03:00", count: 3, armed: true}})')
+p.pump(50)
+p.check("...and over an armed one says it is ready",
+        str(lev("lastRunView.itemAtIndex(0).title")).split(" · ")[-1], "ready for the next restart")
+ev("root.kemptState = JSON.parse(%s)" % json.dumps(state_was))
+open(RUNJSON, "w").write(json.dumps(LAST_RUN))
+ev("root.loadLastRun()")
+settle()
 
 # A run that failed still reads as failed once the transient line is gone: open, close, open again.
 failed_run = json.loads(json.dumps(LAST_RUN))

@@ -912,26 +912,6 @@ assert_eq "$(jq -r '.download_bytes // "absent"' "$st")" "absent" "...and report
 "$KEMPT" unhold flatpak:org.example.NoSize >/dev/null
 "$KEMPT" unhold flatpak:org.example.Unknown >/dev/null
 
-# --- a staged transaction is TWO facts kept in two places, and a check is what reconciles them.
-# Kempt's marker says a stage was made and how many updates it covers; dnf5's own
-# offline-transaction-state.toml says whether that transaction is still there and still armed.
-# Neither is enough alone: a live box had a marker whose transaction was sitting at
-# download-complete, which installs on no restart at all, and every surface kept describing it as
-# a pending install.
-toml="$TESTTMP/offline-state.toml"
-marker="$KEMPT_STATE_DIR/offline_staged.json"
-pre="$KEMPT_STATE_DIR/snapshots/offline-pre-t4.tsv"
-# The baseline has to be the snapshot the check itself takes, byte for byte: the harvest decides
-# "still pending" with cmp, and a hand-built file would differ for reasons that have nothing to
-# do with what is being tested (the fixture goes through sort_name_version and collapse_versions).
-snapshot_now() { bash -c 'source "$1/lib/common.sh"; source "$1/backends/dnf.sh"; dnf_installed_lookup' _ "$REPO_ROOT"; }
-stage_marker() {  # boot_id staged-count-or-null → a marker as cmd_update would have written it
-  mkdir -p "$KEMPT_STATE_DIR/snapshots"
-  snapshot_now > "$pre"
-  jq -n --arg snap "$pre" --arg boot "$1" --argjson staged "$2" \
-    '{staged_at:"2026-09-02T10:31:00+03:00", pre_snapshot:$snap, boot_id:$boot, staged:$staged, armed:true}' \
-    > "$marker"
-}
 events_since() { grep -c "$1" "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
 export KEMPT_BOOT_ID="boot-t4"
 
@@ -972,7 +952,6 @@ export KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml"
 # with no symlink is one a boot came and went without running. Both halves here.
 RU_LINK="$TESTTMP/relup-system-update"; ln -sfn "$TESTTMP" "$RU_LINK"
 export KEMPT_OFFLINE_LINK="$RU_LINK"
-rm -f "$marker"
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.release_upgrade.from' "$st")" "44" "a staged release upgrade is published: where from"
 assert_eq "$(jq -r '.release_upgrade.to' "$st")" "45" "...and where to"
@@ -1019,12 +998,10 @@ assert_eq "$(jq -r 'has("release_upgrade")' "$st")" "false" \
 
 # ARMED and pending: the state carries the key, and it carries the count the stage was made with.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
-stage_marker boot-t4 61
 "$KEMPT" check >/dev/null
-assert_exit 0 "an armed stage in the same boot is still pending" -- test -f "$marker"
 assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "the state says a staged install is armed"
-assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...and how many updates it covers"
-assert_eq "$(jq -r '.offline_staged.staged_at' "$st")" "2026-09-02T10:31:00+03:00" "...and when it was staged"
+assert_eq "$(jq -r '.offline_staged.count' "$st")" "3" "...and how many updates dnf5's stored list covers"
+assert_eq "$(jq -r '.offline_staged.staged_at' "$st")" "$(date -r "$FIXTURES/offline-ready.toml" -Is)" "...and when it was staged"
 assert_eq "$(jq -r .schema "$st")" "1" "offline_staged is additive: the schema does not move"
 # The two fields the widget cannot derive for itself - it reads state.json and cannot stat a file,
 # let alone dnf5's. With no dnf hold in place there is nothing to conflict, and the source says the
@@ -1045,259 +1022,12 @@ assert_eq "$(jq -r '.offline_staged | has("not_staged")' "$st")" "false" \
   "...and it is absent when the staged names cannot be read"
 "$KEMPT" check >/dev/null
 
-# A marker written before the count existed still describes a real pending install. null is the
-# honest answer - every reader drops the number from the sentence rather than inventing one.
-jq 'del(.staged)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
-"$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.offline_staged.count' "$st")" "null" "a marker with no count says null, not a guess"
-assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" "...and is still a pending install"
-
-# The SAME boot, and the symlink gone under a toml still saying `ready`: what any live dnf5
-# transaction run in a terminal outside Kempt leaves behind (dnf5 5.4: "Pending offline transaction
-# has been invalidated"). The check stops publishing it, or the widget shows "staged" over a stage
-# no restart installs, and says so once now: waiting for the restart to say it means a restart
-# for nothing. The marker is demoted, not cleared, so the doctor can still explain it.
-sb_notify="$TESTTMP/same-boot-notifications"
-cat > "$TESTTMP/sb-notify-stub" <<STUB
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$sb_notify"
-STUB
-chmod +x "$TESTTMP/sb-notify-stub"
-sb_check() { KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" KEMPT_NOTIFY="$TESTTMP/sb-notify-stub" "$KEMPT" check >/dev/null; }
-stage_marker boot-t4 61
-: > "$sb_notify"
-sb_before="$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')"
-sb_check
-assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
-  "a ready stage whose /system-update a live transaction removed is not published as staged"
-assert_exit 0 "...and its marker is kept, for the doctor to explain" -- test -f "$marker"
-assert_eq "$(jq -r '.armed' "$marker")" "false" "...demoted to a stage that will not install"
-assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" \
-  "...and announced in the same boot, without waiting for a restart"
-assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "$((sb_before + 1))" \
-  "...and the announcement is recorded"
-: > "$sb_notify"
-sb_check
-assert_eq "$(cat "$sb_notify")" "" "the next check does not say it again"
-assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "$((sb_before + 1))" \
-  "...nor record it again"
-# Nobody could be told at that check: it is not recorded as said, so the next check says it.
-stage_marker boot-t4 61
-: > "$sb_notify"
-KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" KEMPT_NOTIFY=false "$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.armed' "$marker")" "true" "a notification that was not shown does not demote the marker"
-assert_eq "$(jq -r '.lost_announced // "absent"' "$marker")" "absent" "...nor record the stage as announced"
-assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and the stage is still not published as staged"
-sb_check
-assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" "...so the next check with a session says it"
-assert_eq "$(jq -r '[.armed, .lost_announced] | join(" ")' "$marker")" "false true" "...and records that it did"
-: > "$sb_notify"
-sb_check
-assert_eq "$(cat "$sb_notify")" "" "...once"
-# A lock held by somebody else, until it is let go: a sentinel says it is held, and the holder
-# waits on a fifo rather than a timer, so a loaded box cannot release it early.
-sb_hold() {  # lock-file → holds it in the background; sb_release lets go
-  rm -f "$TESTTMP/sb-locked" "$TESTTMP/sb-go"; mkfifo "$TESTTMP/sb-go"
-  ( exec 7>>"$1"; flock -x 7; touch "$TESTTMP/sb-locked"; read -r _ < "$TESTTMP/sb-go" ) &
-  sb_lock_pid=$!
-  for _ in $(seq 1 50); do [[ -f "$TESTTMP/sb-locked" ]] && break; sleep 0.1; done
-  assert_exit 0 "(the lock is held for the next check)" -- test -f "$TESTTMP/sb-locked"
-}
-sb_release() { echo go > "$TESTTMP/sb-go"; wait "$sb_lock_pid" 2>/dev/null; rm -f "$TESTTMP/sb-locked" "$TESTTMP/sb-go"; }
-# Kempt's own stage in flight holds the stage lock: the check leaves the marker alone meanwhile.
-stage_marker boot-t4 61
-: > "$sb_notify"
-sb_hold "$KEMPT_STATE_DIR/stage.lock"
-sb_check
-sb_release
-assert_eq "$(jq -r '.armed' "$marker")" "true" "a stage in flight is not demoted under it"
-assert_eq "$(cat "$sb_notify")" "" "...nor announced"
-# A live `kempt update` (or unstage, or reclaim) holds the update lock. dnf5 removes the symlink as
-# the live run starts, and the run discards the stage itself at its end: no "can no longer
-# install" in between.
-stage_marker boot-t4 61
-: > "$sb_notify"
-sb_hold "$KEMPT_STATE_DIR/lock"
-sb_check
-sb_release
-assert_eq "$(jq -r '.armed' "$marker")" "true" "a stage under a running Kempt update is left to that run"
-assert_eq "$(cat "$sb_notify")" "" "...and not announced"
-# A stored release upgrade lives in the same toml. A cancelled one is not "your staged update".
-stage_marker boot-t4 61
-: > "$sb_notify"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" sb_check
-assert_eq "$(cat "$sb_notify")" "" "a stranded release upgrade is not announced as the staged update"
-assert_eq "$(jq -r '.armed' "$marker")" "true" "...and the marker is left alone"
-"$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.offline_staged.armed' "$st")" "true" \
-  "...while the same stage with its symlink in place is still a pending install"
-
-# THE STUCK STAGE FROM A REAL BOX. A transaction that was downloaded and never armed installs on
-# no restart, so it is not a pending install and must not be published as one. The marker stays:
-# the stage is really there, and `kempt doctor` is where that discrepancy gets explained.
-export KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml"
-stage_marker boot-t4 61
-"$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
-  "a stage that was never armed is not advertised as a pending install"
-assert_exit 0 "...and its marker is left for the doctor to explain" -- test -f "$marker"
-
-# A stage that VANISHED in this same boot - somebody ran `dnf5 offline clean`, or a supersede
-# discarded the transaction and could not remove the marker. Nothing can apply it and no reboot is
-# coming to change that, so the marker is cleared here rather than re-read on every check forever.
-export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
-stage_marker boot-t4 61
-"$KEMPT" check >/dev/null
-assert_exit 0 "a marker whose transaction is gone is cleared" -- test ! -f "$marker"
-assert_exit 0 "...along with the snapshot copy it owned" -- test ! -f "$pre"
-assert_eq "$(events_since 'offline marker cleared (stage gone)')" "1" "...and the clearing is recorded"
-assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and nothing is published about it"
-
-# The same emptiness after a REBOOT, with a package set that did not move. Before the toml was
-# read this was a dead end: the snapshot comparison said "not applied yet" and the marker waited
-# for an apply that had already been thrown away, on every check, forever.
-export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
-stage_marker boot-before-reboot 61
-"$KEMPT" check >/dev/null
-assert_exit 0 "a rebooted box with no transaction left stops waiting for it" -- test ! -f "$marker"
-assert_eq "$(events_since 'offline marker cleared (stage gone)')" "2" "...and says so the same way"
-
-# ...and the same shape with the transaction STILL THERE and STILL ARMED stays pending, which is
-# the whole reason the branch above needs the toml: a reboot that has not yet got round to running
-# the transaction must not have its marker thrown away. Armed is TWO things - `ready` and the
-# /system-update symlink - so the symlink has to be there for this to be that case.
-export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
-LIVE_LINK="$TESTTMP/system-update"; ln -sfn "$TESTTMP" "$LIVE_LINK"
-export KEMPT_OFFLINE_LINK="$LIVE_LINK"
-stage_marker boot-before-reboot 61
-"$KEMPT" check >/dev/null
-assert_exit 0 "an untouched transaction after a reboot is still pending" -- test -f "$marker"
-assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...and is still published as one"
-export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
-rm -f "$marker" "$pre"
-
-# No marker at all: an offline transaction somebody else staged is not Kempt's to announce.
-"$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
-  "a transaction Kempt did not stage is not published as Kempt's"
-
-# --- the restart that detoured and installed nothing ---------------------------------------------
-# The state a failed rebuild leaves behind, seen from the other side of the reboot: the transaction
-# is there but is not `ready`, the boot symlink was still standing, so the restart went into the
-# offline updater, found nothing it could apply, and came back. Nothing was installed, and nothing
-# ever will be from this transaction - only `dnf5 offline reboot` arms one, and nothing is going to
-# run that on its own.
-#
-# The old reconciliation keyed on the toml's PRESENCE alone, so this was silent: the boot changed,
-# the package set had not moved, the transaction was still there, and the check said "not applied
-# yet" forever. Meanwhile `offline_staged` had already vanished from the state (it is published for
-# `ready` and nothing else), so the popup's staged banner disappeared with no explanation at all.
-#
-# So: announce ONCE, and demote the marker to `armed: false`. Never clear it - the marker is what
-# lets `kempt doctor` say this transaction can never install, and without it that row degrades into
-# "an offline transaction is staged outside Kempt", which is a misattribution of Kempt's own stage.
-notify_log="$TESTTMP/detour-notifications"
-cat > "$TESTTMP/notify-stub" <<STUB
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >> "$notify_log"
-STUB
-chmod +x "$TESTTMP/notify-stub"
-# Without cmp on PATH (nocmp_dir): the decision "did the package set move" must not need diffutils.
-detour_check() { PATH="$(nocmp_dir):$PATH" KEMPT_NOTIFY="$TESTTMP/notify-stub" "$KEMPT" check >/dev/null; }
-
-export KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml"
-stage_marker boot-before-reboot 61
-before_marker="$(jq -Sc . "$marker")"
-: > "$notify_log"
-detour_check
-assert_exit 0 "a stage that a restart could not install is not cleared" -- test -f "$marker"
-assert_eq "$(cat "$notify_log")" \
-  "Kempt Your prepared updates can no longer install on a restart. To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean." \
-  "...the one notification that keeps the banner's disappearance from being silent"
-assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
-  "...and the event log carries the status it was announced for"
-assert_eq "$(jq -r '.armed' "$marker")" "false" "...and the marker is demoted rather than deleted"
-assert_json_eq "$(jq -c 'del(.armed, .lost_announced)' "$marker")" "$(jq -c 'del(.armed)' <<<"$before_marker")" \
-  "...with every other field of it kept"
-assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
-  "...while nothing is published as a pending install, because nothing is"
-
-# Announce-once, keyed on the marker itself. A box checks every ten minutes; a second notification
-# would be 144 of them a day about one dead transaction.
-after_marker="$(jq -Sc . "$marker")"
-: > "$notify_log"
-detour_check
-assert_eq "$(cat "$notify_log")" "" "the second check says nothing about it again"
-assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
-  "...and records nothing again either"
-assert_eq "$(jq -Sc . "$marker")" "$after_marker" "...and leaves the marker exactly as it demoted it"
-
-# Demoted is not the same as gone: the transaction really vanishing still clears the marker, on the
-# same branch, by the same rule as ever.
-KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" detour_check
-assert_exit 0 "a demoted marker whose transaction then vanishes is still cleared" -- test ! -f "$marker"
-
-# The SAME toml status in the SAME boot means the opposite thing: a stage that is being written
-# right now. `dnf5 upgrade --offline` sits at download-complete for the whole of the download, and
-# a check that fired in that window and called it dead would announce a transaction that is about
-# to be armed perfectly.
-stage_marker boot-t4 61
-inflight_marker="$(jq -Sc . "$marker")"
-inflight_before="$(events_since 'offline stage cannot install')"
-: > "$notify_log"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" detour_check
-assert_eq "$(cat "$notify_log")" "" "a download-complete stage in this boot is a stage in flight, not a dead one"
-assert_eq "$(events_since 'offline stage cannot install')" "$inflight_before" "...so nothing new is announced"
-assert_eq "$(jq -Sc . "$marker")" "$inflight_marker" "...and the marker is left alone"
-# The state nothing used to name at all: `ready`, with the /system-update symlink GONE. Arming is
-# TWO things - the status and the symlink - and Kempt read the symlink in exactly one place, in
-# one direction, inside doctor. systemd.offline-updates(7) is explicit that the symlink is the
-# mechanism and that systemd removes it once system-update.target has been reached, so a boot that
-# has been and gone leaving the status at `ready` is a boot that did not run the transaction and
-# never will: only `dnf5 offline reboot` makes that symlink again. The popup said "installs on the
-# next restart" after every restart, forever, and `kempt doctor` exited 0 the whole time.
-export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
-export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
-before_dead="$(events_since 'offline stage cannot install')"
-stage_marker boot-before-reboot 61
-: > "$notify_log"
-detour_check
-assert_exit 0 "a ready transaction with no restart marker keeps its marker for the doctor" -- test -f "$marker"
-assert_eq "$(jq -r '.armed' "$marker")" "false" "...but the marker is demoted, so no surface promises it"
-assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
-  "...and it stops being published as a pending install"
-grep -q 'can no longer install' "$notify_log" \
-  && echo "ok: ...and the user is told, in the same words the detour uses" \
-  || { echo "FAIL: no announcement for a ready transaction that cannot install"; _fail=1; }
-assert_eq "$(events_since 'offline stage cannot install')" "$((before_dead + 1))" \
-  "...exactly once, not once per check"
-: > "$notify_log"
-detour_check
-assert_eq "$(cat "$notify_log")" "" "a second check says nothing more about it"
-# ...and while the symlink IS there, the same transaction is still a pending install: this must
-# not become "any ready stage is dead".
-export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"; ln -sfn "$TESTTMP" "$KEMPT_OFFLINE_LINK"
-stage_marker boot-before-reboot 61
-detour_check
-assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" \
-  "a ready transaction whose restart marker still stands is still pending"
-export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
-export KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml"
-stage_marker boot-before-reboot 61
-detour_check   # back to the demoted state the announce-once cases below expect
-rm -f "$marker" "$pre"
-
-rm -f "$marker" "$pre"
-export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
-export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"   # armed again: both halves
-
 # --- the stage another updater installed on the restart ------------------------------------------
 # Discover's notifier, through PackageKit, prepares its own restart update: it replaces the
 # /system-update symlink with one pointing at PackageKit's prepared update and leaves dnf5's state
 # at `ready`. The restart then installs PackageKit's set, which is often exactly the set Kempt
-# staged. Before this, Kempt read that as a detour and said "can no longer install" about updates
-# that were installed. The test is the packages themselves: every staged NEVRA installed (epoch 0
-# omitted the way transaction.json omits it), and nothing else counts.
+# staged. The test is the packages themselves: every staged NEVRA installed (epoch 0 omitted the way
+# transaction.json omits it), and nothing else counts.
 pk_tx="$TESTTMP/pk-transaction.json"
 cat > "$pk_tx" <<'JSON'
 {"version":"1.0","rpms":[
@@ -1336,37 +1066,6 @@ sed 's/^librepo-0:1.21.0-1/librepo-0:1.21.0^git1-1/' "$pk_qa" > "$TESTTMP/pk-qa-
 assert_exit 0 "...and a ^ snapshot sorts after it" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-caret"
 sed 's/^librepo-0:1.21.0-1.fc44/librepo-0:1.21.0-10.fc44/' "$pk_qa" > "$TESTTMP/pk-qa-release"
 assert_exit 0 "...release 10 is newer than release 1, by number and not by text" -- satisfied "$pk_tx" "$TESTTMP/pk-qa-release"
-# The same check in the SAME boot: a live `dnf upgrade` installed every staged package and
-# cancelled the stage doing it. The stage is done, so it goes quietly, with no "can no longer
-# install" about updates that are installed.
-stage_marker boot-t4 61
-: > "$sb_notify"
-sb_sat_before="$(events_since 'offline stage installed by another updater (before the restart)')"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_TXJSON="$pk_tx" \
-  KEMPT_RPM_QA_CMD="cat $pk_qa" sb_check
-assert_exit 0 "a same-boot stage a live run installed in full is cleared" -- test ! -f "$marker"
-assert_exit 0 "...along with its snapshot copy" -- test ! -f "$pre"
-assert_eq "$(cat "$sb_notify")" "" "...with nothing announced"
-assert_eq "$(events_since 'offline stage installed by another updater (before the restart)')" "$((sb_sat_before + 1))" \
-  "...and the clearing is recorded"
-# Some staged packages installed live, not all: the rest are still waiting, so it is a cancel.
-stage_marker boot-t4 61
-: > "$sb_notify"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" KEMPT_OFFLINE_TXJSON="$pk_tx" \
-  KEMPT_RPM_QA_CMD="cat $TESTTMP/pk-qa-kernel" sb_check
-assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" \
-  "a same-boot stage installed only in part is announced as cancelled"
-assert_eq "$(jq -r '.armed' "$marker")" "false" "...and demoted, not cleared"
-# A stage already found replaced was announced as that; a later cancel of the other transaction
-# is not Kempt's to report.
-stage_marker boot-t4 61
-jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
-: > "$sb_notify"
-KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" sb_check
-assert_eq "$(cat "$sb_notify")" "" "a replaced stage is not announced again when its symlink goes"
-assert_eq "$(jq -r '.armed' "$marker")" "true" "...and its marker is left as it was"
-rm -f "$marker" "$pre"
-
 # rpm's ordering itself, against cases from rpm's own test suite (checked against rpm.vercmp).
 vercmp() { bash -c 'source "$1/lib/common.sh"; rpm_vercmp "$2" "$3"' _ "$REPO_ROOT" "$1" "$2"; }
 vc_bad=""
@@ -1439,59 +1138,7 @@ assert_exit 2 "...and an rpm that lists nothing proves nothing" -- satisfied "$p
 printf '{"version":"1.0","rpms":[]}\n' > "$TESTTMP/pk-tx-empty.json"
 assert_exit 2 "...nor does a transaction that names nothing" -- satisfied "$TESTTMP/pk-tx-empty.json" "$pk_qa"
 
-# The restart, seen from the check after it: dnf5's state still `ready`, no symlink (systemd removed
-# PackageKit's once the update ran), and the package set moved to include every staged package.
-pk_check() { KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat ${PK_QA:-$pk_qa}" detour_check; }
 export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
-rm -rf "$KEMPT_STATE_DIR/history"
-stage_marker boot-before-reboot 3
-before_pk="$(events_since 'offline stage installed by another updater')"
-: > "$notify_log"
-KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_eq "$(cat "$notify_log")" "Kempt Your prepared updates are installed." \
-  "a stage another updater installed on the restart is announced once, as installed"
-assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
-assert_exit 0 "...with its snapshot" -- test ! -f "$pre"
-assert_eq "$(events_since 'offline stage installed by another updater')" "$((before_pk + 1))" "...and one event records it"
-pk_hist="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | tail -1)"
-assert_eq "$(jq -r .surface "$pk_hist" 2>/dev/null)" "offline (installed by another updater)" "...and the history entry says how it arrived"
-assert_eq "$(jq -r '[.backends.dnf[] | arrays | .[].name] | sort | join(" ")' "$pk_hist" 2>/dev/null)" \
-  "aardvark-dns kernel-core librepo" "...naming the staged packages and not 7zip, which nothing staged"
-assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and nothing is published as pending"
-: > "$notify_log"
-KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_eq "$(cat "$notify_log")" "" "...and the next check says nothing more"
-rm -rf "$KEMPT_STATE_DIR/history"   # the race case further down counts entries from empty
-
-stage_marker boot-before-reboot 3
-: > "$notify_log"
-PK_QA="$TESTTMP/pk-qa-newer" KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_eq "$(cat "$notify_log")" "Kempt Your prepared updates are installed." \
-  "a newer build installed elsewhere is announced as installed, with no advice to stage again"
-assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
-rm -f "$marker" "$pre"
-rm -rf "$KEMPT_STATE_DIR/history"
-
-# A stage a check already found replaced: the stored transaction is somebody else's, so its
-# packages being installed says nothing about Kempt's stage. Never "installed", in either branch.
-stage_marker boot-before-reboot 3
-jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
-: > "$notify_log"
-KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_not_contains "$(cat "$notify_log")" "staged updates are installed" \
-  "a replaced stage is never announced as installed when the stored transaction is"
-assert_eq "$(jq -r '.armed' "$marker" 2>/dev/null)" "false" "...and its marker is demoted, not consumed"
-assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | wc -l)" "0" "...and no history entry claims it"
-rm -f "$marker" "$pre"
-stage_marker boot-before-reboot 3
-jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
-before_pk="$(events_since 'offline stage installed by another updater')"
-pk_check   # the package set did not move across the restart
-assert_eq "$(events_since 'offline stage installed by another updater')" "$before_pk" \
-  "...nor cleared as installed before the restart when the package set did not move"
-assert_exit 0 "...which keeps its marker" -- test -f "$marker"
-rm -f "$marker" "$pre"
-rm -rf "$KEMPT_STATE_DIR/history"
 
 # The doctor, afterwards: dnf5 still keeps the transaction, and says `ready`. One line explains it,
 # and none of the rows that would call it pending or broken.
@@ -1506,34 +1153,21 @@ assert_not_contains "$doc" "can never install" "...or a transaction a restart wa
 # pending, and the widget gets the one fact it needs to say so.
 ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/pk-system-update"
 export KEMPT_OFFLINE_LINK="$TESTTMP/pk-system-update"
-stage_marker boot-t4 3
 "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "a stage behind another updater's symlink is not pending"
 assert_eq "$(jq -r '.offline_stage_blocked.count' "$st")" "3" "...and is published as blocked, with its count"
-assert_exit 1 "...so offline_armed says no" -- bash -c 'source "$1/lib/common.sh"; offline_armed' _ "$REPO_ROOT"
 doc="$("$KEMPT" doctor 2>&1 || true)"
-assert_contains "$doc" "staged update: another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to /var/lib/PackageKit/prepared-update), so the update Kempt staged will not install then" \
+assert_contains "$doc" "another updater has prepared the next restart ($KEMPT_OFFLINE_LINK points to /var/lib/PackageKit/prepared-update), so the transaction dnf5 holds will not install then" \
   "doctor says what the next restart installs instead"
 assert_not_contains "$doc" "install on the next restart" "...and promises nothing"
 assert_exit 5 "unstage refuses while another updater's symlink stands" -- "$KEMPT" unstage
-assert_exit 0 "...and discards nothing" -- test -f "$marker"
 assert_eq "$(events_since 'unstage refused (another updater has prepared the next restart)')" "1" "...and logs why"
-rm -f "$marker" "$pre"
-# A replaced stage behind that symlink, where the stored transaction's packages are all installed:
-# that proves nothing about Kempt's stage, so it is still published as blocked.
-stage_marker boot-t4 3
-jq -c '. + {replaced: true}' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
-KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$st")" "3" \
-  "a replaced stage is published as blocked even when the stored transaction is installed"
-stage_marker boot-t4 3
 KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$st")" "absent" \
-  "...while Kempt's own stage, installed, is done and not blocked"
-rm -f "$marker" "$pre"
-"$KEMPT" check >/dev/null
-assert_eq "$(jq -r 'has("offline_stage_blocked")' "$st")" "false" "with no marker, nothing is published as blocked"
+  "...while a stage whose packages are all installed is done and not blocked"
 export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
+"$KEMPT" check >/dev/null
+assert_eq "$(jq -r 'has("offline_stage_blocked")' "$st")" "false" "with the link dnf5's own, nothing is published as blocked"
 
 # --- the hold that arrived after the stage, published for every surface --------------------------
 # The trap this closes, in one sequence: stage 83 packages, learn something about the kernel, run
@@ -1546,11 +1180,10 @@ export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
 # comparison loses either way round.
 #
 # Computed here, in the check, because the widget parses state.json and can stat nothing at all -
-# it cannot read the marker, and it certainly cannot read dnf5's transaction.
+# it cannot read dnf5's transaction.
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 export KEMPT_BOOT_ID="boot-t4"
 printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
-stage_marker boot-t4 61
 "$KEMPT" hold dnf:librepo >/dev/null 2>&1
 "$KEMPT" hold flatpak:org.gimp.GIMP >/dev/null 2>&1
 "$KEMPT" check >/dev/null
@@ -1569,43 +1202,18 @@ assert_eq "$(jq -c '.backends.flatpak.items | map(select(.held)) | length' "$st"
 "$KEMPT" unhold dnf:vim-common >/dev/null 2>&1
 "$KEMPT" unhold flatpak:org.gimp.GIMP >/dev/null 2>&1
 
-# The live record unreadable, and a marker whose own names came from the transaction: the marker
-# decides. This is the fallback the marker's copy exists for - dnf5 cleaning up after a boot, or a
-# format we no longer parse - and it is still transaction-derived evidence, so it may still deny.
-jq '. + {staged_names_source:"transaction", staged_names:["ca-certificates","librepo","openldap"], staged_excluded:[]}' \
-  "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
+# The stored list unreadable: nobody can tell, so an empty conflict list means CANNOT TELL, and every
+# surface reading this must treat it that way.
 KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" check >/dev/null
-assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" '["librepo"]' \
-  "a transaction record that will not parse falls back to the marker's own list"
-assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "marker" "...and says which list answered"
-
-# The same marker with a CHECK-derived list, and the answer changes: names_source is "none" and the
-# conflict list is empty even though the name is sitting right there in it. That is the suppression
-# rule doing its job - a check cannot see the packages the resolver added, so a list built from one
-# may confirm a conflict but must never be the reason Kempt stays quiet about a held package. An
-# empty list under "none" means CANNOT TELL, and every surface reading this must treat it that way.
-jq '.staged_names_source = "check"' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
-KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "none" \
-  "a marker whose names only ever came from a check cannot deny a conflict"
-assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" "[]" \
-  "...so it publishes no conflict list at all, and the source says why"
-
-# A marker written before any of this existed - the legacy shape, which every reader must still
-# work against. It knows no names, so there is nothing to intersect and nothing to claim.
-stage_marker boot-t4 61
-KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "none" "a marker with no names says so"
-assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" "[]" "...and claims no conflict either way"
-assert_eq "$(jq -r '.offline_staged.count' "$st")" "61" "...while everything it does know is published as before"
+assert_eq "$(jq -r '.offline_stage_problem' "$st")" "unknown" "an unreadable stored list says nobody can tell"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and publishes no stage, so no conflict list and no count"
 
 # Not armed, so there is no staged transaction to conflict WITH: the whole key stays absent rather
 # than growing an empty conflict list nobody should read.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" \
-  "an unarmed stage publishes no conflict fields, because it publishes nothing"
+  "a stage not set to install publishes no conflict fields, because it publishes nothing"
 "$KEMPT" unhold dnf:librepo >/dev/null 2>&1
-rm -f "$marker" "$pre"
 unset KEMPT_BOOT_ID
 export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
 
@@ -1656,91 +1264,11 @@ assert_eq "$(jq -r '.marker' "$TESTTMP/served.json" 2>/dev/null)" "FIRST" \
   "...the first one, which is the state the last complete write left"
 rm -f "$lock_state"
 
-# --- a stage made WHILE a harvest is running is not deleted by it -------------------------------
-# The marker is shared mutable state between two commands holding DIFFERENT locks: the harvest runs
-# under check.lock, `kempt update` writes the marker under the update lock, and neither waits for
-# the other. Between the harvest's read and its delete there is a package snapshot and a diff -
-# 0.5 to 1.5 s on a real box - and a stage landing inside that window used to be deleted by it:
-# "Updates staged - they install on the next restart", and a second later the panel shows nothing
-# staged, over a transaction that is armed and will install.
-# Injected at exactly that moment rather than raced: the snapshot seam itself writes the new
-# marker, which is the same interleaving without the flakiness of a real race.
-export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"   # the reboot applied and cleared it
-export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
-race_pre="$KEMPT_STATE_DIR/snapshots/race-pre.tsv"
-mkdir -p "$KEMPT_STATE_DIR/snapshots"
-printf 'bash\t1-1\nzsh\t1-1\n' > "$race_pre"
-jq -n --arg s "$race_pre" '{staged_at:"STAGE-A", pre_snapshot:$s, boot_id:"boot-old", staged:2, armed:true}' \
-  > "$marker"
-# ONCE, on the first call only: this seam is read again later in the same check, and a stub that
-# rewrote the marker every time would re-create it after the harvest and make the assertions below
-# pass whether or not the harvest deleted it.
-cat > "$TESTTMP/racing-installed" <<STUB
-#!/usr/bin/env bash
-if [[ ! -e "$TESTTMP/raced" ]]; then
-  : > "$TESTTMP/raced"
-  # The stage that lands mid-harvest, written the way cmd_update writes it.
-  jq -n '{staged_at:"STAGE-B", pre_snapshot:"$TESTTMP/b.tsv", boot_id:"boot-new", staged:9, armed:true}' \
-    > "$marker"
-fi
-printf 'bash\t2-1\nzsh\t1-1\n'
-STUB
-chmod +x "$TESTTMP/racing-installed"
-KEMPT_DNF_INSTALLED_CMD="$TESTTMP/racing-installed" KEMPT_BOOT_ID=boot-new "$KEMPT" check >/dev/null 2>&1
-assert_exit 0 "a stage written while the harvest ran survives it" -- test -f "$marker"
-assert_eq "$(jq -r '.staged_at' "$marker")" "STAGE-B" \
-  "...and it is the NEW stage that is on disk, not the one the harvest read"
-assert_eq "$(events_since 'offline marker kept (a new stage arrived while the check ran)')" "1" \
-  "...and the harvest records that it kept somebody else's marker"
-# The harvest's own work still happened: the reboot really did apply the old transaction, so it is
-# still reported. Keeping the new marker must not cost the user the record of the old run.
-assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)" "1" \
-  "...while the applied transaction is still written to history"
-rm -f "$marker" "$race_pre"
-
-# --- something else moved the packages under a stage that is still armed -------------------------
-# Applying an offline transaction removes dnf5's stored transaction, its transaction.json and the
-# /system-update symlink. So a package set that moved across a reboot while all of that is STILL
-# there was moved by something else - dnf-automatic, GNOME Software, a terminal `sudo dnf5
-# upgrade`. Harvesting it wrote a history entry naming the other tool's packages, announced an
-# install that had not happened, and deleted the record of a transaction that was still going to
-# install. Recorded once instead, and the stage is left exactly as it is.
-export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
-export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"; ln -sfn "$TESTTMP" "$KEMPT_OFFLINE_LINK"
-moved_pre="$KEMPT_STATE_DIR/snapshots/moved-pre.tsv"
-printf 'bash\t1-1\nzsh\t1-1\n' > "$moved_pre"
-jq -n --arg s "$moved_pre" '{staged_at:"MOVED", pre_snapshot:$s, boot_id:"boot-old", staged:2, armed:true}' \
-  > "$marker"
-printf '#!/usr/bin/env bash\nprintf "bash\\t2-1\\nzsh\\t1-1\\n"\n' > "$TESTTMP/moved-installed"
-chmod +x "$TESTTMP/moved-installed"
-hist_before="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)"
-before_def="$(events_since 'harvest deferred')"
-: > "$notify_log"
-KEMPT_DNF_INSTALLED_CMD="$TESTTMP/moved-installed" KEMPT_NOTIFY="$TESTTMP/notify-stub" \
-  KEMPT_BOOT_ID=boot-new "$KEMPT" check >/dev/null 2>&1
-assert_exit 0 "a stage whose packages moved underneath it keeps its marker" -- test -f "$marker"
-assert_eq "$(jq -r '.armed' "$marker")" "true" "...and stays armed, because it is"
-assert_eq "$(jq -r '.staged_at' "$marker")" "MOVED" "...and is still the stage that was made"
-assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)" "$hist_before" \
-  "...and no history entry is invented for an install that did not happen"
-grep -q 'installed during the restart' "$notify_log" \
-  && { echo "FAIL: announced somebody else's packages as the staged update installing"; _fail=1; } \
-  || echo "ok: ...and the user is not told their staged update was applied"
-assert_eq "$(events_since 'harvest deferred')" "$((before_def + 1))" \
-  "...the deferral is recorded"
-assert_eq "$(jq -r '.set_moved' "$marker")" "true" "...on the marker, which is how it is recorded"
-KEMPT_DNF_INSTALLED_CMD="$TESTTMP/moved-installed" KEMPT_BOOT_ID=boot-new "$KEMPT" check >/dev/null 2>&1
-assert_eq "$(events_since 'harvest deferred')" "$((before_def + 1))" \
-  "...exactly once, not once per check for as long as the stage waits"
-rm -f "$marker" "$moved_pre"
-export KEMPT_OFFLINE_LINK="$TESTTMP/system-update"
-
 # --- the check lock is not handed to the helpers ------------------------------------------------
 # bash sets no FD_CLOEXEC and a flock lives on the open file description, so it is held while ANY
 # descriptor referring to it is open - a child's included. A grandchild outliving `timeout 120`
 # therefore kept the CHECK lock: the next check blocked for its whole life, and past 60 s every
-# check after that served stale state without saying so. harvest_offline runs inside that lock, so
-# a staged transaction's post-reboot harvest is stuck behind it too.
+# check after that served stale state without saying so.
 cat > "$TESTTMP/fd-refresh" <<STUB
 #!/usr/bin/env bash
 for fd in /proc/self/fd/*; do

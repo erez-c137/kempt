@@ -504,12 +504,10 @@ the same verbs. They can also already change your files and your holds.
   few minutes after you authenticate a stage, another process running as you can swap the
   transaction your next restart will install, with no dialog. The same bound applies. It can stage
   only what a Kempt run would stage, and the helper refuses to replace a stored Fedora release
-  upgrade. `kempt doctor` compares Kempt's marker with dnf5's stored transaction. When they
-  disagree, it FAILs and lists the differences both ways. That detects a replacement afterwards,
-  but cannot prevent one.
+  upgrade. Kempt keeps no copy to compare with, so it describes what dnf5 holds, and `kempt doctor`
+  and the update list show it. A replacement cannot be detected as a replacement.
 - **dnf5 publishes the staged package list to every account on the machine.** The stored
   transaction is `/usr/lib/sysimage/libdnf5/offline/transaction.json`, `root:root` mode 644 in a
   755 directory. It holds the full resolved NEVRA list, so any local user can read which packages
   the machine is about to install. This is dnf5's design, independent of Kempt, and it lets an
-  unprivileged `kempt check` reconcile a stage. Kempt's own marker is 0600 and adds no second copy,
-  but this one remains.
+  unprivileged `kempt check` read a stage. Kempt keeps no second copy, but this one remains.

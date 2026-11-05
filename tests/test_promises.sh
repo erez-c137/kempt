@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# The promises in tests/PROMISES.md that no other file stood behind. Two of them are not kept yet, and
-# each says so with a skip, which the suite's summary lists: a skip is not a pass.
+# The promises in tests/PROMISES.md that no other file stood behind.
 source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"
 
@@ -66,11 +65,6 @@ armed() {
   cat > "$TX" <<'JSON'
 {"version":"1.0","rpms":[{"nevra":"librepo-1.21.0-1.fc44.x86_64","action":"Upgrade","reason":"Dependency","repo_id":"updates"}]}
 JSON
-  mkdir -p "$KEMPT_STATE_DIR/snapshots"
-  cp "$FIXTURES/rpm-installed.tsv" "$KEMPT_STATE_DIR/snapshots/offline-pre-test.tsv"
-  jq -n --arg snap "$KEMPT_STATE_DIR/snapshots/offline-pre-test.tsv" \
-    '{version:1, staged_at:"2026-11-02T10:00:00+02:00", pre_snapshot:$snap, boot_id:"boot-before", staged:1,
-      armed:true, staged_names:["librepo"], staged_names_source:"transaction"}' > "$KEMPT_STATE_DIR/offline_staged.json"
 }
 check() { KEMPT_BOOT_ID="$1" KEMPT_RPM_QA_CMD="false" "$KEMPT" check >/dev/null 2>&1 || true; }
 
@@ -83,16 +77,16 @@ check boot-before
 assert_eq "$(( $(wc -l < "$WORLD/notifications") <= 1 ))" "1" "deleting the state folder costs at most one notification"
 check boot-before
 assert_eq "$(( $(wc -l < "$WORLD/notifications") <= 1 ))" "1" "...and the next check adds none"
-if [[ "$(jq -r '.offline_staged.count // empty' "$STATE_FILE")" == 1 ]]; then
-  echo "ok: ...and the armed stage is still shown"
-else
-  skip "pending: the armed stage is not shown once the state folder is gone, because it is read from Kempt's own note and not from dnf5"
-fi
+assert_eq "$(jq -r .offline_staged.count "$STATE_FILE")" "1" "...and the armed stage is still shown, because it is read from dnf5"
 
 # --- "cannot tell" ------------------------------------------------------------------------------------
-# test_stage_unknown.sh holds that nothing false is said when the stored state cannot be read. Nothing
-# says "cannot tell" either, and saying it needs a message this project has not added yet.
-skip "pending: no surface answers \"cannot tell\" when the stored offline state cannot be read"
+# The stored state exists and says nothing Kempt can read: that is the answer, shown plainly.
+armed
+printf 'garbage\n' > "$TOML"
+check boot-before
+assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" "unknown" "an unreadable stored state is published as cannot tell"
+assert_eq "$(jq -r .offline_staged "$STATE_FILE")" "null" "...with no claim that a stage is waiting"
+assert_contains "$(KEMPT_RPM_QA_CMD=false "$KEMPT" status 2>&1)" "Kempt cannot tell what the next restart will do" "...and status says so"
 
 assert_eq "$(cat "$WORLD/path-calls")" "" "nothing here reached a real dnf, pkexec or systemctl"
 finish

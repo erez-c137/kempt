@@ -107,23 +107,14 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$TESTTMP/dnf-reboot-no"
 chmod +x "$TESTTMP/dnf-reboot-no"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-yes"
 
-# A staged transaction can only be applied by a REBOOT, and the marker records the boot session
-# it was staged in. Nothing else in a test can change /proc, so "the machine rebooted" is
-# simulated by rewriting that field - which is exactly what the harvest gates on.
-# TWO things, not one, and the second is what the harvest now reads: applying an offline
-# transaction REMOVES dnf5's state toml, transaction.json and /system-update. Verified against
-# dnf5 5.4.3 in a container (`dnf5 offline _execute`, all three gone afterwards). While the
-# transaction is still on the box, a package set that moved means something ELSE moved it - a
-# terminal `dnf5 upgrade`, dnf-automatic, GNOME Software - and the harvest refuses to claim it.
-# So a test that says "the reboot installed it" has to say both halves, or it is asserting a state
-# no machine can be in.
+# Applying an offline transaction REMOVES dnf5's state toml, transaction.json and /system-update.
+# Verified against dnf5 5.4.3 in a container (`dnf5 offline _execute`, all three gone afterwards).
 simulate_reboot() {
-  local m="$KEMPT_STATE_DIR/offline_staged.json"
   export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"
   export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"
-  [[ -f "$m" ]] || return 0
-  jq '.boot_id = "00000000-0000-0000-0000-000000000000"' "$m" > "$m.tmp" && mv "$m.tmp" "$m"
 }
+# What the newest run recorded as staged: the count every surface repeats.
+last_staged() { jq -r .staged "$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"; }
 # ...and back to a box carrying an armed transaction, for the blocks that stage again afterwards.
 # Both halves, lib.sh's default pair: the `ready` toml and the /system-update symlink.
 transaction_armed() { export KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml"
@@ -144,14 +135,14 @@ stage_link_on()  { ln -sfn "$TESTTMP" "$TESTTMP/stage-system-update"
 stage_link_off() { export KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update"; }
 transaction_gone()  { export KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml"; }
 
-# History filenames are per-second, and $ts comes from `date` INSIDE cmd_update/harvest_offline -
+# History filenames are per-second, and $ts comes from `date` INSIDE cmd_update -
 # so a test can never choose the name the NEXT run will write. The `sleep 1`s that used to sit at
 # every call site below were only ever buying the other half of that: no entry ALREADY ON DISK
 # sitting on the second the next run is about to use. Moving the written entries is free, so this
 # does that instead, and the suite stops paying a second per collision.
 # Renames rather than `touch -d`: the collision is on the FILENAME. mtime only drives the
 # 50-entry prune in kempt_init_dirs, which nothing here is near.
-# Five minutes back, one distinct second per entry, and the -offline suffix the harvest's
+# Five minutes back, one distinct second per entry, and the -offline suffix the restart report's
 # collision guard appends is preserved. Nothing in this file writes an entry that old, so the new
 # names cannot collide with a surviving one either.
 # The one case this CANNOT cover is two consecutive cmd_update runs that must land on different
@@ -429,9 +420,7 @@ grep -q "surface='bogus' is not a known value" <<<"$surferr" && echo "ok: unknow
 hs="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .surface "$hs")" "popup" "unknown surface falls back to the widget in update"
 
-# offline surface: stage instead of upgrading live, and leave a marker owning its OWN copy of the
-# pre-snapshot (a later update overwrites dnf-before.tsv, and the harvest still has to diff
-# against the state as it was when the transaction was staged).
+# offline surface: stage instead of upgrading live.
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 "$KEMPT" update --surface=offline >/dev/null
 grep -q 'dnf-offline-stage' "$WORLD/apply-calls" && echo "ok: offline stages the transaction" || { echo "FAIL: offline stage"; _fail=1; }
@@ -459,12 +448,6 @@ assert_eq "$(grep -c '^APPLY dnf-upgrade' "$WORLD/apply-calls")" "0" "...and it 
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline >/dev/null
 
-marker="$KEMPT_STATE_DIR/offline_staged.json"
-assert_exit 0 "offline marker written" -- test -f "$marker"
-pre="$(jq -r .pre_snapshot "$marker")"
-assert_exit 0 "marker owns its own pre-snapshot copy" -- test -f "$pre"
-[[ "$pre" != "$KEMPT_STATE_DIR/snapshots/dnf-before.tsv" ]] && echo "ok: copy is not the shared before-snapshot" \
-  || { echo "FAIL: marker points at the reusable dnf-before.tsv"; _fail=1; }
 grep -q 'are ready' "$WORLD/notifications" && echo "ok: offline notification says the updates are ready" || { echo "FAIL: offline notify"; _fail=1; }
 # A run that DID stage carries no staged_nothing key. The key exists so the popup can tell this run
 # apart from one that staged nothing, and absence is how a real stage says so - which also keeps
@@ -472,9 +455,9 @@ grep -q 'are ready' "$WORLD/notifications" && echo "ok: offline notification say
 stgd_hist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r 'has("staged_nothing")' "$stgd_hist")" "false" \
   "...and its history entry does not claim nothing was staged"
-# ...and records how many it staged, the marker's own count, so history and summary can say it.
+# ...and records how many it staged, so history and summary can say it.
 assert_eq "$(jq -r '.staged | type' "$stgd_hist")" "number" "...and its history entry records the staged count"
-assert_eq "$(jq -r .staged "$stgd_hist")" "$(jq -r .staged "$marker")" "...the same count the marker holds"
+assert_eq "$(jq -r .staged "$stgd_hist")" "3" "...the count in dnf5's stored list"
 assert_eq "$(jq -r 'has("stage_blocked")' "$stgd_hist")" "false" "...and no blocked flag with no other updater"
 assert_eq "$("$KEMPT" history | awk 'NR==1' | grep -c " offline  ok  staged $(jq -r .staged "$stgd_hist") update[s]* for a restart")" "1" \
   "...and kempt history says what was staged, not \"no package changes\""
@@ -492,14 +475,11 @@ arm_ln="$(grep -n 'APPLY dnf-offline-arm' "$WORLD/apply-calls" | awk 'NR==1' | c
   || { echo "FAIL: stage-then-arm (stage=${stage_ln:-none} arm=${arm_ln:-none})"; _fail=1; }
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "an armed stage is not immediately thrown away again"
-# armed is recorded in the marker, because the marker is what every later reader (harvest, doctor,
-# the popup) works from - and an unarmed stage must never be described to anyone as pending.
-assert_eq "$(jq -r '.armed' "$marker")" "true" "the marker records that the stage was armed"
 # The SAME count the event line carries: both answer "how many updates is the person waiting for",
 # and two different numbers on two surfaces for one transaction is a bug report waiting to happen.
 staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
-assert_eq "$(jq -r '.staged' "$marker")" "$staged_ev" \
-  "the marker carries the same staged count the event line reports"
+assert_eq "$(last_staged)" "$staged_ev" \
+  "the history entry carries the same staged count the event line reports"
 
 # --- the RUN publishes the stage, rather than leaving it to the check behind it ------------------
 # THE PROBLEM: cmd_update ends with a best-effort check, and that check is where offline_staged is
@@ -514,12 +494,7 @@ assert_eq "$(jq -r '.staged' "$marker")" "$staged_ev" \
 # was put there by the RUN. `kempt update` works under the update lock and never touches this one,
 # so holding it cannot stall the stage - test_check.sh pins that independence from the other side.
 # Everything this borrows goes back afterwards: the sections below run against the world THIS
-# section found, and a stage of its own would leave them a different marker and a different
-# baseline. (The clearing half of the same rule is a unit test in test_offline_marker.sh, where
-# it costs no run at all - a live update here would install the fixture's pending packages and
-# every later assertion would be reasoning about an empty world.)
-cp "$marker" "$TESTTMP/marker.before-publish"
-cp "$pre" "$TESTTMP/pre.before-publish"
+# section found, and a stage of its own would leave them a different baseline.
 cp "$KEMPT_STATE_DIR/state.json" "$TESTTMP/state.before-publish" 2>/dev/null || true
 transaction_armed
 : > "$WORLD/apply-calls"
@@ -546,7 +521,7 @@ assert_exit 1 "a closing check that lost the lock does not claim to have checked
 assert_eq "$(jq -r '.offline_staged.armed // "absent"' "$KEMPT_STATE_DIR/state.json")" "true" \
   "the run records the staged transaction itself, without waiting for a check"
 assert_eq "$(jq -r '.offline_staged.count // "absent"' "$KEMPT_STATE_DIR/state.json")" \
-  "$(jq -r '.staged' "$marker")" "...carrying the marker's count, so no surface has to guess"
+  "$(last_staged)" "...carrying the run's count, so no surface has to guess"
 # ...and it is there BEFORE the notification. The widget leaves its busy state on a state.json
 # change, so a stage published after "Updates are staged" kept the popup busy beside that message.
 assert_eq "$(cat "$WORLD/notify-state" 2>/dev/null)" "true" \
@@ -557,8 +532,6 @@ assert_eq "$(jq -r '.last_check' "$KEMPT_STATE_DIR/state.json")" "2026-01-01T00:
   "...and does not stamp the state with a check that never ran"
 assert_eq "$(jq -r '.actionable' "$KEMPT_STATE_DIR/state.json")" "19" \
   "...nor rewrite counts it did not re-read"
-cp "$TESTTMP/marker.before-publish" "$marker"
-cp "$TESTTMP/pre.before-publish" "$pre"
 cp "$TESTTMP/state.before-publish" "$KEMPT_STATE_DIR/state.json" 2>/dev/null || true
 
 # Another updater's symlink that appears while the stage downloads, past the gate that refuses one
@@ -578,8 +551,6 @@ STUB
 # A stage made as another updater's symlink arrives. dnf5 creates /system-update only when it is
 # absent, so the arm succeeds and the next restart installs the other updater's update. The run
 # must not promise the restart. Borrowed and given back like the section above.
-cp "$marker" "$TESTTMP/marker.before-foreign"
-cp "$pre" "$TESTTMP/pre.before-foreign"
 mid_helper="$(link_appears_mid_stage "$TESTTMP/apply-stub")"
 : > "$WORLD/notifications"
 KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$mid_helper" \
@@ -589,7 +560,7 @@ assert_contains "$(cat "$WORLD/notifications")" "another updater has prepared th
 assert_not_contains "$(cat "$WORLD/notifications")" "install on the next restart" "...in any words"
 assert_contains "$(cat "$TESTTMP/foreign.err")" "the updates staged here will not install then" "...and the terminal says so too"
 assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$KEMPT_STATE_DIR/state.json")" \
-  "$(jq -r '.staged' "$marker")" "...and the state carries the blocked stage for the widget"
+  "3" "...and the state carries the blocked stage for the widget"
 assert_eq "$(jq -r '.offline_staged // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" "...not a pending one"
 assert_eq "$(jq -r '.restart_holder' "$KEMPT_STATE_DIR/state.json")" "other" "...and it names who holds the restart now"
 fghist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
@@ -597,14 +568,12 @@ assert_eq "$(jq -r '[.status, .stage_blocked] | @tsv' "$fghist")" "ok	true" \
   "...and its history entry marks the stage as blocked"
 assert_contains "$("$KEMPT" history | awk 'NR==1')" ", but another updater had already prepared a restart" \
   "...so history does not promise the restart either"
-cp "$TESTTMP/marker.before-foreign" "$marker"
-cp "$TESTTMP/pre.before-foreign" "$pre"
 cp "$TESTTMP/state.before-publish" "$KEMPT_STATE_DIR/state.json" 2>/dev/null || true
 
 
 # An arm that fails leaves a transaction that would sit in the offline directory forever, telling
 # every later check and the doctor that an install is pending when nothing will ever apply it. So
-# the run FAILS and unwinds: discard the stage, write no marker, and say why.
+# the run FAILS and unwinds: discard the stage and say why.
 cat > "$TESTTMP/apply-stub.armfail" <<STUB
 #!/usr/bin/env bash
 echo "APPLY \$@" >> "$WORLD/apply-calls"
@@ -612,14 +581,12 @@ echo "APPLY \$@" >> "$WORLD/apply-calls"
 exit 0
 STUB
 chmod +x "$TESTTMP/apply-stub.armfail"
-rm -f "$marker"
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 armrc=0
 KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.armfail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || armrc=$?
 assert_eq "$armrc" "1" "a run that could not arm its stage fails"
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
   && echo "ok: the stage it could not arm is discarded" || { echo "FAIL: no unwind after a failed arm"; _fail=1; }
-assert_exit 0 "a stage that was never armed leaves no marker" -- test ! -f "$marker"
 armhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$armhist")" "failed" "...and the history entry says the run failed"
 assert_eq "$(jq -r .error "$armhist")" "the updates were downloaded, but could not be set to install on the next restart" \
@@ -674,15 +641,10 @@ assert_eq "$(jq -r .status "$h3")" "ok" "a broken report does not turn a good ru
 assert_eq "$(jq '.backends.dnf.updated + .backends.dnf.removed | length' "$h3")" "0" \
   "broken after-snapshot degrades to an empty report, never phantom removals"
 
-# every run since the staging rewrote dnf-before.tsv, and the marker's own copy is still there
-assert_exit 0 "marker snapshot survives later runs" -- test -f "$pre"
-
 # A failed arm is not unwound behind another updater's /system-update. dnf5's clean removes that
 # symlink whoever made it, which would cancel the other updater's restart install. The clean is
-# skipped, and the marker of the transaction this stage replaced goes.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+# skipped.
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-af_pre="$(jq -r .pre_snapshot "$marker")"
 mid_helper="$(link_appears_mid_stage "$TESTTMP/apply-stub.armfail")"
 : > "$WORLD/apply-calls"
 armrc=0
@@ -691,8 +653,6 @@ KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_APPLY_HELPER="$mid_hel
 assert_eq "$armrc" "1" "an arm that fails behind another updater's symlink still fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and the clean that would remove that symlink is never run"
-assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
-assert_exit 0 "...with its snapshot copy" -- test ! -f "$af_pre"
 assert_eq "$(tail -n 4 "$KEMPT_STATE_DIR/events.log" | grep -c 'offline stage left in place (another updater has prepared the next restart)')" "1" \
   "...and the log says why the stored one stayed"
 afhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
@@ -706,11 +666,10 @@ assert_eq "$(jq -r .error "$afhist")" \
 # file; the notification is the only surface that reaches the person who pressed the button, so it
 # carries the command verbatim. The reason stays the ARM: the step that failed is what a reader
 # has to chase, and the cleanup rides alongside it rather than replacing it.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.bothfail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
-grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
-  && echo "ok: the failure notification carries the command that clears what is left" \
+grep -qF 'See: kempt doctor' "$WORLD/notifications" \
+  && echo "ok: the failure notification says where the fix for what is left is" \
   || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 armdbl="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$armdbl")" "the updates were downloaded, but could not be set to install on the next restart" \
@@ -721,8 +680,7 @@ assert_eq "$(jq -r .error "$armdbl")" "the updates were downloaded, but could no
 # transaction is destroyed the moment the re-stage begins, not swapped for the new one at the end.
 # So a stage that fails leaves no transaction, a toml that is not `ready`, and the /system-update
 # symlink still standing - and the next restart detours into the offline updater and installs
-# nothing at all. Only a failed ARM used to unwind; a failed stage left exactly that behind, with a
-# marker still promising the install.
+# nothing at all. Only a failed ARM used to unwind; a failed stage left exactly that behind.
 cat > "$TESTTMP/apply-stub.stagefail" <<STUB
 #!/usr/bin/env bash
 echo "APPLY \$@" >> "$WORLD/apply-calls"
@@ -738,14 +696,8 @@ exit 0
 STUB
 chmod +x "$TESTTMP/apply-stub.stage-clean-fail"
 
-# The fixture is a REAL armed stage - the marker a `kempt update --surface=offline` writes, over
-# the `ready` toml this file runs against - because what the unwind has to get right is the
-# lifecycle of the file that command produces, not of a hand-built stand-in.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-assert_exit 0 "the rebuild fixture starts from a real armed stage" -- test -f "$marker"
-old_pre="$(jq -r .pre_snapshot "$marker")"
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 strc=0
 # The toml this file pins is `ready`: dnf5 failed BEFORE replacing the previous transaction, which
@@ -758,8 +710,6 @@ stage_link_off
 assert_eq "$strc" "1" "a rebuild whose stage fails fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and does NOT clean away the previous transaction dnf5 left armed"
-assert_exit 0 "the marker stays: it still describes the stage that still installs" -- test -f "$marker"
-assert_exit 0 "...and so does its snapshot copy" -- test -f "$old_pre"
 grep -q 'offline restage failed (previous stage intact)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log says the previous stage is intact" \
   || { echo "FAIL: no restage-failed event"; _fail=1; }
@@ -776,21 +726,18 @@ assert_eq "$(jq -r .error "$sthist")" \
 : > "$WORLD/apply-calls"
 strc=0
 KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || strc=$?
-assert_eq "$strc" "1" "a rebuild whose stage fails over an unarmed stage fails the run"
+assert_eq "$strc" "1" "a rebuild whose stage fails over a stage not set to install fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "1" \
   "...and cleans the stale stage, which no restart would install"
-assert_exit 0 "...and its marker goes" -- test ! -f "$marker"
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 [[ "$(jq -r .error "$sthist")" == *"still installs on the next restart"* ]] \
-  && { echo "FAIL: an unarmed stage was reported as still installing"; _fail=1; } \
+  && { echo "FAIL: a stage not set to install was reported as still installing"; _fail=1; } \
   || echo "ok: ...and the reason does not claim it still installs"
 
 # ...and a rebuild that failed after dnf5 replaced the old transaction (the toml is no longer
 # `ready`), behind another updater's /system-update. The clean would remove that symlink and
-# cancel the other updater's restart install, so it is skipped and only Kempt's marker goes.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+# cancel the other updater's restart install, so it is skipped.
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-sf_pre="$(jq -r .pre_snapshot "$marker")"
 mid_helper="$(link_appears_mid_stage "$TESTTMP/apply-stub.stagefail")"
 : > "$WORLD/apply-calls"
 strc=0
@@ -799,8 +746,6 @@ KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" KEMPT_OFFLINE_TOML="$FIXTURE
 assert_eq "$strc" "1" "a rebuild that fails behind another updater's symlink fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and never runs the clean that would remove that symlink"
-assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
-assert_exit 0 "...with its snapshot copy" -- test ! -f "$sf_pre"
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$sthist")" \
   "could not replace the prepared updates, and the earlier ones are gone. Another updater has prepared the next restart. Try again after that restart" \
@@ -814,7 +759,6 @@ grep -q 'offline restage failed (stage left in place, another updater has prepar
 # "staged but could not arm the restart install", rc 1, with a FAILED notification - blaming the arm
 # for a transaction that was never built, over the user's own holds doing exactly what they asked.
 # Found by running it on a real machine with one pending update held.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 before_hist_n="$(ls -1 "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | grep -c . || true)"
 transaction_gone   # dnf5 stored nothing, which is what an empty transaction leaves behind
@@ -826,7 +770,6 @@ assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" 
   "...and nothing is armed, because there is nothing to arm"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and nothing is cleaned up, because nothing was made"
-assert_exit 1 "no marker is written for a stage that does not exist" -- test -f "$marker"
 grep -q 'offline staged ?' "$KEMPT_STATE_DIR/events.log" \
   && { echo "FAIL: the log says 'offline staged ?' for a run that staged nothing"; _fail=1; } \
   || echo "ok: ...and no staged-count line contradicts it in the same second"
@@ -875,10 +818,7 @@ echo "APPLY \$@" >> "$WORLD/apply-calls"
 exit 0
 STUB
 chmod +x "$TESTTMP/apply-stub.nothing-clean-fail"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-assert_exit 0 "the held-over-stage fixture starts from a real armed stage" -- test -f "$marker"
-nd_pre="$(jq -r .pre_snapshot "$marker")"
 "$KEMPT" hold dnf:bash >/dev/null 2>&1
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 nd_ev="$(wc -l < "$KEMPT_STATE_DIR/events.log")"
@@ -889,8 +829,6 @@ assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" 
   "...and the old transaction is NOT armed again"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "1" \
   "...it is cleaned away, so the held package does not install on the next restart"
-assert_exit 0 "...its marker goes with it" -- test ! -f "$marker"
-assert_exit 0 "...and so does the marker's snapshot copy" -- test ! -f "$nd_pre"
 tail -n +$(( nd_ev + 1 )) "$KEMPT_STATE_DIR/events.log" | grep -q 'offline restage' \
   && { echo "FAIL: an empty stage over a stored one was logged as a restage"; _fail=1; } \
   || echo "ok: ...and the log does not call it a restage"
@@ -905,11 +843,9 @@ assert_eq "$(jq -r .staged_nothing "$ndhist")" "held" "...and the history entry 
 
 # ...but not behind another updater's /system-update. dnf5's clean removes that symlink whoever
 # made it, so it would cancel the other updater's restart install; the old transaction cannot
-# install behind it anyway. The clean is skipped and only Kempt's marker goes.
+# install behind it anyway. The clean is skipped.
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-nf_pre="$(jq -r .pre_snapshot "$marker")"
 "$KEMPT" hold dnf:bash >/dev/null 2>&1
 ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
@@ -920,8 +856,6 @@ assert_eq "$ndrc" "0" "an empty stage behind another updater's symlink is not a 
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and the clean that would remove that symlink is never run"
 assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" "...nor the arm"
-assert_exit 0 "...while Kempt's marker goes" -- test ! -f "$marker"
-assert_exit 0 "...with its snapshot copy" -- test ! -f "$nf_pre"
 grep -q 'offline stage left in place (another updater has prepared the next restart)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the log says why the stored one stayed" \
   || { echo "FAIL: no event for the stage left in place"; _fail=1; }
@@ -931,7 +865,6 @@ assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Every waiting update is 
 # ...and when the clean fails, the old transaction still installs, held package included: that is
 # a failed run that names the command, never a success.
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 "$KEMPT" hold dnf:bash >/dev/null 2>&1
 : > "$WORLD/apply-calls"
@@ -941,56 +874,43 @@ assert_eq "$ndrc" "1" "an empty stage whose clean fails fails the run"
 assert_eq "$(grep -c 'APPLY dnf-offline-arm' "$WORLD/apply-calls" || true)" "0" "...without arming the old transaction"
 ndhist="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
 assert_eq "$(jq -r .error "$ndhist")" \
-  "nothing new was prepared, and the earlier updates could not be removed, so they still install on the next restart, held packages included. Run: sudo dnf5 offline clean" \
+  "nothing new was prepared, and the earlier updates could not be removed, so they still install on the next restart, held packages included. See: kempt doctor" \
   "...and the reason says the old one still installs and how to clear it"
 "$KEMPT" unhold dnf:bash >/dev/null 2>&1
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 
 # The other outcome: dnf5 got as far as replacing the previous transaction and then failed, so the
 # toml is a partial stage nothing arms (download-complete) with the old boot symlink standing over
 # it. That is the strand, and it is what the unwind is for.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-old_pre="$(jq -r .pre_snapshot "$marker")"
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" \
   "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
   && echo "ok: a re-stage that replaced the old transaction and then failed is cleaned up" \
   || { echo "FAIL: no unwind after a failed stage that replaced the old transaction"; _fail=1; }
-assert_exit 0 "a rebuild that discarded the old stage leaves no marker" -- test ! -f "$marker"
-assert_exit 0 "...and no snapshot copy either" -- test ! -f "$old_pre"
-grep -q 'offline marker cleared (rebuild failed, stage discarded)' "$KEMPT_STATE_DIR/events.log" \
-  && echo "ok: ...and the event log says which of the two it was" \
-  || { echo "FAIL: no rebuild-failed clearing event"; _fail=1; }
 sthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .status "$sthist")" "failed" "...the history entry says the run failed"
 assert_eq "$(jq -r .error "$sthist")" "the earlier updates were removed and could not be prepared again" \
   "...naming what the user lost, not the first error-shaped line in the log"
 
-# The double failure - state (d). The clean failed too, so the toml and the boot symlink disagree
-# and only a person with root can fix it. The marker STAYS: `kempt doctor` reads it against the
-# toml and fails on that row, the symlink row fails beside it, and both name the same command.
-# Clearing it here would turn the first of those into the benign "staged outside Kempt" info.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+# The double failure. The clean failed too, so the toml and the boot symlink disagree and only a
+# person with root can fix it. `kempt doctor` fails on the symlink row and names the command.
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 : > "$WORLD/apply-calls"; : > "$WORLD/notifications"
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stage-clean-fail" \
   "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
-assert_exit 0 "a rebuild whose cleanup failed too keeps the marker for the doctor" -- test -f "$marker"
-grep -qF 'sudo dnf5 offline clean' "$WORLD/notifications" \
-  && echo "ok: ...and the notification carries the command that clears it" \
+grep -qF 'See: kempt doctor' "$WORLD/notifications" \
+  && echo "ok: ...and the notification says where the fix is" \
   || { echo "FAIL: no clean command in the notification - got: $(cat "$WORLD/notifications")"; _fail=1; }
 dblhist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 assert_eq "$(jq -r .error "$dblhist")" \
-  "the earlier updates were removed and could not be prepared again or cleaned up. Run: sudo dnf5 offline clean" \
-  "...and the reason carries it too, because there is nothing left to chase in the log"
+  "the earlier updates were removed and could not be prepared again or cleaned up. See: kempt doctor" \
+  "...and the reason says so too, because there is nothing left to chase in the log"
 
 # Nothing staged before the attempt: there is nothing to unwind, and a clean fired anyway would be
 # a privileged call made for no reason. The reason comes from the log, as it always did.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 KEMPT_OFFLINE_TOML="$TESTTMP/no-such-transaction.toml" KEMPT_APPLY_HELPER="$TESTTMP/apply-stub.stagefail" \
   "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
@@ -1005,50 +925,35 @@ nsthist="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
 # clean first would delete it, so the free route depends on this path never asking for one.
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-jq -c '. + {armed:false, lost_announced:true}' "$marker" > "$marker.lost" && mv "$marker.lost" "$marker"
+link_was="$KEMPT_OFFLINE_LINK"
+stage_link_off
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "staging again after a lost stage cleans nothing, so the download is kept"
-assert_eq "$(jq -r .armed "$marker")" "true" "...and the new stage is armed"
+export KEMPT_OFFLINE_LINK="$link_was"
 
 # A rebuild that WORKED, which is the whole point of the failure paths above: the run is what a
 # hold-behind-a-stage tells the user to do, and the event log is the only record of why it ran.
 # The conflicting holds are read BEFORE the stage, because afterwards the question cannot be asked
 # again - the transaction that contained the held package is gone.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-first_at="$(jq -r .staged_at "$marker")"
 "$KEMPT" hold dnf:librepo >/dev/null 2>&1
-# The one sleep this case needs, and for the same reason the double-staging probe below keeps one:
-# staged_at has second resolution and the assertion is that the rebuild wrote a NEW marker.
-sleep 1
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 grep -q 'offline restage (holds: librepo)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: a rebuild over a conflicting hold records the hold it was for" \
   || { echo "FAIL: no restage event - got: $(grep -c 'offline restage' "$KEMPT_STATE_DIR/events.log" || true) restage lines"; _fail=1; }
-[[ "$(jq -r .staged_at "$marker")" != "$first_at" ]] \
-  && echo "ok: ...and the marker is the new stage's, not the one it replaced" \
-  || { echo "FAIL: the marker still describes the replaced stage"; _fail=1; }
-assert_eq "$(jq -c '.staged_names' "$marker")" '["ca-certificates","librepo","openldap"]' \
-  "...read from the transaction that is there now"
-assert_eq "$(jq -r '.armed' "$marker")" "true" "...and armed, like any other stage"
 "$KEMPT" unhold dnf:librepo >/dev/null 2>&1
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" check >/dev/null
 
 # --- and that count is asked for NOW. It is the only thing the user is ever told about a
 # transaction they cannot open, it is what the popup and `kempt doctor` repeat back for as long as
 # the stage is armed, and it used to be copied out of the last check's state.json - a number written
-# by whatever check ran last, against different metadata, possibly days ago.
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
+# by whatever check ran last, against different metadata, possibly days ago. dnf5's list decides.
 "$KEMPT" check >/dev/null
 fresh="$(jq -r '.backends.dnf.actionable' "$KEMPT_STATE_DIR/state.json")"
-# A state.json that says something else entirely, which is all "stale" ever means. 999 rather than
-# a plausible number so a marker that came from the wrong place cannot be mistaken for one that did
-# not: only the stale path can produce it.
 jq '.backends.dnf.actionable = 999' "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/stale-state.json" \
   && mv "$TESTTMP/stale-state.json" "$KEMPT_STATE_DIR/state.json"
 : > "$WORLD/timeline"
@@ -1059,131 +964,43 @@ stage_ln="$(grep -n 'APPLY dnf-offline-stage' "$WORLD/timeline" | awk 'NR==1' | 
 [[ -n "$check_ln" && -n "$stage_ln" && "$check_ln" -lt "$stage_ln" ]] \
   && echo "ok: the offline surface asks what is pending before it stages" \
   || { echo "FAIL: check-before-stage (check=${check_ln:-none} stage=${stage_ln:-none})"; _fail=1; }
-assert_eq "$(jq -r '.staged' "$marker")" "$fresh" \
-  "the marker's count comes from that check, not from the state file it found"
+assert_eq "$(last_staged)" "3" \
+  "the count comes from what dnf5 stored, not from the state file it found"
 staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
-assert_eq "$staged_ev" "$fresh" "...and so does the count on the event line"
+assert_eq "$staged_ev" "3" "...and so does the count on the event line"
 
 # A check that cannot answer must not stop the stage. Losing a number is not worth refusing to
-# update the machine, so it degrades to the stale count with a warning - the same shape the
-# risky-transaction pre-check degrades in.
+# update the machine, so it warns - the same shape the risky-transaction pre-check degrades in.
 : > "$WORLD/apply-calls"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 jq '.backends.dnf.actionable = 999' "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/stale-state.json" \
   && mv "$TESTTMP/stale-state.json" "$KEMPT_STATE_DIR/state.json"
 degraded="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.checkfails" \
   "$KEMPT" update --surface=offline --no-flatpak 2>&1 >/dev/null)" || true
 grep -q 'APPLY dnf-offline-stage' "$WORLD/apply-calls" \
   && echo "ok: a check that could not answer still stages" || { echo "FAIL: degraded stage"; _fail=1; }
-assert_exit 0 "...and still writes a marker" -- test -f "$marker"
-assert_eq "$(jq -r '.staged' "$marker")" "999" "...carrying the only count left, the stale one"
 grep -q '^warning: ' <<<"$degraded" \
   && echo "ok: ...and says on stderr that the number is not fresh" \
   || { echo "FAIL: no warning - got: $degraded"; _fail=1; }
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" check >/dev/null
-
-# --- and the stage records WHICH packages, not only how many ------------------------------------
-# A hold added after a stage cannot change the transaction dnf5 has already built, so the only
-# honest thing Kempt can do is say whether the held package is in it. That answer needs names, and
-# the marker is where they are kept for the moment the live record cannot be read.
-#
-# Two lists, from two different places, because they answer two different questions:
-#   staged_names     what the transaction INSTALLS - read from dnf5's own stored transaction, which
-#                    is the only source that sees resolver-added packages and a transaction someone
-#                    else replaced. The marker's copy is the fallback, never the primary.
-#   staged_excluded  what was held AND pending when the stage was made - which the transaction can
-#                    never say, because a package absent from it is indistinguishable from a
-#                    package that simply had no update. It is what lets `kempt unhold` know whether
-#                    this stage was built without the package the user just released.
-: > "$WORLD/apply-calls"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-"$KEMPT" hold dnf:curl >/dev/null 2>&1
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-assert_eq "$(jq -r '.staged_names_source' "$marker")" "transaction" \
-  "the staged set is recorded from dnf5's own transaction, and the marker says so"
-assert_eq "$(jq -c '.staged_names' "$marker")" '["ca-certificates","librepo","openldap"]' \
-  "...as the names that transaction installs, not the names the check happened to list"
-assert_eq "$(jq -c '.staged_excluded' "$marker")" '["curl"]' \
-  "a package held and pending at stage time is recorded as excluded from it"
-assert_eq "$(jq -r '.staged' "$marker")" "6" \
-  "the count stays what it was: pending, minus the held one"
-assert_eq "$(stat -c %a "$marker")" "600" "...and the marker is still private"
-
-# The live record unreadable, the check fine: the names degrade to the check's answer and the
-# marker SAYS they did. A check-derived list may confirm a conflict and may never deny one, so the
-# source field is not bookkeeping - it is what stops a later reader from taking silence for proof.
-: > "$WORLD/apply-calls"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
-KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-assert_eq "$(jq -r '.staged_names_source' "$marker")" "check" \
-  "a transaction record that will not parse falls back to the check, and is labelled as such"
-assert_eq "$(jq -c '.staged_names' "$marker")" \
-  '["aajohan-comfortaa-fonts","bash","brandnew","git-core","tar","vim-minimal"]' \
-  "...carrying what the check said was pending and not held"
-assert_eq "$(jq -c '.staged_excluded' "$marker")" '["curl"]' \
-  "...and the excluded list is unaffected: it never came from the transaction"
-
-# Both sources gone - an unparsable record AND a check that could not answer. There is no list, so
-# the marker carries none at all rather than an empty array that a reader could mistake for "the
-# transaction installs nothing". The stage still goes ahead: losing a list is not worth refusing to
-# update the machine, exactly like losing the count.
-: > "$WORLD/apply-calls"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.checkfails" \
-  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-grep -q 'APPLY dnf-offline-stage' "$WORLD/apply-calls" \
-  && echo "ok: a stage with no names available still stages" || { echo "FAIL: nameless stage"; _fail=1; }
-assert_eq "$(jq -r '.staged_names_source' "$marker")" "none" "...and says it knows no names"
-assert_eq "$(jq -r 'has("staged_names")' "$marker")" "false" \
-  "...with no staged_names key at all, so an empty list can never be read as an empty transaction"
-assert_eq "$(jq -c '.staged_excluded' "$marker")" '[]' \
-  "...and an empty excluded list, which sends unhold to its pending fallback"
 
 # A check on stale metadata finds nothing, and the stage, which fetches its own, stores updates.
 # The count is then what the transaction holds: "Staged 0 updates" over a stage of three is wrong
 # on every surface that repeats it.
+"$KEMPT" hold dnf:curl >/dev/null 2>&1
 cat > "$TESTTMP/refresh-stub.checknothing" <<'STUB'
 #!/usr/bin/env bash
 exit 0
 STUB
 chmod +x "$TESTTMP/refresh-stub.checknothing"
 : > "$WORLD/apply-calls"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 stale_out="$(KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.checknothing" \
   "$KEMPT" update --surface=offline --no-flatpak 2>/dev/null)" || true
-assert_eq "$(jq -r '.staged' "$marker")" "3" "a check that found nothing gives way to the transaction's count"
+assert_eq "$(last_staged)" "3" "a check that found nothing gives way to the transaction's count"
 staged_ev="$(grep ' offline staged ' "$KEMPT_STATE_DIR/events.log" | tail -1 | sed 's/.* offline staged //')"
 assert_eq "$staged_ev" "3" "...on the event line too"
 assert_contains "$stale_out" "staged 3 updates for a restart" "...and in the run's summary"
 
-# ONE name that fails the name gate drops the WHOLE list. The gate is KEMPT_NAME_RE, the same shape
-# a hold is validated against, and it covers jq, the shell, QML and a terminal in one place. Partial
-# filtering would be worse than nothing: a list with a name quietly removed is a list that can still
-# be used to say "your package is not in the transaction".
-# The check is the path that needs the gate - the transaction reader applies it before it answers -
-# so the live record is pointed at garbage to reach it.
-cat > "$TESTTMP/badname-check.txt" <<'EOF'
-bash.x86_64   5.3.10-1.fc44   updates
---exclude=evil.x86_64   1.0-1.fc44   updates
-EOF
-cat > "$TESTTMP/refresh-stub.badname" <<STUB
-#!/usr/bin/env bash
-[[ "\$1" == check ]] && { cat "$TESTTMP/badname-check.txt"; exit 100; }
-exit 0
-STUB
-chmod +x "$TESTTMP/refresh-stub.badname"
-: > "$WORLD/apply-calls"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_REFRESH_HELPER="$TESTTMP/refresh-stub.badname" \
-  "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-assert_eq "$(jq -r '.staged_names_source' "$marker")" "none" \
-  "one name that fails the gate drops the whole list to no source at all"
-assert_eq "$(jq -r 'has("staged_names")' "$marker")" "false" \
-  "...and nothing of that list is written down"
 "$KEMPT" unhold dnf:curl >/dev/null 2>&1
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" check >/dev/null
 
 # A pre-run snapshot that cannot be read means we could never say what changed, so the run stops
@@ -1235,11 +1052,6 @@ assert_exit 0 "abort leaves the lock free" -- flock -n "$KEMPT_STATE_DIR/lock" t
 KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" >/dev/null 2>&1
 grep -q 'dnf-offline-stage' "$WORLD/apply-calls" && echo "ok: [s] switches the run to offline staging" || { echo "FAIL: stage offline"; _fail=1; }
 grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" && { echo "FAIL: [s] upgraded live anyway"; _fail=1; } || echo "ok: [s] never upgrades live"
-# only the newest staging can ever be harvested, so older copies are swept, not accumulated
-assert_eq "$(ls "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv | wc -l)" "1" "staging sweeps orphaned pre-snapshots"
-assert_exit 0 "the surviving copy is the one the marker points at" \
-  -- test -f "$(jq -r .pre_snapshot "$KEMPT_STATE_DIR/offline_staged.json")"
-
 # ...and the route the recommendation offers must be one that EXISTS. `[s]tage offline` sets the
 # surface from inside this prompt, so a refusal placed before the recommendation is bypassed by
 # Kempt's own advice: answering `s` with a Fedora release upgrade stored reached dnf5, cancelled
@@ -1563,13 +1375,6 @@ PATH="$TESTTMP/jq-fails:$PATH" "$KEMPT" update --no-flatpak >/dev/null 2>&1 || t
 assert_eq "$(jq -r '.actionable' "$KEMPT_STATE_DIR/state.json" 2>/dev/null)" "7" \
   "a closing check whose state could not be built leaves the previous state.json in place"
 
-# --- offline harvest: the staged transaction applies during a reboot, and the next check has to
-# notice and turn it into a normal history entry + notification.
-# The marker OWNS its pre-snapshot copy and harvest deletes it, so a marker must never point at a
-# shared file - pointing this one at tests/fixtures/ would delete a repo fixture.
-pre_copy="$KEMPT_STATE_DIR/snapshots/offline-pre-harvest.tsv"
-cp "$FIXTURES/snap-before.tsv" "$pre_copy"
-jq -n --arg snap "$pre_copy" '{staged_at:"x", pre_snapshot:$snap}' > "$KEMPT_STATE_DIR/offline_staged.json"
 cat > "$TESTTMP/refresh-stub" <<STUB
 #!/usr/bin/env bash
 [[ "\$1" == check ]] && { cat "$FIXTURES/dnf-check-update.txt"; exit 100; }
@@ -1577,37 +1382,7 @@ exit 0
 STUB
 chmod +x "$TESTTMP/refresh-stub"
 
-# not applied yet (reboot hasn't happened): the installed set still matches the pre-snapshot
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
-# Well under the 50 entries the history keeps: at the cap, the harvested entry would push the
-# oldest out and the count below would not move. How many earlier sections leave depends on how
-# many of their per-second names collided, so trim rather than count on it.
-# shellcheck disable=SC2012
-ls -1t "$KEMPT_STATE_DIR"/history/*.json 2>/dev/null | tail -n +11 | while IFS= read -r f; do rm -f "$f"; done
-before_n="$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)"
-"$KEMPT" check >/dev/null
-assert_exit 0 "unapplied stage keeps its marker" -- test -f "$KEMPT_STATE_DIR/offline_staged.json"
-assert_eq "$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)" "$before_n" "unapplied stage records nothing"
-
-# applied on reboot: the installed set moved, AND dnf5's transaction went with it. Both halves,
-# because the set moving on its own is what a terminal `dnf5 upgrade` looks like.
-transaction_gone
-cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
-: > "$WORLD/notifications"
-push_history_back   # per-second names: keep the harvested entry from landing on an older one
-"$KEMPT" check >/dev/null
-[[ ! -f "$KEMPT_STATE_DIR/offline_staged.json" ]] && echo "ok: marker consumed" || { echo "FAIL: marker"; _fail=1; }
-ls "$KEMPT_STATE_DIR"/history/*.json >/dev/null 2>&1 && echo "ok: harvest wrote history" || { echo "FAIL: harvest"; _fail=1; }
-assert_eq "$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)" "$((before_n + 1))" "exactly one history entry harvested"
-hh="$KEMPT_STATE_DIR/history/$(ls "$KEMPT_STATE_DIR/history/" | tail -1)"
-assert_eq "$(jq -r .surface "$hh")" "offline (applied on reboot)" "harvested entry names the surface"
-assert_eq "$(jq '.backends.dnf.updated | length' "$hh")" "2" "harvest diffs against the marker's own snapshot"
-assert_exit 0 "harvest removes the snapshot copy it owned" -- test ! -f "$pre_copy"
-grep -q NOTIFY "$WORLD/notifications" && echo "ok: harvest notifies" || { echo "FAIL: harvest notify"; _fail=1; }
-
-# a consumed marker must not be harvested twice (a second entry would double-count the run)
-"$KEMPT" check >/dev/null
-assert_eq "$(ls "$KEMPT_STATE_DIR"/history/*.json | wc -l)" "$((before_n + 1))" "harvest does not repeat"
 
 # cmd_update prints the rendered summary on stdout - that is the terminal surface's whole point
 # ($out was captured from the very first run, before the stub renderer was replaced)
@@ -1630,14 +1405,10 @@ echo "APPLY \$@" >> "$WORLD/apply-calls"
 [[ "\$1" == dnf-upgrade ]] && cp "$TESTTMP/rb-live.tsv" "$WORLD/rpm.tsv"
 exit 0
 STUB
-marker="$KEMPT_STATE_DIR/offline_staged.json"
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-assert_exit 0 "offline stage left a marker" -- test -f "$marker"
-sup_pre="$(jq -r .pre_snapshot "$marker")"
 push_history_back   # per-second names: move the staging entry off the second the live run will use
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
 : > "$WORLD/apply-calls"
@@ -1647,23 +1418,19 @@ PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=widget --no-flatpak >/dev/nu
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
   && echo "ok: a live rpm change discards the stage it invalidated" \
   || { echo "FAIL: the superseded stage was left armed and doomed"; _fail=1; }
-assert_exit 0 "...and the marker goes with it" -- test ! -f "$marker"
-assert_exit 0 "...along with the snapshot copy the marker owned" -- test ! -f "$sup_pre"
 grep -q 'offline stage dropped (superseded by live update)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: the drop is recorded - it is the only trace the stage ever left" \
   || { echo "FAIL: no event for the dropped stage"; _fail=1; }
 ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
 comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
-assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "1" "the live run records ONE entry, not one plus a phantom harvest"
-assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "popup" "the entry is the live run, not a mislabelled harvest"
+assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "1" "the live run records ONE entry, not one plus a phantom restart report"
+assert_eq "$(jq -r .surface "$(head -1 "$TESTTMP/hist-new.txt")")" "popup" "the entry is the live run, not a mislabelled restart report"
 
 # The same supersede behind another updater's /system-update: dnf5's clean would remove that
 # symlink too, and with it the other updater's restart install. Kempt's stage cannot install
-# behind it anyway, so only the marker goes, and the clean is never run.
+# behind it anyway, and the clean is never run.
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-sup_pre="$(jq -r .pre_snapshot "$marker")"
 push_history_back
 ln -sfn /var/lib/PackageKit/prepared-update "$TESTTMP/foreign-system-update"
 : > "$WORLD/apply-calls"
@@ -1671,13 +1438,6 @@ KEMPT_OFFLINE_LINK="$TESTTMP/foreign-system-update" \
   "$KEMPT" update --surface=widget --no-flatpak --risky-ok >/dev/null 2>&1
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "a live run behind another updater's symlink never runs the clean that would remove it"
-assert_exit 0 "...while the superseded marker goes" -- test ! -f "$marker"
-assert_exit 0 "...with its snapshot copy" -- test ! -f "$sup_pre"
-grep -q 'offline marker dropped (superseded by live update, another updater has prepared the next restart)' \
-  "$KEMPT_STATE_DIR/events.log" \
-  && echo "ok: ...and the log says why only the marker went" \
-  || { echo "FAIL: no event for the marker dropped behind another updater's symlink"; _fail=1; }
-
 # A run that installed no rpm cannot have invalidated anything: the stage stays, and the reboot
 # that applies it is still reported. This is the flatpak-only run, and it is the reason the
 # supersede is gated on a real rpm delta rather than on "a live run happened".
@@ -1687,13 +1447,11 @@ echo "APPLY \$@" >> "$WORLD/apply-calls"
 exit 0
 STUB
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 transaction_armed   # staging needs a box that can arm one
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
 push_history_back
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
-assert_exit 0 "a run that changed no rpm leaves the pending stage alone" -- test -f "$marker"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "...and never discards it"
 
@@ -1707,38 +1465,13 @@ echo "APPLY \$@" >> "$WORLD/apply-calls"
 exit 0
 STUB
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-sup_pre="$(jq -r .pre_snapshot "$marker")"
 push_history_back
 : > "$WORLD/apply-calls"
 "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
 grep -q 'APPLY dnf-offline-clean' "$WORLD/apply-calls" \
   && echo "ok: a failed live run that moved rpms discards the stage it invalidated" \
   || { echo "FAIL: a failed live run left the superseded stage advertised"; _fail=1; }
-assert_exit 0 "...and the marker goes with it" -- test ! -f "$marker"
-assert_exit 0 "...along with its snapshot copy" -- test ! -f "$sup_pre"
-
-# ...and when that clean fails, the marker stays for the doctor but stops claiming the stage is
-# armed, so the widget no longer shows an install that will not happen.
-cat > "$TESTTMP/apply-stub" <<STUB
-#!/usr/bin/env bash
-echo "APPLY \$@" >> "$WORLD/apply-calls"
-[[ "\$1" == dnf-upgrade ]] && { cp "$TESTTMP/rb-live.tsv" "$WORLD/rpm.tsv"; echo "error: scriptlet failed" >&2; exit 1; }
-[[ "\$1" == dnf-offline-clean ]] && exit 1
-exit 0
-STUB
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-push_history_back
-"$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true
-assert_exit 0 "a superseded stage whose clean failed keeps its marker for the doctor" -- test -f "$marker"
-assert_eq "$(jq -r .armed "$marker")" "false" "...marked as no longer armed"
-assert_eq "$(jq -r '.offline_staged // "none"' "$KEMPT_STATE_DIR/state.json")" "none" \
-  "...so the state the widget reads shows no staged install"
-cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 
 # --- a staged Fedora release upgrade is not ours to destroy --------------------------------------
 # dnf5 keeps ONE stored transaction for offline updates and release upgrades alike, and staging
@@ -1748,7 +1481,6 @@ rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 # STANDING, so the machine still restarts into an update, just not the one that was asked for.
 # Re-downloading a Fedora release upgrade is gigabytes, so there is no recovering from it either.
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 : > "$WORLD/apply-calls"
 release_upgrade_staged
 relup_link_on          # ...and armed, which is the state the sentences below are about
@@ -1765,7 +1497,6 @@ assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0
 assert_eq "$(grep -c '^FLATPAK' "$WORLD/apply-calls" || true)" "0" \
   "...and nothing else is run either, because the run never starts"
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0"   "...nor to clean: the transaction is somebody else's and it is left exactly where it is"
-assert_exit 0 "...and no marker is written for a stage that never happened" -- test ! -f "$marker"
 # The refusal has to NAME what is there, or it is one more tool saying no without saying why.
 case "$relout" in
   *"installs on the next restart"*) echo "ok: ...and the reason describes an armed upgrade as one that installs" ;;
@@ -1859,11 +1590,8 @@ grep -q 'APPLY dnf-offline-stage' "$WORLD/apply-calls" \
   && echo "ok: an ordinary staged transaction is still restaged, because the two releasevers match" \
   || { echo "FAIL: the refusal fired on an ordinary offline transaction"; _fail=1; }
 
-# ...and the same rule on the way out. Kempt's marker and dnf5's stored transaction come apart when
-# the user stages a release upgrade AFTER Kempt staged one: dnf5 cancels Kempt's as it stores
-# theirs, leaving our marker over their transaction. The supersede path would then run
-# `dnf5 offline clean` and destroy a release upgrade to tidy up a stage dnf5 had already thrown
-# away. The marker is the only thing here that is ours, so the marker is the only thing that goes.
+# ...and the same rule on the way out: the user staged a release upgrade after Kempt staged a stage,
+# and dnf5 cancelled Kempt's as it stored theirs. A clean would destroy a release upgrade.
 cat > "$TESTTMP/apply-stub" <<STUB
 #!/usr/bin/env bash
 echo "APPLY \$@" >> "$WORLD/apply-calls"
@@ -1871,22 +1599,14 @@ echo "APPLY \$@" >> "$WORLD/apply-calls"
 exit 0
 STUB
 cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 transaction_armed
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-relpre="$(jq -r .pre_snapshot "$marker")"
 push_history_back
 : > "$WORLD/apply-calls"
 release_upgrade_staged   # ...and now theirs is the one that is stored
 PATH="$(nocmp_dir):$PATH" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
 assert_eq "$(grep -c 'APPLY dnf-offline-clean' "$WORLD/apply-calls" || true)" "0" \
   "a live run never cleans a transaction Kempt did not stage"
-assert_exit 0 "...but our marker goes, because it describes one dnf5 already threw away" \
-  -- test ! -f "$marker"
-assert_exit 0 "...along with the snapshot copy it owned" -- test ! -f "$relpre"
-grep -q 'offline marker dropped (a release upgrade' "$KEMPT_STATE_DIR/events.log" \
-  && echo "ok: ...and the event says which of the two happened" \
-  || { echo "FAIL: no event naming the release upgrade"; _fail=1; }
 transaction_armed
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 
@@ -1907,7 +1627,7 @@ rm -f "$KEMPT_STATE_DIR"/logs/*.log
 # an entry left over from a run in the SAME second is a file that already exists - and writing to an
 # existing file succeeds in a directory with no write permission of its own. The test would then
 # pass without exercising the failure at all, depending only on how fast the machine is. Nothing
-# below counts entries absolutely; the harvest further down takes its own baseline after this.
+# below counts entries absolutely; the restart report further down takes its own baseline after this.
 rm -f "$KEMPT_STATE_DIR"/history/*.json
 chmod 500 "$KEMPT_STATE_DIR/history"
 rc=0
@@ -1992,225 +1712,6 @@ assert_eq "$(grep -c 'run done rc=0' "$KEMPT_STATE_DIR/events.log")" "$(( before
 assert_eq "$(grep -c 'history entry not written' "$KEMPT_STATE_DIR/events.log" || true)" "$(( before_lost + 1 ))" \
   "...saying what it could not keep"
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
-
-# (b) the HARVEST's entry, which is worse: harvest_offline runs at the top of EVERY check and the
-# marker is cleared a few lines below it. A failure that escaped left the marker in place, so the
-# next check failed in the same spot, and the next - the box stopped checking at all, with a bash
-# line-number error where the state file used to be.
-hpre="$KEMPT_STATE_DIR/snapshots/offline-pre-histfail.tsv"
-cp "$FIXTURES/snap-before.tsv" "$hpre"
-jq -n --arg snap "$hpre" '{staged_at:"histfail", pre_snapshot:$snap, armed:true}' > "$marker"
-transaction_gone
-cp "$FIXTURES/snap-after.tsv" "$WORLD/rpm.tsv"
-: > "$WORLD/notifications"
-rm -f "$KEMPT_STATE_DIR"/history/*.json   # same reason as above: no same-second file to overwrite
-chmod 500 "$KEMPT_STATE_DIR/history"
-rc=0
-"$KEMPT" check >/dev/null 2>&1 || rc=$?
-chmod 700 "$KEMPT_STATE_DIR/history"
-assert_eq "$rc" "0" "a harvest whose entry cannot be written does not take the check down with it"
-assert_exit 0 "...and the check still answers, so the widget still has a state to read" \
-  -- test -s "$KEMPT_STATE_DIR/state.json"
-assert_exit 0 "...and the marker is consumed, so this cannot repeat on every check for ever" \
-  -- test ! -f "$marker"
-grep -q 'harvest entry not written' "$KEMPT_STATE_DIR/events.log" \
-  && echo "ok: ...with the loss recorded" \
-  || { echo "FAIL: nothing says the harvest entry was lost"; _fail=1; }
-# A restart that installed packages must not pass in silence just because there was nowhere to file
-# the details.
-grep -q 'installed during the restart' "$WORLD/notifications" \
-  && echo "ok: ...and the restart is still announced, without the counts it could not compute" \
-  || { echo "FAIL: the applied restart was never announced"; _fail=1; }
-transaction_armed
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv" 2>/dev/null || cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
-
-# --- an image-based Fedora, where dnf is not how the machine updates -----------------------------
-# Kinoite, Silverblue, Bazzite, a bootc image. Measured in the Kinoite image: it ships dnf5 AND
-# plasma-workspace, so both Kempt packages' dependencies resolve, `kempt doctor` passed every check,
-# the widget appeared, and `dnf5 upgrade` RESOLVED a transaction rather than refusing. That last one
-# is what makes it dangerous - left to fail on its own it fails after the download, in the middle,
-# with a message about a read-only file system and nothing anywhere about rpm-ostree.
-# The gate is one file: /run/ostree-booted, written by ostree-prepare-root on a booted deployment
-# and absent on ordinary Fedora EVEN WHEN rpm-ostree is installed - which is why it is not the
-# presence of a binary.
-cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
-: > "$WORLD/apply-calls"
-: > "$WORLD/notifications"
-touch "$TESTTMP/ostree-booted"
-rc=0
-ibout="$(KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" update --surface=widget --no-flatpak 2>&1)" || rc=$?
-assert_eq "$rc" "5" "on an image-based system the run aborts in pre-flight, having changed nothing"
-assert_eq "$(wc -c < "$WORLD/apply-calls")" "0" "...with nothing escalated and nothing run"
-case "$ibout" in
-  *rpm-ostree*) echo "ok: ...and the refusal names the tool that DOES update this machine" ;;
-  *) echo "FAIL: the refusal does not mention rpm-ostree"; echo "  got: $ibout"; _fail=1 ;;
-esac
-# The refusal is a not-yet, not a never, and docs/ROADMAP.md says the same. Dropping that from one
-# surface and not the others is how a tool starts disagreeing with its own roadmap.
-case "$ibout" in
-  *"is planned"*) echo "ok: ...and says this is a not-yet rather than a never" ;;
-  *) echo "FAIL: the refusal does not say support is planned"; echo "  got: $ibout"; _fail=1 ;;
-esac
-grep -q 'rpm-ostree' "$WORLD/notifications" \
-  && echo "ok: ...on the notification too, for the surfaces where nobody reads stderr" \
-  || { echo "FAIL: no notification for the pre-flight abort"; _fail=1; }
-# ...and staging is refused in the same place, because it is the same run.
-rc=0
-KEMPT_OSTREE_MARKER="$TESTTMP/ostree-booted" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
-assert_eq "$rc" "5" "staging aborts in the same place, for the same reason"
-assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/apply-calls" || true)" "0" \
-  "...having staged nothing"
-# The seam is a FILE TEST, so an ordinary Fedora - where the file does not exist - is untouched.
-: > "$WORLD/apply-calls"
-"$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
-grep -q 'APPLY dnf-upgrade' "$WORLD/apply-calls" \
-  && echo "ok: an ordinary Fedora updates exactly as before" \
-  || { echo "FAIL: the ostree gate fired on an ordinary box"; _fail=1; }
-
-# --- the marker write happens AFTER the machine is armed -----------------------------------------
-# `dnf5 offline reboot` has already run by the time write_stage_marker starts, so the transaction
-# WILL install on the next restart whatever happens next. Under errexit a full home was enough to
-# end the run right there - and then the box is armed and Kempt knows nothing: no banner, no doctor
-# row, no harvest, no notification, and sixty packages arriving during a restart the person thought
-# was ordinary. So these two failures degrade instead, in the order the readers can tolerate.
-
-# Shadows that fail ONE call each and pass everything else through, so what is under test is the
-# handling of that failure and not a box with no coreutils.
-fail_marker_dir() {  # atomic_write mktemps INTO the destination's directory; refuse only that
-  local d="$TESTTMP/nomarker"
-  mkdir -p "$d"
-  cat > "$d/mktemp" <<STUB
-#!/usr/bin/env bash
-case " \$* " in *" -p $KEMPT_STATE_DIR "*) echo "mktemp: no space left on device" >&2; exit 1 ;; esac
-exec /usr/bin/mktemp "\$@"
-STUB
-  chmod +x "$d/mktemp"; printf '%s\n' "$d"
-}
-fail_snapshot_copy() {  # only the marker's own baseline copy, which is the one that can be lost
-  local d="$TESTTMP/nosnap"
-  mkdir -p "$d"
-  cat > "$d/cp" <<'STUB'
-#!/usr/bin/env bash
-for a in "$@"; do case "$a" in *offline-pre-*) echo "cp: no space left on device" >&2; exit 1 ;; esac; done
-exec /usr/bin/cp "$@"
-STUB
-  chmod +x "$d/cp"; printf '%s\n' "$d"
-}
-
-# (a) the baseline copy fails. A marker without pre_snapshot is a shape every reader already
-# handles - they all take `.pre_snapshot // empty` - so the stage is still RECORDED, and what is
-# lost is only the package list in the report after the restart.
-cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-transaction_armed
-: > "$WORLD/notifications"
-rc=0
-PATH="$(fail_snapshot_copy):$PATH" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
-assert_eq "$rc" "0" "a stage whose baseline copy fails is still a successful stage"
-assert_exit 0 "...and the marker is written anyway, so the box is not armed in secret" -- test -f "$marker"
-assert_eq "$(jq -r 'has("pre_snapshot")' "$marker")" "false" \
-  "...without a baseline it does not have, rather than a path to a file that is not there"
-assert_eq "$(jq -r '.armed' "$marker")" "true" "...still describing an armed transaction, because it is"
-grep -q 'without its package baseline' "$KEMPT_STATE_DIR/events.log" \
-  && echo "ok: ...and the log says what the restart report will not be able to say" \
-  || { echo "FAIL: no event for the missing baseline"; _fail=1; }
-grep -q 'install on the next restart' "$WORLD/notifications" \
-  && echo "ok: ...and the person is still told the update installs on the next restart" \
-  || { echo "FAIL: no staged notification"; _fail=1; }
-# What the degrade COSTS, said at the last moment anything can say it. harvest_offline clears a
-# marker it cannot diff (there is no baseline to diff against), so after the restart there is no
-# history entry and no notification - this sentence is the only warning of that, and it goes out
-# while the person is still at the machine that just staged.
-grep -q 'will not be reported' "$WORLD/notifications" \
-  && echo "ok: ...and that the result after the restart will not be" \
-  || { echo "FAIL: the cost of the degrade was not stated"; _fail=1; }
-# The surfaces BEFORE the restart are the ones this degrade buys, and they are the reason it is
-# worth writing a marker with a hole in it rather than none at all.
-"$KEMPT" check >/dev/null 2>&1
-assert_eq "$(jq -r '.offline_staged.armed' "$KEMPT_STATE_DIR/state.json")" "true" \
-  "...while the widget still shows the staged transaction, which is the point of recording it"
-assert_exit 0 "...and doctor still has it to explain" -- test -f "$marker"
-# ...and after the restart it is cleared rather than diffed, which is the known limit of the shape.
-transaction_gone
-cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
-simulate_reboot
-push_history_back
-"$KEMPT" check >/dev/null 2>&1
-assert_exit 0 "a marker with no baseline is cleared after the restart rather than re-read forever" \
-  -- test ! -f "$marker"
-grep -q 'harvest cleared stale marker' "$KEMPT_STATE_DIR/events.log" \
-  && echo "ok: ...and the event log is the trace it leaves, as the staging notification warned" \
-  || { echo "FAIL: no event for the cleared marker"; _fail=1; }
-
-# (b) the marker itself cannot be written. Nothing left to degrade to - so the run SUCCEEDS,
-# because the stage really did happen and really will install, and the person is told in the same
-# breath that no later surface will mention it again.
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-transaction_armed
-: > "$WORLD/notifications"
-rc=0
-PATH="$(fail_marker_dir):$PATH" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || rc=$?
-assert_eq "$rc" "0" "a stage Kempt cannot record is still a stage, and the run says so"
-assert_exit 0 "...and no marker is left behind claiming otherwise" -- test ! -f "$marker"
-# The baseline copy is cleaned up with it: a snapshot no marker points at is never read again.
-assert_eq "$(ls "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv 2>/dev/null | wc -l)" "0" \
-  "...nor an orphaned baseline that nothing will ever diff"
-grep -q 'NOT recorded' "$KEMPT_STATE_DIR/events.log" \
-  && echo "ok: ...and the event line says the stage happened and was not recorded" \
-  || { echo "FAIL: no event for the unrecorded stage"; _fail=1; }
-# The notification is the LAST surface that will ever mention this transaction, so it has to carry
-# both halves: the promise, and the fact that nothing will report on it.
-grep -q 'install on the next restart' "$WORLD/notifications" \
-  && echo "ok: ...and the person is still told the update installs on the next restart" \
-  || { echo "FAIL: the promise was dropped"; _fail=1; }
-grep -q 'could not record them' "$WORLD/notifications" \
-  && echo "ok: ...and that Kempt will not be able to report the result" \
-  || { echo "FAIL: the limit was not stated"; _fail=1; }
-transaction_armed
-
-# --- back to the ordinary lifecycle --------------------------------------------------------------
-cat > "$TESTTMP/apply-stub" <<STUB
-#!/usr/bin/env bash
-echo "APPLY \$@" >> "$WORLD/apply-calls"
-exit 0
-STUB
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-transaction_armed
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-push_history_back
-
-# ...and after the reboot that actually applies it, the harvest reports the STAGED delta
-cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
-simulate_reboot
-push_history_back   # `ls | tail -1` below must find the harvest, not the live run it collided with
-"$KEMPT" check >/dev/null 2>&1
-[[ ! -f "$marker" ]] && echo "ok: the post-reboot check consumes the marker" || { echo "FAIL: marker survived the reboot"; _fail=1; }
-hr="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
-assert_eq "$(jq -r .surface "$hr")" "offline (applied on reboot)" "the reboot result is harvested as an offline run"
-assert_eq "$(jq -c '[.backends.dnf.updated[].name]' "$hr")" '["kernel-core"]' \
-  "the harvest reports the staged package and nothing else"
-
-# --- history filenames are per-second, and a harvest fires from a check a live run may have
-# triggered in the same second. An existing entry must never be overwritten.
-transaction_gone    # this block is a harvest too: the reboot that ran it left nothing behind
-pre2="$KEMPT_STATE_DIR/snapshots/offline-pre-collide.tsv"
-cp "$TESTTMP/rb-live.tsv" "$pre2"
-jq -n --arg snap "$pre2" '{staged_at:"x", pre_snapshot:$snap}' > "$marker"
-cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
-decoys=()
-base="$(date +%s)"   # read the clock once, or a tick mid-loop leaves a gap the harvest can land in
-for off in $(seq 0 30); do   # wide, so a slow check still lands on a decoy
-  d="$KEMPT_STATE_DIR/history/$(date -d "@$(( base + off ))" +%Y%m%dT%H%M%S).json"
-  printf 'DECOY\n' > "$d"; decoys+=("$d")
-done
-"$KEMPT" check >/dev/null 2>&1
-assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/history/*-offline.json 2>/dev/null | wc -l)" "1" \
-  "a same-second harvest takes its own filename"
-assert_eq "$(cat "${decoys[@]}" | grep -c DECOY)" "31" "no existing history entry was overwritten"
-rm -f "${decoys[@]}"
 
 # --- the lock-retry window is PER ATTEMPT. dnf fails three times on a busy package lock, then
 # flatpak fails on a full disk in the SAME log: a fixed `tail -n 20` re-reads dnf's lock errors,
@@ -2376,234 +1877,8 @@ while IFS= read -r line; do
 done < "$FIXTURES/dnf-lock-not-busy.txt"
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 
-# --- double staging leaves ONE pre-snapshot: only the newest can ever be harvested, so an
-# un-swept copy is dead weight that accumulates one file per staged run, forever.
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 cp "$TESTTMP/fp-update-stub.orig" "$TESTTMP/fp-update-stub"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-transaction_armed   # staging needs a box that can arm one
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-first_pre="$(jq -r .pre_snapshot "$marker")"
-# The one sleep that has to stay. Everywhere else the collision is with a file already on disk,
-# which push_history_back moves for free - here it is between the $ts of two CONSECUTIVE
-# cmd_update runs, generated inside each run, and the assertion below is precisely that the two
-# stagings produced DIFFERENT offline-pre-$ts.tsv names. Faking that would delete the guard: with
-# both stagings on one filename the sweep is never exercised and this probe proves nothing.
-sleep 1
-transaction_armed   # staging needs a box that can arm one
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-second_pre="$(jq -r .pre_snapshot "$marker")"
-[[ "$first_pre" != "$second_pre" ]] && echo "ok: the second staging really wrote a new copy" \
-  || { echo "FAIL: both stagings used one filename - the sweep was never exercised"; _fail=1; }
-assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv | wc -l)" "1" \
-  "double staging leaves exactly one pre-snapshot"
-assert_exit 0 "and the survivor is the one the live marker points at" -- test -f "$second_pre"
-
-# --- the OTHER ordering: the reboot ALREADY applied the staged transaction, and no check has run
-# since, so the marker is still sitting there unharvested. Rebasing here would fold the staged
-# delta into the baseline - the transaction would never be reported at all, and the marker would
-# linger to mislabel whatever changed next. The rebase therefore only fires while the stage is
-# still PENDING, which is exactly "the marker's baseline still matches the world this run started
-# from" (staging writes no rpm changes of its own).
-printf 'bash\t5.2.37-1.fc44\nkernel-core\t6.15.4-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-applied.tsv"
-printf 'bash\t5.2.38-1.fc44\nkernel-core\t6.15.4-200.fc44\nzsh\t5.9-11.fc44\n' > "$TESTTMP/rb-live2.tsv"
-cat > "$TESTTMP/apply-stub" <<STUB
-#!/usr/bin/env bash
-echo "APPLY \$@" >> "$WORLD/apply-calls"
-[[ "\$1" == dnf-upgrade ]] && cp "$TESTTMP/rb-live2.tsv" "$WORLD/rpm.tsv"
-exit 0
-STUB
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-: > "$WORLD/apply-calls"
-transaction_armed   # staging needs a box that can arm one
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-cp "$TESTTMP/rb-applied.tsv" "$WORLD/rpm.tsv"   # the reboot applied it; no check has run yet
-simulate_reboot
-push_history_back   # per-second names: move the staging entry off the second the live run will use
-ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
-"$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
-[[ ! -f "$marker" ]] && echo "ok: an already-applied stage is harvested, never swallowed by a rebase" \
-  || { echo "FAIL: the staged transaction was folded into the baseline and lost"; _fail=1; }
-ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
-comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" > "$TESTTMP/hist-new.txt"
-assert_eq "$(wc -l < "$TESTTMP/hist-new.txt")" "2" "two entries: the live run AND the harvested stage"
-off_entry=/dev/null; live_entry=/dev/null
-while IFS= read -r f; do
-  case "$(jq -r '.surface // ""' "$f" 2>/dev/null)" in
-    "offline (applied on reboot)") off_entry="$f" ;;
-    popup) live_entry="$f" ;;
-  esac
-done < "$TESTTMP/hist-new.txt"
-[[ "$off_entry" != /dev/null ]] && echo "ok: the staged transaction gets its own history entry" \
-  || { echo "FAIL: no harvested entry - the staged transaction was never reported"; _fail=1; }
-[[ "$live_entry" != /dev/null ]] && echo "ok: the live run keeps its own entry" \
-  || { echo "FAIL: the live run's entry was lost or mislabelled"; _fail=1; }
-assert_eq "$(jq -r '[.backends.dnf.updated[].name] | index("kernel-core") != null' "$off_entry")" "true" \
-  "the harvested entry reports the staged package"
-assert_eq "$(jq -r '[.backends.dnf.updated[].name] | index("bash") != null' "$live_entry")" "true" \
-  "the live entry reports the live package, under its own surface"
-assert_eq "$(ls -1 "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv 2>/dev/null | wc -l)" "0" \
-  "the harvest cleans up the snapshot copy the marker owned"
-
-# --- a TRUNCATED after-snapshot must never become the harvest baseline. The redirection creates
-# the file before the snapshot runs, so a snapshot that dies mid-stream leaves a short but
-# non-empty file: every package missing from it would come back as newly installed at the next
-# harvest. The report degrades to empty (the run is over either way) and the marker keeps the
-# baseline it was staged with.
-cat > "$TESTTMP/partial-installed" <<STUB
-#!/usr/bin/env bash
-[[ -s "$WORLD/apply-calls" ]] && { printf 'bash\t5.2.37-1.fc44\n'; exit 7; }
-cat "$WORLD/rpm.tsv"
-STUB
-chmod +x "$TESTTMP/partial-installed"
-cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-: > "$WORLD/apply-calls"
-transaction_armed   # staging needs a box that can arm one
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-pre_c="$(jq -r .pre_snapshot "$marker")"
-cp "$pre_c" "$TESTTMP/baseline-copy.tsv"
-: > "$WORLD/apply-calls"
-push_history_back   # per-second names: the live run must not overwrite the staging run's entry
-KEMPT_DNF_INSTALLED_CMD="$TESTTMP/partial-installed" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1
-assert_exit 0 "a truncated after-snapshot leaves the marker in place" -- test -f "$marker"
-assert_exit 0 "...and never overwrites its baseline with the truncation" -- cmp -s "$pre_c" "$TESTTMP/baseline-copy.tsv"
-assert_eq "$(ls -1a "$KEMPT_STATE_DIR"/snapshots/.atomic.* 2>/dev/null | wc -l)" "0" "the rebase leaves no temp files behind"
-
-# --- BOOT SESSION GATE: only a reboot can apply a staged transaction. "The installed set moved"
-# never was evidence of that - a manual `dnf install cowsay` between staging and the reboot used
-# to consume the marker and report someone else's package as "offline (applied on reboot)", and
-# the real staged transaction was then never reported at all.
-cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-: > "$WORLD/apply-calls"; : > "$WORLD/notifications"
-transaction_armed   # staging needs a box that can arm one
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-pre_boot="$(jq -r .pre_snapshot "$marker")"
-assert_eq "$(jq -r '.boot_id | length > 0' "$marker")" "true" "staging records the boot session"
-# Not just speed here - this makes the probe BIND. The "no new entry" assertion below counts
-# files, so a buggy same-second harvest that OVERWROTE the staging entry would leave the count
-# unchanged and pass. With the staging entry moved out of the way, a harvest that fires has
-# nowhere to hide: it writes a new name and the count goes up.
-push_history_back
-ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-before.txt"
-# somebody installs a package by hand before rebooting
-printf 'bash\t5.2.37-1.fc44\ncowsay\t3.04-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$WORLD/rpm.tsv"
-: > "$WORLD/notifications"
-"$KEMPT" check >/dev/null 2>&1
-assert_exit 0 "a manual install before the reboot leaves the stage pending" -- test -f "$marker"
-assert_exit 0 "...and the marker's snapshot copy with it" -- test -f "$pre_boot"
-ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-after.txt"
-assert_eq "$(comm -13 "$TESTTMP/hist-before.txt" "$TESTTMP/hist-after.txt" | wc -l)" "0" \
-  "...and records no history entry for a transaction that has not happened"
-assert_eq "$(wc -c < "$WORLD/notifications")" "0" "...and tells the user nothing was applied"
-
-# the reboot itself: same package set, different boot session → NOW it is harvested
-simulate_reboot
-push_history_back   # `ls | tail -1` below must find the harvest, not an entry it collided with
-"$KEMPT" check >/dev/null 2>&1
-[[ ! -f "$marker" ]] && echo "ok: the reboot consumes the marker" || { echo "FAIL: marker survived a real reboot"; _fail=1; }
-hb2="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
-assert_eq "$(jq -r .surface "$hb2")" "offline (applied on reboot)" "the staged transaction is reported after the reboot"
-assert_eq "$(jq -r '[.backends.dnf.added[].name] | index("cowsay") != null' "$hb2")" "true" \
-  "the post-reboot diff reports what actually changed since staging"
-grep -q NOTIFY "$WORLD/notifications" && echo "ok: and the user is told" || { echo "FAIL: no harvest notification"; _fail=1; }
-
-# The harvest notification uses the same counts phrase as a live run: a staged transaction that
-# only installed or removed packages must never be announced as "0 packages".
-grep -qE '0 (packages )?updated|no package changes' "$WORLD/notifications" \
-  && { echo "FAIL: harvest notification claimed nothing happened"; _fail=1; } \
-  || echo "ok: the harvest notification counts installs, not just upgrades"
-grep -q '+1 installed' "$WORLD/notifications" && echo "ok: it names the install" || { echo "FAIL: harvest notify installs - got: $(cat "$WORLD/notifications")"; _fail=1; }
-
-# ...and the one run nobody watched has a log a person can OPEN. Every other surface tees dnf's own
-# output; this transaction was installed by dnf5 during the restart with Kempt not running, so there
-# is nothing to capture and the entry used to carry log:"" - which made the popup hide its Show Log
-# action on precisely the run somebody wants to read afterwards. The file is Kempt's own record and
-# has to say so, or it is a file pretending to be captured output.
-hlog2="$(jq -r .log "$hb2")"
-[[ -n "$hlog2" ]] && echo "ok: the harvested run names a log file" \
-  || { echo "FAIL: harvest entry carries no log path"; _fail=1; }
-assert_exit 0 "...and the file it names is really there" -- test -s "$hlog2"
-grep -q 'installed it during the restart' "$hlog2" \
-  && echo "ok: ...which says it is Kempt's own record, not captured output" \
-  || { echo "FAIL: harvest log provenance header - got: $(head -3 "$hlog2" 2>/dev/null)"; _fail=1; }
-grep -q 'cowsay' "$hlog2" \
-  && echo "ok: ...and lists what the restart actually installed" \
-  || { echo "FAIL: harvest log package list - got: $(cat "$hlog2" 2>/dev/null)"; _fail=1; }
-# The dnf5 pointer is only honest when the transaction was actually identified. A log naming an id
-# the entry does not have would send somebody to `dnf5 history info` for a transaction Kempt never
-# matched.
-txid2="$(jq -r '.transaction_id // ""' "$hb2")"
-if [[ -n "$txid2" ]]; then
-  grep -q "dnf5 history info $txid2" "$hlog2" \
-    && echo "ok: ...and points at dnf5's own record of the same transaction" \
-    || { echo "FAIL: harvest log omits the dnf5 pointer for id $txid2"; _fail=1; }
-else
-  grep -q 'dnf5 history info' "$hlog2" \
-    && { echo "FAIL: harvest log names a transaction id the entry never matched"; _fail=1; } \
-    || echo "ok: ...and names no dnf5 transaction when it could not identify one"
-fi
-
-# A log that CANNOT be written must take its own claim back out of the entry: an entry naming a
-# missing file is a Show Log button that opens nothing, which is worse than the hidden button this
-# whole block exists to fix. The harvest must still record the transaction, and must never die -
-# it runs at the top of every check, and a death here stops the box checking for good.
-: > "$WORLD/notifications"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-transaction_armed
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-# The restart has to have DONE something, or the harvest is right to conclude the stage is gone and
-# clear the marker without writing anything: a new boot session plus a package set that moved is the
-# same evidence the passing case above uses. cowsay arrives across the restart.
-printf 'bash\t5.2.37-1.fc44\ncowsay\t3.04-1.fc44\nkernel-core\t6.15.3-200.fc44\nzsh\t5.9-11.fc44\n' > "$WORLD/rpm.tsv"
-simulate_reboot
-push_history_back
-# AFTER push_history_back, never before: it RENAMES entries, so a list taken ahead of it makes every
-# surviving entry look new and the set difference means nothing.
-ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-ro-before.txt"
-# A redirect into an EXISTING file succeeds even when its DIRECTORY is not writable, and the staging
-# run above just wrote logs/<ts>.log. Land the harvest in that same second - which the build root
-# does and this box mostly does not - and the harvest truncates that file instead of failing, so this
-# block passed or failed on timing. Clearing the directory first makes the permission the only thing
-# being tested. Found by the RPM build's own %check, which is slower and hit the collision.
-rm -f "$KEMPT_STATE_DIR"/logs/*.log
-chmod 500 "$KEMPT_STATE_DIR/logs"
-rc_ro=0; "$KEMPT" check >/dev/null 2>&1 || rc_ro=$?
-chmod 700 "$KEMPT_STATE_DIR/logs"
-assert_eq "$rc_ro" "0" "a harvest whose log cannot be written is not a failed check"
-ls -1 "$KEMPT_STATE_DIR"/history/*.json | sort > "$TESTTMP/hist-ro-after.txt"
-hb3="$(comm -13 "$TESTTMP/hist-ro-before.txt" "$TESTTMP/hist-ro-after.txt" | awk 'NR==1')"
-[[ -n "$hb3" ]] && echo "ok: the harvest recorded the transaction even with no writable log dir" \
-  || { echo "FAIL: no new history entry from the read-only-log harvest"; _fail=1; }
-assert_eq "$(jq -r .surface "$hb3")" "offline (applied on reboot)" \
-  "...the transaction is still recorded"
-assert_eq "$(jq -r .log "$hb3")" "" \
-  "...and the entry claims no log file it could not write"
-
-# ...but a box with no readable /proc/sys/kernel/random/boot_id records "unknown", and an unknown
-# session must NOT gate the harvest forever - it falls back to the old snapshot comparison.
-# Both sides read "unknown" here, which is exactly the case a bare equality test would swallow.
-export KEMPT_BOOT_ID=unknown
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-cp "$TESTTMP/rb-staged.tsv" "$WORLD/rpm.tsv"
-: > "$WORLD/notifications"
-transaction_armed   # staging needs a box that can arm one
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1
-assert_eq "$(jq -r .boot_id "$marker")" "unknown" "a box without a readable boot id stages an unknown session"
-cp "$TESTTMP/rb-reboot.tsv" "$WORLD/rpm.tsv"
-transaction_gone    # the reboot ran it, so dnf5's transaction is gone - the other half of "applied"
-push_history_back   # `ls | tail -1` below must find the harvest, not the staging entry
-"$KEMPT" check >/dev/null 2>&1
-[[ ! -f "$marker" ]] && echo "ok: an unknown boot session falls back to the snapshot comparison" \
-  || { echo "FAIL: an unknown boot session gated the harvest forever"; _fail=1; }
-hu="$KEMPT_STATE_DIR/history/$(ls -1 "$KEMPT_STATE_DIR/history" | tail -1)"
-assert_eq "$(jq -r .surface "$hu")" "offline (applied on reboot)" "...and still reports the staged transaction"
-unset KEMPT_BOOT_ID
 
 # --- a clock that steps backwards during a run ---------------------------------------------------
 # NTP correcting a fast clock, or a suspend and resume across a time change, can put the end of a
@@ -2622,7 +1897,6 @@ fi
 exec "$REAL_DATE" "\$@"
 STUB
 chmod +x "$TESTTMP/backwards-clock/date"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 cp "$TESTTMP/apply-stub.orig" "$TESTTMP/apply-stub"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 PATH="$TESTTMP/backwards-clock:$PATH" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>&1 || true

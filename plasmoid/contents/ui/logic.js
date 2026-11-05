@@ -603,11 +603,10 @@ function riskyHasKernel(names) {
 
 // stagedMessageOf(offline_staged) -> what the next restart will install, in one sentence.
 //
-// The CLI publishes this key only after reconciling its own marker against dnf5's transaction
-// status, and only for a transaction genuinely ARMED (lib/common.sh, offline_staged_state), so the
-// judgement is not re-derived here: the key's presence IS the answer. The count is optional and no
-// reader may invent it - a marker written before the count existed carries null, and the sentence
-// loses the number rather than gaining a wrong one. The type check matters because this is JSON
+// The CLI publishes this key only for a transaction genuinely ARMED, read from dnf5's own files
+// (lib/common.sh, offline_staged_state), so the judgement is not re-derived here: the key's presence
+// IS the answer. The count is optional and no reader may invent it - with dnf5's list unreadable the
+// sentence loses the number rather than gaining a wrong one. The type check matters because this is JSON
 // from another program: a string here would reach `.count` as undefined and render the popup's
 // most reassuring sentence about a transaction that does not exist.
 function stagedMessageOf(staged) {
@@ -865,8 +864,8 @@ function stagedOthersOf(staged, fpPending) {
 //
 // The judgement is NOT re-derived here. `holds_conflict` is the CLI's own answer, computed at
 // check time from dnf5's stored transaction read live, and `names_source` says what an EMPTY list
-// means: "transaction"/"marker" mean it was read and there is nothing in it, "none" means it could
-// not be read at all. Two states, two sentences.
+// means: "transaction" means it was read and there is nothing in it, "none" means it could not be
+// read at all. Two states, two sentences.
 //
 // heldDnf is the one fact this file supplies itself: whether the box holds any dnf package at all.
 // It gates the generic warning only - with nothing held there is nothing to be vague ABOUT. dnf
@@ -1514,6 +1513,7 @@ function mentionsDoctor(text) {
     var shape = text.replace(/\d+/g, "%1");
     var naming = [
         i18n("A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it."),
+        i18n("Kempt cannot tell what the next restart will do. Check Installation shows why."),
         i18n("Nothing was discarded. Press Check Installation to find out why."),
         i18n("These updates could not be discarded (exit %1). Press Check Installation to find out why.", "%1")
     ];
@@ -1598,11 +1598,11 @@ function reclaimSaid(rc, stdout, stderr) {
     return { ok: true, text: ((tail !== "" ? tail : i18n("Nothing to remove. Every installed Flatpak runtime is in use.")) + " " + msg).trim() };
 }
 
-// lastRunText(run, nowMs) -> the persistent Last update row's title. "no package changes" is the
+// lastRunText(run, nowMs, restartHeld, armed) -> the persistent Last update row's title. "no package changes" is the
 // CLI's own wording, emitted verbatim by KEMPT_JQ_COUNTS in lib/common.sh, and this line quotes the
 // terminal (lowercase because it sits mid sentence after the dot). Do NOT reword it here alone -
 // the tests tie all three spellings together.
-function lastRunText(run, nowMs, restartHeld) {
+function lastRunText(run, nowMs, restartHeld, armed) {
     if (!run) return "";
     // An entry we cannot DATE gets no row. relativeTime answers "never" for a missing stamp, so
     // the sentence would describe a run in the same breath as denying there was one; an unreadable
@@ -1626,7 +1626,11 @@ function lastRunText(run, nowMs, restartHeld) {
         if (restartHeld === true) {
             return i18n("Last update %1 · another updater has prepared the next restart", relativeTime(run.when, nowMs));
         }
-        return i18n("Last update %1 · ready for the next restart", relativeTime(run.when, nowMs));
+        // The promise is the machine's to make, not the run's: after a lost link, an unstage or a
+        // restart that installed nothing this run is still the newest, and nothing is coming.
+        if (armed === true) {
+            return i18n("Last update %1 · ready for the next restart", relativeTime(run.when, nowMs));
+        }
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var when = relativeTime(run.when, nowMs);
@@ -1942,7 +1946,10 @@ function viewModel(state, updating, cliError, opts) {
     // Why Kempt cannot go ahead on this box, one cause at a time, worst first: a box it cannot
     // update at all, then a pause every button would end in, then the one route an upgrade closes.
     // An armed upgrade is said alongside the pause, because the next restart installs it either way.
+    // A stored update Kempt cannot read. It sits with what stops Kempt, for the button that says why.
+    var stageProblem = (usable && !releaseUpgrade && !imageBased) ? state.offline_stage_problem : "";
     var blockedMessage = imageBased ? i18n("This computer installs updates through Discover, not Kempt.")
+        : stageProblem === "unknown" ? i18n("Kempt cannot tell what the next restart will do. Check Installation shows why.")
         : foldersPausedMessage !== "" && relState === "armed" ? i18n("A Fedora %1 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it.", relTo)
         : foldersPausedMessage !== "" ? foldersPausedMessage
         : !releaseUpgrade ? ""
@@ -1971,6 +1978,12 @@ function viewModel(state, updating, cliError, opts) {
     var stageBlocked = usable && !releaseUpgrade && !staged && !imageBased
         && !!state.offline_stage_blocked && typeof state.offline_stage_blocked === "object"
         && !isArray(state.offline_stage_blocked);
+    // A stage no restart will install now, said in the staged slot. It offers nothing of its own:
+    // staging again is already on offer, and that is what the sentence says to use.
+    var stageLostMessage = staged || stageBlocked ? ""
+        : stageProblem === "lost" ? i18n("No restart will install your prepared updates now. Use Install on Next Restart to prepare them again.")
+        : stageProblem === "interrupted" ? i18n("A restart began installing your prepared updates and was interrupted, so they will not install on the next restart. Use Install on Next Restart to prepare them again.")
+        : "";
     // The flip, in one boolean. Everything downstream reads THIS rather than re-testing the
     // variant, so "which banner is this" is decided in exactly one place.
     var stagedWarning = stagedVariant.type === "warning";
@@ -2002,7 +2015,7 @@ function viewModel(state, updating, cliError, opts) {
     var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
     // Nothing of Kempt's staged behind that restart: the banner stands by itself. Not beside what
     // the release-upgrade and image-based messages already say about the same restart.
-    var restartHeldBanner = restartHeld && !staged && !stageBlocked && !releaseUpgrade && !imageBased;
+    var restartHeldBanner = restartHeld && !staged && !stageBlocked && !releaseUpgrade && !imageBased && stageLostMessage === "";
     // Update Now while it is held: its own question when system updates would run, none for
     // Flatpak alone, which touches nothing that updater prepared. None while updates are paused too:
     // nothing it warns about can happen, since the helper refuses the run.
@@ -2236,7 +2249,7 @@ function viewModel(state, updating, cliError, opts) {
         // ...including `updating`, because a run hides the whole stack. Without it the popup's own
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
-        staged: staged || stageBlocked || restartHeldBanner,
+        staged: staged || stageBlocked || restartHeldBanner || stageLostMessage !== "",
         // Above everything except a report of something that just happened: every message under it
         // presumes a box Kempt can update. On an image-based box the status line says nothing of the
         // set either (riskyIsMoot above): with no button on offer, the set has nowhere to go.
@@ -2359,7 +2372,8 @@ function viewModel(state, updating, cliError, opts) {
         updateAsksHeld: updateAsksHeld,
         heldLiveSurface: restartHeld ? "popup" : "",
         stagedMessage: stageBlocked ? i18n("Another updater has prepared your next restart, so these updates will not install then. Try again after that restart.")
-            : restartHeldBanner ? i18n("Another updater has prepared your next restart, so restart when you are ready.") : stagedMessage,
+            : restartHeldBanner ? i18n("Another updater has prepared your next restart, so restart when you are ready.")
+            : stageLostMessage !== "" ? stageLostMessage : stagedMessage,
         // A Check for Updates whose fetch did not land, when the report's slot is free for it.
         reportFetchMessage: reportRun ? "" : fetchMissedMessage,
         // Why that message may offer Check Anyway: "battery", "metered", or "" for no button.
@@ -2378,7 +2392,7 @@ function viewModel(state, updating, cliError, opts) {
         // "positive" for the ordinary armed stage, "warning" once a hold has landed behind it. A
         // string rather than a boolean because the QML binds it to a Kirigami.MessageType, and a
         // third spelling is a plausible next state for this banner rather than an exotic one.
-        stagedType: (stageBlocked || restartHeldBanner) ? "warning" : stagedVariant.type,
+        stagedType: (stageBlocked || restartHeldBanner || stageLostMessage !== "") ? "warning" : stagedVariant.type,
         // The blocked stage above: in the staged slot, with no action of its own.
         // Never two Restart… buttons in one popup: the restart Warning already carries one
         // whenever it is on screen.

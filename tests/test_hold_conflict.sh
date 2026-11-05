@@ -56,7 +56,7 @@ assert_eq "$(printf 'kernel-core\nsystemd\nglibc\n' | hold_staged_warning)" \
   "The staged update still contains kernel-core, systemd and glibc and installs them on the next restart." \
   "the plural warning, verbatim"
 assert_eq "$KEMPT_STAGED_RECIPE" \
-  "When ready: kempt update --surface=offline (rebuilds it with your holds) or sudo dnf5 offline clean (removes it)." \
+  "When ready: kempt update --surface=offline (rebuilds it with your holds) or kempt unstage (removes it)." \
   "the recipe offers both remedies - rebuild it, or remove it"
 assert_eq "$(hold_generic_warning kernel-core)" \
   "The staged update was built before this hold and may still install kernel-core on the next restart. Rebuilding applies all current holds." \
@@ -66,9 +66,6 @@ assert_eq "$(unhold_staged_warning kernel-core)" \
   "the unhold mirror, verbatim"
 
 # --- a real armed stage to hold against ----------------------------------------------------------
-# The marker is written by a real `kempt update --surface=offline`, not by hand: the fields the
-# warning reads are the fields that command writes, and a hand-built marker would pass for a shape
-# the CLI never produces.
 export WORLD="$TESTTMP/world"; mkdir -p "$WORLD"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 cat > "$TESTTMP/apply-stub" <<STUB
@@ -91,7 +88,6 @@ export KEMPT_DNF_INSTALLED_CMD="cat $WORLD/rpm.tsv"
 export KEMPT_DNF_CMD="$TESTTMP/dnf-reboot-no"
 export KEMPT_SKIP_REFRESH=1
 "$KEMPT" config set include_flatpak false >/dev/null
-marker="$KEMPT_STATE_DIR/offline_staged.json"
 st="$KEMPT_STATE_DIR/state.json"
 printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
 events_tail() { tail -1 "$KEMPT_STATE_DIR/events.log" 2>/dev/null | cut -d' ' -f3-; }
@@ -112,8 +108,7 @@ hold_stderr() {  # args... → the warning on stdout, and records any non-zero e
 }
 
 "$KEMPT" update --surface=offline --no-flatpak >/dev/null
-assert_exit 0 "the stage armed and left a marker" -- test -f "$marker"
-assert_eq "$(jq -r '.staged_names_source' "$marker")" "transaction" \
+assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "transaction" \
   "...whose names came from dnf5's own transaction"
 
 # THE TRAP, closed. librepo is in the recorded transaction; holding it now cannot take it out.
@@ -145,38 +140,16 @@ assert_eq "$(hold_stderr hold flatpak:org.gimp.GIMP)" "" "a flatpak hold over an
 "$KEMPT" unhold flatpak:org.gimp.GIMP >/dev/null
 
 # --- when the list cannot be trusted --------------------------------------------------------------
-# The live record unreadable and the marker's own list transaction-derived: the marker decides, in
-# BOTH directions. It is still evidence from a transaction, so it may still deny.
+# dnf5's list unreadable: it cannot deny anything, which leaves the generic warning as the only
+# honest answer, for every name.
 tx_broken() { KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$@"; }
-mwarn="$(tx_broken "$KEMPT" hold dnf:openldap 2>&1 >/dev/null || true)"
-assert_eq "$mwarn" "$(printf '%s\n%s\n' \
-  "The staged update still contains openldap and installs it on the next restart." \
-  "$KEMPT_STAGED_RECIPE")" \
-  "an unreadable transaction record falls back to the marker's own list, which still names it"
-assert_eq "$(tx_broken "$KEMPT" hold dnf:tar 2>&1 >/dev/null || true)" "" \
-  "...and that same list is still allowed to keep Kempt quiet about a package it does not contain"
-
-# A marker whose names only ever came from a CHECK. A check cannot see the packages the resolver
-# added, so its list may confirm a conflict and may never deny one - which leaves the generic
-# warning as the only honest answer, for every name.
-jq '.staged_names_source = "check"' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
 assert_eq "$(tx_broken "$KEMPT" hold dnf:tar 2>&1 >/dev/null || true)" \
   "The staged update was built before this hold and may still install tar on the next restart. Rebuilding applies all current holds."$'\n'"$KEMPT_STAGED_RECIPE" \
-  "a check-derived list cannot deny anything, so the generic warning fires, recipe and all"
+  "an unreadable list cannot deny anything, so the generic warning fires, recipe and all"
 assert_eq "$(events_tail)" "hold dnf:tar" \
   "...and an unconfirmed conflict is not recorded as one"
-
-# A marker written before any of this existed. It knows no names; the same generic warning is what
-# is left, and it is the reason the warning exists in that form at all.
-jq 'del(.staged_names, .staged_names_source, .staged_excluded)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
-assert_eq "$(tx_broken "$KEMPT" hold dnf:curl 2>&1 >/dev/null || true)" \
-  "The staged update was built before this hold and may still install curl on the next restart. Rebuilding applies all current holds."$'\n'"$KEMPT_STAGED_RECIPE" \
-  "a legacy marker with no names warns generically rather than staying quiet, and still names the way out"
-# ...and with the live record readable again, that same legacy marker needs no fallback at all: the
-# transaction is right there, and it is the primary source precisely so a legacy marker costs
-# nothing.
 assert_eq "$(hold_stderr hold dnf:curl)" "" \
-  "a legacy marker over a readable transaction is answered by the transaction"
+  "...and with the list readable again, the transaction answers"
 
 # --- when there is nothing to conflict with -------------------------------------------------------
 # Staged but never armed. It installs on no restart, so there is no promise for a hold to
@@ -184,25 +157,19 @@ assert_eq "$(hold_stderr hold dnf:curl)" "" \
 assert_eq "$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-download-complete.toml" \
              "$KEMPT" hold dnf:librepo 2>&1 >/dev/null || true)" "" \
   "a stage that was never armed raises no warning: no restart applies it"
-# No marker: either nothing was staged, or somebody else staged it. Not Kempt's promise to break.
-mv "$marker" "$TESTTMP/marker.saved"
-assert_eq "$(hold_stderr hold dnf:librepo)" "" "no marker, no promise, no warning"
-mv "$TESTTMP/marker.saved" "$marker"
+# Nothing stored: nothing to contradict.
+assert_eq "$(KEMPT_OFFLINE_TOML="$TESTTMP/no-such.toml" hold_stderr hold dnf:librepo)" "" "nothing stored, no warning"
 
 # --- unhold, the mirror case ----------------------------------------------------------------------
 # Lower stakes and the same shape: the package was held, the stage was built without it, and
-# releasing the hold does not put it back. Gated on staged_excluded because the transaction itself
-# can never say WHY a package is absent from it - "held at stage time" and "had no update" look
-# identical from the inside.
-: > "$WORLD/apply-calls"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-# Every hold the cases above left behind, cleared in one go: the assertions below are about which
-# names the STAGE excluded, and a hold surviving from an earlier probe would put a second name in
-# that list for reasons nothing here is testing.
+# releasing the hold does not put it back. dnf5 records the command that built the stage, and that
+# command carries the holds as --exclude=, because the transaction itself can never say WHY a package
+# is absent from it.
+sed 's/^cmd_line = .*/cmd_line = "dnf5 upgrade --offline -y --exclude=curl"/' "$KEMPT_OFFLINE_TOML" > "$TESTTMP/built-without.toml"
+plain_toml="$KEMPT_OFFLINE_TOML"
+export KEMPT_OFFLINE_TOML="$TESTTMP/built-without.toml"
 : > "$KEMPT_CONFIG_DIR/holds"
 "$KEMPT" hold dnf:curl >/dev/null 2>&1
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null
-assert_eq "$(jq -c '.staged_excluded' "$marker")" '["curl"]' "the stage recorded what it left out"
 assert_eq "$(hold_stderr unhold dnf:curl)" \
   "The staged update was built without curl, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
   "releasing a hold the stage was built around says the stage will not install it"
@@ -210,29 +177,17 @@ assert_eq "$(events_tail)" "unhold dnf:curl (staged update was built without it)
   "...and the event log says which stage it means"
 assert_eq "$(holds_for dnf | wc -l)" "0" "...and the hold really is gone"
 
-# ...and NOT when the transaction the marker describes is gone. dnf5 keeps ONE stored transaction,
-# and Kempt only ever stages at the releasever the box is already on - so a stored Fedora release
-# upgrade is proof the stage this marker names has been replaced. Without this, `kempt check` had
-# already stopped publishing the stage while `kempt unhold` still asserted one, and pointed at a
-# rebuild that pre-flight refuses while an upgrade is stored.
-: > "$KEMPT_CONFIG_DIR/holds"
-"$KEMPT" hold dnf:curl >/dev/null 2>&1
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null
-relup_out="$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" hold_stderr unhold dnf:curl)"
-assert_eq "$relup_out" "" \
+# ...and NOT when the transaction it describes is gone. dnf5 keeps ONE stored transaction, and Kempt
+# only ever stages at the releasever the box is already on - so a stored Fedora release upgrade is
+# proof the stage has been replaced.
+assert_eq "$(KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" hold_stderr unhold dnf:curl)" "" \
   "no claim about a staged update once a release upgrade has replaced it"
-# ...nor over a stage a live dnf5 transaction outside Kempt left stranded: `ready`, with the
-# /system-update symlink gone, installs on no restart, so it cannot have missed anything either.
-: > "$KEMPT_CONFIG_DIR/holds"
-"$KEMPT" hold dnf:curl >/dev/null 2>&1
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null
-stranded_out="$(KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" hold_stderr unhold dnf:curl)"
-assert_eq "$stranded_out" "" "no claim about a staged update whose /system-update is gone"
-# The same command without the upgrade still warns, so the silence above is the guard and not a
-# broken fixture.
-: > "$KEMPT_CONFIG_DIR/holds"
-"$KEMPT" hold dnf:curl >/dev/null 2>&1
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null
+# ...nor over a stage whose /system-update is gone: it installs on no restart, so it cannot have
+# missed anything either.
+assert_eq "$(KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" hold_stderr unhold dnf:curl)" "" \
+  "no claim about a staged update whose /system-update is gone"
+# The same command without either still warns, so the silence above is the guard and not a broken
+# fixture.
 assert_eq "$(hold_stderr unhold dnf:curl)" \
   "The staged update was built without curl, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
   "...while an ordinary stored transaction still gets the warning"
@@ -243,37 +198,17 @@ assert_eq "$(hold_stderr unhold dnf:never-held)" "" "unholding a package the sta
 assert_eq "$(hold_stderr unhold dnf:librepo)" "" \
   "...including one that IS in the transaction: it is in there, so nothing was missed"
 
-# The legacy fallback, for a marker with no staged_excluded at all: warn only when the package is
-# pending RIGHT NOW, because a package with no update to miss cannot have been missed.
-"$KEMPT" check >/dev/null
-jq 'del(.staged_excluded)' "$marker" > "$marker.tmp" && mv "$marker.tmp" "$marker"
-assert_eq "$(jq -r '[.backends.dnf.items[].name] | index("bash") != null' "$st")" "true" \
-  "bash really is pending, which is what the fallback keys on"
-assert_eq "$(hold_stderr unhold dnf:bash)" \
-  "The staged update was built without bash, so the next restart will not install it. Rebuild when ready: kempt update --surface=offline." \
-  "a legacy marker falls back to what is pending now"
-assert_eq "$(hold_stderr unhold dnf:not-a-package)" "" \
-  "...and a package that is not pending at all is still silent"
-
-# --- after the harvest ----------------------------------------------------------------------------
-# The whole feature is scoped to the marker's lifetime, and this is what that means in practice:
-# stage, hold (warned), restart, harvest - and now the same hold is an ordinary hold that applies to
-# the next transaction Kempt builds. Nothing to warn about, because there is nothing staged.
-# Pinned explicitly rather than left implied by the no-marker case above: it is the sequence a real
-# user walks through, and a regression here would put a permanent warning on a package forever.
-: > "$WORLD/apply-calls"
-rm -f "$marker" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
-"$KEMPT" update --surface=offline --no-flatpak >/dev/null
+export KEMPT_OFFLINE_TOML="$plain_toml"
+# --- after the restart ----------------------------------------------------------------------------
+# Stage, hold (warned), restart - and now the same hold is an ordinary hold that applies to the next
+# transaction Kempt builds.
+: > "$KEMPT_CONFIG_DIR/holds"
 assert_eq "$(hold_stderr hold dnf:openldap)" "$(printf '%s\n%s\n' \
   "The staged update still contains openldap and installs it on the next restart." \
   "$KEMPT_STAGED_RECIPE")" \
   "before the restart, the hold conflicts with the armed stage"
-# What the harvest does to the marker, done here directly: the transaction ran, the marker was
-# turned into a history entry and removed. Nothing else about the box changed - the hold is still
-# recorded, the transaction record is still readable, dnf5 still reports `ready`.
-rm -f "$marker"
-assert_eq "$(hold_stderr hold dnf:openldap)" "" \
-  "after the harvest the same hold is silent: it applies to the next transaction, and says nothing about a past one"
+assert_eq "$(KEMPT_OFFLINE_TOML="$TESTTMP/no-such.toml" hold_stderr hold dnf:openldap)" "" \
+  "after the restart the same hold is silent: it applies to the next transaction, and says nothing about a past one"
 
 # The invariant every case above depends on: recording a hold WARNS, and never fails. Checked once
 # here rather than inside hold_stderr, which cannot fail the run from inside a command substitution.

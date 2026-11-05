@@ -9,6 +9,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- **Kempt reads what will happen on a restart from the machine, and keeps no record of its own.** The toml, `/system-update`, `dnf5 history` and rpm answer everything, without root. This ends the reports that came from Kempt's record disagreeing with dnf5. When PackageKit cancels prepared updates, which Discover's notifier can do at any refresh, you are told once, and preparing them again downloads nothing. Deleting the state folder costs at most one repeat notification, and an armed stage stays on screen. A stored update in a format this build does not know reads as "cannot tell", never as ready.
 - **A `wheel` user at the computer now updates with no password, and nobody can update over SSH.** Anyone else at the computer is asked for an administrator's password. This is one fixed rule in the package, with no setting. To be asked, take your account out of `wheel`.
 - **The two programs that run as root went from 1,078 lines to 170.** dnf5 still runs as a service that the system starts, so nothing about your terminal, memory score or scheduling reaches it and a stuck or dead reader cannot stop it, but a watchdog no longer follows it. The service records how dnf5 ended and the helper reads that record, so a package step that restarts the message bus cannot give a false result. Output is live, the exit status is the real one, and it keeps going when the terminal closes or you log out. [security.md](docs/security.md) says what it resets.
 - **`kempt update` at a terminal with `auto_accept=false` shows what dnf5 would do, then asks.** dnf5 no longer has the terminal, so Kempt asks the question itself: `Go ahead with this? [y/N]:`. Nothing starts before you answer. The list of updates prints a second time when you say yes.
@@ -26,7 +27,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Check Installation under an upgrade message says how to finish or remove the upgrade**, in the words of its report, instead of only finding no problems. The message now reads "A Fedora 45 upgrade installs on the next restart, so other updates cannot wait for that restart." or "A Fedora 45 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how."
 - **Update Now no longer asks about a risky update while updates are paused**, because no answer could start a run.
 - **`kempt config set surface terminal` says what it stored**, one line, because that value now means the widget.
-- **A cancelled or replaced update is announced at a check that can show the notification.** Someone with no desktop session at the check that found it hears at the next one, instead of never.
+- **A cancelled update is announced at a check that can show the notification.** Someone with no desktop session at the check that found it hears at the next one, instead of never.
 - **The warning about a hold behind prepared updates is shorter:** "You held firefox after these updates were prepared, so it still installs. Discard them and install again to skip it." The download cost of discarding is in the button's tooltip.
 - **One message when services fail, and a Startup Report you can read from the keyboard.** The main view says "Bluetooth failed to start after the update." or "3 services failed to start after the update, including Bluetooth and plasma-foo.service." with one **Startup Report** button. The report lists each failed service with **Copy Command** and **Mute Until It Starts**, over the text of `kempt startup --all`.
 - **Failures and notifications about updates waiting for the next restart say downloaded, prepared or ready**, not staged, and the widget draws them without "See: kempt doctor" beside its **Check Installation** button. `kempt summary` and other terminal text keep the word for now.
@@ -60,7 +61,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **`kempt run --dry-run`.** It was an older name. Use `kempt run --print-command`.
 - **`kempt holds --exclude-args`.** To honour holds in a `sudo dnf5 upgrade` of your own, add `--exclude=<package>` for each one that `kempt holds` lists.
 - **The `KEMPT_DNF_SYSTEM_CACHE` and `KEMPT_FLATPAK_USER_SKIP` settings.** Point `KEMPT_DNF_CACHE_DIR` at the cache instead. Skipping the apps for you only is decided inside a run.
-- **`version` in the stage marker.** Nothing read it.
+- **Kempt's record of a stage**, its package snapshots and `stage.lock`. A check removes what 0.2.0 left. Reports that needed them go too: "N of your staged updates", a stage replaced outside Kempt, updates another updater installed reported as yours, and a restart's "did not run" history row. Old `harvest` and `offline marker` lines in `kempt log` stay as written until they age out.
 - **Flatpak end-of-life notes after a run.** `kempt summary` and the history no longer name the app behind flatpak's notice. flatpak's own line stays in the run log, and `kempt reclaim` still marks an unused runtime as no longer supported.
 - **Security notifications and `notify_security`.** Kempt no longer sends a notification or animates the panel icon for security updates, and the setting is gone. The **Security** word on a package and the count stay, for everyone. Open the widget or run `kempt status` to see them.
 - **`reclaim=automatic`.** Kempt no longer removes unused Flatpak runtimes after an update. A saved `automatic` reads as `ask`. Press **Free Up Space** in the widget, shown when at least 1 GB can be freed, or run `kempt reclaim`.
@@ -88,10 +89,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A failed update still reads as failed after the widget is reopened.** The Last update row now
   starts "Last update failed", with the reason under it.
 - **The footer no longer cuts off "restart pending".** It takes a second line when it needs one.
-- **A stored offline state that cannot be read no longer loses a staged update.** Kempt used to treat
-  it as gone, which could drop its note of an armed stage or claim that a restart had installed
-  updates. It now does nothing until the state can be read. `kempt doctor` says it cannot tell what the stored
-  update will do and how to clear it, and `kempt unstage` works when root can read the state.
+- **A stored offline state that cannot be read is said plainly.** Kempt used to treat it as gone, which
+  could claim that a restart had installed updates. The widget, `kempt status` and `kempt doctor` now
+  say Kempt cannot tell what the next restart will do, and `kempt unstage` works when root can read it.
 - **A restart that installed none of a staged update is now a failed run.** It gets a history entry,
   and `kempt status` stops saying the update is staged.
 - **Discover's automatic updates get a plainer warning, higher up.** It sits right after the staged
@@ -110,16 +110,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Update Now asks first when it could cost the other updater its update.** It runs live, even when
   Kempt is set to install on the next restart, and with system updates waiting it first says that the
   update the other updater prepared may no longer install. Flatpak apps alone do not ask.
-- **A staged update that partly installed outside Kempt is reported as that.** It used to say the
-  staged update could no longer install, with no history. It now says how many were installed, and the
-  history has the versions on the box. If Kempt cannot tell what happened, it says nothing false and
-  shows the normal list. `kempt doctor` names `kempt unstage` for what dnf5 keeps afterwards. Only a
-  version newer than before the stage counts, and a stage already reported lost is not reported again.
-  The number said is never more than Kempt said it staged, because new dependencies no longer count.
-- **A restart that stops part way says so.** When a package's script fails during the restart, Kempt
-  used to say the staged update could no longer install, with no history, and `kempt doctor` said it
-  was never set to install. It now says how many of the staged updates went in, records a failed run
-  with the versions on the box, and points to the normal list. If none did, it says it did not finish.
+- **A restart that stops part way says so.** Kempt reads dnf5's history and rpm: a failed run with the
+  versions that arrived when some did, "a package's script failed" when all did, and no count it cannot
+  prove. A power cut reads as a restart that stopped, and how to prepare the updates again.
 - **`kempt update` refuses unsafe folders before asking for a password.** It already knew, and it
   exited 1 after the prompt. It now exits 5 and changes nothing, Flatpak included. With no system
   updates waiting, a live run still updates Flatpak. A folder that turns unsafe during a run still

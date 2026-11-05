@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # dnf5's stored offline state has three answers: armed, not armed, and cannot tell. A stored state
-# that cannot be read is the third, and over it Kempt acts on nothing and notifies nobody: the note
-# of a stage stays and no history entry claims anything was installed. Only `kempt doctor` speaks.
+# that cannot be read is the third, and over it Kempt acts on nothing: no history entry claims
+# anything was installed, status and the widget say it cannot tell, and `kempt doctor` says why.
 source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"
 
@@ -28,12 +28,10 @@ LINK="$TESTTMP/system-update"; export KEMPT_OFFLINE_LINK="$LINK"
 export KEMPT_OFFLINE_DATADIR="$TESTTMP/offline"; mkdir -p "$KEMPT_OFFLINE_DATADIR"
 TOML="$KEMPT_OFFLINE_DATADIR/offline-transaction-state.toml"; export KEMPT_OFFLINE_TOML="$TOML"
 TX="$KEMPT_OFFLINE_DATADIR/transaction.json"; export KEMPT_OFFLINE_TXJSON="$TX"
-marker="$KEMPT_STATE_DIR/offline_staged.json"; pre="$KEMPT_STATE_DIR/snapshots/offline-pre-test.tsv"
 AFTER="$WORLD/after.tsv"; mkdir -p "$KEMPT_STATE_DIR/snapshots"
 STATE_FILE="$KEMPT_STATE_DIR/state.json"
-NAMES='["7zip","aardvark-dns","librepo"]'
 
-# A stage that was armed: dnf5's status, its boot link, and Kempt's note of what it staged.
+# A stage that was armed: dnf5's status and its boot link.
 armed_world() {
   chmod 755 "$KEMPT_OFFLINE_DATADIR"; chmod 644 "$TOML" 2>/dev/null || true; rm -f "$TOML" "$TX" "$LINK"
   cp "$FIXTURES/offline-ready.toml" "$TOML"
@@ -44,11 +42,7 @@ armed_world() {
  {"nevra":"7zip-26.03-1.fc44.x86_64","action":"Upgrade","reason":"User","repo_id":"updates"}]}
 JSON
   ln -s "$KEMPT_OFFLINE_DATADIR" "$LINK"
-  { cat "$FIXTURES/rpm-installed.tsv"; printf 'librepo\t1.20.0-1.fc44\n'; } | LC_ALL=C sort -u > "$pre"
-  jq -n --arg snap "$pre" --argjson names "$NAMES" \
-    '{version:1, staged_at:"2026-11-02T10:00:00+02:00", pre_snapshot:$snap, boot_id:"boot-before",
-      staged:($names|length), armed:true, staged_names:$names, staged_names_source:"transaction"}' > "$marker"
-  cp "$pre" "$AFTER"
+  { cat "$FIXTURES/rpm-installed.tsv"; printf 'librepo\t1.20.0-1.fc44\n'; } | LC_ALL=C sort -u > "$AFTER"
   : > "$WORLD/notifications"; rm -rf "$KEMPT_STATE_DIR/history"
 }
 moved() {  # "name<TAB>version"...
@@ -67,20 +61,19 @@ check_on() {  # boot id
 history_count() { find "$KEMPT_STATE_DIR/history" -name '*.json' 2>/dev/null | wc -l; }
 state_is_silent() {  # label
   assert_eq "$(cat "$WORLD/notifications")" "" "$1: nothing is said"
-  assert_exit 0 "...and the note of the stage stays" -- test -f "$marker"
-  assert_eq "$(jq -r .armed "$marker")" "true" "...unchanged"
   assert_eq "$(history_count)" "0" "...with no history entry"
   assert_eq "$(jq -c '.offline_staged // "none"' "$STATE_FILE")" '"none"' "...and no stage is promised either"
+  assert_eq "$(jq -r '.offline_stage_problem // "none"' "$STATE_FILE")" "unknown" "...and the state says nobody can tell"
 }
 
 # --- control: the same world with a readable state still behaves ---------------------------------
 armed_world
 check_on boot-before
-assert_exit 0 "premise: with a readable stored state the stage stays" -- test -f "$marker"
-assert_eq "$(jq -r '.offline_staged.count' "$STATE_FILE")" "3" "premise: ...and is published"
+assert_eq "$(jq -r '.offline_staged.count' "$STATE_FILE")" "3" "premise: with a readable stored state the stage is published"
+assert_eq "$(jq -r '.offline_stage_problem // "none"' "$STATE_FILE")" "none" "premise: ...and no problem is"
 armed_world; rm -f "$TOML" "$TX"; rm -f "$LINK"
 check_on boot-before
-assert_exit 1 "premise: a stored state really gone clears the note" -- test -f "$marker"
+assert_eq "$(jq -r '.offline_stage_problem // "none"' "$STATE_FILE")" "none" "premise: a stored state really gone is no problem either"
 
 # --- same boot ---------------------------------------------------------------------------------
 if [[ $EUID -ne 0 ]]; then
@@ -126,17 +119,7 @@ state_is_silent "a later boot, every staged package moved, the stored state empt
 # ...and when it can be read again, the ordinary answer comes back, nothing lost on the way.
 sed "s/^status = .*/status = \"ready\"/" "$FIXTURES/offline-ready.toml" > "$TOML"; rm -f "$LINK"
 check_on boot-after
-assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your prepared updates are installed." "readable again: the install is reported then"
-assert_exit 1 "...and only now the note goes" -- test -f "$marker"
-
-# --- a note of a partly installed stage is not retired by a read that failed --------------------------
-armed_world
-note="$KEMPT_STATE_DIR/offline-partial"
-printf 'an older read\n' > "$note"
-: > "$TOML"
-check_on boot-before
-assert_exit 0 "the partly-installed note outlives a read that failed" -- test -f "$note"
-rm -f "$note"
+assert_eq "$(jq -r '.offline_stage_problem // "none"' "$STATE_FILE")" "none" "readable again: installed, so nothing is wrong"
 
 # --- discard is the root helper's call, because root may read what this user cannot ------------------
 unstage_with() {  # the helper's script
@@ -148,17 +131,16 @@ unstage_with 'echo "kempt-apply: refusing dnf-offline-clean: the stored offline 
 assert_eq "$rc" "5" "the helper refuses: discard over an unreadable state refuses"
 assert_contains "$out" "Nothing was discarded, because the stored offline transaction could not be read" "...and says why"
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-offline-clean" "...which the helper decided"
-assert_exit 0 "...and the note stays" -- test -f "$marker"
+assert_contains "$out" "kempt doctor" "...and points at the doctor"
+assert_contains "$("$KEMPT" doctor 2>&1)" "sudo dnf5 offline clean" "...which is not silent about it, and names the fix"
 
 unstage_with 'exit 0'
 assert_eq "$rc" "1" "the helper reports success over a state still there: not called discarded"
 assert_contains "$out" "cannot be read" "...and says what it can tell"
 assert_not_contains "$out" 'status "unknown"' "...without quoting Kempt's word as dnf5's"
-assert_exit 0 "...and the note stays" -- test -f "$marker"
 
 unstage_with "rm -f \"$TOML\" \"$TX\" \"$LINK\"; exit 0"
 assert_eq "$rc" "0" "a state root can read is discarded by root"
-assert_exit 1 "...and the note goes" -- test -f "$marker"
 mk apply-stub "echo \"APPLY \$*\" >> \"$WORLD/calls\"; exit 0"
 
 # --- doctor says it cannot tell, and makes no other claim -------------------------------------------
@@ -170,10 +152,6 @@ assert_not_contains "$drep" "boot symlink is live" "...not a live symlink over a
 assert_not_contains "$drep" "status unknown" "...and the word is never quoted as dnf5's"
 assert_contains "$drep" "Kempt cannot tell what the stored update will do" "...and it says it cannot tell"
 assert_contains "$drep" "Clear it with: sudo dnf5 offline clean" "...and how to clear it"
-
-rm -f "$marker"
-drep="$(KEMPT_BOOT_ID=boot-before KEMPT_RPM_QA_CMD="cat $WORLD/qa" "$KEMPT" doctor 2>&1 || true)"
-assert_not_contains "$drep" "staged outside Kempt" "...and with no note of a stage, still no claim that someone else staged one"
 
 assert_eq "$(cat "$WORLD/path-calls")" "" "nothing here reached a real dnf, pkexec or systemctl"
 finish

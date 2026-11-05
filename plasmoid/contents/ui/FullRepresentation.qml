@@ -1563,7 +1563,7 @@ PlasmaExtras.Representation {
                     value: lastRunItem.expandName
                 }
                 icon: "documentinfo"
-                title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs, popup.vm.restartHeld)
+                title: Logic.lastRunText(popup.plasmoidItem.lastRun, popup.plasmoidItem.nowMs, popup.vm.restartHeld, popup.vm.stagedArmed)
                 // Only a failure earns a second line here, and it is logic.js's own sentence about
                 // that run rather than a new one written in QML. NOT the entry's
                 // reboot_needed: that is a fact about the moment the run ended, and the state
