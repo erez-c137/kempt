@@ -1421,6 +1421,8 @@ friendly_error() {  # raw text → the same text, or one of the KEMPT_AUTH_* sen
       printf '%s\n' "$KEMPT_AUTH_REFUSED" ;;
     *"kempt-refresh-"*"already loaded"*)
       printf 'another check is still running\n' ;;
+    *"kempt-apply-"*"already loaded"*)
+      printf 'the update started earlier is still running, so nothing new was started\n' ;;
     *) printf '%s\n' "$1" ;;
   esac
 }

@@ -744,6 +744,21 @@ KEMPT_BUSY_TRY_AGAIN="Try again in a few minutes."
 KEMPT_BUSY_ALSO_FAILED="Another part of the update failed too, and the log says what."
 KEMPT_BUSY_REASON_DNF="another program is using the package system (PackageKit, Discover or dnf-automatic) and was still busy after three tries. Nothing was installed. $KEMPT_BUSY_TRY_AGAIN"
 KEMPT_BUSY_REASON_FLATPAK="another program is using Flatpak (Discover, PackageKit or another flatpak command) and was still busy after three tries. The Flatpak update did not finish. $KEMPT_BUSY_TRY_AGAIN"
+# dnf5 runs as a service with no terminal, so it cannot ask. With auto_accept off at a terminal it runs
+# once without -y first: it prints what it would do, finds nobody to answer and stops with its own
+# "Operation aborted", having changed nothing. Then the person answers here, and only a yes runs it
+# with -y. Any other result of that first run is the answer: 0 is nothing to do, the rest a failure.
+apply_asking() {  # verb [--exclude=NAME]... ; yflag belongs to cmd_update, which every caller runs inside
+  local verb="$1" out rc=0 ans=""; shift
+  if [[ ${#yflag[@]} -eq 0 ]]; then
+    { out="$(priv_apply "$verb" "$@" 2>&1 | tee /dev/fd/3)" || rc=$?; } 3>&1
+    [[ $rc -eq 0 ]] && return 0
+    [[ $rc -eq 1 && "$out" == *"Operation aborted"* ]] || return "$rc"
+    read -r -p "Go ahead with this? [y/N]: " ans || ans=""
+    if [[ "$ans" != [yY]* ]]; then echo "Answered no, so nothing was changed."; return 1; fi
+  fi
+  priv_apply "$verb" -y "$@"
+}
 apply_with_retry() {  # log_file runner args... ; retries on foreign package-lock errors
   local log="$1" runner="$2"; shift 2
   local attempt rc before_sz lock_re="$KEMPT_DNF_LOCK_RE" busy="$KEMPT_BUSY_REASON_DNF"
@@ -759,11 +774,15 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
       # At a terminal: the person SEES live output, and any prompt when auto_accept=false.
       # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt for a caller that invokes
       # apply_with_retry bare, where `; rc=` would abort the run instead of retrying.
-      "$runner" "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
+      # -i: Ctrl-C reaches tee too, and what the helper says about it has to get through.
+      "$runner" "$@" 2>&1 | tee -i -a "$log" || rc=${PIPESTATUS[0]}
     else
       "$runner" "$@" >>"$log" 2>&1 || rc=$?
     fi
     [[ $rc -eq 0 ]] && return 0
+    # Ctrl-C. dnf5 runs on as a service whatever this terminal does, so there is no result to report
+    # yet, and calling the run failed would be untrue. The helper has said so; dnf5's history has the rest.
+    if [[ $rc -eq 130 ]]; then log_event "stopped watching"; exit 130; fi
     if tail -c +$(( before_sz + 1 )) "$log" | grep -qiE "$lock_re"; then
       # 3 attempts = 2 retries. The last failure must not promise a retry that never comes.
       if [[ $attempt -lt 3 ]]; then
@@ -1596,7 +1615,7 @@ cmd_update() {
     local pre_stage_fp stage_log_sz=0
     pre_stage_fp="$(offline_stored_fingerprint)"
     [[ -f "$log" ]] && stage_log_sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
-    apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
+    apply_with_retry "$log" apply_asking dnf-offline-stage "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
       reason_override="$(refusal_words "$log" "nothing was prepared" "$(apply_refusal_reason) and preparing updates would replace it")"
@@ -1761,11 +1780,11 @@ cmd_update() {
     # unnoticed.
     local live_before="" live_cmd live_att
     live_before="$(dnf_history_max_id)" || live_before=""
-    local -a live_argv=(/usr/bin/dnf5 upgrade "${yflag[@]}" "${excl[@]}")
+    local -a live_argv=(/usr/bin/dnf5 upgrade -y "${excl[@]}")
     live_cmd="${live_argv[*]}"
     local live_rc=0 live_status live_was_status="$status" live_was_failed="$run_failed_otherwise"
     [[ "$dnf_apply_skipped" == true ]] \
-      || apply_with_retry "$log" priv_apply dnf-upgrade "${yflag[@]}" "${excl[@]}" || live_rc=$?
+      || apply_with_retry "$log" apply_asking dnf-upgrade "${excl[@]}" || live_rc=$?
     if [[ $live_rc -eq 0 ]]; then
       dnf_status="ok"
     else

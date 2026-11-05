@@ -149,7 +149,10 @@ kempt update --surface=offline    # stage it; installs on the next restart
 | `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
 | `--answered` | Says a person already chose, so `auto_accept=false` with no terminal does not refuse. `kempt run` passes it. |
 
-Typed at a terminal, a run shows live output. With `auto_accept=false`, dnf5 also asks you there.
+Typed at a terminal, a run shows live output. With `auto_accept=false`, it first shows what dnf5 would do
+and asks `Go ahead with this? [y/N]:`, and nothing starts until you answer. Saying no ends the run as
+failed, with nothing changed. Ctrl-C during the update stops the terminal watching, and the update
+carries on to the end: `dnf5 history list` shows how it ended.
 With `auto_accept=false` and no terminal, such as a script, it refuses with exit 5 and changes
 nothing. A press in the widget is the answer, and `kempt run` says so with `--answered`.
 
@@ -650,6 +653,7 @@ Its wording is fixed, so you can search it:
 | `run start surface=<surface>` | A run is about to change the system. |
 | `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |
+| `stopped watching` | You pressed Ctrl-C during an update. The update carries on, and `dnf5 history list` shows how it ended. |
 | `run failed rc=<n>: <reason>` | A run failed. The reason is the first log line that names the failure. |
 | `dnf outcome read from history (transaction <id> <status>, helper rc=<n>)` | The root helper and dnf5's history disagreed about the run's transaction. The history's status decides. |
 | `offline staged <n>` | An update was staged for the next restart. |
