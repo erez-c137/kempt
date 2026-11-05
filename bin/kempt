@@ -2404,6 +2404,8 @@ stage_report_restart() {
         | [.id, (.status | strings), (if (.end_time // 0) > 0 then .end_time else (.start_time // 0) end)] | @tsv' \
         <<<"$listing" 2>/dev/null)"; then
     answered=true
+    # With nothing remembered, several recent rows would be one notification each for old news.
+    [[ "$had_memory" == true ]] || rows="$(tail -n 1 <<<"$rows")"
     while IFS=$'\t' read -r id st when; do
       [[ "$id" =~ ^[0-9]+$ && "$st" =~ ^[A-Za-z]{1,20}$ ]] || continue
       # Remembered first: a report lost to a full disk is better than one repeated on every check.

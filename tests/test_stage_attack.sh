@@ -247,6 +247,11 @@ world transaction-incomplete none; rpm_is "$OLD"; row 33 Error 'dnf5 upgrade --o
 rm -rf "$KEMPT_STATE_DIR"; : > "$WORLD/notifications"; check; check
 assert_eq "$(wc -l < "$WORLD/notifications")" 1 "folder deleted after a failed restart: told once again, and no more"
 
+world gone none; rpm_is "$NEW"; row 32 Ok 'dnf5 upgrade --offline -y'; row 33 Ok 'dnf5 upgrade --offline -y'; check
+rm -rf "$KEMPT_STATE_DIR"; : > "$WORLD/notifications"; check; check
+assert_eq "$(wc -l < "$WORLD/notifications")" 1 "folder deleted with two recent restarts: told once, about the newest"
+assert_eq "$(jq -r .transaction_id "$(newest_entry)")" 33 "...which is the one in the entry"
+
 # --- the report's own record
 world gone none; rpm_is "$NEW"; row 34 Ok 'dnf5 upgrade --offline -y'; check
 _log="$(jq -r .log "$(newest_entry)")"
