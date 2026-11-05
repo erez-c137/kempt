@@ -965,9 +965,9 @@ def staged_from(source, name, count):
 
         Derived rather than added to tests/fixtures/ for the same reason as uptodate_from: it is
         the shipped capture plus exactly one key, so it cannot drift away from the real document.
-        `offline_staged` is what the CLI publishes only after reconciling its own marker against
-        dnf5's transaction status (lib/common.sh, offline_staged_state) - its presence here is the
-        widget being told the reconciliation already happened.
+        `offline_staged` is what the CLI publishes only for a transaction it read as armed from
+        dnf5's own files (lib/common.sh, offline_staged_state), so its presence here is the widget
+        being told that reading already happened.
         """
     doc = json.load(open(fixture(source)))
     doc["offline_staged"] = {"staged_at": "2026-09-02T10:31:00+03:00",
@@ -1073,12 +1073,23 @@ stack("staged, on a box that already owed a restart", "restartMessage", "stagedM
 p.check("...and the staged message stands its button down rather than showing a second one",
         lev("stagedMessage.actions[0].visible"), False)
 
-# A marker from before the CLI recorded a count still describes a real pending install.
+# dnf5's list unreadable: no count, and still a real pending install.
 STAGED_NOCOUNT = staged_from("state-live.json", "state-staged-nocount.json", None)
 state(STAGED_NOCOUNT)
 # The fixture's pending Flatpak apps add their own sentence after it, so only the first is compared.
 p.check("an unknown count loses the number, not the sentence",
         lev("stagedMessage.Accessible.name.split('. ')[0]"), "They install the next time you restart")
+
+# Something cancelled the stage: the warning names the way back, in the real popup.
+for _word in ("lost", "interrupted"):
+    _doc = json.load(open(fixture("state-live.json")))
+    _doc["offline_stage_problem"] = _word
+    _path = os.path.join(p.sandbox, "state-stage-%s.json" % _word)
+    json.dump(_doc, open(_path, "w"))
+    state(_path)
+    p.check("%s: the warning is on screen" % _word, lev("stagedMessage.visible"), True)
+    p.check("%s: it says the restart will not install them" % _word,
+            lev("stagedMessage.Accessible.name.indexOf('will not install on the next restart') >= 0"), True)
 
 # --- the banner FLIPS when a hold lands behind the stage ------------------------
 # The trap, in the user's own order: stage 61 updates with a kernel among them, read something

@@ -125,7 +125,7 @@ section "S2 hold a staged package: the warning comes from the live transaction"
 err=$("$K" hold "dnf:$NAME" 2>&1 >/dev/null); rc=$?
 is "hold exits 0" "$rc" "0"
 has "warns that the staged update still contains it" "$err" "The staged update still contains $NAME"
-has "and offers both remedies" "$err" "sudo dnf5 offline clean"
+has "and offers both remedies" "$err" "kempt unstage (removes it)"
 err=$("$K" hold "dnf:zzz-not-pending-anywhere" 2>&1 >/dev/null)
 is "a name absent from the transaction is silent" "$err" ""
 "$K" unhold dnf:zzz-not-pending-anywhere >/dev/null 2>&1
