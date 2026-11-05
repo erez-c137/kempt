@@ -65,14 +65,15 @@ JSON
   : > "$WORLD/notifications"
 }
 rpm_is() { printf '%s\n' "$@" > "$WORLD/rpm-qa"; }
-# A row as dnf5 writes it: the list answers with command_line, the info with a package list of the plan.
+# A row as dnf5 writes it: the list answers newest first, with command_line, the info with a package
+# list of the plan. ROW_COOKIE says the row began from another rpmdb than the stored stage.
 row() {  # id status command-line [ended-seconds-ago]
   local at=$(( $(date +%s) - ${4:-60} )) end
   end="$at"; [[ "$2" != Started ]] || end=0
   jq --argjson id "$1" --arg st "$2" --arg cmd "$3" --argjson at "$at" --argjson end "$end" \
-    '. + [{id:$id, command_line:$cmd, start_time:$at, end_time:$end, user_id:0, status:$st, releasever:"44", altered_count:6}]' \
+    '[{id:$id, command_line:$cmd, start_time:$at, end_time:$end, user_id:0, status:$st, releasever:"44", altered_count:6}] + .' \
     "$WORLD/hist-list.json" > "$WORLD/hist-list.t" && mv "$WORLD/hist-list.t" "$WORLD/hist-list.json"
-  jq -n --argjson id "$1" --arg st "$2" --argjson at "$at" --argjson end "$end" --arg c "$COOKIE" \
+  jq -n --argjson id "$1" --arg st "$2" --argjson at "$at" --argjson end "$end" --arg c "${ROW_COOKIE:-$COOKIE}" \
     '[{id:$id, start_time:$at, end_time:$end, rpmdb_version_begin:$c, status:$st, description:"dnf5 upgrade --offline -y",
        packages:[
         {nevra:"librepo-0:1.21.0-1.fc44.x86_64",action:"Upgrade"},{nevra:"librepo-0:1.20.0-1.fc44.x86_64",action:"Replaced"},
@@ -290,6 +291,23 @@ for st in download-complete download-incomplete; do
 done
 world ready none; check
 assert_contains "$("$KEMPT" status 2>&1)" "something cancelled them" "a lost link is what something cancelled"
+
+# --- two restarts since the last check: told oldest first, and the newest is what is remembered
+world gone none; rpm_is "$NEW"; echo row=59 > "$SHOWN"; row 60 Ok 'dnf5 upgrade --offline -y'; row 61 Ok 'dnf5 upgrade --offline -y'; check
+assert_eq "$(entries)" 2 "two rows: two entries"
+assert_eq "$(grep '^row=' "$SHOWN")" "row=61" "two rows: the newest is remembered"
+: > "$WORLD/notifications"; check
+silent "two rows, the next check"; assert_eq "$(entries)" 2 "...and no third entry"
+
+# --- an old Started row and a stage made since: that restart is not this stage's
+world ready none; echo row=62 > "$SHOWN"; ROW_COOKIE=aaaa1111 row 62 Started 'dnf5 upgrade --offline -y'; check
+assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" lost "a Started row from another stage: lost, not interrupted"
+assert_not_contains "$(said)" "stopped before" "...and no restart is said to have stopped"
+# ...and only the newest row counts, whichever way the old one points.
+world ready none; echo row=64 > "$SHOWN"; row 63 Started 'dnf5 upgrade --offline -y'; row 64 Ok 'dnf5 upgrade --offline -y'; check
+assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" lost "an old Started row under a newer Ok: lost"
+world ready none; echo row=66 > "$SHOWN"; row 65 Ok 'dnf5 upgrade --offline -y'; row 66 Started 'dnf5 upgrade --offline -y'; check
+assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" interrupted "a Started row over an old Ok, from this stage: interrupted"
 
 # --- memory: a history that does not answer writes none, or its old rows are all new at the next check
 world gone none; row 40 Ok 'dnf5 upgrade --offline -y' 400000; row 41 Ok 'dnf5 upgrade --offline -y' 300000
