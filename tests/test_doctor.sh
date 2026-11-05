@@ -975,6 +975,10 @@ ns_doctor() {  # var dir setup [env...] → kempt doctor's output as root in a u
     mkdir -p "$1" && cd "$1" && eval "$2" || { echo "setup failed"; exit 9; }
     cd / && "$3" doctor 2>&1; rm -rf "$1" "$4"' _ "$dir" "$setup" "$KEMPT" "$TESTTMP/outside" || true
 }
+no_folder_fail() {  # doctor's output, title
+  assert_not_contains "$1" "FAIL  dnf folders" "$2"
+  assert_contains "$(tail -1 <<<"$1")" "kempt doctor:" "...and doctor ran to its end"
+}
 if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   # Some cases need a second user inside the namespace. That takes subordinate ids (newuidmap and
   # /etc/subuid), which a CI runner may lack even when the namespace itself works.
@@ -988,9 +992,9 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir -p r/repodata; : > r/repodata/repomd.xml; chmod 644 r/repodata/repomd.xml; ln -s repomd.xml r/repodata/link')"
   assert_not_contains "$out" "setup failed" "the namespace run set up its cache"
   assert_contains "$(tail -1 <<<"$out")" "kempt doctor:" "...and reached the end of kempt doctor"
-  assert_contains "$out" 'ok    dnf folders: ' "a root-owned cache with no world-writable file adds no row"
+  no_folder_fail "$out" "a root-owned cache with no world-writable file adds no row"
   out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chmod 664 f')"
-  assert_contains "$out" 'ok    dnf folders: ' "...nor one that is only group-writable, group root"
+  no_folder_fail "$out" "...nor one that is only group-writable, group root"
   if other_ids "group-writable with a group other than root counts"; then
     out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" ': > f; chown 0:1000 f; chmod 664 f')"
     assert_contains "$out" "FAIL  dnf folders: other users can change files in $NC (for example $NC/f)" \
@@ -1012,7 +1016,7 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   # A link planted in the cache is reported only for itself. Doctor never reads through it.
   if other_ids "links to another user's world-writable files outside are not followed"; then
     out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir -p "$4"; chmod 777 "$4"; : > "$4/open"; chmod 666 "$4/open"; chown -R 1000:1000 "$4"; mkdir r; ln -s "$4" r/packages; ln -s "$4/open" r/repodata')"
-    assert_contains "$out" 'ok    dnf folders: ' "links to another user's world-writable files outside are not followed"
+    no_folder_fail "$out" "links to another user's world-writable files outside are not followed"
   fi
   if other_ids "a link another user owns is reported as the link itself"; then
     out="$(ns_doctor KEMPT_DNF_CACHE_DIR "$NC" 'mkdir r; ln -s / r/packages; chown -h 1000:1000 r/packages')"
@@ -1029,7 +1033,7 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   assert_contains "$out" "Fix it with: $(state_lock "$NS") && sudo chown -R -h root:root $NS && sudo chmod -R go-w $NS" \
     "a world-writable state file gets the same fix"
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f')"
-  assert_contains "$out" 'ok    dnf folders: ' "a root-owned state directory adds no row"
+  no_folder_fail "$out" "a root-owned state directory adds no row"
   # dnf5 keeps no links in its state, so the fix deletes them after the chown and chmod.
   out="$(ns_doctor KEMPT_DNF_SYSIMAGE_DIR "$NS" ': > f; chmod 666 f')"
   assert_contains "$out" "sudo chmod -R go-w $NS && sudo find -P $NS -type l -print -delete && sudo dnf5 offline clean. The last step discards any update staged for the next restart, because its record may have been changed; stage it again afterwards. Then restart the computer." \
@@ -1065,7 +1069,7 @@ if timeout 20 unshare --map-auto --map-root-user true 2>/dev/null; then
   fi
   NO="$TESTTMP/ns-offline"
   out="$(ns_doctor KEMPT_DNF_OFFLINE_PKG_DIR "$NO" 'mkdir packages; : > packages/p.rpm')"
-  assert_contains "$out" 'ok    dnf folders: ' "a root-owned staged-update folder adds no row"
+  no_folder_fail "$out" "a root-owned staged-update folder adds no row"
   out="$(ns_doctor KEMPT_DNF_OFFLINE_PKG_DIR "$NO" 'mkdir -m 0777 packages; : > packages/p.rpm')"
   assert_contains "$out" "FAIL  dnf folders: other users can change files in $NO (for example $NO/packages)" \
     "a world-writable staged-update folder is a FAIL"

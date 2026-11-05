@@ -723,7 +723,8 @@ Kempt installs on the next restart.
 
 The **dnf folders** row fails when other users can change what is in dnf's state, staged updates or
 cache, and gives the fix. It also fails, and says why, when the check itself cannot run. It is the root
-helper's test, read as you, so `ok` covers only what your account can read.
+helper's test, read as you, and it says nothing when that test passes. Silence is no promise: the test
+covers only what your account can read, and it does not look at a writable parent, a write ACL or a link.
 
 | Line | What it means |
 | --- | --- |

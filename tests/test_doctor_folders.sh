@@ -59,7 +59,8 @@ same_answer() {  # pass|fail title setup
   assert_not_contains "$DOCTOR" "setup failed" "$2: the tree was built"
   if [[ "$1" == pass ]]; then
     assert_eq "$HELPER_RC" "7" "$2: the helper goes on"
-    assert_contains "$DOCTOR" "ok    dnf folders: " "...doctor passes"
+    assert_not_contains "$DOCTOR" "FAIL  dnf folders" "...doctor passes"
+    assert_contains "$DOCTOR" "kempt doctor:" "...having run to its end"
     assert_not_contains "$REFUSAL" "other users can change" "...and a run is not refused"
   else
     assert_eq "$HELPER_RC" "3" "$2: the helper refuses"
@@ -108,7 +109,6 @@ for _path in "$STATE" "$STAGED" "$CACHE"; do
   tree "export KEMPT_FIND=\"\$(fail_stub '$_path' 'Stale file handle')\""
   assert_contains "$DOCTOR" "FAIL  dnf folders: Kempt could not check $_path (Stale file handle). Root checks again" "a find that fails on $_path is a FAIL naming the error"
   assert_not_contains "$DOCTOR" "other users can change" "...and not the unsafe words"
-  assert_not_contains "$DOCTOR" "ok    dnf folders" "...and not a pass"
   assert_not_contains "$REFUSAL" "other users can change" "...and a run is left to the helper"
 done
 tree 'export KEMPT_FIND="$(fail_stub -ignore_readdir_race "")"'
@@ -118,7 +118,8 @@ assert_contains "$DOCTOR" "Kempt could not check $CACHE (" "the vanished words w
 tree 'export KEMPT_FIND="$R/no-such-find"'
 assert_contains "$DOCTOR" "Kempt could not check $CACHE (" "no find at all is a failure"
 tree "export KEMPT_FIND=\"\$(fail_stub '$CACHE' 'No such file or directory')\""
-assert_contains "$DOCTOR" "ok    dnf folders: " "a name that vanished while it ran is not a failure"
+assert_not_contains "$DOCTOR" "FAIL  dnf folders" "a name that vanished while it ran is not a failure"
+assert_contains "$DOCTOR" "kempt doctor:" "...and doctor ran to its end"
 
 # --- the mount namespace row ------------------------------------------------------------------------
 tree 'ln -s "mnt:[1]" ns1; export KEMPT_MNT_NS_INIT="$R/ns1"'
@@ -128,7 +129,7 @@ assert_contains "$DOCTOR" "what it checks is not what dnf5 uses" "...and says wh
 # --- doctor as an ordinary user: a folder only root can read is not a problem it can name ------------------
 # In a namespace with a second uid, on a tmpfs that uid can reach.
 if other_ids "doctor as an ordinary user"; then
-  as_user() {  # setup → OUT: doctor's row for the dnf folders
+  as_user() {  # setup → OUT: doctor's folder rows, if any, and its last line
     OUT="$(timeout 120 unshare --map-auto --map-root-user --mount env REPO="$REPO_ROOT" SETUP="$1" bash -c '
       # The checkout may itself sit under /mnt, which the tmpfs below hides: copy it out first.
       stage="$(mktemp -d)" && cp -r "$REPO"/bin "$REPO"/lib "$REPO"/backends "$REPO"/VERSION "$stage"/ 2>/dev/null
@@ -141,13 +142,15 @@ if other_ids "doctor as an ordinary user"; then
       export HOME=/mnt/h XDG_CONFIG_HOME=/mnt/h/c XDG_STATE_HOME=/mnt/h/s XDG_CACHE_HOME=/mnt/h/x KEMPT_CONFIG_DIR=/mnt/h/c KEMPT_STATE_DIR=/mnt/h/st
       cd / || exit 9
       eval "$SETUP"
-      setpriv --reuid=1000 --regid=1000 --clear-groups --bounding-set=-all --inh-caps=-all /mnt/repo/bin/kempt doctor 2>&1 | grep -E "dnf folders" || true
+      setpriv --reuid=1000 --regid=1000 --clear-groups --bounding-set=-all --inh-caps=-all /mnt/repo/bin/kempt doctor 2>&1 | grep -E "dnf folders|^kempt doctor:" || true
     ' 2>&1)" || true
   }
   as_user 'chmod 700 $R/var/cache/libdnf5/repo'
-  assert_contains "$OUT" "ok    dnf folders: other users cannot change what this account can read." "doctor passes what it can read over a folder only root can read"
+  assert_not_contains "$OUT" "FAIL  dnf folders" "doctor passes what it can read over a folder only root can read"
+  assert_contains "$OUT" "kempt doctor:" "...having run to its end"
   as_user 'chmod 000 $R/var/lib/dnf'
-  assert_contains "$OUT" "ok    dnf folders: " "...and over a folder above one it cannot enter"
+  assert_not_contains "$OUT" "FAIL  dnf folders" "...and over a folder above one it cannot enter"
+  assert_contains "$OUT" "kempt doctor:" "...having run to its end again"
   as_user 'chmod 700 $R/var/cache/libdnf5/repo; chmod 777 $R/usr/lib/sysimage/libdnf5'
   assert_contains "$OUT" "FAIL  dnf folders: other users can change files in /mnt/root/usr/lib/sysimage/libdnf5" "...and still finds what it can read"
 fi

@@ -3535,15 +3535,14 @@ doctor_dnf_staged_fix() {
   # not follow links (checked on dnf5 5.4.6), and rm -rf never does.
   printf '%s' "A changed package there installs as root at the next restart. Before you restart, discard the staged update and remove the folder: sudo dnf5 offline clean && sudo rm -rf --one-file-system $dir_q. Then stage the updates again."
 }
-# One row, from the find above. Reported, never repaired, because the fix needs root.
+# A row only on a failure, from the find above. Reported, never repaired, because the fix needs root.
+# Clean says nothing: this reading cannot vouch for a writable parent, a write ACL or a link.
 doctor_dnf_folders_row() {
-  local d fix clean=true
+  local d fix
   for d in "$KEMPT_DNF_CACHE_DIR" "$KEMPT_DNF_SYSIMAGE_DIR" "$KEMPT_DNF_OFFLINE_PKG_DIR"; do
     if ! doctor_scan_tree "$d"; then
-      clean=false
       doctor_fail "dnf folders: Kempt could not check $(doctor_plain_name "$d") ($DOCTOR_CHECK_ERROR). Root checks again before any update, and refuses if it cannot check either."
     elif [[ -n "$DOCTOR_TREE_HIT" ]]; then
-      clean=false
       case "$d" in
         "$KEMPT_DNF_CACHE_DIR") fix="$(doctor_dnf_cache_fix)" ;;
         "$KEMPT_DNF_SYSIMAGE_DIR") fix="$(doctor_dnf_state_fix)" ;;
@@ -3553,9 +3552,6 @@ doctor_dnf_folders_row() {
       doctor_fail "dnf folders: other users can change files in $(doctor_plain_name "$d") (for example $(doctor_plain_name "$DOCTOR_TREE_HIT")). Kempt 0.1.7 or earlier may have left them that way. $fix Until this is fixed, Kempt will not install or stage updates."
     fi
   done
-  if [[ "$clean" == true ]]; then
-    doctor_ok "dnf folders: other users cannot change what this account can read. Root checks all of it before any update."
-  fi
 }
 # PID 1 starts dnf5, so in a namespace of its own this process would read folders dnf5 does not use. A
 # user cannot read /proc/1/ns/mnt. PID 1's mount table is readable, and a different namespace shows a
