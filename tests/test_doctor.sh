@@ -544,11 +544,12 @@ tx_of a-1-1.noarch b-1-1.noarch
 KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-of.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
 assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: 2 packages install on the next restart' \
   "...and two is back to the plural"
-# dnf5's list unreadable still describes a real pending install.
+# dnf5's list unreadable is no promise about a restart.
 printf 'not a transaction\n' > "$TESTTMP/tx-garbage.json"
 KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: it installs on the next restart' \
-  "an unknown count loses the number, not the line"
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'WARN  staged update: Kempt cannot tell what the stored update will do' \
+  "an unreadable list: cannot tell, not installs"
+assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'on the next restart' "...and no promise about the restart"
 
 # THE STUCK STAGE FROM A REAL BOX, and the reason this section exists. `dnf5 upgrade --offline`
 # leaves the transaction at download-complete; only `dnf5 offline reboot` arms it. Unarmed, it
@@ -706,14 +707,6 @@ KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-of.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline
 assert_contains "$(cat "$TESTTMP/staged.txt")" 'staged update: it installs bash, curl, glibc, kernel-core, and 2 more on the next restart despite the holds.' \
   "past four names the rest are counted, not listed"
 
-# dnf5's list cannot be read and there is a dnf hold on the box. The generic form fires: it can be
-# wrong by warning about a package that is not in there, and must never be wrong by staying quiet
-# about one that is.
-KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" KEMPT_OFFLINE_TOML="$FIXTURES/offline-ready.toml" doctor_out
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'info  staged update: it may still install held packages on the next restart.' \
-  "a list that cannot deny anything gets the generic line, not silence"
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'kempt unstage' \
-  "...carrying both remedies as well"
 
 # Nothing held: no line at all. The row exists to answer a question nobody has asked otherwise.
 for n in librepo ca-certificates openldap bash curl glibc kernel-core mesa systemd; do

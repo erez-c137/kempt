@@ -2873,14 +2873,17 @@ stage_read() {  # → one word from the table above
     absent) printf 'none\n'; return 0 ;;
     unknown) printf 'unknown\n'; return 0 ;;
   esac
-  grep -q '^[[:space:]]*state_version[[:space:]]*=' "$KEMPT_OFFLINE_TOML" 2>/dev/null \
+  # Only the format this build was measured against. A new dnf5 format is what `unknown` is for.
+  [[ "$(sed -n 's/^[[:space:]]*state_version[[:space:]]*=[[:space:]]*\([^[:space:]#]*\).*/\1/p' "$KEMPT_OFFLINE_TOML" 2>/dev/null | head -1)" == 2 ]] \
     || { printf 'unknown\n'; return 0; }
   if offline_release_upgrade >/dev/null; then printf 'upgrade\n'; return 0; fi
   case "$st" in
     transaction-incomplete) printf 'failed\n' ;;
     download-complete|download-incomplete) printf 'lost\n' ;;
     ready)
-      local holder rc=0
+      local holder rc=0 names
+      # A package list this build cannot read, or an empty one, is no promise about a restart.
+      names="$(offline_txjson_names)" && [[ -n "$names" ]] || { printf 'unknown\n'; return 0; }
       holder="$(restart_holder)"
       if [[ "$holder" == kempt ]]; then printf 'armed\n'; return 0; fi
       offline_stage_satisfied || rc=$?

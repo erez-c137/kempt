@@ -791,7 +791,6 @@ stores nothing.
 | `FAIL  boot symlink is live over a transaction that is not set to install ...` | The next restart starts the offline updater and installs nothing. |
 | `FAIL  boot symlink is live with nothing prepared behind it ...` | The same, with nothing stored at all. |
 | `info  staged update: it installs kernel-core on the next restart despite the hold ...` | A hold added after staging. Rebuild with `kempt update --surface=offline`, or remove it with `kempt unstage`. |
-| `info  staged update: it may still install held packages on the next restart ...` | The same, when Kempt cannot read the staged update's contents and you hold a dnf package. |
 
 ### The install lines
 

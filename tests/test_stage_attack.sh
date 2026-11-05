@@ -122,6 +122,20 @@ assert_not_contains "$(jq -r '.offline_stage_problem // "none"' "$STATE_FILE")" 
 world ready dnf5; sed -i '/^state_version/d' "$TOML"; check
 assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" unknown "no state_version: cannot tell"
 assert_eq "$(jq -r '.offline_staged // "none"' "$STATE_FILE")" none "no state_version: not published as ready"
+# Only what this build was measured against can be armed. A new dnf5 format is what `unknown` is for.
+cannot_tell() {
+  check
+  assert_eq "$(jq -r .offline_stage_problem "$STATE_FILE")" unknown "$1: cannot tell"
+  assert_eq "$(jq -r '.offline_staged // "none"' "$STATE_FILE")" none "$1: not published as armed"
+  assert_not_contains "$("$KEMPT" status 2>&1)" "ready for the next restart" "$1: no promise on status"
+}
+world ready dnf5; sed -i 's/^state_version.*/state_version = 3/' "$TOML"; cannot_tell "another state_version"
+world ready dnf5; sed -i 's/^state_version.*/state_version = 22/' "$TOML"; cannot_tell "a state_version beginning with 2"
+world ready dnf5; rm -f "$TX"; cannot_tell "no transaction.json"
+world ready dnf5; : > "$TX"; cannot_tell "empty transaction.json"
+world ready dnf5; printf '{"version":"2.0","rpms":[{"nevra":"a-1-1.noarch","action":"Upgrade"}]}\n' > "$TX"; cannot_tell "another transaction.json version"
+world ready dnf5; printf '{"version":"1.0","rpms":[]}\n' > "$TX"; cannot_tell "zero rpms"
+world ready none; printf '{"version":"1.0","rpms":[]}\n' > "$TX"; cannot_tell "zero rpms and no link"
 
 # --- something else armed: it is what dnf5 holds that is described
 world ready dnf5; sed -i "s/^rpmdb_cookie = .*/rpmdb_cookie = \"$(printf 'a%.0s' {1..64})\"/" "$TOML"

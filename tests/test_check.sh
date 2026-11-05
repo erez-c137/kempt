@@ -1205,9 +1205,8 @@ assert_eq "$(jq -c '.backends.flatpak.items | map(select(.held)) | length' "$st"
 # The stored list unreadable: nobody can tell, so an empty conflict list means CANNOT TELL, and every
 # surface reading this must treat it that way.
 KEMPT_OFFLINE_TXJSON="$TESTTMP/tx-garbage.json" "$KEMPT" check >/dev/null
-assert_eq "$(jq -r '.offline_staged.names_source' "$st")" "none" "an unreadable stored list says nobody can tell"
-assert_eq "$(jq -c '.offline_staged.holds_conflict' "$st")" "[]" "...and claims no conflict either way"
-assert_eq "$(jq -r '.offline_staged.count' "$st")" "null" "...and no count"
+assert_eq "$(jq -r '.offline_stage_problem' "$st")" "unknown" "an unreadable stored list says nobody can tell"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and publishes no stage, so no conflict list and no count"
 
 # Not armed, so there is no staged transaction to conflict WITH: the whole key stays absent rather
 # than growing an empty conflict list nobody should read.

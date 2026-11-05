@@ -2505,13 +2505,13 @@ cmd_hold() {
         hold_staged_warning <<<"$n" >&2
         printf '%s\n' "$KEMPT_STAGED_RECIPE" >&2
         note=" (staged update still contains it)"
-      elif [[ "$(jq -r '.names_source' <<<"$staged" 2>/dev/null || echo none)" == none ]]; then
-        # dnf5's list cannot be read, so the generic warning is what is left: wrong only by warning
-        # about a package that is not in the transaction, never by staying quiet about one that is.
-        hold_generic_warning "$n" >&2
-        # The recipe follows the generic warning too - both remedies belong on every surface.
-        printf '%s\n' "$KEMPT_STAGED_RECIPE" >&2
       fi
+    elif [[ "$(stage_read)" == unknown ]]; then
+      # Kempt cannot read what is stored, so the generic warning is what is left: wrong only by warning
+      # about a package that is not in the transaction, never by staying quiet about one that is.
+      hold_generic_warning "$n" >&2
+      # The recipe follows the generic warning too - both remedies belong on every surface.
+      printf '%s\n' "$KEMPT_STAGED_RECIPE" >&2
     fi
   fi
   # The suffix is only ever appended to a CONFIRMED conflict: the generic warning is a caveat, not
@@ -3150,12 +3150,7 @@ doctor_staged_conflict_row() {
     else
       doctor_info "staged update: it installs $phrase on the next restart despite the holds. The holds were recorded after the transaction was staged, and dnf5 offers no way to edit a stored one. $KEMPT_STAGED_RECIPE"
     fi
-    return 0
   fi
-  # Nothing may be DENIED here: names_source `none` means dnf5's list cannot be read.
-  [[ "$(jq -r '.names_source' <<<"$staged" 2>/dev/null || echo none)" == none ]] || return 0
-  [[ -n "$(holds_for dnf)" ]] || return 0
-  doctor_info "staged update: it may still install held packages on the next restart. Kempt cannot read what this transaction contains, and a hold recorded after it was staged cannot change it. $KEMPT_STAGED_RECIPE"
 }
 
 # The `exec.path` annotation the installed policy pins for one action id - the only half of that
@@ -3932,14 +3927,12 @@ doctor_offline_rows() {
   dr_link="$(offline_link_state)"
   case "$dr_word" in
     armed)
-      if dr_names="$(offline_txjson_names)"; then dr_count="$(printf '%s' "$dr_names" | grep -c . || true)"; fi
-      # One package is its own sentence, verb included; zero is plural.
+      dr_count="$(offline_txjson_names | grep -c . || true)"
+      # One package is its own sentence, verb included.
       if [[ "$dr_count" == 1 ]]; then
         doctor_info "staged update: 1 package installs on the next restart. To remove it, run: kempt unstage. If that fails: sudo dnf5 offline clean"
-      elif [[ "$dr_count" =~ ^[0-9]+$ ]]; then
-        doctor_info "staged update: $dr_count packages install on the next restart. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean"
       else
-        doctor_info "staged update: it installs on the next restart. To remove it, run: kempt unstage. If that fails: sudo dnf5 offline clean"
+        doctor_info "staged update: $dr_count packages install on the next restart. To remove them, run: kempt unstage. If that fails: sudo dnf5 offline clean"
       fi
       doctor_staged_conflict_row ;;
     done) doctor_stale_done_row "$dr_link" ;;
