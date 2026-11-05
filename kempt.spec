@@ -42,7 +42,6 @@ BuildRequires:  appstream
 BuildRequires:  libappstream-glib
 # For the check stage only: the test suite's bash half needs these (the CLI needs them at
 # runtime too, so they are also Requires below - the build root does not inherit those).
-BuildRequires:  acl
 BuildRequires:  jq
 BuildRequires:  util-linux-core
 # The compile check of the Flatpak listing helper below, its tests in the suite, and the suite's
@@ -58,9 +57,6 @@ Requires:       polkit
 # The root helpers start dnf5 through systemd-run.
 Requires:       /usr/bin/systemd-run
 Requires:       util-linux-core
-# getfacl: kempt doctor and the check before a run look for ACL entries in dnf's folders, which give other
-# users access the mode bits do not show. setfacl is in the fix doctor prints.
-Requires:       acl
 # `dnf5 needs-restarting` is the WHOLE of the reboot answer, and it lives in dnf5-plugins, not in
 # dnf5: `dnf5 -q repoquery --whatprovides "dnf5-command(needs-restarting)"` returns dnf5-plugins,
 # and dnf5 itself only provides dnf5-command(offline). Without it reboot_needed is permanently

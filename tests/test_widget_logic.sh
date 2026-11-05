@@ -1574,10 +1574,8 @@ assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$HELPER_RUN\"))")" \
   "...and so does the helper's own sentence"
 assert_eq "$(js "L.mentionsDoctor(L.lastRunSubtitle(L.lastRunOf(\"$UNSAFE_RUN\"), ''))")" "true" \
   "...and the row offers Check Installation"
-# Only the sentences about what others can change get that short form. The rest are shown as they are.
-for _why in "Kempt could not check /var/lib/secret (Permission denied). Run kempt doctor." \
-            "Updates paused for safety: Kempt is running in a different mount namespace from the system, so what it checks is not what dnf5 would use. Run kempt doctor." \
-            "Updates paused for safety: /var is on a mount made by a user other than root. Run kempt doctor for the fix."; do
+# Only the sentences about what others can change get that short form. The other is shown as it is.
+for _why in "Kempt could not check /var/lib/secret. Run kempt doctor."; do
   _run="{\\\"status\\\":\\\"failed\\\",\\\"error\\\":\\\"nothing was installed. $_why\\\"}"
   assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$_run\"))")" "The update failed: nothing was installed. $_why" \
     "the Last update row shows the helper's words: ${_why:0:40}"

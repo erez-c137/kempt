@@ -56,8 +56,6 @@ KEMPT_SYSTEM_PLASMOID_DIR="${KEMPT_SYSTEM_PLASMOID_DIR:-/usr/share/plasma/plasmo
 # whose own ~/.local/bin/kempt points at a different checkout than the one under test.
 KEMPT_WIDGET_PATH="${KEMPT_WIDGET_PATH:-$HOME/.local/bin:$PATH}"
 KEMPT_NOTIFY="${KEMPT_NOTIFY:-notify-send}"
-# Test seam: doctor's ACL scan, and its row saying when that scan cannot run.
-KEMPT_GETFACL="${KEMPT_GETFACL:-getfacl}"
 
 CONFIG_FILE="$KEMPT_CONFIG_DIR/config"
 HOLDS_FILE="$KEMPT_CONFIG_DIR/holds"
@@ -149,12 +147,8 @@ KEMPT_DNF_SYSIMAGE_DIR="${KEMPT_DNF_SYSIMAGE_DIR:-/usr/lib/sysimage/libdnf5}"
 # Where dnf5 keeps a staged update's packages until the restart installs them, without checking
 # their signatures again. Read by `kempt doctor` for the same reason.
 KEMPT_DNF_OFFLINE_PKG_DIR="${KEMPT_DNF_OFFLINE_PKG_DIR:-/var/lib/dnf/offline}"
-# `kempt doctor` also checks every folder above those three, up to /. When set, the walk stops
-# below this folder instead. For tests, whose folders sit in one the test user owns.
-KEMPT_DNF_PARENTS_TOP="${KEMPT_DNF_PARENTS_TOP:-}"
-# What doctor reads to tell which mount each dnf folder sits on, whether this process shares PID 1's
-# mount namespace, and the find it checks folders with.
-KEMPT_MOUNTINFO="${KEMPT_MOUNTINFO:-/proc/self/mountinfo}"
+# What doctor reads to tell whether this process shares PID 1's mount namespace, and the find it
+# checks folders with.
 KEMPT_MNT_NS_INIT="${KEMPT_MNT_NS_INIT:-/proc/1/ns/mnt}"
 KEMPT_FIND="${KEMPT_FIND:-find}"
 # Every installed package as name-epoch:version-release.arch, epoch 0 written out. Read to tell
@@ -170,8 +164,6 @@ KEMPT_RPM_INSTALLONLY_CMD="${KEMPT_RPM_INSTALLONLY_CMD:-}"
 # installed, which is why it is this file and not the presence of a binary - the package resolves
 # on a package-based box and says nothing about how that box updates.
 KEMPT_OSTREE_MARKER="${KEMPT_OSTREE_MARKER:-/run/ostree-booted}"
-# Who made a FUSE mount, for doctor's sentence.
-KEMPT_GETENT_CMD="${KEMPT_GETENT_CMD:-getent passwd}"
 KEMPT_SYSTEMCTL_CMD="${KEMPT_SYSTEMCTL_CMD:-systemctl}"
 # What `kempt startup --all` reads, beside systemctl. Each is a read-only query as the user.
 KEMPT_JOURNALCTL_CMD="${KEMPT_JOURNALCTL_CMD:-journalctl}"
@@ -1069,9 +1061,8 @@ priv_apply()   { ${KEMPT_PKEXEC:+$KEMPT_PKEXEC} "$KEMPT_APPLY_HELPER" "$@" 9>&-;
 # kempt-apply exits 3 when it refuses a verb: a stage, arm or clean because of what dnf5 has stored
 # (a Fedora release upgrade, or a transaction-state file it cannot read), a clean while /system-update
 # is there and is not dnf5's link, and every verb but clean while other users can change dnf5's
-# folders. apply_unsafe_dir in bin/kempt names the folder. The helper decides all of this as root, on
-# its own, so the CLI's pre-flight is not the only guard. Nothing ran and nothing changed when it
-# does. A caller that sees this status must not unwind with an offline verb (the helper refuses that
+# folders. The helper decides all of this as root, on its own, so the CLI's pre-flight is not the
+# only guard. Nothing ran and nothing changed when it does. A caller that sees this status must not unwind with an offline verb (the helper refuses that
 # too, for the same reason) and must not advise `dnf5 offline clean`, which would delete exactly what
 # the refusal protected.
 # shellcheck disable=SC2034 # read by cmd_update in bin/kempt, which sources this file

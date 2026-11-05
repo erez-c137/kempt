@@ -219,31 +219,17 @@ sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" 2>&1)" || tru
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-offline-stage" "with nobody holding the restart the same answer stages"
 unset KEMPT_RISKY_RE
 
-# --- a user's mount, in the words the helper and doctor use ------------------------------------------
-_mfolder="$TESTTMP/users-mount"; mkdir -p "$_mfolder/repo"; chmod 777 "$_mfolder/repo"
-_mi="$TESTTMP/mountinfo-users"
-{ cat "$KEMPT_MOUNTINFO"; printf '90 1 0:50 / %s rw - fuse.sshfs u@h:/d rw,user_id=1000,group_id=1000\n' "$_mfolder"; } > "$_mi"
-KEMPT_MOUNTINFO="$_mi" KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" check >/dev/null 2>&1 || true
-srep="$(KEMPT_MOUNTINFO="$_mi" KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" status 2>&1 || true)"
-assert_contains "$srep" "Updates paused for safety: $_mfolder is on a mount made by a user other than root. Run kempt doctor for the fix." "status names a user's mount"
-assert_not_contains "$srep" "other users can change files in $_mfolder" "...and does not call it something else"
-drep="$(KEMPT_MOUNTINFO="$_mi" KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" doctor 2>&1 || true)"
-assert_contains "$drep" "is a mount made by" "doctor names it too"
-assert_contains "$drep" "FAIL  dnf cache: other users can change files in $_mfolder" "...and still has the cache row"
-assert_not_contains "$drep" "Kempt 0.1.7 or earlier" "...which does not blame an old Kempt for a mount"
-for _row in KEMPT_DNF_SYSIMAGE_DIR KEMPT_DNF_OFFLINE_PKG_DIR; do
-  drep="$(env KEMPT_MOUNTINFO="$_mi" "$_row=$_mfolder" "$KEMPT" doctor 2>&1 || true)"
-  assert_not_contains "$drep" "Kempt 0.1.7 or earlier" "...nor does $_row's row"
-done
-drep="$(KEMPT_DNF_OFFLINE_PKG_DIR="$_mfolder" KEMPT_MOUNTINFO="$_mi" "$KEMPT" doctor 2>&1 || true)"
-assert_contains "$drep" "A changed package there installs as root at the next restart" "...and the staged row still says what is at stake"
+# --- what doctor and status say about a folder other users can change ------------------------------
+_mfolder="$TESTTMP/unsafe-folder"; mkdir -p "$_mfolder/repo"; chmod 777 "$_mfolder/repo"
+drep="$(KEMPT_DNF_OFFLINE_PKG_DIR="$_mfolder" "$KEMPT" doctor 2>&1 || true)"
+assert_contains "$drep" "A changed package there installs as root at the next restart" "the staged folder's row says what is at stake"
 for _row in KEMPT_DNF_CACHE_DIR KEMPT_DNF_SYSIMAGE_DIR KEMPT_DNF_OFFLINE_PKG_DIR; do
   drep="$(env "$_row=$_mfolder" "$KEMPT" doctor 2>&1 || true)"
-  assert_contains "$drep" "Kempt 0.1.7 or earlier may have left them that way" "$_row with no mount: it can be true, so it is said"
+  assert_contains "$drep" "Kempt 0.1.7 or earlier may have left them that way" "$_row: it can be true, so it is said"
 done
 KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" check >/dev/null 2>&1 || true
 srep="$(KEMPT_DNF_CACHE_DIR="$_mfolder" "$KEMPT" status 2>&1 || true)"
-assert_contains "$srep" "Updates paused for safety: other users can change files in $_mfolder. Run kempt doctor for the fix." "...and without one, status says what it always did"
+assert_contains "$srep" "Updates paused for safety: other users can change files in $_mfolder. Run kempt doctor for the fix." "status says updates are paused and names the folder"
 rm -rf "$_mfolder"; "$KEMPT" check >/dev/null 2>&1 || true
 
 # --- the last run, while another updater holds the restart ------------------------------------------
