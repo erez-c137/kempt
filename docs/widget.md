@@ -180,8 +180,7 @@ because there is no way to edit them and the restart would still install it:
 
 ```
  (!) You held kernel-core after these updates were prepared, so it still
-     installs. To skip kernel-core, discard these updates and use Install on
-     Next Restart again, or stop holding kernel-core to keep them.
+     installs. Discard them and install again to skip it.
                                                     [Discard Update]
 ```
 
@@ -189,8 +188,7 @@ With several held packages it names the first and counts the rest:
 
 ```
  (!) You held kernel-core and 2 more after these updates were prepared, so
-     they still install. To skip them, discard these updates and use Install
-     on Next Restart again, or stop holding them to keep these updates.
+     they still install. Discard them and install again to skip them.
 ```
 
 When Kempt cannot read what those updates contain and you hold system packages, the message says
@@ -198,8 +196,8 @@ When Kempt cannot read what those updates contain and you hold system packages, 
 
 ```
  (!) You added holds after these updates were prepared, so held packages may
-     still install. To apply your holds, discard these updates and use Install
-     on Next Restart again.                                     [Discard Update]
+     still install. Discard them and install again to apply your holds.
+                                                    [Discard Update]
 ```
 
 While the warning shows, neither it nor the restart message has **Restart…**, because a restart

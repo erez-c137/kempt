@@ -22,6 +22,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Update Now no longer asks about a risky update while updates are paused**, because no answer could start a run.
 - **`kempt config set surface terminal` says what it stored**, one line, because that value now means the widget.
 - **A cancelled or replaced update is announced at a check that can show the notification.** Someone with no desktop session at the check that found it hears at the next one, instead of never.
+- **The warning about a hold behind prepared updates is shorter:** "You held firefox after these updates were prepared, so it still installs. Discard them and install again to skip it." The download cost of discarding is in the button's tooltip.
 
 ### Removed
 

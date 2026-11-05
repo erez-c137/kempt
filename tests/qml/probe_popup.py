@@ -1117,10 +1117,10 @@ GENERIC = conflict_from("state-held-only.json", "state-staged-generic.json", [],
 _sev("clear()")
 state(CONFLICT1)
 stack("with a hold on a package the staged update contains", "stagedMessage")
-p.check("...the banner tells it in the person's own order of events, with both ways out",
+p.check("...the banner tells it in the person's own order of events",
         lev("stagedMessage.text"),
-        "You held kernel-core after these updates were prepared, so it still installs. To skip kernel-core,"
-        " discard these updates and use Install on Next Restart again, or stop holding kernel-core to keep them.")
+        "You held kernel-core after these updates were prepared, so it still installs."
+        " Discard them and install again to skip it.")
 p.check("...as a Warning, because the reassurance is no longer true",
         lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 # The flip has to arrive as WORDS. Kirigami gives every InlineMessage the AlertMessage role and
@@ -1209,17 +1209,16 @@ p.pump(80)
 state(CONFLICT3)
 p.check("three held packages read as the first one and a count, every word moved with it",
         lev("stagedMessage.text"),
-        "You held kernel-core and 2 more after these updates were prepared, so they still install. To skip"
-        " them, discard these updates and use Install on Next Restart again, or stop holding them to keep"
-        " these updates.")
+        "You held kernel-core and 2 more after these updates were prepared, so they still install."
+        " Discard them and install again to skip them.")
 p.check("...still a warning", lev("stagedMessage.type"), lev("Kirigami.MessageType.Warning"))
 
 state(GENERIC)
 stack("with a staged list that could not be read and dnf packages held", "stagedMessage")
 p.check("...the banner says may, because that is what is known",
         lev("stagedMessage.text"),
-        "You added holds after these updates were prepared, so held packages may still install. To apply"
-        " your holds, discard these updates and use Install on Next Restart again.")
+        "You added holds after these updates were prepared, so held packages may still install."
+        " Discard them and install again to apply your holds.")
 p.check("...as a warning all the same", lev("stagedMessage.type"),
         lev("Kirigami.MessageType.Warning"))
 p.check("...offering the same discard", lev("stagedMessage.actions[1].visible"), True)

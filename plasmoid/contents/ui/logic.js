@@ -314,20 +314,20 @@ var COPY = {
     // substitutes.
     // A NAME then a count of the rest, not familiesOf - collapsing kernel-core and kernel-modules
     // is right for "what is risky here" and wrong here, where the person is owed the number of
-    // packages their holds did not stop. In the USER'S order of events, with BOTH remedies: named
-    // after the mechanism it has no antecedent once the green banner is gone.
+    // packages their holds did not stop. In the USER'S order of events. Discarding's download cost
+    // is in the button's tooltip and accessible description.
     stagedConflictOne:
         "You held %1 after these updates were prepared, so it still installs. "
-        + "To skip %1, discard these updates and use Install on Next Restart again, or stop holding %1 to keep them.",
+        + "Discard them and install again to skip it.",
     stagedConflictMore:
         "You held %1 and %2 more after these updates were prepared, so they still install. "
-        + "To skip them, discard these updates and use Install on Next Restart again, or stop holding them to keep these updates.",
+        + "Discard them and install again to skip them.",
     // "may", because that is exactly what is known: names_source "none" means an empty conflict
     // list is "cannot tell", never "no conflict". The spec's rule is that names may CONFIRM a
     // conflict and may never DENY one, so silence here would be denying one on no evidence.
     stagedConflictUnknown:
         "You added holds after these updates were prepared, so held packages may still install. "
-        + "To apply your holds, discard these updates and use Install on Next Restart again.",
+        + "Discard them and install again to apply your holds.",
 
     // --- discarding the staged update from the popup instead of from a terminal ------------------
     // The other way out of a staged update, and the one a person who simply changed their mind

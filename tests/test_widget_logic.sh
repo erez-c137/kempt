@@ -2766,8 +2766,8 @@ assert_eq "$(sv "$ARMED" "$NOBK" 'stagedStagedAt')" "2026-09-02T10:31:00+03:00" 
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedType')" "warning" \
   "a hold on a package the staged update contains flips the banner to a warning"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core after these updates were prepared, so it still installs. To skip kernel-core, discard these updates and use Install on Next Restart again, or stop holding kernel-core to keep them." \
-  "...naming the package, what the next restart will do with it, and both remedies"
+  "You held kernel-core after these updates were prepared, so it still installs. Discard them and install again to skip it." \
+  "...naming the package, and what the next restart will do with it"
 assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
   "...and the Restart… button goes away: offering it here is offering the thing they feared"
 
@@ -2775,13 +2775,13 @@ assert_eq "$(sv "$CONF1" "$NOBK" 'stagedShowRestart')" "false" \
 # kernel-modules into one decision, which is right for "what is risky about this transaction" and
 # wrong here, where the person is owed the count of packages their holds did not stop.
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedMessage')" \
-  "You held kernel-core and 2 more after these updates were prepared, so they still install. To skip them, discard these updates and use Install on Next Restart again, or stop holding them to keep these updates." \
+  "You held kernel-core and 2 more after these updates were prepared, so they still install. Discard them and install again to skip them." \
   "three held packages read as the first one and a count, with every word moved to the plural"
 assert_eq "$(sv "$CONF3" "$NOBK" 'stagedType')" "warning" "...still a warning"
 # Two is the boundary the singular must not catch: one other package is "and 1 more", not a second
 # whole sentence, and it is still the plural everywhere else.
 assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","systemd"],names_source:"transaction"}' "$NOBK" 'stagedMessage')" \
-  "You held glibc and 1 more after these updates were prepared, so they still install. To skip them, discard these updates and use Install on Next Restart again, or stop holding them to keep these updates." \
+  "You held glibc and 1 more after these updates were prepared, so they still install. Discard them and install again to skip them." \
   "...and two is the plural with a 1 in it, not the singular"
 
 # names_source "none" means the staged package list could not be read AT ALL - an older stage, or a
@@ -2791,7 +2791,7 @@ assert_eq "$(sv '{staged_at:"x",count:2,armed:true,holds_conflict:["glibc","syst
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedType')" "warning" \
   "an unreadable staged list over a held dnf package warns rather than reassuring"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedMessage')" \
-  "You added holds after these updates were prepared, so held packages may still install. To apply your holds, discard these updates and use Install on Next Restart again." \
+  "You added holds after these updates were prepared, so held packages may still install. Discard them and install again to apply your holds." \
   "...saying may, because that is what is known"
 assert_eq "$(sv "$GENERIC" "$HELDDNF" 'stagedShowRestart')" "false" "...with no restart offered"
 
@@ -2967,13 +2967,13 @@ CONF1='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict
 CONF3='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:["dbus","glibc","systemd"],names_source:"transaction"}'
 CONFU='{staged_at:"2026-09-05T10:31:00+03:00",count:61,armed:true,holds_conflict:[],names_source:"none"}'
 assert_eq "$(js "L.stagedVariantOf($CONF1,true).message")" \
-  "You held dbus after these updates were prepared, so it still installs. To skip dbus, discard these updates and use Install on Next Restart again, or stop holding dbus to keep them." \
-  "one held package: the user's order of events, and both remedies"
+  "You held dbus after these updates were prepared, so it still installs. Discard them and install again to skip it." \
+  "one held package: the user's order of events"
 assert_eq "$(js "L.stagedVariantOf($CONF3,true).message")" \
-  "You held dbus and 2 more after these updates were prepared, so they still install. To skip them, discard these updates and use Install on Next Restart again, or stop holding them to keep these updates." \
+  "You held dbus and 2 more after these updates were prepared, so they still install. Discard them and install again to skip them." \
   "...three of them: the first named, the rest counted, and every word moving with the number"
 assert_eq "$(js "L.stagedVariantOf($CONFU,true).message")" \
-  "You added holds after these updates were prepared, so held packages may still install. To apply your holds, discard these updates and use Install on Next Restart again." \
+  "You added holds after these updates were prepared, so held packages may still install. Discard them and install again to apply your holds." \
   "...and a list that could not be read says may"
 # %1 appears three times in the singular template, so a replace() that stops at the first one would
 # ship a banner reading "Rebuild it to skip %1".
@@ -3258,17 +3258,16 @@ assert_eq "$(js 'L.COPY.stagedHeaderTail')" "updates ready for the next restart"
   "copy: ...the tail the counted spelling shares with it"
 assert_eq "$(js 'L.COPY.stagedHeaderUnknown')" "Updates ready for the next restart" \
   "copy: ...and the spelling for a marker that never carried a count"
-# In the USER's order of events, with both remedies. "Staged before your hold" named the mechanism
-# and left "Staged" with no antecedent once the green banner was gone, and the second way out -
-# stop holding the package and the plan stands - was offered nowhere at all.
+# In the USER's order of events. "Staged before your hold" named the mechanism and left "Staged"
+# with no antecedent once the green banner was gone.
 assert_eq "$(js 'L.COPY.stagedConflictOne')" \
-  "You held %1 after these updates were prepared, so it still installs. To skip %1, discard these updates and use Install on Next Restart again, or stop holding %1 to keep them." \
+  "You held %1 after these updates were prepared, so it still installs. Discard them and install again to skip it." \
   "copy: the staged banner when one held package is in the transaction anyway"
 assert_eq "$(js 'L.COPY.stagedConflictMore')" \
-  "You held %1 and %2 more after these updates were prepared, so they still install. To skip them, discard these updates and use Install on Next Restart again, or stop holding them to keep these updates." \
+  "You held %1 and %2 more after these updates were prepared, so they still install. Discard them and install again to skip them." \
   "copy: ...and when there are more of them, named first and counted after"
 assert_eq "$(js 'L.COPY.stagedConflictUnknown')" \
-  "You added holds after these updates were prepared, so held packages may still install. To apply your holds, discard these updates and use Install on Next Restart again." \
+  "You added holds after these updates were prepared, so held packages may still install. Discard them and install again to apply your holds." \
   "copy: ...and when the staged list could not be read, which is a may and not a does"
 # --- discarding the staged update, from the popup instead of from a terminal --------------------
 # The CLI's own verb, all the way through: `kempt unstage` prints "Discarded the staged update",
