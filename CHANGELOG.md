@@ -17,6 +17,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **The widget says "ready", not "staged", and "System" and "Apps", not dnf and flatpak.** The message reads "5 updates are ready and install on the next restart." with **Discard Update**, and the header says the same. What discarding costs is on the button's tooltip. `kempt status` shares the header and restart sentences. The command line keeps the rest of its wording.
 - **Shorter sentences:** "Restart to finish updating.", "Updated 12 packages in 34 s.", "No packages changed." and "The update failed: the reason." **Not Updating? Check Again** replaces the longer button.
 - **Show Log appears only after a run that failed**, on the report and on the Last update row.
+- **An armed Fedora release upgrade stays on screen beside a folder problem.** The message says the next restart installs the upgrade and that other updates are paused for the folder.
 
 ### Removed
 

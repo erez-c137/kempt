@@ -597,11 +597,11 @@ ruF="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"foreign\"}})"
 ruI="($RU)({release_upgrade:{from:\"44\",to:\"45\",state:\"incomplete\"}})"
 ruN="($RU)({release_upgrade:{from:\"44\",to:\"45\"}})"
 assert_eq "$(js "$ruA.blockedMessage")" \
-  "A Fedora 45 upgrade installs on the next restart, so Install on Next Restart is off until then." \
+  "A Fedora 45 upgrade installs on the next restart, so other updates cannot wait for that restart." \
   "an ARMED upgrade is the one that installs on the next restart"
 for _ru in "$ruD" "$ruS" "$ruF" "$ruI" "$ruN"; do
   assert_eq "$(js "$_ru.blockedMessage")" \
-    "A Fedora 45 upgrade is on this computer and waits for you to finish or remove it, so Install on Next Restart is off." \
+    "A Fedora 45 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how." \
     "...and every other state, or none, promises no restart"
 done
 # Single-quoted JS string literals: a bash-escaped \" inside the expression this helper builds
@@ -638,7 +638,7 @@ assert_eq "$(js "($RUSURF)(' OFFLINE ').updateOffered")" "false" \
   "a padded, upper-case offline is still offline to the widget, as every surface value here is"
 assert_eq "$(js "$ruD.offlineStageOffered")" "false" \
   "...while staging stays refused either way, because staging cancels a downloaded one too"
-assert_eq "$(js "$ru.blockedMessage.indexOf(\"Install on Next Restart is off\") >= 0")" "true" \
+assert_eq "$(js "$ru.blockedMessage.indexOf(\"cannot wait for\") >= 0")" "true" \
   "...and says why the button is missing rather than leaving it a mystery"
 assert_eq "$(js "$noru.blockedMessage")" "" "no upgrade stored, nothing said about one"
 # The kernel slot stays, and what it CARRIES changes. Its recommendation is "install this on the
@@ -711,7 +711,13 @@ assert_eq "$(js "($FP)().blockedMessage")" "" "...and an ordinary box says nothi
 # One cause at a time, worst first.
 BOTH='function (ib) { var s = S("risky-heavy"); s.image_based = ib; s.unsafe_folder = "/x"; s.release_upgrade = {from:"44",to:"45",state:"armed"}; return L.viewModel(s, false, "", {}); }'
 assert_eq "$(js "($BOTH)(true).blockedMessage.indexOf(\"rpm-ostree\") >= 0")" "true" "an image-based box says that first"
-assert_eq "$(js "($BOTH)(false).blockedMessage.indexOf(\"unsafe permissions\") >= 0")" "true" "...then the folder, over a stored upgrade"
+assert_eq "$(js "($BOTH)(false).blockedMessage")" \
+  "A Fedora 45 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it." \
+  "...then the folder, with an armed upgrade still said, because the next restart installs it"
+assert_eq "$(js "($BOTH)(false).blockedWarns")" "true" "...as a warning"
+assert_eq "$(js "($BOTH)(false).blockedOffersDoctor")" "true" "...with Check Installation"
+FW='function () { var s = S("risky-heavy"); s.unsafe_folder = "/x"; s.release_upgrade = {from:"44",to:"45",state:"waiting"}; return L.viewModel(s, false, "", {}); }'
+assert_eq "$(js "($FW)().blockedMessage.indexOf(\"unsafe permissions\") >= 0")" "true" "...while an upgrade no restart installs yields to the folder"
 for _bad in '""' 7 true null; do
   assert_eq "$(js "($FP)($_bad).blockedMessage")" "" "...and neither does an unsafe_folder of $_bad"
 done

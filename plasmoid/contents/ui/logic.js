@@ -426,8 +426,10 @@ var COPY = {
     // to; this is the popup saying so before the press rather than after it.
     // One sentence each. The commands that install or remove it are doctor's, behind the button:
     // only an armed transaction may be said to install on a restart.
-    releaseUpgradeArmed: "A Fedora %1 upgrade installs on the next restart, so Install on Next Restart is off until then.",
-    releaseUpgradeWaiting: "A Fedora %1 upgrade is on this computer and waits for you to finish or remove it, so Install on Next Restart is off.",
+    releaseUpgradeArmed: "A Fedora %1 upgrade installs on the next restart, so other updates cannot wait for that restart.",
+    releaseUpgradeWaiting: "A Fedora %1 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how.",
+    // The restart still installs the upgrade, whatever the folder pauses.
+    releaseUpgradeArmedFolder: "A Fedora %1 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it.",
 
     // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr and
     // dnf is not how the machine updates - but those images ship dnf5 and plasma-workspace, so
@@ -2670,7 +2672,9 @@ function viewModel(state, updating, cliError, opts) {
         usable ? backendActionable(state, "dnf") : 0, flatpakPending);
     // Why Kempt cannot go ahead on this box, one cause at a time, worst first: a box it cannot
     // update at all, then a pause every button would end in, then the one route an upgrade closes.
+    // An armed upgrade is said alongside the pause, because the next restart installs it either way.
     var blockedMessage = imageBased ? COPY.imageBased
+        : foldersPausedMessage !== "" && relState === "armed" ? COPY.releaseUpgradeArmedFolder.replace("%1", relTo)
         : foldersPausedMessage !== "" ? foldersPausedMessage
         : !releaseUpgrade ? ""
         : (relState === "armed" ? COPY.releaseUpgradeArmed : COPY.releaseUpgradeWaiting).replace("%1", relTo);

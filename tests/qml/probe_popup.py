@@ -3468,6 +3468,7 @@ _ASSEMBLED_IN_LOGIC = {
     "engineCopyCommand",    # -> vm.engineFaultActionLabel
     "releaseUpgradeArmed",  # -> vm.blockedMessage (the release number goes into the %1)
     "releaseUpgradeWaiting",  # -> vm.blockedMessage, for every other state
+    "releaseUpgradeArmedFolder",  # -> vm.blockedMessage, armed with an unsafe folder
     "imageBased",           # -> vm.blockedMessage, and vm.tooltipSub is not given it: the panel
                             #    hover is not where a person learns what kind of Fedora they run
     "doctorPassed",         # -> doctorOutcomeOf -> root.doctorSummary
