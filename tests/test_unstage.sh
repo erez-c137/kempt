@@ -90,6 +90,10 @@ apply_stub clean-noop 'dnf-offline-clean) : ;;'
 reset_run
 rc=0; KEMPT_APPLY_HELPER="$TESTTMP/apply-clean-noop" "$KEMPT" unstage >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "1" "a clean that left the transaction behind is a failure"
+grep -q 'not fully discarded.*See: kempt doctor$' "$TESTTMP/err" \
+  && echo "ok: ...and it points at the doctor, which names the fix" \
+  || { echo "FAIL: the failure line does not point at the doctor"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
+if grep -q 'sudo dnf5 offline clean' "$TESTTMP/err"; then echo "FAIL: the failure line hands out sudo"; _fail=1; else echo "ok: ...and hands out no sudo command itself"; fi
 grep -q 'still reports a stored transaction' "$TESTTMP/err" \
   && echo "ok: ...and the message says what is still there" \
   || { echo "FAIL: no stored-transaction warning"; _fail=1; sed 's/^/    /' "$TESTTMP/err"; }
