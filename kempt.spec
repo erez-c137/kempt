@@ -48,6 +48,7 @@ BuildRequires:  util-linux-core
 # The compile check of the Flatpak listing helper below, its tests in the suite, and the suite's
 # prose check of the docs (tools/prose-check.py).
 BuildRequires:  python3
+BuildRequires:  gettext
 
 # No Requires on bash: rpm generates /usr/bin/bash from the shebangs, and every supported Fedora
 # ships bash 5.
@@ -180,6 +181,7 @@ install -p -D -m 0644 polkit/io.github.erez_c137.kempt.policy \
 install -d %{buildroot}%{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt
 cp -a plasmoid/metadata.json plasmoid/contents \
     %{buildroot}%{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt/
+sh Messages.sh install %{buildroot}%{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt
 
 # The icon ladder, six rungs in the hicolor theme. No icon-cache
 # scriptlet: hicolor-icon-theme's own file triggers fire for any package touching that tree.
