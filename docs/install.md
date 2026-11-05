@@ -186,16 +186,16 @@ run wait, or stop with exit 7. When the notifier is installed, the installer ask
 Turn off Discover's update notifier for this user? [Y/n]
 ```
 
-Yes runs `kempt discover-notifier off`. It writes a user-level autostart override at
-`~/.config/autostart/org.kde.discover.notifier.desktop`, a copy of the system entry with
-`Hidden=true`, and stops any running `DiscoverNotifier`. Your own file there, if any, is kept
-beside it, ending in `.before-kempt`. Nothing system-wide changes. To undo it:
+Yes runs `kempt discover-notifier off`. It writes a short user-level autostart file at
+`~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, and stops any running
+`DiscoverNotifier`. If your own file is there, Kempt leaves it alone and tells you what to do.
+Nothing system-wide changes. To undo it:
 
 ```bash
 kempt discover-notifier on
 ```
 
-That puts your own file back, or removes Kempt's, and starts the notifier again.
+That removes Kempt's file and starts the notifier again.
 
 `n` or `no` leaves the notifier on, and so does a run with no terminal to answer in. Either way,
 `kempt discover-notifier off` turns it off later.

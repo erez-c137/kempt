@@ -282,9 +282,8 @@ check_state
 assert_eq "$(state .discover_unattended_warn)" "true" "...and whether or not the earlier offer was answered"
 "$KEMPT" discover-notifier seen
 assert_exit 0 "seen marks the warning drawn" -- test -e "$KEY"
-assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "...and takes it out of the state at once, before the next check"
 check_state
-assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "...so it is owed no longer"
+assert_eq "$(state '.discover_unattended_warn // "absent"')" "absent" "...so the next check owes it no longer"
 assert_eq "$(state .discover_unattended)" "true" "...while the setting is still reported"
 printf '[Global]\nUseUnattendedUpdates=false\n' > "$CONF"
 check_state

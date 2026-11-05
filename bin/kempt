@@ -309,7 +309,7 @@ cmd_check() {
   fi
   # Who holds the next restart, and whether Discover is set to take it by itself.
   local unattended_now=false
-  discover_unattended_active >/dev/null 2>&1 && unattended_now=true
+  discover_unattended_active && unattended_now=true
   state_merge --arg h "$(restart_holder)" --argjson u "$unattended_now" \
                  '. + {restart_holder: $h, discover_unattended: $u}'
   # The unused Flatpak runtimes, merged in after assembly because the block is optional and has no
@@ -2826,8 +2826,7 @@ doctor_tool_rows() {
 # The other updater in the same session. plasma-discover-notifier checks on its own schedule from
 # PackageKit's separate cache, so its count and Kempt's can differ and both be right, and
 # PackageKit's background work takes the dnf5 lock, which makes a Kempt run wait until it lets go.
-# info, never FAIL: running both is a legitimate choice. Silent when it is not installed, or when
-# its entry does not start in Plasma (lib/common.sh, discover_entry_starts).
+# info, never FAIL: running both is a legitimate choice. Silent when it is not installed.
 doctor_other_updater_row() {
   discover_installed || return 0
   local entry
@@ -2835,9 +2834,8 @@ doctor_other_updater_row() {
   # Discover installing updates by itself, while its notifier is there to do it. Its prepared
   # update takes /system-update, and dnf5 then leaves that symlink alone, so the next restart
   # installs Discover's update and not a stage of Kempt's. WARN only when Kempt is set to stage.
-  local decided
-  if decided="$(discover_unattended_active)"; then
-    local unattended="Discover is set to install updates by itself on restart ($decided). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
+  if discover_unattended_active; then
+    local unattended="Discover is set to install updates by itself on restart ($KEMPT_DISCOVER_UPDATES_CONF). Once it has prepared an update, the next restart installs that and not an update Kempt staged. To leave updates to Kempt, run kempt discover-notifier off"
     if [[ "$(config_get surface)" == offline ]]; then
       doctor_warn "$unattended"
     else
@@ -2848,10 +2846,7 @@ doctor_other_updater_row() {
     doctor_info "Discover's update notifier also starts with your session ($entry). It counts updates on its own schedule, so its number can differ from Kempt's. Its background work can make a Kempt run wait. To turn it off, run kempt discover-notifier off or use Turn Off Discover's Notifier in the widget"
     return 0
   fi
-  # Off by Kempt's entry, by the person's own, or by a desktop list that leaves Plasma out.
-  if grep -qiE '^[[:space:]]*Hidden[[:space:]]*=[[:space:]]*true' "$entry"; then
-    doctor_ok "Discover's update notifier: turned off for this user ($entry)"
-  fi
+  doctor_ok "Discover's update notifier: turned off for this user ($entry)"
 }
 
 doctor_metadata_row() {
@@ -3295,12 +3290,19 @@ cmd_doctor() {
 cmd_discover_notifier() {
   case "${1:-}" in
     off|on|keep) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
-            # The widget and Settings run these on separate queues: one at a time, so two offs
-            # cannot both find no kept copy and overwrite each other's.
+            # The widget and Settings run these on separate queues: one at a time. `on` holds it
+            # until the notifier is up, so a concurrent off cannot slip in between.
             writer_lock || exit 1
-            "discover_notifier_$1" ;;
+            if ! discover_installed; then echo "Discover's update notifier is not installed. Nothing changed."
+            elif [[ $1 == keep ]]; then
+              discover_mark_answered
+              log_event "Discover's update notifier kept as it is"
+              echo "Discover's update notifier stays as it is."
+            else "discover_notifier_$1"; fi ;;
+    # The widget drew the warning about Discover's automatic updates. The next check drops it from
+    # the state.
     seen)   [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
-            discover_notifier_seen ;;
+            { kempt_init_dirs && : > "$DISCOVER_UNATTENDED_ANSWERED_FILE"; } 2>/dev/null || true ;;
     status) [[ $# -eq 1 || ( $# -eq 2 && "$2" == --json ) ]] || { echo "unknown option: $2" >&2; exit 2; }
             discover_notifier_status "${2:-}" ;;
     *) echo "usage: kempt discover-notifier off | on | keep | status [--json] | seen" >&2; exit 2 ;;

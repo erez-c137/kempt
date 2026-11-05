@@ -893,15 +893,16 @@ Discover's update notifier counts updates on its own schedule, so its number can
 Kempt's, and its background work can make a Kempt run wait. These commands change it for you alone,
 without a password. When it is not installed, `off`, `on` and `keep` say so and change nothing.
 
-**`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, so the
-notifier stops starting at login, and stops the running one. A file of your own there moves to a
-name ending in `.before-kempt`, and Kempt prints where. A symlink stays a symlink. Kempt keeps one
-such copy and never overwrites it.
+**`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true` and a
+line marking it as Kempt's, so the notifier stops starting at login, and stops the running one. If
+a file of your own is there, Kempt leaves it alone, changes nothing and names it: add `Hidden=true`
+to that file, or delete it and run `off` again.
 
-**`on`** removes Kempt's file and puts yours back. If you edited Kempt's file, your version moves to
-a name ending in `.kempt-edited`, and Kempt prints where. Then it starts the notifier and says so
-once it runs. If Discover's own setting for automatic updates is still on, `on` says those resume
-too, and the widget warns about them again.
+**`on`** deletes that file only if it carries Kempt's mark, so an edit made inside Kempt's file goes
+with it. A `.before-kempt` copy kept by 0.2.0 comes back to its old name, or stays and is named if a
+newer file is there. Then Kempt starts the notifier and says so once it runs. If Discover's own
+setting for automatic updates is still on, `on` says those resume too, and the widget warns about
+them again.
 
 **`keep`** changes nothing, and records that you answered the widget's offer.
 
@@ -915,5 +916,5 @@ changes nothing else. The widget runs it.
 | Exit | When |
 | --- | --- |
 | 0 | Done, or nothing needed doing. |
-| 1 | Nothing changed: `off` found a `.before-kempt` copy already there, `on` found a file of your own keeping the notifier off, the path is a directory, a broken symlink or a file Kempt cannot read, or the writers' lock was busy. |
+| 1 | Nothing changed: `off` found a file of your own, or something else that is not Kempt's, at that path, `on` found a file of your own keeping the notifier off, or the writers' lock was busy. |
 | 2 | An unknown subcommand or option. |

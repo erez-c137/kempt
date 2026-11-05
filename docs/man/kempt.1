@@ -298,12 +298,12 @@ writes
 .I ~/.config/autostart/org.kde.discover.notifier.desktop
 with
 .B Hidden=true
-and stops the running notifier. A file of your own there moves to a name ending in
-.IR .before\-kempt .
+and a line marking it as Kempt's, and stops the running notifier. A file of your own there is left
+alone, and Kempt names it and exits 1.
 .B on
-removes Kempt's file, puts yours back and starts the notifier. An edited Kempt file moves to a
-name ending in
-.IR .kempt\-edited .
+deletes that file only if it carries the mark, puts back a
+.I .before\-kempt
+copy kept by 0.2.0, and starts the notifier.
 .B keep
 changes nothing and records that you answered the widget's offer.
 .B status

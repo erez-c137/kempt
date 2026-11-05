@@ -362,7 +362,9 @@ The lowest value it offers is 15 minutes.
 **Discover** shows only when Discover's update notifier is installed. It says whether the notifier
 is on, with **Turn Off Discover's Update Checks**, or turned off by Kempt, with
 **Turn On Discover's Update Checks**, which acts at once, without **Apply**. When a startup file of your
-own keeps it off, the row names that file, says to delete it, and has no button.
+own keeps it off, the row names that file, says to delete it, and has no button. When a file of
+your own starts the notifier, **Turn Off** leaves the file alone, and the row names it and says what
+to do.
 
 **Services** (`notify_startup`, on by default) shows the message about services that did not start
 after an update. Kempt only looks: it never turns a service on or off.
