@@ -362,8 +362,22 @@ assert_eq "$(strict "$MARKER_REPLACED")" "$(printf 'verdict:applied 8\nstill run
 # would quietly lose every live attribution, and this is the assertion that would not let it.
 # The helper's stand-in dnf5 records its argv, argv[0] included: dnf5 records /usr/bin/dnf5 when that is
 # how it was started (seen on dnf5 5.4.3 and 5.4.1). Its tree stands in for /usr/bin.
-LIVE_ROOT="$TESTTMP/live-root"; mkdir -p "$LIVE_ROOT/usr/bin"
-printf '#!/bin/bash -p\nwhile [[ "$1" != -- ]]; do shift; done; shift; exec "$@"\n' > "$LIVE_ROOT/usr/bin/systemd-run"
+LIVE_ROOT="$TESTTMP/live-root"; mkdir -p "$LIVE_ROOT/usr/bin" "$LIVE_ROOT/run"
+# Enough of PID 1 for the argv: dnf5's output in the named file, then the stop step.
+cat > "$LIVE_ROOT/usr/bin/systemd-run" <<'STANDIN'
+#!/bin/bash -p
+out="" stop=""
+while [[ "$1" != -- ]]; do
+  case "$1" in
+    StandardOutput=file:*) out="${1#*:}" ;;
+    ExecStopPost=*) stop="${1#*=}" ;;
+  esac
+  shift
+done
+shift
+"$@" > "$out"; export EXIT_CODE=exited EXIT_STATUS=$?
+eval "$stop"
+STANDIN
 printf '#!/bin/bash -p\necho "/usr/bin/dnf5 $*"\n' > "$LIVE_ROOT/usr/bin/dnf5"
 chmod +x "$LIVE_ROOT/usr/bin/systemd-run" "$LIVE_ROOT/usr/bin/dnf5"
 LIVE_CMD="$(KEMPT_HELPER_ROOT="$LIVE_ROOT" bash "$REPO_ROOT/libexec/kempt-apply" dnf-upgrade -y)"
