@@ -193,7 +193,7 @@ lacks_name "...and it is the same stage, still without $OTHER" "$(txnames)" "$OT
 is "the marker is the same marker" "$(jq -r .staged_at < "$STATE/offline_staged.json" 2>/dev/null)" "$at5"
 is "no clean was run against it" "$(events | grep -c 'offline marker cleared')" "$ev5"
 has "event: restage failed, previous stage intact" "$(events)" "offline restage failed (previous stage intact)"
-has "notification says the previous one still installs" "$(notes)" "still installs on the next restart"
+has "notification says the previous one still installs" "$(notes)" "The earlier ones are unchanged and still install"
 cp "$REPOS_BAK"/*.repo "$REPOS_DIR"/
 
 section "S6 dnf5 replaces the old stage and then fails (simulated): the unwind, with and without a working clean"
