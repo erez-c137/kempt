@@ -168,7 +168,7 @@ really moved. One killed after the transaction, whose history read Ok, reported 
 with exit 0, and the event log says the answer came from history [run].
 
 Ctrl-C stops the watching and not dnf5. The helper says that the update carries on and exits 130, the
-CLI records `stopped watching`, and the rpm lock stays held until dnf5 ends. A stop anybody can aim at
+CLI records `Stopped watching`, and the rpm lock stays held until dnf5 ends. A stop anybody can aim at
 a chosen moment is what this design removes, so there is none. When the caller is gone, nothing
 reports the result except dnf5's own history, and Kempt's history has no entry for that run [run].
 
@@ -350,7 +350,7 @@ all authentication, and the CLI sees only an exit status. It copies no command o
 failed run adds one line, at most 120 characters, taken from its own log file. URL credentials,
 queries and token-shaped path parts are removed from it first, and your home directory becomes `~`.
 
-The config line, `config set <key>=<value> (was <old>)`, records values, so pasting `kempt log`
+The settings line, `Setting <key> changed to <value> (was <old>)`, records values, so pasting `kempt log`
 output into a bug report pastes your settings.
 
 ## What bounds a malicious update

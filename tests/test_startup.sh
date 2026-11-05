@@ -205,7 +205,7 @@ failing system 'bluetooth.service=Bluetooth service'
 check >/dev/null
 assert_eq "$(notes)" "NOTIFY Kempt | Bluetooth service didn't start after the update. It stopped with an error. A system service (bluetooth.service). To see why, run: kempt startup" \
   "one new failure is named, with what kind of service it is"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "startup failed after the update: bluetooth.service" "...and logged"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Did not start after the update: bluetooth.service" "...and logged"
 
 # A session unit says so.
 reset_world; dnf_max 150; check >/dev/null
@@ -279,7 +279,7 @@ assert_eq "$(notes)" "NOTIFY Kempt | Bluetooth service is running again. A syste
 assert_eq "$(block '[.startup.recovered[].unit] | sort')" '["bluetooth.service"]' "...only the unmuted one is listed as recovered"
 assert_eq "$([[ -s "$KEMPT_STATE_DIR/startup-mutes" ]] && echo kept || echo cleared)" "cleared" "...and recovery clears its mute"
 assert_eq "$(startup_state '.announced | length')" "0" "...and the muted one leaves the announced list"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "startup recovered: bluetooth.service"$'\n' "...and it is logged"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Running again: bluetooth.service"$'\n' "...and it is logged"
 check >/dev/null
 assert_eq "$(note_count)" "1" "...once, not at every check"
 digest="$(block '.startup.recovered_digest' | tr -d '"')"

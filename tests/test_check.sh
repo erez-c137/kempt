@@ -156,7 +156,7 @@ busy_rc=0; busy_out="$("$KEMPT" check 2>"$TESTTMP/busy-err")" || busy_rc=$?
 assert_eq "$busy_rc" 0 "a check that ran out behind this user's update exits 0"
 assert_eq "$(jq -c . <<<"$busy_out")" "$(jq -c . "$TESTTMP/state-before-busy.json")" "...printing the previous state"
 assert_exit 0 "...and leaving state.json as it was" -- cmp -s "$KEMPT_STATE_DIR/state.json" "$TESTTMP/state-before-busy.json"
-assert_eq "$(tail -n +$(( ev_before + 1 )) "$BUSY_EV" | cut -d' ' -f3-)" "check skipped (a Kempt update is running)" \
+assert_eq "$(tail -n +$(( ev_before + 1 )) "$BUSY_EV" | cut -d' ' -f3-)" "Not checked (a Kempt update is running)" \
   "...with one event line saying why"
 assert_eq "$(grep -c 'dnf check failed' "$TESTTMP/busy-err")" 0 "...and no error on stderr"
 assert_exit 1 "...but --strict says the answer is not a current one" -- "$KEMPT" check --strict
@@ -605,7 +605,7 @@ assert_eq "$(( $(date +%s) - $(date -d "$(metadata_refreshed_iso)" +%s) < 60 ))"
 # runs - every ten minutes, all day - and a line per skip would be 144 lines saying one thing,
 # which buries the log the one command that reads it exists to serve. The fact worth recording is
 # not that this check skipped; it is that this box has been skipping.
-skips() { grep -c 'refresh skipped' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
+skips() { grep -c 'Package lists not downloaded' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
 # A DELTA, not the running total: the two subshells above already took the skip path once each,
 # which is the behaviour under test doing its job. Counting from zero here would assert about the
 # whole file rather than about these three calls.
@@ -618,7 +618,7 @@ skips_before="$(skips)"
   maybe_refresh_metadata
 ) >/dev/null 2>&1
 assert_eq "$(( $(skips) - skips_before ))" "1" "three skipped refreshes in a row are logged once"
-grep -q 'refresh skipped (on battery)' "$KEMPT_STATE_DIR/events.log" \
+grep -q 'Package lists not downloaded (on battery)' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the line says which rule skipped it" \
   || { echo "FAIL: the skip line does not name the reason"; _fail=1; }
 touch -d '25 hours ago' "$KEMPT_STATE_DIR/last_refresh_skip"
@@ -660,7 +660,7 @@ rm -f "$REFRESH_DNF_FAILED_FILE"
 # --- Check Anyway: one check, by request, past the battery and metering rules ------------------
 # --anyway implies --refresh and passes the two rules --refresh may not. Each override is logged,
 # every time, and the check publishes no refresh_skipped, so the widget's message clears.
-anyways() { grep -c 'refresh anyway' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
+anyways() { grep -c 'Downloading package lists anyway' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
 rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
 anyways_before="$(anyways)"
 (
@@ -672,7 +672,7 @@ anyways_before="$(anyways)"
 assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)" "1" \
   "--anyway fetches on battery"
 assert_eq "$(cat "$TESTTMP/anyway-skipped-battery")" "" "...and leaves refresh_skipped empty"
-assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c 'refresh anyway (on battery)$')" "1" \
+assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c 'Downloading package lists anyway (on battery)$')" "1" \
   "...and logs the override as on battery"
 rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
 (
@@ -684,7 +684,7 @@ rm -f "$LAST_REFRESH_FILE" "$TESTTMP/refresh-calls"
 assert_eq "$([[ -f "$TESTTMP/refresh-calls" ]] && wc -l < "$TESTTMP/refresh-calls" || echo 0)" "1" \
   "--anyway fetches on a metered connection"
 assert_eq "$(cat "$TESTTMP/anyway-skipped-metered")" "" "...and leaves refresh_skipped empty"
-assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c 'refresh anyway (the connection is metered)$')" "1" \
+assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c 'Downloading package lists anyway (the connection is metered)$')" "1" \
   "...and logs the override as metered"
 # Logged every time, unlike the once-a-day skip line: each one spent power or data.
 rm -f "$LAST_REFRESH_FILE"
@@ -724,7 +724,7 @@ assert_eq "$(jq -r '.refresh_skipped // "absent"' <<<"$st_any")" "absent" \
   "...and publishes no refresh_skipped"
 assert_eq "$(jq -r '.refresh_skipped // "absent"' "$KEMPT_STATE_DIR/state.json")" "absent" \
   "...in the state file too"
-assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c "refresh anyway ($_anyway_why)$")" "1" \
+assert_eq "$(tail -n 5 "$KEMPT_STATE_DIR/events.log" | grep -c "Downloading package lists anyway ($_anyway_why)$")" "1" \
   "...and logs refresh anyway ($_anyway_why)"
 assert_eq "$(cat "$TESTTMP/refresh-env" 2>/dev/null)" "0" \
   "...and the refresh helper inherits no variable that carries it"
@@ -1161,7 +1161,7 @@ assert_contains "$doc" "another updater has prepared the next restart ($KEMPT_OF
   "doctor says what the next restart installs instead"
 assert_not_contains "$doc" "install on the next restart" "...and promises nothing"
 assert_exit 5 "unstage refuses while another updater's symlink stands" -- "$KEMPT" unstage
-assert_eq "$(events_since 'unstage refused (another updater has prepared the next restart)')" "1" "...and logs why"
+assert_eq "$(events_since 'Discard refused (another updater has prepared the next restart)')" "1" "...and logs why"
 KEMPT_OFFLINE_TXJSON="$pk_tx" KEMPT_RPM_QA_CMD="cat $pk_qa" "$KEMPT" check >/dev/null
 assert_eq "$(jq -r '.offline_stage_blocked.count // "absent"' "$st")" "absent" \
   "...while a stage whose packages are all installed is done and not blocked"
@@ -1365,15 +1365,15 @@ race_check() {  # mode (fresh|stale|corrupt|absent) kempt-check-args... → sets
   wait "$holder" 2>/dev/null || true
 }
 
-ok_before="$(events_matching ' check ok ')"
+ok_before="$(events_matching ' Checked')"
 race_check fresh --coalesce
 assert_eq "$race_rc" "0" "a coalesced check exits 0"
 assert_eq "$(dnf_queries)" "0" "a --coalesce check that waited on another check's write asks dnf nothing"
 assert_eq "$(jq -r .marker "$TESTTMP/race.json" 2>/dev/null)" "WRITTEN" "...and prints the state that check wrote"
 assert_eq "$(jq -s length "$TESTTMP/race.json" 2>/dev/null)" "1" "...as exactly one document"
 assert_eq "$(jq -r .marker "$STATE_FILE")" "WRITTEN" "...and leaves state.json as that check wrote it"
-assert_eq "$(events_matching ' check ok ')" "$ok_before" "...and is not logged as a check"
-assert_eq "$(tail -n 1 "$EVENTS_FILE" | cut -d' ' -f3-4)" "check shared" "...but as a shared one"
+assert_eq "$(events_matching ' Checked')" "$ok_before" "...and is not logged as a check"
+assert_eq "$(tail -n 1 "$EVENTS_FILE" | cut -d' ' -f3-4)" "Check used" "...but as a shared one"
 
 race_check fresh --coalesce --strict
 assert_eq "$race_rc" "0" "a coalesced check --strict exits 0 over an ok state"

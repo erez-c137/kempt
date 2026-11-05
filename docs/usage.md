@@ -84,8 +84,8 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 | Option | Effect |
 | --- | --- |
 | `--refresh` | Fetches package metadata now instead of waiting out the 3-hour interval. On battery or a metered connection it still skips the fetch. dnf and Flatpak each give up after 2 minutes. |
-| `--anyway` | Fetches now, even on battery or a metered connection. Implies `--refresh` and applies to this check only. The event log says `refresh anyway`. |
-| `--coalesce` | Reuses the answer of a check this one waited for, when that check succeeded and finished in a later second. Nothing is queried or written, and the event log says `check shared`. `--refresh` turns it off. |
+| `--anyway` | Fetches now, even on battery or a metered connection. Implies `--refresh` and applies to this check only. The event log says `Downloading package lists anyway`. |
+| `--coalesce` | Reuses the answer of a check this one waited for, when that check succeeded and finished in a later second. Nothing is queried or written, and the event log says `Check used the answer of the check at <time>`. `--refresh` turns it off. |
 | `--strict` | Exits 1 when the answer is not current (see the exit table). Use it in scripts. |
 
 The widget passes `--coalesce` for its timer, its file watcher, its startup check and when you
@@ -604,7 +604,7 @@ kempt history --json | jq -r '.[] | select(.status == "failed") | "\(.timestamp)
 ## log
 
 ```
-kempt log [-n N] [--raw]
+kempt log [-n N]
 ```
 
 One line per thing Kempt did, newest last. `-n` sets how many (default 30).
@@ -616,11 +616,11 @@ kempt log -n 4
 ```
 2026-08-26T20:58:11+03:00 cli Checked: 7 updates to install, 1 held
 2026-08-26T21:10:55+03:00 widget Setting include_flatpak changed to true (was false)
-2026-08-26T21:11:02+03:00 widget Update started in the widget
+2026-08-26T21:11:02+03:00 widget Update started
 2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
 ```
 
-`via` is `widget` or `cli` (a terminal, script or timer). `--raw` prints the stored words below.
+`via` is `widget` or `cli` (a terminal, script or timer).
 
 | Exit | When |
 | --- | --- |
@@ -628,50 +628,10 @@ kempt log -n 4
 | 2 | `-n` without a positive whole number, or an unknown option. |
 
 The file is `~/.local/state/kempt/events.log`, mode 0600, trimmed to the last 2000 lines past 2500.
-Its wording is fixed, so you can search it:
+Each line is written as you see it, and lines from older versions print as stored.
 
-| Line | Written when |
-| --- | --- |
-| `config set <key>=<value> (was <old>)` | A setting changed. `(was unset)` when it had none. |
-| `hold <backend>:<name>` / `unhold <backend>:<name>` | A hold was added or removed. |
-| `check ok actionable=<n> held=<n>` | A check succeeded, with the counts the badge shows next. |
-| `startup failed after the update: <units>` | Services that started before a Kempt update stopped starting after it. `after the last restart` when another tool changed packages since. Needs `notify_startup`. |
-| `startup recovered: <units>` | Services Kempt announced are running again. |
-| `startup muted <scope>:<unit>` / `startup unmuted <scope>:<unit>` | `kempt startup mute` or `unmute` ran. |
-| `notification shown: <text>` / `notification not shown (<reason>): <text>` | Kempt sent a desktop notification, and whether it reached the desktop. The reason is `no desktop session`, `timed out`, `notify-send is missing` or `notify-send failed, exit <n>`. "Shown" means it reached the desktop, not that you read it. |
-| `check stale <reason>` | A check failed, for example `dnf check failed: no authentication agent is running to ask for the password`. |
-| `check skipped (a Kempt update is running)` | The root helper would not query dnf while a Kempt update or check ran, so the check printed the previous state. A refresh refused the same way is not recorded as failed. |
-| `check shared last_check=<time>` | A `--coalesce` check took the answer of the check stamped `<time>`. It changes no counts. |
-| `refresh ok` / `refresh failed` | The dnf metadata refresh ran. |
-| `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak refresh ran in the same step, while `include_flatpak` is on. Either can fail alone. |
-| `refresh skipped (<reason>)` | Skipped on battery or a metered connection. At most once a day. |
-| `refresh anyway (on battery)` / `refresh anyway (the connection is metered)` | `--anyway` or **Check Anyway** fetched past that rule. Every time. |
-| `run start surface=<surface>` | A run is about to change the system. |
-| `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
-| `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |
-| `stopped watching` | You pressed Ctrl-C during a run. An update that had started carries on, and `dnf5 history list` shows how it ended. |
-| `run failed rc=<n>: <reason>` | A run failed. The reason is the first log line that names the failure. |
-| `dnf outcome read from history (transaction <id> <status>, helper rc=<n>)` | The root helper and dnf5's history disagreed about the run's transaction. The history's status decides. |
-| `offline staged <n>` | An update was staged for the next restart. |
-| `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
-| `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
-| `offline stage discarded (<why>)` | A rebuild failed, or the stored stage would have installed what is now held. |
-| `offline stage left in place (another updater has prepared the next restart)` | Nothing was left to stage, and the old stage was kept, because removing it would cancel the other updater's restart update. |
-| `restart result: transaction <id> <status> (<counts>)` | After a restart, dnf5's history had a new row for a stage. The history entry says `offline (applied on reboot)` or `offline (restart did not finish)`. |
-| `restart result not written (state directory unwritable?)` / `history entry not written (state directory unwritable?)` | The history entry could not be saved. The run itself is unaffected. |
-| `unstage discarded the staged update` | `kempt unstage` removed the staged update. |
-| `unstage refused (<what is stored>)` / `unstage refused by the root helper` | A Fedora release upgrade is stored, so `kempt unstage` changed nothing. |
-| `unstage refused (another updater has prepared the next restart)` | Discarding would also cancel the other updater's restart update. Run it again after the restart. |
-| `unstage found nothing staged` | Nothing was staged. |
-| `unstage failed rc=<n>` | The staged update could not be discarded. |
-| `unstage left a transaction behind (status <status>)` | dnf5 still has a stored transaction. |
-| `reclaim removed <n> runtimes (<bytes> bytes) rc=<n>` | Unused runtimes were removed, by `kempt reclaim` or after an update. `, not all of them: <error>`: Flatpak stopped part-way. `, in use: <id>//<branch>`: extensions an app uses were removed; `flatpak update` puts them back. |
-| `reclaim found nothing to remove` | Nothing was unused after an update. |
-| `reclaim changed (<why>), nothing removed` | The list was not the set agreed to (`digest`), part of it was unused for less than an hour (`unstable`), or it held a runtime installed during the update (`new`). |
-| `reclaim needs authorization, nothing removed` | Removing needed an administrator (see [reclaim](#reclaim)). |
-| `reclaim failed rc=<n>: <error>` / `reclaim failed (flatpak did not answer)` | Flatpak could not remove the runtimes, or could not list them. `<error>` is Flatpak's own line, if any. `<n>` is `?` when the list could not be read. `, what was removed is unknown`: Flatpak failed and the list afterwards could not be read. |
-| `reclaim refused (running as root)` / `reclaim refused (reclaim=off)` | `kempt reclaim` ran as root, or with `reclaim=off`. |
-| `discover-notifier off` / `discover-notifier on` / `discover-notifier keep` | Discover's notifier was turned off or on for this user, or kept when the widget's offer was answered. |
+`Notified` means the message reached the desktop, not that you read it. `Stopped watching` means
+you pressed Ctrl-C: an update that had started carries on, and `dnf5 history list` shows how it ended.
 
 ### Which question, which file
 

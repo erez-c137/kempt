@@ -64,7 +64,7 @@ assert_eq "$(is "$TESTTMP/running")" "no" "...and the notifier is no longer runn
 assert_eq "$(is "$BACKUP")" "no" "with no entry of the person's own, nothing is backed up"
 assert_eq "$("$KEMPT" discover-notifier status --json)" \
   '{"installed":true,"enabled":false,"running":false,"by_kempt":true,"unattended":false}' "status: off, by Kempt"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "discover-notifier off" "the change is in kempt log"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Discover's update notifier turned off" "the change is in kempt log"
 "$KEMPT" discover-notifier off >/dev/null
 "$KEMPT" discover-notifier off >/dev/null
 assert_eq "$(grep -c '^Hidden=' "$USER_ENTRY")" "1" "off again never adds a second Hidden= line"
@@ -87,7 +87,7 @@ assert_eq "$(is "$USER_ENTRY")" "no" "on removes the file Kempt wrote"
 wait_for_call "kstart --application org.kde.discover.notifier" \
   && echo "ok: on starts the notifier through kstart --application" \
   || { echo "FAIL: kstart not called - got: $(cat "$CALLS" 2>/dev/null)"; _fail=1; }
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "discover-notifier on" "the change is in kempt log"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Discover's update notifier turned on" "the change is in kempt log"
 # Already running: nothing is started twice.
 rm -f "$CALLS"; : > "$TESTTMP/running"
 "$KEMPT" discover-notifier on >/dev/null
@@ -307,7 +307,7 @@ assert_eq "$rc" "0" "keep succeeds"
 assert_eq "$(discover_offer_pending && echo yes || echo no)" "no" "keep answers the offer"
 assert_eq "$(cat "$USER_ENTRY")" "$(cat "$SYS/$ENTRY")" "...and leaves even a plain copy of the system entry alone"
 assert_eq "$(is "$CALLS")" "no" "...and starts and stops nothing"
-assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "discover-notifier keep" "...and is in kempt log"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Discover's update notifier kept as it is" "...and is in kempt log"
 reset
 assert_contains "$("$KEMPT" discover-notifier keep)" "not installed" "keep without the notifier says so"
 reset; system_entry

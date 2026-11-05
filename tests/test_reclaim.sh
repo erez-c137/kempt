@@ -427,7 +427,7 @@ assert_eq "$rc" "6" "a digest that is not the set on offer: exit 6"
 assert_contains "$out" "What Flatpak can remove changed since this was shown. Nothing was removed." "...in the widget's words"
 assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
 assert_eq "$(jq -r '.result' "$RECLAIM_LAST_FILE")" "changed" "...recorded as the last outcome"
-assert_contains "$(tail -n 3 "$EVENTS_FILE")" "reclaim changed (digest), nothing removed" "...and in the event log"
+assert_contains "$(tail -n 3 "$EVENTS_FILE")" "Unused runtimes: nothing removed, the list changed" "...and in the event log"
 
 # Every runtime on the offer in use again: the set changed, not "nothing to remove", and the check
 # that follows takes the offer out of state.json so the widget stops showing it.
@@ -436,7 +436,7 @@ rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
 assert_eq "$rc|$(calls uninstall)" "6|(none)" "an offer whose runtimes are all in use again: exit 6, nothing removed"
 assert_contains "$out" "What Flatpak can remove changed since this was shown." "...in the widget's words"
 assert_eq "$(jq -r '.result' "$RECLAIM_LAST_FILE")" "changed" "...recorded as the last outcome"
-assert_contains "$(tail -n 3 "$EVENTS_FILE")" "reclaim changed (digest), nothing removed" "...and in the event log"
+assert_contains "$(tail -n 3 "$EVENTS_FILE")" "Unused runtimes: nothing removed, the list changed" "...and in the event log"
 assert_eq "$(state_reclaim | jq -r '.digest')" "" "...and the offer is gone from state.json"
 rc=0; out="$(reclaim -y)" || rc=$?
 assert_eq "$rc" "0" "the same, with no offer named: nothing to remove, exit 0"
@@ -513,7 +513,7 @@ assert_contains "$out" "Freed about 2.0 GB." "...then what was freed"
 assert_json_eq "$(jq -c '{via, result, refs, bytes, digest}' "$RECLAIM_LAST_FILE")" \
   "{\"via\":\"cli\",\"result\":\"removed\",\"refs\":$ALL5,\"bytes\":1975000000,\"digest\":\"$DIGEST5\"}" \
   "the outcome names the refs that went, their size and the set agreed to"
-assert_contains "$(tail -n 3 "$EVENTS_FILE")" "reclaim removed 5 runtimes (1975000000 bytes)" "...and the event log says it"
+assert_contains "$(tail -n 3 "$EVENTS_FILE")" "Removed 5 unused runtimes, 2.0 GB" "...and the event log says it"
 assert_eq "$(state_reclaim | jq -c '[.refs, .digest, .status, .last.result]')" '[[],"","ok","removed"]' \
   "the closing check publishes that nothing is left to offer"
 assert_eq "$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)" "$hist_before" \
@@ -566,7 +566,7 @@ assert_contains "$out" "Flatpak could not remove them: $FP_ERR" "...saying what 
 assert_eq "$(jq -r '.error' "$RECLAIM_LAST_FILE")" "$FP_ERR" "...kept as the last outcome's error, cleaned"
 assert_eq "$(jq -c '[.result, .refs, .bytes]' "$RECLAIM_LAST_FILE")" '["failed",[],0]' \
   "...next to the fields the widget reads, unchanged"
-assert_contains "$(grep 'reclaim failed' "$EVENTS_FILE" | tail -n 1)" "reclaim failed rc=1: $FP_ERR" \
+assert_contains "$(grep 'removal failed' "$EVENTS_FILE" | tail -n 1)" "Unused runtimes: removal failed (exit code 1): $FP_ERR" \
   "...and in the event log, with the exit code"
 assert_eq "$(state_reclaim | jq -r '.last.error')" "$FP_ERR" "...and in state.json after the closing check"
 # polkit refusing flatpak's system helper after pkcheck said yes is the same answer as the gate's no.
@@ -582,7 +582,7 @@ restore_offer
 rc=0; out="$(UNINSTALL_OUT="$TESTTMP/fp-out" UNINSTALL_RC=2 reclaim -y --expect="$DIGEST5" 2>/dev/null)" || rc=$?
 kept="$(jq -r '.error' "$RECLAIM_LAST_FILE")"
 assert_eq "${#kept}|$(tr -d 'x' <<<"$kept")" "200|" "with no error line, the last non-empty one, cut to 200 characters"
-assert_eq "$(grep -c 'reclaim failed rc=2' "$EVENTS_FILE")|$(grep 'reclaim failed rc=2' "$EVENTS_FILE" | tr -d '[:print:]' | wc -c)" "1|1" \
+assert_eq "$(grep -c 'removal failed (exit code 2)' "$EVENTS_FILE")|$(grep 'removal failed (exit code 2)' "$EVENTS_FILE" | tr -d '[:print:]' | wc -c)" "1|1" \
   "...and the event stays one printable line"
 
 # The removal is given ten minutes: one that hangs must not hold the update lock for ever, and
@@ -593,7 +593,7 @@ rc=0; out="$(TIMEOUT_EXPIRE=uninstall PATH="$TESTTMP/tbin:$PATH" reclaim -y --ex
 assert_contains "$(cat "$STUBS/timeout.calls" 2>/dev/null)" "540 uninstall" \
   "the removal is given 600 seconds, less the minute its extensions get"
 assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")" "1|failed" "...and one that runs out of time is a failure: exit 1"
-assert_contains "$(tail -n 3 "$EVENTS_FILE")" "failed rc=124" "...logged with its exit code"
+assert_contains "$(tail -n 3 "$EVENTS_FILE")" "removal failed (exit code 124)" "...logged with its exit code"
 assert_contains "$out" "Flatpak could not remove them (exit code 124). See: kempt log" \
   "...and with nothing said, the exit code on screen and the log that keeps it"
 assert_eq "$(jq -r 'has("error")' "$RECLAIM_LAST_FILE")" "false" "...where there is no error line to keep"
@@ -649,7 +649,7 @@ assert_contains "$out" "Flatpak could not remove all of them: error: Failed to u
   "...and flatpak's error"
 assert_eq "$(jq -c '[.result, .partial, .bytes]' "$RECLAIM_LAST_FILE")" '["removed",true,1075000000]' \
   "...recorded as removed and partial, with the bytes of the refs that went"
-assert_contains "$(grep 'reclaim removed' "$EVENTS_FILE" | tail -n 1)" "reclaim removed 4 runtimes (1075000000 bytes) rc=1, not all of them: error: Failed" \
+assert_contains "$(grep ' Removed ' "$EVENTS_FILE" | tail -n 1)" "Removed 4 unused runtimes, 1.1 GB, Flatpak exit code 1, not all of them: error: Failed" \
   "...and in the event log"
 
 # Flatpak failed and the list afterwards cannot be read: what went is unknown, never "nothing".
@@ -669,7 +669,7 @@ assert_contains "$out" "the removal may be partial. Check again with: kempt recl
 assert_not_contains "$out" "Nothing was removed" "...and never that nothing was removed"
 assert_eq "$(jq -c '[.result, .refs, .bytes, .partial]' "$RECLAIM_LAST_FILE")" '["failed",null,null,true]' \
   "...recorded with refs null and partial, so no reader counts it as nothing"
-assert_contains "$(grep 'reclaim failed' "$EVENTS_FILE" | tail -n 1)" "what was removed is unknown" "...and the event log says so"
+assert_contains "$(grep 'removal failed' "$EVENTS_FILE" | tail -n 1)" "what was removed is unknown" "...and the event log says so"
 
 # flatpak's output is copied to a file in Kempt's own state dir, never the shared /tmp, and the
 # file goes with kempt: at the end of a removal, and from the EXIT trap when kempt is killed.
@@ -900,7 +900,7 @@ rc=0; out="$(HOOK_2="$TESTTMP/hook-info" byname -y --expect="$DIGEST5")" || rc=$
 assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08extra"]' \
   "an extension flatpak says an app uses, and removed, is recorded as in use"
 assert_contains "$out" "Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back." "...and said"
-assert_contains "$(grep 'reclaim removed' "$EVENTS_FILE" | tail -n 1)" "in use: org.freedesktop.Platform.GL.default//24.08extra" "...and logged"
+assert_contains "$(grep ' Removed ' "$EVENTS_FILE" | tail -n 1)" "including extensions an app uses: org.freedesktop.Platform.GL.default//24.08extra" "...and logged"
 HOOK2="$TESTTMP/hook-info2"; grep -v '^refuse=' "$TESTTMP/hook-info" > "$HOOK2"
 restore_offer
 rc=0; out="$(HOOK_2="$HOOK2" byname -y --expect="$DIGEST5")" || rc=$?
