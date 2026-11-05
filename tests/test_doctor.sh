@@ -629,7 +629,7 @@ assert_eq "$(printf '%s\n' "$ib_out" | sed -n '2p' | grep -c 'rpm-ostree')" "1" 
 # Kempt's own offline button is refused - a person who presses it and is turned down should be able
 # to find out here why, rather than only from the failure.
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
-grep -qE '^info  a Fedora release upgrade \(44 -> 45\) is staged outside Kempt' "$TESTTMP/staged.txt" \
+grep -qE '^info  a Fedora release upgrade \(44 -> 45\) is prepared outside Kempt' "$TESTTMP/staged.txt" \
   && echo "ok: a staged release upgrade is named as one, with both releases" \
   || { echo "FAIL: no release-upgrade line - got: $(grep -i staged "$TESTTMP/staged.txt")"; _fail=1; }
 # ...and the state it is usually in: downloaded, not started. The row used to print "it installs on
@@ -693,7 +693,7 @@ assert_not_contains "$(cat "$TESTTMP/staged.txt")" 'the marker cannot be read' \
 rm -f "$D_MARKER"
 
 KEMPT_OFFLINE_TOML="$FIXTURES/offline-release-upgrade.toml" doctor_out
-assert_contains "$(cat "$TESTTMP/staged.txt")" 'will not stage updates over it' \
+assert_contains "$(cat "$TESTTMP/staged.txt")" 'will not prepare updates over it' \
   "...saying why Kempt refuses to stage while it is there"
 grep -qE '^FAIL' "$TESTTMP/staged.txt" \
   && { echo "FAIL: a release upgrade waiting to install was reported as a fault"; _fail=1; } \

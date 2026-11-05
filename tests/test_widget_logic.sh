@@ -1902,6 +1902,16 @@ assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_two, "").summary')" \
   "several problems give the count and the first"
 assert_eq "$(js 'L.doctorOutcomeOf(1, process.env.doc_two, "").report')" "$(printf '%s' "${doc_two%$'\n'}")" \
   "the full report is everything doctor printed"
+# Under an upgrade sentence, the answer is the upgrade's row with its commands, uncut.
+doc_up=$'info  kempt 0.1.7\nok    jq\ninfo  a Fedora release upgrade (44 -> 45) is prepared outside Kempt and installs on the next restart. Remove it with: sudo dnf5 offline clean. Kempt will not prepare updates over it, because that would cancel it\nkempt doctor: all checks passed\n'
+doc_stranded=$'FAIL  the stored Fedora release upgrade can never install: dnf5 says "ready" but the restart marker /system-update is not in place, so a restart has already been past it. Set it to install again with: sudo dnf5 system-upgrade reboot, or clear it with: sudo dnf5 offline clean\n'
+export doc_up doc_stranded
+assert_eq "$(js 'L.doctorOutcomeOf(0, process.env.doc_up, "").summary')" \
+  "A Fedora release upgrade (44 -> 45) is prepared outside Kempt and installs on the next restart. Remove it with: sudo dnf5 offline clean. Kempt will not prepare updates over it, because that would cancel it." \
+  "a clean report with a stored upgrade quotes that row whole, so one press says how to remove it"
+assert_eq "$(js 'L.doctorOutcomeOf(0, process.env.doc_up, "").failed')" "false" "...and is not a failure"
+assert_contains "$(js 'L.doctorOutcomeOf(1, process.env.doc_stranded, "").summary')" "or clear it with: sudo dnf5 offline clean" \
+  "...and a stranded upgrade's FAIL row keeps its commands too"
 # An engine that will not start: the shell answers 126 and says why on stderr.
 assert_eq "$(js 'L.doctorOutcomeOf(126, "", "sh: line 1: /home/u/.local/bin/kempt: Permission denied\n").summary')" \
   "Kempt could not check its installation. The full report has the error." \

@@ -4629,23 +4629,23 @@ doctor_offline_rows() {
       # happens to be Kempt's own.
       case "$(offline_release_upgrade_state)" in
         armed)
-          doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart. Remove it with: sudo dnf5 offline clean. Kempt will not stage updates over it, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is prepared outside Kempt and installs on the next restart. Remove it with: sudo dnf5 offline clean. Kempt will not prepare updates over it, because that would cancel it" ;;
         foreign)
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and set to install, but another updater has prepared the next restart, so it will not install then. After that restart, install it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and set to install, but another updater has prepared the next restart, so it will not install then. After that restart, install it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not prepare updates while it is there, because that would cancel it" ;;
         stranded)
           # `ready` with no boot symlink. Its own state, because the other sentences each say
           # something this one disproves: it is not waiting for a restart, and "downloaded but not
           # started" quotes a status word that says the opposite. The FAIL row further down is the
           # one that gives the remedy - two rows repeating the same two commands is one too many.
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was set to install, but the restart marker $KEMPT_OFFLINE_LINK is not in place. A restart went by without installing it, and no restart will install it now. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was set to install, but the restart marker $KEMPT_OFFLINE_LINK is not in place. A restart went by without installing it, and no restart will install it now. Kempt will not prepare updates while it is there, because that would cancel it" ;;
         incomplete)
           # `unknown` here is a readable file with no `status` key, not an unreadable one - that
           # never reaches this branch, because offline_release_upgrade cannot read its releasevers.
           local dr_word="status \"$dr_toml\""
           [[ "$dr_toml" == unknown ]] && dr_word="no status recorded"
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and did not finish ($dr_word). See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and did not finish ($dr_word). See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean. Kempt will not prepare updates while it is there, because that would cancel it" ;;
         *)
-          doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not prepare updates while it is there, because that would cancel it" ;;
       esac
     elif [[ "$dr_done" == true ]]; then
       doctor_stale_done_row "$dr_link"

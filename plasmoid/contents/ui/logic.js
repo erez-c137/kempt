@@ -2289,9 +2289,16 @@ function capAtWord(text, max) {
 // 1 when there is one. The summary quotes the first problem; the report is everything it printed.
 // A doctor that printed no rows did not run, and stderr says why: on a box whose engine will not
 // start, that is the shell's own reason.
+// A stored Fedora release upgrade is not a problem with Kempt, but the blocked message sends the
+// person here to learn how to finish or remove it. So its row, which holds the commands, replaces
+// "no problems", and neither that row nor doctor's FAIL row about it is cut short.
 function doctorOutcomeOf(rc, stdout, stderr) {
     var said = doctorVerdictOf(rc, stdout, stderr);
-    said.summary = capAtWord(said.summary, DOCTOR_SUMMARY_MAX);
+    if (!said.failed) {
+        var row = /^info\s+(a Fedora release upgrade .*\S)\s*$/m.exec(typeof stdout === "string" ? stdout : "");
+        if (row) said.summary = row[1].charAt(0).toUpperCase() + row[1].slice(1) + ".";
+    }
+    if (said.summary.indexOf("Fedora release upgrade") < 0) said.summary = capAtWord(said.summary, DOCTOR_SUMMARY_MAX);
     return said;
 }
 
