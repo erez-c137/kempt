@@ -896,7 +896,9 @@ without a password. When it is not installed, `off`, `on` and `keep` say so and 
 **`off`** writes `~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true` and a
 line marking it as Kempt's, so the notifier stops starting at login, and stops the running one. If
 a file of your own is there, Kempt leaves it alone, changes nothing and names it: add `Hidden=true`
-to that file's `[Desktop Entry]` group, or delete it and run `off` again.
+to that file's `[Desktop Entry]` group, or delete it and run `off` again. A file with
+`X-Kempt-Override=true` as a line of its own counts as Kempt's, so `off` replaces it and `on` deletes
+it. The same text in a comment or a value does not count.
 
 **`on`** deletes that file only if it carries Kempt's mark, so an edit made inside Kempt's file goes
 with it. A `.before-kempt` copy kept by 0.2.0 comes back to its old name, or stays and is named if a
@@ -916,5 +918,5 @@ takes that warning out of the state file. The widget runs it.
 | Exit | When |
 | --- | --- |
 | 0 | Done, or nothing needed doing. |
-| 1 | Nothing changed: `off` found a file of your own, or something else that is not Kempt's, at that path, `on` found a file of your own keeping the notifier off, or the writers' lock was busy. |
+| 1 | `off` found something at that path that is not Kempt's, or could not write its file. `on` could not remove Kempt's file. Nothing changed in these cases. `on` also exits 1 when a file of your own keeps the notifier off, and names it. If that file is the `.before-kempt` copy it just put back, it says so too, and the copy stays back. The writers' lock was busy. |
 | 2 | An unknown subcommand or option. |
