@@ -44,9 +44,9 @@ reclaim_bytes_of() {  # sizes TSV, refs one per line → bytes
 # refs are gone. On failure the one line goes to stderr, where the widget reads it.
 # 9>&- keeps check.lock's descriptor out of flatpak. The update lock (fd 8) is inherited on purpose:
 # if kempt is killed, no update starts until flatpak exits.
-reclaim_remove() {  # listing sizes refs(sorted, one per line) → 0, or 1 when anything is left to say
-  local listing="$1" sizes="$2" out rc=0 after err gone left freed n said
-  local -a refs; readarray -t refs <<<"$3"
+reclaim_remove() {  # sizes refs(sorted, one per line) → 0, or 1 when anything is left to say
+  local sizes="$1" out rc=0 after err gone left freed n said
+  local -a refs; readarray -t refs <<<"$2"
   # shellcheck disable=SC2086  # the seam carries its own arguments
   out="$(timeout "$KEMPT_RECLAIM_UNINSTALL_TIMEOUT" $KEMPT_FLATPAK_UNINSTALL_CMD -- "${refs[@]}" </dev/null 2>&1 9>&-)" || rc=$?
   [[ -z "$out" ]] || printf '%s\n' "$out"
@@ -60,8 +60,8 @@ reclaim_remove() {  # listing sizes refs(sorted, one per line) → 0, or 1 when 
     echo "$said" >&2; log_event "Unused runtimes: $said"
     return 1
   fi
-  gone="$(comm -23 <(reclaim_all_refs "$listing") <(reclaim_all_refs "$after"))"
-  left="$(comm -12 <(printf '%s\n' "$3") <(reclaim_all_refs "$after"))"
+  gone="$(comm -23 <(printf '%s\n' "$2") <(reclaim_all_refs "$after"))"
+  left="$(comm -12 <(printf '%s\n' "$2") <(reclaim_all_refs "$after"))"
   n=0; [[ -z "$gone" ]] || n="$(wc -l <<<"$gone")"
   freed="$(reclaim_bytes_of "$sizes" "$gone")"
   if [[ $n -eq 0 ]]; then said="Nothing was removed."
@@ -2346,7 +2346,7 @@ cmd_reclaim() {
   if [[ -z "$refs" ]]; then
     echo "Nothing to remove."
   else
-    reclaim_remove "$fresh" "$sizes" "$refs" || rc=$?
+    reclaim_remove "$sizes" "$refs" || rc=$?
   fi
   # state.json is the widget's only channel: the offer goes when this rewrites it. Still under the
   # update lock, then check.lock, the order cmd_update takes them in.

@@ -269,6 +269,10 @@ reset; only "$KDE" > "$AFTER"
 rc=0; reclaim -y || rc=$?
 assert_eq "$rc" "1" "flatpak saying yes with one left is not a success either"
 assert_contains "$(said_err)" "Still installed: $KDE." "...and says which"
+# Another tool removes something during ours: not counted as ours.
+reset; only "$P24" > "$AFTER"
+rc=0; reclaim -y -- "$KDE" || rc=$?
+assert_eq "$rc|$(said_out | tail -1)" "0|Freed about 900 MB." "what another tool removed meanwhile is not counted"
 # Back in use by the time of the list afterwards: not removed, and still installed.
 reset; in_use "$KDE" | jq '.unused = []' > "$AFTER"
 rc=0; reclaim -y || rc=$?
