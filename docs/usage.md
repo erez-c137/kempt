@@ -453,8 +453,8 @@ nothing is compared. Each new set gets one notification, and so does a recovery.
 runs. `--user` means a session service. `--json` prints the `startup` block of `kempt check`.
 
 `--all` shows everything that starts or runs on its own: what didn't start this boot, what
-changed since the last update, what starts with the computer, what runs on a schedule, and
-startup time. Empty parts and removed services are left out. Log lines of system services need
+changed since the last update, what starts with the computer and what runs on a schedule.
+Empty parts and removed services are left out. Log lines of system services need
 membership of `wheel`, `adm` or `systemd-journal`. `--json` prints [this shape](architecture.md#startup-report-json).
 The widget shows the same list on its Startup report.
 
@@ -470,10 +470,6 @@ Runs on a schedule:
   Cron
     backup.sh: every day at 23:55 (your crontab)
     These jobs do not run while crond is stopped.
-
-Startup time:
-  Ready in 6 s; all services by 3 min 1 s.
-  Usually ready in 7 s; all services by 2 min 55 s.
 ```
 
 | Exit | When |

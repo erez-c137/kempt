@@ -466,9 +466,6 @@ cmd_check() {
   # Right after the harvest, so the first check of a new boot compares against the stage it just
   # recorded. Never fails the check.
   startup_observe || true
-  # How long this boot took, for the Startup page's usual: recorded once per boot, and until startup
-  # has finished each check asks again (a few milliseconds).
-  startup_boot_record_quietly
   maybe_refresh_metadata "$force_refresh" "$anyway"
   local status="ok" error="" dnf_items fp_items fp_enabled=true prev_ls serr errf
   # Download sizes, in files because attach_sizes joins against a TSV. Empty on any failure, and
@@ -3485,11 +3482,7 @@ startup_page_cmd() {
   jq -r --arg today "$today" --arg yesterday "$(date -u -d "$today 12:00 UTC 1 day ago" +%F)" \
         --arg tomorrow "$(date -u -d "$today 12:00 UTC 1 day" +%F)" "$STARTUP_CLEAN_JQ"'
     walk(if type == "string" then clean else . end)
-    | def dur: if . == null then null elif . < 1 then "under 1 s" else round as $s
-      | if $s < 60 then "\($s) s"
-        elif $s < 3600 then "\($s / 60 | floor) min" + (if $s % 60 > 0 then " \($s % 60) s" else "" end)
-        else "\($s / 3600 | floor) h" + (if $s % 3600 >= 60 then " \($s % 3600 / 60 | floor) min" else "" end) end end;
-    def ymd: strftime("%Y-%m-%d");
+    | def ymd: strftime("%Y-%m-%d");
     def local: try (fromdateiso8601 | localtime) catch null;
     def lday: local as $t | if $t == null then .[:10] elif ($t | ymd) == $today then "today"
                             elif ($t | ymd) == $yesterday then "yesterday"
@@ -3546,9 +3539,6 @@ startup_page_cmd() {
       else "\(.command | program): \(.schedule | human) ("
            + (if .source == "crontab" then "your crontab" else .source end)
            + (if .user != null then ", as \(.user)" else "" end) + ")" end;
-    def step: if .unit | startswith("systemd-fsck") then "the disk check" else title end;
-    def took: (if .ready_sec != null then "ready in \(.ready_sec | dur); all services by \(.userspace_sec | dur)"
-               else "all services by \(.userspace_sec | dur)" end);
     (.schedule.notes // []) as $notes
     | [ (if (.notes // []) | index("session_slow") then ["Your session did not answer in time; its part is missing."] else empty end),
         (if (.notes // []) | index("session_missing") then ["Your session could not be reached, so its part is missing."] else empty end),
@@ -3571,15 +3561,7 @@ startup_page_cmd() {
                 + (if $notes | index("linger_off") then ["    Your timers stop when you log out."] else [] end) else [] end)
            + (.cron | if length > 0 then ["  Cron"] + map("    " + cronline)
                 + (if $notes | index("crond_down") then ["    These jobs do not run while crond is stopped."] else [] end) else [] end)
-           + (.at | if length > 0 then ["  Waiting at jobs"] + map("    \(if .when then .when | when else "unknown time" end) (job \(.id))") else [] end)),
-        (.boot_time // empty
-         | ["Startup time:", "  " + (took | .[:1] | ascii_upcase) + (took | .[1:]) + "."]
-           + (if .total_sec != null then ["  From power on: \(.total_sec | dur)."] else [] end)
-           + (if .usual != null then ["  Usually " + (.usual | took) + "."] else [] end)
-           + (if .usual != null and .slowest != null and .userspace_sec > .usual.userspace_sec * 1.25
-                 and .userspace_sec > .usual.userspace_sec + 10
-              then ["  Longest step: \(.slowest | step), \(.slowest.sec | dur)."] else [] end)
-           + (.recent | if length > 0 then ["  Earlier starts:"] + map("    \(.at | when): " + took) else [] end)) ]
+           + (.at | if length > 0 then ["  Waiting at jobs"] + map("    \(if .when then .when | when else "unknown time" end) (job \(.id))") else [] end)) ]
     | if length == 0 then "Kempt found nothing to list." else map(join("\n")) | join("\n\n") end' <<<"$page"
 }
 

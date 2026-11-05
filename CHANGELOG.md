@@ -31,6 +31,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- **Startup time in the Startup Report and `kempt startup --all`.** `boot_time` is gone from `--json`, Kempt no longer runs `systemd-analyze`, and it no longer writes `boot-times.json`. An existing file there stays and nothing reads it, so you can delete it. `systemd-analyze` gives the same figures.
 - **`install.sh`.** Kempt installs as a package. Developers use `tools/build-local.sh`, which builds the packages from a checkout. If you installed from a checkout, run `./install.sh --uninstall` from your current copy before you pull, then install the package. The `kempt doctor` rows that only applied to a checkout go too: `helpers:`, `policy:`, `widget:`, `install: packaged`, the commit line and `getfacl`, which the package requires.
 - **Updating in a terminal window.** The `terminal` setting, the **Terminal window** choice in the widget's settings, the `KEMPT_TERMINAL` variable and `kempt run`'s exits 4 and 5 are gone. A saved `terminal` now reads as **In this widget**. To watch an update, type `kempt update` in a terminal: it always shows live output and asks before kernel, systemd or desktop updates.
 - **Apply updates without asking for confirmation** in the widget's settings. Its only effect was to open a terminal window. `auto_accept=false` still makes `kempt update` at a terminal let dnf5 ask you. A script with `auto_accept=false` and no terminal is refused with exit 5 and nothing changes. A press in the widget still runs.

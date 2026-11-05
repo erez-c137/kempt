@@ -178,7 +178,6 @@ day.
 | `~/.local/state/kempt/discover-unattended-answered` | The widget drew its warning about Discover's automatic updates. Removed when the setting reads false and by `kempt discover-notifier on` |
 | `~/.local/state/kempt/offline-partial` | Which copy of dnf5's stored transaction is what is left of a stage only partly installed, for `kempt doctor`. Removed once that copy changes |
 | `~/.local/state/kempt/discover-entry-written` | The autostart entry Kempt last wrote, so `kempt discover-notifier on` removes only Kempt's own |
-| `~/.local/state/kempt/boot-times.json` | How long each of the last 11 boots took, for `kempt startup --all`. A check adds the boot once startup has finished (until then each check asks again, which takes a few milliseconds), and so does the page |
 | `~/.local/state/kempt/lock`, `check.lock`, `writer.lock`, `stage.lock`, `state.lock`, `events.lock` | `flock` files, never pruned. [architecture.md](architecture.md#where-kempt-writes) says what each serialises |
 
 File names use a compact timestamp (`20260824T210511`). The `timestamp` field inside each history
