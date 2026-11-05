@@ -247,7 +247,7 @@ is "armed" "$(toml_status)" "ready"
 sed -i 's/^status = "ready"/status = "download-complete"/' "$TOML"
 "$K" check >/dev/null 2>&1
 is "nothing is published as pending" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
-is "published as lost" "$(problem)" "lost"
+is "published as never set to install" "$(problem)" "unarmed"
 d=$("$K" doctor 2>&1); rc=$?
 has "doctor: the boot symlink stands over a transaction that is not armed" "$d" "boot symlink"
 is "...exit 1" "$rc" "1"
