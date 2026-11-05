@@ -115,6 +115,17 @@ p.pump(200)
 # object is the file that instantiated it, so go through a child.
 rev = p.evaluator(lev("startupPage.children[0]"))
 
+spy, sev = p.create_inline("""
+import QtQuick
+QtObject {
+    id: spy
+    property var said: []
+    function hear(sentence) { var a = spy.said.slice(); a.push(sentence); spy.said = a; }
+}
+""", "said-spy.qml")
+p.engine.rootContext().setContextProperty("saidSpy", spy)
+lev("popup.announced.connect(saidSpy.hear)")
+
 # --- the banner, and the panel it leaves alone ---------------------------------------------------
 p.check("a failed service takes the startup slot", ev("root.vm.messageSlots.indexOf('startup') >= 0"), True)
 p.check("the banner is one warning, one sentence and one button",
@@ -255,6 +266,8 @@ rev((ROW % 0) + ".muteButton.clicked()")
 settle()
 p.check("a mute that failed says so in that service's row",
         rev((ROW % 0) + ".label.text.split('\\n')[2]"), "kempt: could not write the mutes file")
+p.check("...and a screen reader hears it", json.loads(str(sev("JSON.stringify(said)")))[-1:],
+        ["kempt: could not write the mutes file"])
 p.check("...and the button says Mute again", rev((ROW % 0) + ".muteButton.text"), "Mute Until It Starts")
 open(MUTEMSG, "w").write("")
 rev((ROW % 0) + ".muteButton.clicked()")

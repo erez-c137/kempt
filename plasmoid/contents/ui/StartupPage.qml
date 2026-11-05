@@ -24,6 +24,9 @@ ColumnLayout {
     spacing: Kirigami.Units.smallSpacing
 
     onSpChanged: if (visible && sp !== null && sp.ok !== true) announceRequested(sp.problem)
+    // A mute that failed is said in its row, and to a screen reader, where the press was.
+    readonly property var muteError: plasmoidItem.startupMuteError
+    onMuteErrorChanged: if (visible && muteError !== null) announceRequested(muteError.text)
 
     // Where the keyboard lands when the page opens.
     function focusFirst() {
