@@ -7,6 +7,16 @@ sandbox
 
 K="$REPO_ROOT/bin/kempt"
 HELPER="$REPO_ROOT/libexec/kempt-apply"
+
+# The rule itself, read as text, is one rule in all three places, with owner and group read as 0.
+rule_text() {  # file → the find's test on one line
+  sed -n '/-ignore_readdir_race/,/-quit/p' "$1" | tr -s ' \\\n' ' ' \
+    | sed -E 's/.*-ignore_readdir_race (.*\)) -print.*/\1/; s/"\$OWNER"/0/g; s/"\$GROUP"/0/g'
+}
+RULE="$(rule_text "$HELPER")"
+assert_contains "$RULE" '! -uid 0 -o' "the rule is read from the helper"
+assert_eq "$(rule_text "$REPO_ROOT/libexec/kempt-refresh")" "$RULE" "kempt-refresh has the helper's rule, word for word"
+assert_eq "$(rule_text "$K")" "$RULE" "the CLI has the helper's rule, word for word"
 R="$TESTTMP/root"
 STATE="$R/usr/lib/sysimage/libdnf5"; STAGED="$R/var/lib/dnf/offline"; CACHE="$R/var/cache/libdnf5"
 export KEMPT_DNF_SYSIMAGE_DIR="$STATE" KEMPT_DNF_OFFLINE_PKG_DIR="$STAGED" KEMPT_DNF_CACHE_DIR="$CACHE"
@@ -87,6 +97,7 @@ fail|the cache folder 0777|chmod 777 var/cache/libdnf5
 fail|a folder deep in the cache 0777|chmod 777 var/cache/libdnf5/repo/packages
 fail|a world-writable file in the cache|: > var/cache/libdnf5/repo/f; chmod 666 var/cache/libdnf5/repo/f
 fail|a world-writable file in the state|: > usr/lib/sysimage/libdnf5/f; chmod 666 usr/lib/sysimage/libdnf5/f
+fail|a sticky 777 folder in the cache|mkdir -m 1777 var/cache/libdnf5/repo/s
 TABLE
 if command -v setfacl >/dev/null; then
   same_answer pass "a write ACL on a parent" 'setfacl -m u:0:rwx var'
