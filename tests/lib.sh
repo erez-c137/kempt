@@ -35,8 +35,7 @@ sandbox() {  # fresh dirs per test file; call first
   # notify() stays quiet with no desktop session, and a build root has none. Every test gets the same
   # answer on any machine, and none can reach a real session bus.
   export DBUS_SESSION_BUS_ADDRESS="unix:path=$TESTTMP/no-bus-needed"
-  # Same shape: the installer's icon-cache signal must never reach the real session bus from a
-  # test run. The suite asserts the SHAPE of the command install.sh builds, not its delivery.
+  # Same shape: no signal may reach the real session bus from a test run.
   export KEMPT_DBUS_SEND="true"
   export KEMPT_REFRESH_HELPER="$TESTTMP/UNSTUBBED-refresh"
   export KEMPT_APPLY_HELPER="$TESTTMP/UNSTUBBED-apply"
@@ -244,7 +243,7 @@ EOF
   unset KEMPT_SYSTEMD_POLL KEMPT_SYSTEMD_GRACE KEMPT_SYSTEMD_LONG_RUN
   unset KEMPT_DNF_INSTALLED_CMD KEMPT_DNF_CMD \
         KEMPT_FLATPAK_REMOTE_CMD KEMPT_FLATPAK_LIST_CMD \
-        KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_TERMINAL KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
+        KEMPT_SKIP_REFRESH KEMPT_RISKY_RE KEMPT_ASSUME_TTY KEMPT_RETRY_DELAY \
         KEMPT_INSTALL_ECHO KEMPT_APPLY_ECHO KEMPT_REFRESH_ECHO \
         KEMPT_BOOT_ID KEMPT_POLICY_FILE KEMPT_VIA KEMPT_ROOT \
         KEMPT_KPACKAGETOOL KEMPT_LIVE_OUTPUT KEMPT_RULES_DST KEMPT_CHECK_LOCK_WAIT \

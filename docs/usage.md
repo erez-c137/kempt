@@ -52,7 +52,6 @@ Most commands use these codes. Each command's section lists its own cases.
 | 1 | Something failed. |
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
-| 4 | No terminal emulator. |
 | 5 | Stopped before changing anything. |
 | 6 | `reclaim` and `startup`: what you were shown changed. |
 | 7 | `update` only: another program held the package lock. |
@@ -91,7 +90,7 @@ vim-minimal  2:9.2.967-1.fc44 -> 2:9.2.1000-1.fc44
 | `--strict` | Exits 1 when the answer is not current (see the exit table). Use it in scripts. |
 
 The widget passes `--coalesce` for its timer, its file watcher, its startup check and when you
-open it, so two widgets cost one check. **Check for Updates**, **Not Updating? Check for Updates** and a
+open it, so two widgets cost one check. **Check for Updates**, **Not Updating? Check Again** and a
 hold always run a check of their own.
 
 **Where the answer comes from.** A check answers from the local dnf and Flatpak caches. It
@@ -99,7 +98,7 @@ refreshes them at most once every 3 hours, which is the only network use, and sk
 or a metered connection. On a fresh install the first check refreshes before it asks, and a backend
 that cannot reports `stale` until a refresh succeeds. Old metadata shows in the widget's footer, in
 `kempt doctor`, and in the event log, which records a skipped refresh once a day. To fetch anyway,
-run `kempt check --anyway` or press **Download Anyway** in the widget.
+run `kempt check --anyway` or press **Check Anyway** in the widget.
 
 A check also records a staged update once the restart has installed it, and clears Kempt's record
 of a stage that has gone.
@@ -120,7 +119,7 @@ The full schema is in [architecture.md](architecture.md#state-json-schema-v1).
 When a backend fails (network down, repo unavailable), `status` is `"stale"`, `error` holds the
 message, and the previous item lists are kept. A missing root helper reads
 `root helper not installed. Reinstall it with: sudo dnf reinstall kempt (see: kempt doctor)`.
-On a checkout, it says `Run ./install.sh` instead. A missing or corrupt state file starts from an
+A missing or corrupt state file starts from an
 empty list. **Empty output with exit 0 means "no data, keep what you had"**, never
 zero updates.
 
@@ -133,7 +132,7 @@ zero updates.
 ## update
 
 ```
-kempt update [--no-flatpak] [--surface=terminal|widget|offline] [--risky-ok]
+kempt update [--no-flatpak] [--surface=widget|offline] [--risky-ok] [--answered]
 ```
 
 Runs the update now, in this process. Flags override the config file for this run.
@@ -147,12 +146,13 @@ kempt update --surface=offline    # stage it; installs on the next restart
 | Option | Effect |
 | --- | --- |
 | `--no-flatpak` | Updates system packages only. |
-| `--surface=` | Where this run happens, as **Run updates in** in the widget's settings: `terminal` (**Terminal window**), `widget` (**In this widget**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `terminal`. |
+| `--surface=` | How this run installs, as **Run updates in** in the widget's settings: `widget` (**In this widget**) or `offline` (**On the next restart**). An unknown value logs a warning and uses `widget`. |
 | `--risky-ok` | Sends no notification about session-critical packages from a run that cannot ask. The widget passes it after **Install Now**. |
+| `--answered` | Says a person already chose, so `auto_accept=false` with no terminal does not refuse. `kempt run` passes it. |
 
-With `auto_accept=false`, every run uses a terminal with live output, because only a terminal can
-answer dnf's prompt. `kempt run` then stages in a terminal too, and turns every other `--surface=`
-value into a live update there.
+Typed at a terminal, a run shows live output. With `auto_accept=false`, dnf5 also asks you there.
+With `auto_accept=false` and no terminal, such as a script, it refuses with exit 5 and changes
+nothing. A press in the widget is the answer, and `kempt run` says so with `--answered`.
 
 What happens, in order:
 
@@ -218,7 +218,7 @@ doctor` checks it.
 | 1 | A backend failed, including the root helper refusing a folder that turned unsafe during the run. |
 | 2 | Unknown option. |
 | 3 | Another update is running, including another user's. Kempt says so before it checks anything. |
-| 5 | Nothing changed: an image-based Fedora, installed packages or apps that could not be read, `--surface=offline` while a Fedora release upgrade is stored or another updater holds the next restart, a run with no terminal and no `--risky-ok` that finds system updates behind that updater, or a dnf folder Kempt can see is unsafe. |
+| 5 | Nothing changed: `auto_accept=false` with no terminal and no press, an image-based Fedora, installed packages or apps that could not be read, `--surface=offline` while a Fedora release upgrade is stored or another updater holds the next restart, a run with no terminal and no `--risky-ok` that finds system updates behind that updater, or a dnf folder Kempt can see is unsafe. |
 | 7 | The only failure was a lock another program, such as PackageKit or Discover, held through all three tries. Try again in a few minutes. A busy lock while rebuilding a staged update exits 1. |
 
 ### Installing on the next restart
@@ -240,11 +240,11 @@ pending, and the widget stops offering to stage them again. The CLI says:
 The widget puts the count in its header and says `They install when you restart.`
 
 **When staging fails.** If the update was stored but could not be set up for the restart, Kempt
-discards it. The run fails with `the updates were staged, but could not be set to install on the
+discards it. The run fails with `the updates were downloaded, but could not be set to install on the
 next restart`. Staging again replaces the previous staged update. If that fails:
 
 - Before anything was replaced, the previous one still installs. The run fails with
-  `could not rebuild the staged update. The previous one is unchanged and still installs on the
+  `could not replace the prepared updates. The previous one is unchanged and still installs on the
   next restart`.
 - After the previous one was gone, the run fails with `the previous staged update was discarded
   and could not be rebuilt`, and Kempt cleans up so the restart installs nothing. If that cleanup
@@ -260,10 +260,10 @@ Flatpak included, before any password prompt. The message names the folder, and 
 the fix. With no system updates waiting, a live run still updates Flatpak.
 
 **When another updater holds the next restart, `--surface=offline` stops too,** with exit 5 and
-nothing changed, Flatpak included, even with `auto_accept` off, because a quiet fall to a live run
+nothing changed, Flatpak included, because a quiet fall to a live run
 could cancel what that updater prepared. A live run with no terminal and no `--risky-ok` stops the
 same way. The widget asks first and passes the flag. With no system updates waiting, both carry on.
-To update anyway, use `kempt update --surface=terminal`, unless other users can also change dnf's
+To update anyway, use `kempt update --surface=widget` in a terminal, unless other users can also change dnf's
 folders: then the message names the folder, and `kempt doctor` has the fix. While the restart is held, the
 risky-transaction prompt offers only `[u]` and `[a]`.
 
@@ -271,7 +271,7 @@ risky-transaction prompt offers only `[u]` and `[a]`.
 your own removed the restart trigger. The next check tells you once:
 
 ```
-Your staged update can no longer install on a restart. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean.
+Your prepared updates can no longer install on a restart. To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean.
 ```
 
 Kempt says nothing if your dnf command installed every staged update.
@@ -325,21 +325,15 @@ A failed snapshot is only logged, and the update goes ahead. To make it an error
 ## run
 
 ```
-kempt run [--print-command] [--surface=terminal|widget|offline] [--risky-ok]
+kempt run [--print-command] [--surface=widget|offline] [--risky-ok]
 ```
 
-Starts `kempt update` where your settings say, then returns at once. In a terminal, `kempt update`
-is simpler.
+Starts `kempt update` the way your settings say, in the background, then returns at once. In a
+terminal, `kempt update` is simpler.
 
 ```bash
 kempt run --print-command
 ```
-
-```
-terminal: konsole -e kempt update
-```
-
-With `surface=widget`:
 
 ```
 detached: kempt update (surface=widget)
@@ -348,20 +342,16 @@ detached: kempt update (surface=widget)
 | Option | Effect |
 | --- | --- |
 | `--print-command` | Prints the launch command and starts nothing. |
-| `--surface=` | Runs this one update somewhere else, whatever the setting says. |
+| `--surface=` | Runs this one update the other way, whatever the setting says. |
 | `--risky-ok` | Passed on to an update that runs outside a terminal. A terminal run still asks. |
 
-**Exit 0 means the update started.** `state.json` and `kempt history` have the result. However the
-terminal window closes, even early, it runs a check, which ends the widget's updating state. The
-window's shell exits with the update's status.
+**Exit 0 means the update started.** `state.json` and `kempt history` have the result.
 
 | Exit | When |
 | --- | --- |
 | 0 | The update started. |
 | 2 | Unknown option or `--surface=` value. |
 | 3 | Another update is running. Nothing is launched. |
-| 4 | The terminal emulator is missing. `--print-command` checks this too. |
-| 5 | The terminal window did not open within five seconds, for example over SSH with no display. The event log says `run did not start: <reason>`, and a window that opens later starts nothing. |
 
 ## unstage
 
@@ -372,7 +362,7 @@ kempt unstage
 Undoes `kempt update --surface=offline`, so the next restart installs nothing.
 
 ```
-Discarded the staged update. The next restart installs nothing.
+Discarded the updates waiting for the next restart. That restart installs nothing.
 ```
 
 It asks for your password once, or, with nothing staged, says so without asking. Kempt clears its
@@ -504,12 +494,12 @@ and a restart owed. The footer says when the check ran, the age of the lists and
 When another updater has prepared the next restart, a line says that restart belongs to it.
 
 ```
-10 updates available
+10 updates
 
 System (dnf): 7 updates for kernel-core, bash, curl, tar, and 3 more
 Apps (flatpak): 3 updates for org.gimp.GIMP, net.mkiol.SpeechNote and org.mozilla.firefox
 
-Checked 2 hours ago · lists 2 days old
+Checked 2 hours ago · update info 2 days old
 Last update 3 days ago · 41 updated
 ```
 
@@ -546,7 +536,7 @@ kempt summary
 ```
 
 ```
-Kempt - 2026-08-24T21:05:11+03:00 (terminal, 74s) ✓
+Kempt - 2026-08-24T21:05:11+03:00 (widget, 74s) ✓
 System (dnf): 2 updated, +1 installed
   curl 8.18.0-8.fc44 → 8.18.0-9.fc44
   kernel-core 6.15.3-200.fc44 → 6.15.4-200.fc44
@@ -598,7 +588,7 @@ kempt history
 ```
 
 ```
-2026-08-24T21:05:11+03:00  terminal  ok  3 updated, +1 installed
+2026-08-24T21:05:11+03:00  widget  ok  3 updated, +1 installed
 2026-08-23T09:41:02+03:00  restart (staged update installed)  ok  41 updated
 2026-08-22T23:10:37+03:00  offline  ok  staged 41 updates for a restart
 2026-08-22T18:12:55+03:00  widget  failed  no package changes  (authentication cancelled)
@@ -631,7 +621,7 @@ kempt log -n 4
 
 ```
 2026-08-26T20:58:11+03:00 cli Checked: 7 updates to install, 1 held
-2026-08-26T21:10:55+03:00 widget Setting auto_accept changed to true (was false)
+2026-08-26T21:10:55+03:00 widget Setting include_flatpak changed to true (was false)
 2026-08-26T21:11:02+03:00 widget Update started in the widget
 2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
 ```
@@ -661,7 +651,7 @@ Its wording is fixed, so you can search it:
 | `refresh ok` / `refresh failed` | The dnf metadata refresh ran. |
 | `refresh flatpak ok` / `refresh flatpak failed` | The Flatpak refresh ran in the same step, while `include_flatpak` is on. Either can fail alone. |
 | `refresh skipped (<reason>)` | Skipped on battery or a metered connection. At most once a day. |
-| `refresh anyway (on battery)` / `refresh anyway (the connection is metered)` | `--anyway` or **Download Anyway** fetched past that rule. Every time. |
+| `refresh anyway (on battery)` / `refresh anyway (the connection is metered)` | `--anyway` or **Check Anyway** fetched past that rule. Every time. |
 | `run start surface=<surface>` | A run is about to change the system. |
 | `run did not start: <reason>` | A run stopped before changing anything: the exit-5 cases of `update` and `run`. |
 | `run done rc=0 updated=<n> reboot=needed\|no` | A run finished. |
@@ -670,9 +660,9 @@ Its wording is fixed, so you can search it:
 | `offline staged <n>` | An update was staged for the next restart. |
 | `offline restage` / `offline restage failed (previous stage intact)` | A new stage replaced the previous one, or failed and left it in place. The first names the holds that prompted it. |
 | `offline stage dropped (superseded by live update)` | A live update changed packages and discarded the stage. |
-| `offline stage cannot install (...) - announced\|not announced` | The staged update can no longer install on a restart. `not announced` when the notification did not show. It is not sent again. |
+| `offline stage cannot install (...) - announced\|not announced` | The staged update can no longer install on a restart. `not announced` when the notification did not show, and the next check tries again. Once shown, it is not sent again. |
 | `offline stage replaced outside Kempt (<what differs>) - announced\|not announced` | The staged update is no longer the one Kempt made. `not announced` as above. |
-| `offline stage did not finish on the restart (...) - announced\|not announced` | dnf5 stopped during the restart, and nothing of the stage can be shown to have changed. It is not sent again. |
+| `offline stage did not finish on the restart (...) - announced\|not announced` | dnf5 stopped during the restart, and nothing of the stage can be shown to have changed. Once shown, it is not sent again. |
 | `offline stage partly installed on a restart that did not finish (<counts>)` | dnf5 stopped during the restart with some staged packages changed. The history entry says `offline (restart did not finish)`. |
 | `offline stage partly installed outside Kempt (<counts>)` | Some of the staged packages changed outside Kempt and the rest did not. The history entry says `offline (partly installed outside Kempt)`. |
 | `offline stage partly installed outside Kempt, after it was announced as lost` | The same, after you were told the stage could no longer install. No history or second notification. |
@@ -732,16 +722,15 @@ Checks this install, one line per check. Use it when the widget says it cannot c
 counts you do not trust. A missing root helper makes every dnf check fail, so the system package
 count never changes.
 
-On a checkout install:
+A healthy report:
 
 ```
-info  kempt 0.1.x (/home/you/src/kempt)
-ok    root helper (refresh): /usr/local/libexec/kempt-refresh (root:root 0755)
-ok    root helper (apply): /usr/local/libexec/kempt-apply (root:root 0755)
+info  kempt 0.1.x (/usr/share/kempt)
+ok    root helper (refresh): /usr/libexec/kempt-refresh (root:root 0755)
+ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
-ok    polkit exec.path (refresh): /usr/local/libexec/kempt-refresh
-ok    polkit exec.path (apply): /usr/local/libexec/kempt-apply
-ok    terminal emulator: /usr/bin/konsole
+ok    polkit exec.path (refresh): /usr/libexec/kempt-refresh
+ok    polkit exec.path (apply): /usr/libexec/kempt-apply
 ok    flatpak: /usr/bin/flatpak
 ok    Discover's update notifier: turned off for this user (/home/you/.config/autostart/org.kde.discover.notifier.desktop)
 ok    package lists: refreshed 2026-08-26T20:58:03+03:00
@@ -772,16 +761,13 @@ What a `FAIL` means:
 | Check | FAIL means |
 | --- | --- |
 | The system uses dnf (second line) | An image-based Fedora, where `kempt update` stops (exit 5). Use Discover or `rpm-ostree upgrade`. |
-| Both root helpers exist at the expected paths, `root:root` 0755 | `install.sh` has not run, or the helpers were replaced. Checks stay `stale`, updates cannot run. |
+| Both root helpers exist at the expected paths, `root:root` 0755 | The package is damaged, or the helpers were replaced. Checks stay `stale`, updates cannot run. |
 | The polkit action file is installed | Background checks cannot authorize. |
-| Each polkit `exec.path` names the helper this CLI uses | Every privileged step asks for a password, and background checks time out after 120 s. Usually a package over a checkout install, or the reverse; the line names both fixes. `info` when the policy cannot be read. |
-| `getfacl` is present (a `FAIL` row only when it is missing) | The dnf folder checks cannot see ACL entries. Install the `acl` package. |
-| The terminal emulator (`$KEMPT_TERMINAL`) is present | `kempt run` exits 4. `info` when updates do not run in a terminal. |
+| Each polkit `exec.path` names the helper this CLI uses | Every privileged step asks for a password, and background checks time out after 120 s. The line names the fix. `info` when the policy cannot be read. |
 | `flatpak` is present (a `WARN` row only when `include_flatpak=true` is set by hand) | Kempt skips Flatpak. Otherwise `info`. |
 | Every config line is `key=value` with a valid key | That line is ignored, so the setting never applies. |
 | The state directory is writable | No state, history or logs. |
-| `helpers:`, `policy:`, `widget:` match the checkout | `DIFFER`: you pulled without re-running `./install.sh`, so root still runs the old helpers. `git pull` updates only the CLI. The line names the fix. `not installed` is `info`. |
-| `widget engine:` (last on both kinds of install) names this `kempt` | A leftover `~/.local/bin/kempt` shadows the installed one, because the panel puts `~/.local/bin` first on its `PATH`. `info` when the widget finds none. |
+| `widget engine:` (last) names this `kempt` | A leftover `~/.local/bin/kempt` shadows the installed one, because the panel puts `~/.local/bin` first on its `PATH`. `info` when the widget finds none. |
 | A staged update is ready for the restart, or absent | It was downloaded but will never install. Run `sudo dnf5 offline clean`. |
 | `/system-update` is absent, or points at a ready update | The next restart starts the offline updater and installs nothing. Run `sudo dnf5 offline clean`. |
 
@@ -808,8 +794,8 @@ when neither exists.
 | --- | --- |
 | `info  staged update: 61 packages install on the next restart` | Normal. |
 | `FAIL  staged update did not finish: dnf5 started it on a restart and stopped before the end ...` | No restart runs it again. Run `sudo dnf5 offline clean` and stage again. |
-| `FAIL  staged update can never install: the transaction was downloaded but never set to install ...` | Never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
-| `FAIL  staged update can never install: dnf5 says "ready" but /system-update is gone ...` | A restart already skipped it, and no later restart will install it. |
+| `FAIL  prepared updates can never install: the transaction was downloaded but never set to install ...` | Never set up for the restart. Run `sudo dnf5 offline clean` and stage again. |
+| `FAIL  prepared updates can never install: dnf5 says "ready" but /system-update is gone ...` | A restart already skipped it, and no later restart will install it. |
 | `FAIL  the stored Fedora release upgrade can never install: ...` | The same, for a release upgrade. `sudo dnf5 system-upgrade reboot` sets it up again. |
 | `info  staged update: the transaction is gone, ...` | The next check clears Kempt's leftover record. |
 | `info  an offline transaction is staged outside Kempt ...` | Something else staged it. `dnf5 offline status` describes it. |
@@ -817,13 +803,13 @@ when neither exists.
 | `info  dnf5 still keeps what is left of a staged update that was only partly installed ...` | It will not run again, and a later stage replaces it. `kempt unstage` removes it. If another updater holds the next restart, restart first. |
 | `WARN  staged update: another updater has prepared the next restart ...` | The update Kempt staged will not install on that restart. |
 | `WARN  another updater has prepared the next restart: /system-update points to ...` | Normal while Discover's notifier has an update ready. Kempt will not stage until you have restarted. `is not dnf5's` in place of `points to` means a plain file. |
-| `info  a Fedora release upgrade (44 -> 45) is staged outside Kempt and installs on the next restart ...` | A release upgrade is ready. `kempt update --surface=offline` stops while it is there. |
+| `info  a Fedora release upgrade (44 -> 45) is prepared outside Kempt and installs on the next restart ...` | A release upgrade is ready. `sudo dnf5 offline clean` removes it. `kempt update --surface=offline` stops while it is there. |
 | `info  a Fedora release upgrade (44 -> 45) has been downloaded outside Kempt but not started ...` | No restart installs it yet. `sudo dnf5 system-upgrade reboot` starts it, `sudo dnf5 offline clean` drops it. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and was set to install, but the restart marker /system-update is not in place ...` | A restart already skipped it. See the FAIL row above. |
 | `info  a Fedora release upgrade (44 -> 45) is stored outside Kempt and did not finish ...` | `sudo dnf5 offline log` says why. |
 | `info  staged update: Kempt has a marker for a transaction that is no longer stored ...` | A release upgrade replaced Kempt's staged update. The next check clears the record. |
 | `FAIL  boot symlink is live over a transaction that is not set to install ...` | The next restart starts the offline updater and installs nothing. |
-| `FAIL  boot symlink is live with nothing staged behind it ...` | The same, with nothing stored at all. |
+| `FAIL  boot symlink is live with nothing prepared behind it ...` | The same, with nothing stored at all. |
 | `info  staged update: it installs kernel-core on the next restart despite the hold ...` | A hold added after staging. Rebuild with `kempt update --surface=offline`, or remove it with `sudo dnf5 offline clean`. |
 | `info  staged update: it may still install held packages on the next restart ...` | The same, when Kempt cannot read the staged update's contents and you hold a dnf package. |
 | `FAIL  staged update is not the one Kempt built ...` | Something replaced it. The line lists up to four differences each way (`+` only in dnf5's, `-` only in Kempt's). |
@@ -908,7 +894,7 @@ The staged update was built without kernel-core, so the next restart will not in
 ```
 
 After that restart, the hold works as usual. The widget shows the same warning on its
-[staged banner](widget.md#the-staged-banner).
+[ready message](widget.md#when-updates-are-ready).
 
 ## config
 
@@ -931,7 +917,7 @@ kempt config get refresh_interval_min   # 60
 newer widget can use keys this version does not know:
 
 ```
-warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, offline
+warning: 'bogus' is not a value surface accepts. Accepted: widget, offline
 ```
 
 Setting `surface` also answers the widget's one-time offer to run updates in the widget.

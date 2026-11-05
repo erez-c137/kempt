@@ -656,7 +656,7 @@ assert_eq "$(jq -r '.refresh_skipped // "absent"' <<<"$st_off")" "off" \
   "...and with refreshing turned off it says off, beside the old failure it did not retry"
 rm -f "$REFRESH_DNF_FAILED_FILE"
 
-# --- Download Anyway: one check, by request, past the battery and metering rules ------------------
+# --- Check Anyway: one check, by request, past the battery and metering rules ------------------
 # --anyway implies --refresh and passes the two rules --refresh may not. Each override is logged,
 # every time, and the check publishes no refresh_skipped, so the widget's message clears.
 anyways() { grep -c 'refresh anyway' "$KEMPT_STATE_DIR/events.log" 2>/dev/null || true; }
@@ -1080,6 +1080,19 @@ sb_check
 assert_eq "$(cat "$sb_notify")" "" "the next check does not say it again"
 assert_eq "$(events_since 'offline stage cannot install (status ready, but the restart marker is gone) - announced')" "$((sb_before + 1))" \
   "...nor record it again"
+# Nobody could be told at that check: it is not recorded as said, so the next check says it.
+stage_marker boot-t4 61
+: > "$sb_notify"
+KEMPT_OFFLINE_LINK="$TESTTMP/no-system-update" KEMPT_NOTIFY=false "$KEMPT" check >/dev/null
+assert_eq "$(jq -r '.armed' "$marker")" "true" "a notification that was not shown does not demote the marker"
+assert_eq "$(jq -r '.lost_announced // "absent"' "$marker")" "absent" "...nor record the stage as announced"
+assert_eq "$(jq -r '.offline_staged // "absent"' "$st")" "absent" "...and the stage is still not published as staged"
+sb_check
+assert_eq "$(grep -c 'can no longer install on a restart' "$sb_notify")" "1" "...so the next check with a session says it"
+assert_eq "$(jq -r '[.armed, .lost_announced] | join(" ")' "$marker")" "false true" "...and records that it did"
+: > "$sb_notify"
+sb_check
+assert_eq "$(cat "$sb_notify")" "" "...once"
 # A lock held by somebody else, until it is let go: a sentinel says it is held, and the holder
 # waits on a fifo rather than a timer, so a loaded box cannot release it early.
 sb_hold() {  # lock-file → holds it in the background; sb_release lets go
@@ -1198,7 +1211,7 @@ before_marker="$(jq -Sc . "$marker")"
 detour_check
 assert_exit 0 "a stage that a restart could not install is not cleared" -- test -f "$marker"
 assert_eq "$(cat "$notify_log")" \
-  "Kempt Your staged update can no longer install on a restart. To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean." \
+  "Kempt Your prepared updates can no longer install on a restart. To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean." \
   "...the one notification that keeps the banner's disappearance from being silent"
 assert_eq "$(events_since 'offline stage cannot install (status download-complete) - announced')" "1" \
   "...and the event log carries the status it was announced for"
@@ -1434,7 +1447,7 @@ stage_marker boot-before-reboot 3
 before_pk="$(events_since 'offline stage installed by another updater')"
 : > "$notify_log"
 KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_eq "$(cat "$notify_log")" "Kempt Your staged updates are installed." \
+assert_eq "$(cat "$notify_log")" "Kempt Your prepared updates are installed." \
   "a stage another updater installed on the restart is announced once, as installed"
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 assert_exit 0 "...with its snapshot" -- test ! -f "$pre"
@@ -1452,7 +1465,7 @@ rm -rf "$KEMPT_STATE_DIR/history"   # the race case further down counts entries 
 stage_marker boot-before-reboot 3
 : > "$notify_log"
 PK_QA="$TESTTMP/pk-qa-newer" KEMPT_DNF_INSTALLED_CMD="cat $pk_after" pk_check
-assert_eq "$(cat "$notify_log")" "Kempt Your staged updates are installed." \
+assert_eq "$(cat "$notify_log")" "Kempt Your prepared updates are installed." \
   "a newer build installed elsewhere is announced as installed, with no advice to stage again"
 assert_exit 0 "...and the marker is consumed" -- test ! -f "$marker"
 rm -f "$marker" "$pre"

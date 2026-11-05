@@ -40,7 +40,7 @@ No successful check yet" "no state: says so"
 assert_eq "$(status_rc)" "1" "no state exits 1"
 
 put live
-assert_eq "$(status)" "10 updates available
+assert_eq "$(status)" "10 updates
 
 System (dnf): 7 updates for aajohan-comfortaa-fonts, bash, brandnew, curl, and 3 more
 Apps (flatpak): 3 updates for com.example.NotInstalled, net.mkiol.SpeechNote and org.gimp.GIMP
@@ -52,7 +52,7 @@ assert_eq "$(status_rc)" "0" "updates waiting exits 0"
 # last check failed. Scripts still learn it from the exit code.
 put stale
 out="$(status)"
-assert_eq "$(head -n 1 <<<"$out")" "10 updates available" "stale after a success: the header is the count"
+assert_eq "$(head -n 1 <<<"$out")" "10 updates" "stale after a success: the header is the count"
 assert_contains "$out" "Checked 1 day ago · last check failed" "stale: the footer says the last check failed"
 assert_not_contains "$out" "dnf check failed" "stale: no problem detail under a calm header"
 assert_eq "$(status_rc)" "1" "stale exits 1"
@@ -104,7 +104,7 @@ assert_contains "$out" "Held: 10 (aajohan-comfortaa-fonts, bash, brandnew, curl,
 assert_eq "$(status_rc)" "0" "all held exits 0"
 
 put reboot-needed
-assert_contains "$(status)" "Restart to apply installed updates" "a restart owed has its line"
+assert_contains "$(status)" "Restart to finish updating." "a restart owed has its line"
 put security
 assert_contains "$(status)" "Security: 3 updates" "the security block's count"
 jq '.security.count = 1' "$FIXTURES/state-security.json" > "$STATE_FILE"
@@ -125,9 +125,9 @@ assert_eq "$(status_rc)" "1" "an unreadable state exits 1"
 jq '.offline_staged = {staged_at: "2026-08-27T10:00:00+03:00", count: 12, armed: true}
     | .reboot_needed = true' "$FIXTURES/state-live.json" > "$STATE_FILE"
 out="$(status)"
-assert_eq "$(head -n 1 <<<"$out")" "12 updates staged for the next restart" "staged: the staged header"
+assert_eq "$(head -n 1 <<<"$out")" "12 updates ready for the next restart" "staged: the staged header"
 assert_contains "$out" "Staged: 12 updates install on the next restart" "staged: the staged line"
-assert_contains "$out" "Restart to apply installed updates" "staged: the restart line"
+assert_contains "$out" "Restart to finish updating." "staged: the restart line"
 assert_not_contains "$out" "System (dnf)" "staged: no pending sections under the staged header"
 # Held, security and staged together: held stays, the security count goes, as in the widget.
 jq '.offline_staged = {count: 12} | .security = {count: 2, packages: ["bash"]}
@@ -138,9 +138,9 @@ assert_not_contains "$out" "Security" "staged: no security count"
 assert_not_contains "$out" "updates for" "staged: no section names"
 assert_contains "$out" "Staged: 12 updates install on the next restart" "staged: the staged line, with held and security"
 jq '.offline_staged = {count: 1}' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_eq "$(status | head -n 1)" "1 update staged for the next restart" "one staged update is singular"
+assert_eq "$(status | head -n 1)" "1 update ready for the next restart" "one staged update is singular"
 jq '.offline_staged = {}' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_eq "$(status | head -n 1)" "Updates staged for the next restart" "a stage with no count drops the figure"
+assert_eq "$(status | head -n 1)" "Updates ready for the next restart" "a stage with no count drops the figure"
 
 # The apps for you only could not be listed, with nothing else pending.
 jq '.backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0
@@ -151,7 +151,7 @@ assert_contains "$out" "Checked 2 days ago · apps for you only not checked" "..
 
 # Old package lists: the metadata age joins the dateline past a day.
 jq '.metadata_refreshed = "2026-08-24T09:00:00+03:00"' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_contains "$(status)" "Checked 2 days ago · lists 3 days old" "the lists age, past 24 hours"
+assert_contains "$(status)" "Checked 2 days ago · update info 3 days old" "the update info age, past 24 hours"
 
 # Runtimes get their own section, named as people read them.
 jq '.backends.flatpak.items += [{name: "org.kde.Platform/6.9", from: "?", to: "?", held: false, kind: "runtime"}]
@@ -193,7 +193,7 @@ stage_run '{"staged":12}'
 jq '.offline_staged = {staged_at: "2026-08-27T10:00:00+03:00", count: 12, armed: true}' \
   "$FIXTURES/state-live.json" > "$STATE_FILE"
 out="$(status)"
-assert_eq "$(head -n 1 <<<"$out")" "12 updates staged for the next restart" "a staging run: the header says what is staged now"
+assert_eq "$(head -n 1 <<<"$out")" "12 updates ready for the next restart" "a staging run: the header says what is staged now"
 assert_eq "$(tail -n 1 <<<"$out")" "Last update 59 min ago · staged 12 updates for a restart" \
   "...and the last run says what that run did"
 put live
@@ -278,6 +278,7 @@ jq '.offline_staged = {count: 12}' "$L" > "$PAR/x-staged.json"
 jq '.offline_staged = {count: 1}' "$L" > "$PAR/x-staged-one.json"
 jq '.offline_staged = {}' "$L" > "$PAR/x-staged-nocount.json"
 jq '.offline_staged = {count: 12} | .release_upgrade = {from: "44", to: "45", state: "downloaded"}' "$L" > "$PAR/x-staged-relup.json"
+jq '.risky_pending = ["plasma-desktop"]' "$L" > "$PAR/x-session-only.json"
 jq '.schema = 2' "$L" > "$PAR/x-schema2.json"
 jq '{schema: 1, status: "ok"}' "$L" > "$PAR/x-no-shape.json"
 jq '.backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0
@@ -325,8 +326,11 @@ node_facts() {  # state file → the same, from logic.js
     const st = L.parseState(fs.readFileSync(process.argv[2], "utf8"));
     const vm = L.viewModel(st, false, "", { nowMs: Number(process.argv[3]) * 1000 });
     const usable = vm.actionable !== null;  // null exactly when the state is not one it can read
-    console.log(JSON.stringify({ header: vm.headerText,
-      sections: usable ? L.collectItems(st).sections.map((s) => [s.title, s.items.length]) : [],
+    // The widget says System and Apps and puts the risk on its status line. The terminal keeps the
+    // names of the tools whose output it shows, and says the risk under the question.
+    const cli = (t) => ({ System: "System (dnf)", Apps: "Apps (flatpak)" }[t] || t);
+    console.log(JSON.stringify({ header: vm.headerText.replace(/, including (a new kernel|parts your desktop is using)$/, ""),
+      sections: usable ? L.collectItems(st).sections.map((s) => [cli(s.title), s.items.length]) : [],
       held: Number((/(\d+) held/.exec(vm.footerText) || [0, 0])[1]),
       security: Number((/(\d+) security update/.exec(vm.tooltipSub) || [0, 0])[1]) }));
   ' "$LOGIC" "$1" "$NOW"
@@ -355,7 +359,7 @@ want="$(node -e '
     const vm = L.viewModel({ schema: 1, actionable: 0, status: "ok", last_success: iso,
                              metadata_refreshed: iso, backends: {} }, false, "", { nowMs: now * 1000 });
     // Matched by shape, not by its first word, so a rename of that word fails only on the bash side.
-    const meta = vm.footerText.split(" \u00b7 ").filter((p) => /^\S+ \d+ days? old$/.test(p))[0] || "";
+    const meta = vm.footerText.split(" \u00b7 ").filter((p) => /^update info \d+ days? old$/.test(p))[0] || "";
     console.log(L.relativeTime(iso, now * 1000) + "|" + meta);
   }' "$LOGIC" "$NOW" "$ages")"
 # date -Iseconds writes local time; the stamps differ in zone only, and the absolute fallback
@@ -381,7 +385,7 @@ list() { "$KEMPT" status --list 2>&1 || true; }
 # The rows and the lines around them, without the last update, which earlier cases recorded.
 rows() { list | grep -v '^Last update '; }
 put live
-assert_eq "$(rows)" "10 updates available
+assert_eq "$(rows)" "10 updates
 
 System (dnf): 7 updates
   aajohan-comfortaa-fonts   3.105-0.9.20210729git2a87ac6.fc44 → 3.106-1.fc44
@@ -424,7 +428,7 @@ jq '.backends.dnf.items = [{name: "a-very-long-package-name-that-goes-past-forty
                                  {name: "org.gnome.Theme", branch: "stable", kind: "runtime", from: "2024-05-30", to: "2024-05-30", held: false},
                                  {name: "org.gimp.GIMP", scope: "user", from: "3.0.2", to: "3.0.4", held: false}]
     | .security = {count: 1, packages: ["zsh"]}' "$FIXTURES/state-live.json" > "$STATE_FILE"
-assert_eq "$(rows)" "4 updates available
+assert_eq "$(rows)" "4 updates
 
 System (dnf): 1 update
   a-very-long-package-name-that-goes-past-forty-chars  1 → 2
@@ -450,7 +454,7 @@ assert_eq "$(status_rc --list)" "1" "...and exits 1"
 
 # The lines around the sections are status's own: a restart owed, security, a staged update.
 put reboot-needed
-assert_contains "$(list)" "Restart to apply installed updates" "--list says a restart is owed"
+assert_contains "$(list)" "Restart to finish updating." "--list says a restart is owed"
 put security
 assert_contains "$(list)" "Security: 3 updates" "--list keeps the security count"
 jq '.offline_staged = {count: 10}' "$FIXTURES/state-live.json" > "$STATE_FILE"
@@ -476,7 +480,10 @@ for f in live held-only security risky-heavy; do
     const vm = L.viewModel(L.parseState(fs.readFileSync(process.argv[2], "utf8")), false, "", {});
     const newest = (v) => v === "?" ? "new" : v;
     for (const r of vm.rows) {
-      if (r.kind === "header") { console.log("S\u001f" + r.title); continue; }
+      if (r.kind === "header") {
+        console.log("S\u001f" + ({ System: "System (dnf)", Apps: "Apps (flatpak)" }[r.title] || r.title));
+        continue;
+      }
       const v = r.from === "?" && r.to === "?" ? "" : r.from === r.to ? r.to + " (new build)" : newest(r.from) + " → " + r.to;
       const tags = [r.held ? "held" : "", r.security ? "security" : "", r.forYouOnly ? "for you only" : ""].filter(Boolean);
       console.log("I\u001f" + r.name + (r.branch ? " " + r.branch : "") + "\u001f" + v + "\u001f" + tags.join(", "));

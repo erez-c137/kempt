@@ -133,7 +133,7 @@ FOCUSED = """(function () {
   if (within(rowsView)) return "row:" + t;
   if (within(lastRunView))
     return it === lastRunView.currentItem ? "lastRun:row" : "lastRun:" + (it.Accessible.name || t);
-  var msgs = {restartMessage: restartMessage, riskyMessage: riskyMessage,
+  var msgs = {restartMessage: restartMessage, questionMessage: questionMessage,
               stagedMessage: stagedMessage, reportMessage: reportMessage};
   for (var k in msgs) if (within(msgs[k])) return k + ":" + t;
   return "elsewhere:" + t;
@@ -277,7 +277,7 @@ p.check("...and visibly so: a focus ring is drawn from visualFocus, which only t
 # reads "Update Now, button" and then how many updates it would install.
 p.check("...and Update Now's description is the heading's count, so opening says how many",
         [lev("updateButton.Accessible.description"), lev("popup.vm.headerText")],
-        [lev("popup.vm.headerText"), "10 updates available"])
+        [lev("popup.vm.headerText"), "10 updates"])
 settle()
 
 # ...and the state where that button is not on screen at all. It is HIDDEN rather than disabled,
@@ -390,26 +390,24 @@ p.check("...and Shift+Tab walks that ring backwards, message buttons included",
 state(fixture("state-risky-heavy.json"))
 ev('root.postRunLine = ""')
 p.pump(120)
-p.check("a session-critical transaction is pending, so that message is up instead",
-        lev("riskyMessage.visible"), True)
+p.check("a session-critical transaction is pending, and no message is up until Update Now asks",
+        lev("questionMessage.visible"), False)
 lev("popup.focusPrimary()")
 p.pump(50)
-expected = (["refreshButton", "configureButton", "riskyMessage:Install on Next Restart"]
+expected = (["refreshButton", "configureButton"]
             + pins() + [*LASTRUN, "updateButton"])
-p.check("...so its action is the stop after the header, and the restart message's two are gone",
+p.check("...so the stop after the header is the list, and the restart message's two are gone",
         walk(len(expected)), expected)
 # As the question after Update Now, the popup opens on Install on Next Restart with Update Now
 # hidden, so that button says the heading's count as well.
 ev("root.riskyChoiceOpen = true")
 p.pump(150)
-_stage = "popup.buttonFor(riskyMessage, riskyStageAction)"
+_stage = "popup.buttonFor(questionMessage, questionStageAction)"
 p.check("asking, Install on Next Restart's description starts with the heading's count",
         [lev("updateButton.visible"), str(lev(_stage + ".Accessible.description")).split("\n")],
         [False, [lev("popup.vm.headerText"), lev("popup.stageTooltip")]])
 ev("root.riskyChoiceOpen = false")
 p.pump(150)
-p.check("...and only its tooltip once the question has closed",
-        lev(_stage + ".Accessible.description"), lev("popup.stageTooltip"))
 lev("popup.focusPrimary()")
 p.pump(20)
 p.check("...and backwards the same way", walk(len(expected), back=True), reverse_of(expected))
@@ -579,7 +577,7 @@ p.check("...each one saying exactly what its tooltip says, so the two can never 
 # pressing this DOES. Bound to `text` it was the label spoken twice and nothing learned.
 p.check("the Refresh icon also says what pressing it does",
         lev("refreshButton.Accessible.description"),
-        "Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+        "Checks for updates now, instead of waiting for the timer.")
 p.check("...and the gear says what is behind it", lev("configureButton.Accessible.description"),
         "Check interval, where updates run, and the packages you hold.")
 p.check("...neither of them repeating its own label",
@@ -593,16 +591,17 @@ state(fixture("state-reboot-needed.json"))
 ev("root.restartDismissed = false")
 p.pump(120)
 p.check("the restart message announces its own sentence",
-        lev("restartMessage.Accessible.name"), "Restart to apply installed updates")
+        lev("restartMessage.Accessible.name"), "Restart to finish updating.")
 p.check("...as the alert it already was, rather than in place of it",
         lev("restartMessage.Accessible.role === Accessible.AlertMessage"), True)
 
 state(fixture("state-risky-heavy.json"))
+ev("root.riskyChoiceOpen = true")
 p.pump(120)
-p.check("the session-critical warning announces the sentence it is showing",
-        lev("riskyMessage.Accessible.name"), lev("riskyMessage.text"))
-p.check("...which is the one logic.js wrote, not a second copy",
-        lev("riskyMessage.Accessible.name"), lev("popup.vm.riskyMessage"))
+p.check("the question announces that nothing is installed yet, then the sentence it is showing",
+        lev("questionMessage.Accessible.name"), str(ev("Logic.COPY.riskyAskLead")) + " " + str(lev("questionMessage.text")))
+ev("root.riskyChoiceOpen = false")
+p.pump(120)
 
 # Staleness is no longer a message: it is three words on the footer's dateline, and the popup says
 # them out loud when the box goes stale - politely, because nothing needs interrupting.
@@ -610,8 +609,8 @@ state(fixture("state-stale.json"))
 p.pump(120)
 p.check("staleness is on the footer now, beside the date it explains",
         "last check failed" in str(lev("footerLabel.text")), True)
-p.check("...and the reason a person has to act on is on the button that acts",
-        "dnf check failed" in str(lev("refreshButton.Accessible.description")), True)
+p.check("...and which half failed is on the button that acts",
+        "The check failed" in str(lev("refreshButton.Accessible.description")), True)
 
 # Unused Flatpak runtimes: an offer, last in the stack. Derived from the up-to-date state with a
 # reclaim block added, in the shape cmd_check writes, so nothing else in the stack competes for
@@ -855,7 +854,7 @@ def _code(name):
 # text-only and says what pressing it does - it is the ONLY control in that pane, so a person who
 # cannot see the label has nothing else to go on.
 #
-# The second is Discard Staged Update, a labelled button that carries a description anyway: its
+# The second is Discard Updates, a labelled button that carries a description anyway: its
 # tooltip discloses the authorization and that the downloaded packages go with the transaction, and
 # polkit takes the focus the instant it is pressed.
 #
@@ -865,8 +864,8 @@ def _code(name):
 # The fourth is the footer button when updates run on the next restart: it reads Install on Next
 # Restart, and its tooltip says the press downloads now and installs at the restart.
 #
-# The fifth and sixth are the startup banner's Copy Command and Mute Until It Starts: one pair
-# per service, so the description (the command, and what muting does) tells them apart by ear.
+# The fifth and sixth are the startup banner's Startup Report and Mute Until It Starts: one pair
+# per service, so the description (the service, and what muting does) tells them apart by ear.
 # The seventh is popup.speakActionsAs binding those two actions' spoken descriptions onto the
 # buttons Kirigami draws for them, since an action cannot reach its own button's.
 #
@@ -904,7 +903,8 @@ _popup = _code("FullRepresentation.qml")
 _raw = open(os.path.join(harness.UI, "FullRepresentation.qml")).read()
 _stack = _raw[_raw.index("Kirigami.InlineMessage {"):_raw.index("--- the list, and what stands")]
 p.check("every message in the stack announces its own words",
-        _stack.count("Accessible.name: text") + _stack.count("Accessible.name: popup.vm.stagedMessage"),
+        _stack.count("Accessible.name: text") + _stack.count("Accessible.name: popup.vm.stagedMessage")
+        + _stack.count('Accessible.name: Logic.COPY.riskyAskLead + " " + text'),
         _stack.count("Kirigami.InlineMessage {"))
 
 # ==================================================================================================

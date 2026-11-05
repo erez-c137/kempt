@@ -13,7 +13,7 @@ mkdir -p "$KEMPT_CONFIG_DIR"; printf 'include_flatpak=false\n' > "$KEMPT_CONFIG_
 assert_eq "$("$KEMPT" config get surface)" "popup" "a config that names no surface reads the default"
 assert_eq "$(cat "$KEMPT_CONFIG_DIR/config")" "include_flatpak=false" "...and the file is unchanged"
 
-for s in terminal popup offline; do
+for s in popup offline; do
   printf 'surface=%s\nauto_accept=true\n' "$s" > "$KEMPT_CONFIG_DIR/config"
   before="$(cat "$KEMPT_CONFIG_DIR/config")"
   assert_eq "$("$KEMPT" config get surface)" "$s" "a config with surface=$s keeps it"

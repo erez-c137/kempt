@@ -23,7 +23,7 @@ PlasmoidItem {
     property bool recheckAsked: false      // ...and whether a PERSON asked for it (see doCheck)
     property bool recheckRefresh: false    // ...and whether any folded request was Check for Updates
     property bool recheckWatched: false    // ...and whether EVERY folded request was the watcher's
-    // ...and whether Download Anyway was pressed during it. Set in downloadAnyway() and nowhere
+    // ...and whether Check Anyway was pressed during it. Set in downloadAnyway() and nowhere
     // else, and replayed only into a check a person asked for.
     property bool recheckAnyway: false
     property bool checkingRefresh: false   // the check in flight is itself a fetch (`--refresh`)
@@ -103,7 +103,7 @@ PlasmoidItem {
     property string engineFault: ""
     // The result of the last button press, shown under the buttons until the next one.
     property string actionMessage: ""
-    // A Check for Updates that answered nothing while a state is held, or a Download Anyway press
+    // A Check for Updates that answered nothing while a state is held, or a Check Anyway press
     // answered with the state from before it: the sentence put in actionMessage for it, so the
     // next check can take back that report and no other. It is also
     // what the answer says out loud (vm.checkAnswerText), since the counts on screen did not move.
@@ -113,15 +113,9 @@ PlasmoidItem {
         if (actionMessage === checkFailNote) actionMessage = "";
         checkFailNote = "";
     }
-    // Configured run surface and confirmation setting, read from the CLI. Only their COMBINATION
-    // says what a run will really do, which is why the popup binds to effectiveSurface below.
-    // The default is logic.js's twin of the CLI's, so the popup agrees with a new install before
+    // Configured run surface, read from the CLI. The default is logic.js's twin of the CLI's, so the popup agrees with a new install before
     // the first config read answers.
     property string surface: Logic.DEFAULT_SURFACE
-    property bool autoAccept: true
-    // What `kempt run` would actually launch: with confirmation on, only a terminal can ask the
-    // question, so everything else collapses to terminal (bin/kempt, cmd_run).
-    readonly property string effectiveSurface: Logic.effectiveSurfaceOf(surface, autoAccept)
     property string logTail: ""
     property string logPath: ""
     // Whether the user closed the restart message in THIS plasmashell session. Deliberately not
@@ -134,7 +128,6 @@ PlasmoidItem {
     property string reclaimDismissed: ""
     // The Check for Updates press (its refreshAskedMs) whose missed-fetch notice was closed. A
     // later press can show the notice again.
-    property double fetchMissedClosedFor: 0
     // The last_check of the state the latest Check for Updates press was answered with. The
     // missed-fetch notice shows only while that state is the one on screen, so any later check,
     // automatic or not, takes it away.
@@ -154,9 +147,8 @@ PlasmoidItem {
     // The report on screen tells the person to run doctor, so it carries the button.
     readonly property bool reportOffersDoctor: Logic.mentionsDoctor(reportText)
 
-    // Update Now pressed with a session-critical set waiting and no terminal to ask in: the risky
-    // message turns into a choice between staging and installing now. Closed by either answer, by
-    // a run starting and by the popup closing.
+    // Update Now pressed with a session-critical set waiting: the question asks whether to stage
+    // or install now. Closed by either answer, its close button, a run starting and the popup closing.
     property bool riskyChoiceOpen: false
 
     // The same for Update Now while another updater holds the next restart: a question of its own,
@@ -166,11 +158,11 @@ PlasmoidItem {
     onUpdateAsksHeldChanged: if (!updateAsksHeld) heldChoiceOpen = false
 
     // The warning about Discover's setting. Drawing it clears the CLI's flag, so it stays up for this
-    // open of the popup from here. Turn Off hides it at once, ahead of the check it runs.
+    // open of the popup from here. Turn Off and close hide it at once, Turn Off ahead of the check it runs.
     property bool discoverWarningKept: false
     property bool discoverWarningAckSent: false
-    property bool discoverTurnedOff: false
-    readonly property bool discoverWarningDrawn: vm.messageSlots.indexOf("discoverUnattended") >= 0
+    property bool discoverWarningGone: false
+    readonly property bool discoverWarningDrawn: vm.discoverSerious && vm.messageSlots.indexOf("discover") >= 0
     onDiscoverWarningDrawnChanged: acknowledgeDiscoverWarning()
 
     // The one-time offer to turn off Discover's notifier was answered in this session. Either button runs
@@ -243,8 +235,7 @@ PlasmoidItem {
     // started watching rather than the run before it.
     property double updateStartedMs: 0
 
-    // Which surface the run IN FLIGHT is using - one of the CLI's four, or "" when nothing is
-    // running. Not `effectiveSurface`, which is what a run started NOW would use: the configured
+    // Which surface the run IN FLIGHT is using, or "" when nothing is running. The configured
     // value is wrong for a staging run started from Install on Next Restart, and it moves under
     // the pane when the settings change mid-run.
     property string runningSurface: ""
@@ -252,10 +243,10 @@ PlasmoidItem {
     // A `kempt run` has been asked for and has not come back. Not the same as `updating`, which
     // only begins once that call succeeds: `run` launches the surface and returns, and is allowed
     // fifteen seconds to do it. In that window `updating` is still false, so this is the only
-    // thing between a double press and two terminals both asking the risky question.
+    // thing between a double press and two runs.
     property bool runRequested: false
 
-    // The same guard for Install on Next Restart and Discard Staged Update:
+    // The same guard for Install on Next Restart and Discard Updates:
     // one flag for both, set at the press and cleared on every callback path. Each waits its
     // turn on the executor, behind a check for up to two minutes, and `updating` is false all that
     // time, so without it a second press queues a second action. The popup disables both.
@@ -279,8 +270,6 @@ PlasmoidItem {
                                                 refreshCheckStamp: refreshCheckStamp,
                                                 restartDismissed: restartDismissed,
                                                 reclaimDismissed: reclaimDismissed,
-                                                fetchMissedDismissed: fetchMissedClosedFor > 0
-                                                    && fetchMissedClosedFor === refreshAskedMs,
                                                 engineFault: engineFault,
                                                 // What a run started NOW would actually do. The
                                                 // popup needs it because the refusals the CLI
@@ -289,16 +278,11 @@ PlasmoidItem {
                                                 // refused where a box configured to update live
                                                 // is not, and the message and the button have to
                                                 // follow that rather than guess.
-                                                surface: effectiveSurface,
-                                                // The setting as written, for the one-time offer
-                                                // to update in the popup: it is made only to a
-                                                // box that asked for the terminal itself.
-                                                configuredSurface: surface,
-                                                autoAccept: autoAccept,
+                                                surface: surface,
                                                 riskyChoiceOpen: riskyChoiceOpen,
                                                 heldChoiceOpen: heldChoiceOpen,
                                                 discoverWarningKept: discoverWarningKept,
-                                                discoverTurnedOff: discoverTurnedOff,
+                                                discoverWarningGone: discoverWarningGone,
                                 checkUnfinished: checkFailNote,
                                                 discoverOfferAnswered: discoverOfferAnswered,
                                                 discoverAnswerKnown: discoverAnswerKnown,
@@ -311,12 +295,11 @@ PlasmoidItem {
                                                 reportRepeatsStaged: reportLatest === "run"
                                                     && Logic.reportRepeatsStaged(lastRun),
                                                 doctorShown: doctorRunning
-                                                             || doctorSummary.length > 0,
-                                                startupRecoveredKept: startupRecoveredKept })
+                                                             || doctorSummary.length > 0 })
 
     // --- the CLI -------------------------------------------------------------------------------
-    // plasmashell does not necessarily inherit a login shell's PATH, and install.sh puts the CLI
-    // in ~/.local/bin - so the prefix finds it from a symlink install or from a package.
+    // plasmashell does not necessarily inherit a login shell's PATH, so the prefix finds the CLI
+    // wherever a package or a leftover ~/.local/bin link puts it.
     // KEMPT_VIA=widget changes nothing the CLI does; it is read only by lib/common.sh's log_event,
     // which stamps each line of `kempt log` with `widget` or `cli`.
     readonly property string kemptCmd: "PATH=\"$HOME/.local/bin:$PATH\" KEMPT_VIA=widget kempt"
@@ -487,11 +470,11 @@ PlasmoidItem {
                 // back on its own after the package is installed, or after it is repaired.
                 root.cliError = "";
                 root.engineFault = "";
-                // A Download Anyway press whose check gave up waiting on another check's lock: the
+                // A Check Anyway press whose check gave up waiting on another check's lock: the
                 // CLI printed the state from before the press and downloaded nothing. Said here,
                 // after the line above that clears the note, or the press would look ignored.
                 if (spend && Logic.servedBeforePress(parsed, askedMs)) {
-                    root.checkFailNote = i18n("Another check was running. Press Download Anyway again.");
+                    root.checkFailNote = i18n("Another check was running. Press Check Anyway again.");
                     root.actionMessage = root.checkFailNote;
                 }
             } else if (rc === 127) {
@@ -565,7 +548,7 @@ PlasmoidItem {
                 var asked = root.recheckAsked;
                 var again = root.recheckRefresh;
                 var watchedAgain = root.recheckWatched;
-                // A Download Anyway press folded in is honoured once, and only by a check a person
+                // A Check Anyway press folded in is honoured once, and only by a check a person
                 // asked for, never by an automatic one. Not during a run either, where the button
                 // itself does nothing: a run that started since the press drops it.
                 var anywayAgain = asked && root.recheckAnyway && !root.updating;
@@ -752,8 +735,7 @@ PlasmoidItem {
         });
     }
 
-    // Which surface a run will use. Only the popup surface makes the log pane worth showing, and
-    // auto_accept is half of that answer, so both are read together.
+    // Which surface a run will use. Only the popup surface makes the log pane worth showing.
     //
     // THE RULE FOR EVERY `config get` READER BELOW: an empty answer means keep what we have.
     // `kempt config get` prints an empty line and exits 0 for a key it does not know, so an older
@@ -763,10 +745,6 @@ PlasmoidItem {
         executor.run(kemptCmd + " config get surface", 10000, function(stdout, stderr, rc) {
             var s = Logic.firstLineOf(stdout);
             if (rc === 0 && s !== "") root.surface = s;
-        });
-        executor.run(kemptCmd + " config get auto_accept", 10000, function(stdout, stderr, rc) {
-            var v = Logic.firstLineOf(stdout);
-            if (rc === 0 && v !== "") root.autoAccept = Logic.isTrue(v);
         });
     }
 
@@ -794,9 +772,14 @@ PlasmoidItem {
     // transaction on this queue would block every check and every pin behind it, and the kill
     // timer would only disconnect the reader anyway: the child would keep running, unwatched.
     //
-    // installNow is the risky choice's Install Now. Without it, a session-critical set on a surface
-    // that cannot ask opens that choice instead of running: only the terminal asks for itself.
+    // installNow is the risky choice's Install Now. Without it, a session-critical set opens that
+    // choice instead of running.
     // --risky-ok tells the CLI the person has already chosen, so it does not notify them again.
+    function closeQuestion() {
+        riskyChoiceOpen = false;
+        heldChoiceOpen = false;
+    }
+
     function startUpdate(installNow) {
         // actionPending too: a stage still waiting its turn on the executor is a run on its way.
         if (updating || runRequested || actionPending) return;
@@ -825,12 +808,11 @@ PlasmoidItem {
                 // than in the pane, because the setting can change while the run is in flight.
                 // ...or the one this press named, while another updater holds the next restart.
                 var named = /--surface=([a-z]+)/.exec(options);
-                root.enterUpdating(named ? named[1] : root.effectiveSurface);
+                root.enterUpdating(named ? named[1] : root.surface);
                 return;
             }
             // No run began, so there is nothing for the updating pane to wait for. The message is
-            // the CLI's own words: rc 4 is a missing terminal emulator, rc 5 a terminal window that
-            // never opened, rc 3 another update already holding the lock.
+            // the CLI's own words: rc 3 is another update already holding the lock.
             root.actionMessage = Logic.runStartMessage(rc, stdout, stderr);
         });
     }
@@ -844,13 +826,11 @@ PlasmoidItem {
         riskyChoiceOpen = false;
         actionPending = true;
         actionMessage = "";
-        // Clears actionPending on every outcome, including the executor's own timeout (rc 124). The
-        // pane gets the surface the CLI will really use: with auto_accept off, `run` sends a named
-        // surface to the terminal as well, because only a terminal can ask.
+        // Clears actionPending on every outcome, including the executor's own timeout (rc 124).
         executor.run(kemptCmd + " run --surface=offline", 15000, function(stdout, stderr, rc) {
             root.actionPending = false;
             if (rc === 0) {
-                root.enterUpdating(Logic.effectiveSurfaceOf("offline", root.autoAccept));
+                root.enterUpdating("offline");
                 return;
             }
             // The CLI's own words, as for Update Now: exit 3 is another update holding the lock.
@@ -1035,11 +1015,7 @@ PlasmoidItem {
         reclaimDismissed = vm.reclaimDigest;
     }
 
-    function dismissFetchMissed() {
-        fetchMissedClosedFor = refreshAskedMs;
-    }
-
-    // Download Anyway: one check that fetches even on battery or a metered connection. Only this
+    // Check Anyway: one check that fetches even on battery or a metered connection. Only this
     // press asks for that. During a check it is remembered and runs next, unless the running check
     // already passes the rules: then a second press adds nothing, not even a plain check. During a
     // run it does nothing, like Check for Updates' button.
@@ -1050,13 +1026,20 @@ PlasmoidItem {
         doCheck(false, true, false, true);
     }
 
-    // The answer to the Discover offer: "off" turns Discover's notifier off, "keep" changes
+    // The message's close button: an answer to the mild form, and only a dismissal of the serious one,
+    // which says something that stays true.
+    function closeDiscover() {
+        if (vm.discoverSerious) discoverWarningGone = true;
+        else setDiscoverNotifier("keep");
+    }
+
+    // The answer to the mild Discover message: "off" turns Discover's notifier off, "keep" changes
     // nothing. Both record the answer in the CLI's marker, so a check then publishes state.json
     // without discover_offer, and readDiscoverAnswered finds it after a restart either way.
     function setDiscoverNotifier(verb) {
         if (verb !== "off" && verb !== "keep") return;
         discoverOfferAnswered = true;
-        if (verb === "off") discoverTurnedOff = true;
+        if (verb === "off") discoverWarningGone = true;
         actionMessage = "";
         actionDone = "";
         executor.run(kemptCmd + " discover-notifier " + verb, Logic.ANSWER_TIMEOUT_MS,
@@ -1065,7 +1048,7 @@ PlasmoidItem {
             if (!said.ok) {
                 // Not done, so not answered: the offer comes back with the reason above it.
                 root.discoverOfferAnswered = false;
-                root.discoverTurnedOff = false;
+                root.discoverWarningGone = false;
                 root.actionMessage = said.text;
                 return;
             }
@@ -1105,7 +1088,7 @@ PlasmoidItem {
     function enterUpdating(surface) {
         // Resolved, so this is always one of the four the CLI knows and the pane can switch on it
         // without a fifth branch for "we do not know".
-        runningSurface = Logic.resolveSurface(surface === undefined ? effectiveSurface : surface);
+        runningSurface = Logic.resolveSurface(surface === undefined ? root.surface : surface);
         updating = true;
         riskyChoiceOpen = false;
         // The run ends with its own check, which answers a postponed watcher check too.
@@ -1151,9 +1134,7 @@ PlasmoidItem {
     }
 
     // The way out of an updating state nothing is going to end. A run ends when the CLI writes
-    // state.json, and a terminal run that is aborted - the DEFAULT answer to the one question
-    // Kempt asks, on the default configuration - exits before the CLI's own post-run check, as
-    // does closing the window. Without this the popup sits on an empty pane with no list, no
+    // state.json, and a run that dies exits before the CLI's own post-run check. Without this the popup sits on an empty pane with no list, no
     // Update Now and a disabled Refresh until the three-hour guard fires.
     //
     // The updating state is left when the check LANDS rather than at the press, so the popup comes
@@ -1265,8 +1246,6 @@ PlasmoidItem {
         // A Startup page request belongs to the open it asked for, never to the next one.
         // An acknowledgement that did not land is tried again at the next open.
         startupAckSent = "";
-        // ...and a "running again" line that was acknowledged has now been seen.
-        startupRecoveredKept = [];
         startupMuteError = null;
         postRunLine = "";
         // A choice left open is a question nobody answered: next time, Update Now asks again.
@@ -1275,7 +1254,7 @@ PlasmoidItem {
         // A warning read once is not read again, and a Turn Off that came back is the check's to report.
         discoverWarningKept = false;
         discoverWarningAckSent = false;
-        discoverTurnedOff = false;
+        discoverWarningGone = false;
         // Same rule as doCheck: the apology is about a press the user has walked away from, and it
         // must not be waiting for them next time they open this.
         restartError = "";
@@ -1391,8 +1370,8 @@ PlasmoidItem {
         onTriggered: root.pollLog()
     }
 
-    // The safety net on `updating`. A run ends when the CLI writes state.json - but a user who
-    // closes the terminal window, or an update that dies, never writes it. Three hours is far
+    // The safety net on `updating`. A run ends when the CLI writes state.json - but an update that
+    // dies never writes it. Three hours is far
     // longer than any real transaction and far shorter than forever. Stopping the wait stops
     // nothing else: the root helper never interrupts a package's setup step, however long it runs,
     // so the message says the update may still be going.
@@ -1463,18 +1442,13 @@ PlasmoidItem {
         }
     }
 
-    // A line that lands while the popup is open has been seen.
+    // A service that recovers while the popup is open has been seen too.
     onVmChanged: acknowledgeStartup()
 
-    // The "running again" line: shown once, acknowledged with
-    // `kempt startup ack --expect=<digest>` while the popup is on screen and the line is drawn
-    // (vm.startupAckDigest is "" otherwise). A set that changed in between is refused (exit 6).
-    // The CLI then clears the line from state.json, so the set acknowledged is kept here and
-    // shown until the popup closes: a line that vanished as it was read would not be read.
-    // Exit 1 is kept too: the CLI may have forgotten the set and then failed to patch state.json,
-    // and the next state written would take the line away unread.
+    // What recovered is acknowledged with `kempt startup ack --expect=<digest>` while the popup is
+    // on screen (vm.startupAckDigest is "" otherwise). A set that changed in between is refused
+    // (exit 6). The warning going away is the news, so nothing is drawn for it.
     property string startupAckSent: ""
-    property var startupRecoveredKept: []
 
     // Marked only once the warning is really on screen: closed popup, no mark, and none behind the
     // Startup page. Whether the write landed is not waited for: at worst the warning comes back on
@@ -1492,11 +1466,9 @@ PlasmoidItem {
         var digest = vm.startupAckDigest;
         if (!popupOnScreen || digest === "" || digest === startupAckSent) return;
         startupAckSent = digest;
-        var seen = kemptState && kemptState.startup ? kemptState.startup.recovered : [];
         executor.run(kemptCmd + " startup ack --expect=" + Logic.shellQuote(digest),
                      Logic.ANSWER_TIMEOUT_MS, function(stdout, stderr, rc) {
             if (rc !== 0 && rc !== 1) return;
-            root.startupRecoveredKept = seen;
             root.adoptState();
         });
     }

@@ -3,9 +3,8 @@
 
 The node tests pin every sentence and command logic.js derives. This proves the QML routes them:
 the banner draws one message per service, Copy Command puts the right command on the clipboard,
-Mute Until It Starts reaches the CLI with the unit as ONE argument, the "running again" line is
-acknowledged by its digest only while the popup is open and stays until it closes, and the panel
-count never moves. Then the settings page: the notify_startup round trip and the muted list.
+Mute Until It Starts reaches the CLI with the unit as ONE argument, what recovered is
+acknowledged by its digest only while the popup is open, and the panel count never moves. Then the settings page: the notify_startup round trip and the muted list.
 """
 import json
 import os
@@ -116,14 +115,14 @@ p.check("a failed service takes the startup slot", ev("root.vm.messageSlots.inde
 p.check("...and the banner shows", lev("startupBanner.visible"), True)
 p.check("one service: one message, drawn, with title and body",
         [lev("startupRepeater.count"), lev("startupRepeater.itemAt(0).visible"), lev("startupRepeater.itemAt(0).text")],
-        [1, True, "Bluetooth service didn't start after the update.\n"
-            "It stopped with an error. A system service (bluetooth.service)."])
+        [1, True, "Bluetooth failed to start after the update.\n"
+            "System service: bluetooth.service."])
 p.check("...which a screen reader hears as written", lev("startupRepeater.itemAt(0).Accessible.name"),
         lev("startupRepeater.itemAt(0).text"))
 p.check("...a warning, with its two buttons",
         [lev("startupRepeater.itemAt(0).type === Kirigami.MessageType.Warning"),
          lev("startupRepeater.itemAt(0).actions[0].text"), lev("startupRepeater.itemAt(0).actions[1].text")],
-        [True, "Copy Command", "Mute Until It Starts"])
+        [True, "Startup Report", "Mute Until It Starts"])
 p.check("...the mute saying what it does",
         lev("startupRepeater.itemAt(0).actions[1].tooltip"),
         "Kempt stops mentioning it until it starts cleanly again.")
@@ -131,13 +130,17 @@ p.check("no heading for one service", lev("startupHeading.visible"), False)
 p.check("the badge counts updates and nothing else",
         ev("root.vm.badgeText"), "10")
 
-lev("engineCopyClip.text = ''")
+# Writing `expanded` outside plasmashell segfaults the probe, so this is the popup already open.
+ev("root.popupOnScreen = true")
 lev("startupRepeater.itemAt(0).actions[0].trigger()")
-p.check("Copy Command copies the systemctl command", lev("engineCopyClip.text"), "systemctl status bluetooth.service")
+p.pump(200)
+p.check("Startup Report opens the report, which has the command to copy", lev("popup.startupOpen"), True)
+lev("popup.closeStartup()")
+p.pump(200)
+ev("root.popupOnScreen = false")
 
-# --- the recovered line: acknowledged only while open, kept until close --------------------------
-p.check("the running-again line shows", [lev("startupRecovered.visible"), lev("startupRecovered.text")],
-        [True, "plasma-foo.service is running again."])
+# --- what recovered: nothing on screen, acknowledged only while open -------------------------------
+p.check("a recovered service puts no line up", lev("startupBanner.visible"), True)
 p.check("...and nothing is acknowledged while the popup is closed", p.call_count("startup ack"), 0)
 open(ACKRC, "w").write("6")
 ev("root.popupOpened()")
@@ -145,39 +148,22 @@ settle()
 p.check("opening the popup acknowledges it by its digest",
         p.calls_matching("startup ack"), ["startup ack --expect=0123456789abcdef"])
 p.check("...a refused acknowledgement is not retried while it stays open",
-        [p.call_count("startup ack"), lev("startupRecovered.visible")], [1, True])
+        p.call_count("startup ack"), 1)
 ev("root.popupClosed()")
 open(ACKRC, "w").write("0")
 ev("root.popupOpened()")
 settle()
 p.check("the next open tries again", p.call_count("startup ack"), 2)
 p.check("...the CLI cleared it", ev("root.kemptState.startup.recovered.length"), 0)
-p.check("...and the line stays on screen until the widget closes",
-        [lev("startupRecovered.visible"), lev("startupRecovered.text")],
-        [True, "plasma-foo.service is running again."])
 ev("root.popupClosed()")
-p.check("closed, it is gone", lev("startupRecovered.visible"), False)
-# A recorded acknowledgement whose state.json patch failed (exit 1): the CLI may already have
-# forgotten the line, so it stays for this open rather than vanishing unread at the next refresh.
 serve(announced=[], recovered=[USR], recovered_digest="00000000000000aa")
 ev("root.doCheck()")
 settle()
-p.check("the running-again line alone has its own slot, below the restart",
-        [ev("root.vm.messageSlots.indexOf('startupRecovered') >= 0"), lev("startupBanner.visible"),
-         lev("startupRecovered.visible")], [True, True, True])
-open(ACKRC, "w").write("1")
-ev("root.popupOpened()")
-settle()
+p.check("recovered with nothing else failing leaves no slot and no banner",
+        [ev("root.vm.messageSlots.indexOf('startup')"), lev("startupBanner.visible")], [-1, False])
 serve(announced=[BT])
 ev("root.doCheck()")
 settle()
-p.check("an acknowledgement that exited 1 keeps the line for this open",
-        [lev("startupRecovered.visible"), lev("startupRecovered.text")],
-        [True, "plasma-foo.service is running again."])
-ev("root.popupClosed()")
-open(ACKRC, "w").write("0")
-p.check("...until the widget closes", lev("startupRecovered.visible"), False)
-p.check("...and the failure is still there", lev("startupBanner.visible"), True)
 
 # --- Mute Until It Starts ------------------------------------------------------------------------
 serve(announced=[BT, USR, dict(BT, unit=ESCAPED, description="File System Check"),
@@ -187,7 +173,7 @@ ev("root.doCheck()")
 settle()
 p.check("a unit name the CLI would refuse gets no message, so three services: a heading with the count, one message each",
         [lev("startupHeading.text"), lev("startupRepeater.count")],
-        ["3 services didn't start after the update.", 3])
+        ["3 services failed to start after the update, including Bluetooth and plasma-foo.service.", 3])
 # Three of each button, and the words on them are the same three times. What a screen reader is
 # told is not: each button's accessible name carries its service, and the Copy button, the first
 # stop in each message, carries what happened as its description.
@@ -197,16 +183,15 @@ _names = [lev("startupRepeater.itemAt(%d).modelData.name" % i) for i in range(3)
 p.check("each Mute button names its own service to a screen reader",
         [lev(BTN % (i, i, 1) + ".Accessible.name") for i in range(3)],
         ["Mute Until It Starts: %s" % n for n in _names])
-p.check("...and so does each Copy Command button",
+p.check("...and so does each Startup Report button",
         [lev(BTN % (i, i, 0) + ".Accessible.name") for i in range(3)],
-        ["Copy Command: %s" % n for n in _names])
+        ["Startup Report: %s" % n for n in _names])
 p.check("...while the words drawn on them stay as they were",
         [lev(BTN % (0, 0, 0) + ".text"), lev(BTN % (0, 0, 1) + ".text")],
-        ["Copy Command", "Mute Until It Starts"])
-p.check("...Copy Command says what happened to the service, and the command it copies",
+        ["Startup Report", "Mute Until It Starts"])
+p.check("...Startup Report says what happened to the service",
         lev(BTN % (0, 0, 0) + ".Accessible.description"),
-        "It stopped with an error. A system service (bluetooth.service).\n"
-        "systemctl status bluetooth.service")
+        "System service: bluetooth.service.")
 p.check("...and Mute says what muting does",
         lev(BTN % (0, 0, 1) + ".Accessible.description"),
         "Kempt stops mentioning it until it starts cleanly again.")
@@ -239,7 +224,7 @@ OPEN_MENUS = """(function (show) { var n = 0;
 p.check("narrow, each message has a More Actions menu", lev(OPEN_MENUS % "true"), 3)
 p.pump(200)
 _narrow = [json.loads(lev(SPOKEN % (i, a))) for i in range(3) for a in range(2)]
-_want = [("Copy Command: %s" if a == 0 else "Mute Until It Starts: %s") % _names[i]
+_want = [("Startup Report: %s" if a == 0 else "Mute Until It Starts: %s") % _names[i]
          for i in range(3) for a in range(2)]
 p.check("narrow, every button and menu entry drawn for an action carries its spoken name",
         [sorted(set(n.replace("menu:", "") for n in names)) for names in _narrow],
@@ -250,12 +235,9 @@ lev(OPEN_MENUS % "false")
 lev("popup.width = 460")
 p.pump(200)
 
-lev("engineCopyClip.text = ''")
-lev("startupRepeater.itemAt(1).actions[0].trigger()")
-p.check("a session service's command has --user", lev("engineCopyClip.text"),
+p.check("a session service's command has --user", lev("startupRepeater.itemAt(1).modelData.command"),
         "systemctl --user status plasma-foo.service")
-lev("startupRepeater.itemAt(2).actions[0].trigger()")
-p.check("a unit with a backslash is single-quoted", lev("engineCopyClip.text"),
+p.check("a unit with a backslash is single-quoted", lev("startupRepeater.itemAt(2).modelData.command"),
         "systemctl status '" + ESCAPED + "'")
 p.clear_calls()
 lev("startupRepeater.itemAt(1).actions[1].trigger()")

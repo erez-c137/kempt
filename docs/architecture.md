@@ -47,7 +47,6 @@ engine could replace the bash one.
 | `polkit/` | The two action definitions plus the passwordless rule template |
 | `plasmoid/` | The Plasma 6 panel widget: a client of the CLI with no package-manager knowledge |
 | `plasmoid/contents/ui/logic.js` | The widget's whole derivation layer, in engine-agnostic JS so node can test it |
-| `install.sh` | Symlink install, staged install (`--destdir`), uninstall |
 | `tests/` | Fixture-driven bash test suite, no framework dependency |
 | `tests/qml/` | PySide6 probes that execute the real QML against a stubbed CLI (see below) |
 
@@ -117,8 +116,7 @@ Every file Kempt writes, with its mode and retention, is listed in
 
 - **Readers take no lock.** `atomic_write` renames a temp file into place, so a reader sees the
   whole old file or the whole new one. The temp sits next to its destination.
-- **`kempt_init_dirs` sweeps leftovers** after 60 minutes: temps, `reclaim-out.*` copies and
-  `run-start.*` tokens.
+- **`kempt_init_dirs` sweeps leftovers** after 60 minutes: temps and `reclaim-out.*` copies.
 - **`log_event` never fails a command.** It always returns 0 and waits at most 5 seconds for its lock. Its `via` column is
   `widget` when `KEMPT_VIA=widget`, which the widget sets on every command, and `cli` otherwise.
 - **An update applied on a restart gets a log Kempt writes itself**, from the snapshot diff.
@@ -253,7 +251,7 @@ check's per-user items, and the widget says the apps for you only could not be c
 - It is absent until a dnf fetch has worked. `kempt doctor` then says no dnf refresh is recorded
   yet.
 - A check answers from the cache, so this can be much older than `last_check`.
-- The widget's footer shows `lists N days old` past 24 hours. When a **Check for Updates**
+- The widget's footer shows `update info N days old` past 24 hours. When a **Check for Updates**
   press got no fetch, a message gives the age and why: `refresh_skipped`, else
   `backends.dnf.refresh_error` (`Logic.fetchMissedOf`). It shows only while the state on screen is
   the one that press was answered with, so the next check takes it away. The footer shows the age
@@ -633,7 +631,7 @@ the panel icon.
 | The footer, when the box goes stale | Polite | Keyed on the *reason*, so the 30-second clock tick that rewrites "Checked 4 min ago" is silent. Silent while a Check for Updates answer is being said, since that answer carries the same failure. |
 
 Each announcing message keeps a `spoken` string so one change is announced once, and clears it
-when hidden. The **Discard Staged Update** tooltip names its costs, and `Accessible.description`
+when hidden. The **Discard Updates** tooltip names its costs, and `Accessible.description`
 is bound to it, because the polkit dialog takes focus at once.
 
 ### Where the widget's last-run line comes from
@@ -785,7 +783,7 @@ optional can be skipped.
 | `kempt_default` and `KEMPT_CONFIG_KEYS` (`lib/common.sh`) | `include_flatpak` (and `auto_accept`) default to `true`, and both are known keys | A default for `include_<name>`, or the backend is off wherever the config file never names it. The key in `KEMPT_CONFIG_KEYS`, so `config set` does not warn. |
 | `docs/architecture.md`, `docs/configuration.md` | The state schema example and the `include_flatpak` key | A schema entry (additive, still schema 1) and an enable key with the same meaning. |
 | **Optional:** `cmd_update`'s option loop and `usage` (`bin/kempt`) | `--no-flatpak`, and its line in `usage` | A `--no-<name>` override and its usage line. Without it the backend can be switched off only in config. |
-| `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System (dnf)", flatpak: "Apps (flatpak)"}`, and the order the widget lists them in | A title and a place in the order. Without them the section heading reads `apt`. |
+| `SECTION_TITLES` and `BACKEND_ORDER` (`plasmoid/contents/ui/logic.js`) | `{dnf: "System", flatpak: "Apps"}`, and the order the widget lists them in | A title and a place in the order. Without them the section heading reads `apt`. |
 | `KIND_SECTION_TITLES` (`plasmoid/contents/ui/logic.js`) | `{flatpak: {runtime: "Flatpak runtimes"}}` | A title per `kind`, only if your backend writes `kind`. Without it the heading reads `<backend> <kind>`. |
 | The watcher's package databases (`plasmoid/contents/ui/main.qml`) | `/var/lib/rpm/rpmdb.sqlite`, `/var/lib/rpm` and `/var/lib/flatpak`, checked every 30s (2s during a run) | Your package database's path. Without it an update applied in a terminal shows only after the next timed check. |
 | `docs/man/kempt.1` | `--no-flatpak` under `update`, and `flatpak(1)` in SEE ALSO | The option and the reference. |

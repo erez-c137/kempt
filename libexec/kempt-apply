@@ -225,7 +225,7 @@ watch_unit() {  # → "rc N" or "unknown" once dnf5's unit has ended; nothing wh
 # conditions together. The uid map must not be the full identity map: a real root has that one. And
 # this file must not be at a path a polkit policy binds to, since unprivileged Incus or LXD and
 # nspawn -U run real systems whose uid map is not the identity either, and pkexec only ever runs
-# those two paths (the RPM's, and install.sh's). Anything that cannot be read counts as a real root.
+# those two paths (the RPM's, and the one older checkout installs used). Anything that cannot be read counts as a real root.
 POLKIT_PATHS=(/usr/libexec/kempt-apply /usr/local/libexec/kempt-apply)
 uid_map_is_identity() {  # uid_map's text → 0 for the full identity map, or for no text at all
   local a b c

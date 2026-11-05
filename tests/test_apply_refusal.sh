@@ -78,7 +78,7 @@ KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-relup" "$KEMPT" update --surface=offline 
 assert_eq "$rc" "1" "a refused arm fails the run"
 assert_eq "$(calls dnf-offline-clean)" "0" "...and is not unwound with a clean, which the helper would refuse too"
 assert_exit 1 "...and writes no marker" -- test -f "$marker"
-assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart, because a Fedora release upgrade (44 -> 45) is stored. See: kempt doctor" \
+assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart, because a Fedora release upgrade (44 -> 45) is stored. See: kempt doctor" \
   "...and the reason names what is stored"
 no_clean_advice "...and nothing advises the command that would delete the release upgrade"
 
@@ -91,7 +91,7 @@ assert_eq "$rc" "1" "a refused stage fails the run"
 assert_eq "$(calls dnf-offline-arm)" "0" "...arms nothing"
 assert_eq "$(calls dnf-offline-clean)" "0" "...and cleans nothing"
 assert_eq "$(last_error)" \
-  "nothing was staged, because the stored offline transaction could not be read and staging would replace it. See: kempt doctor" \
+  "nothing was prepared, because the stored offline transaction could not be read and preparing updates would replace it. See: kempt doctor" \
   "...and says nothing was staged, and why"
 grep -q 'offline stage refused by the root helper' "$KEMPT_STATE_DIR/events.log" \
   && echo "ok: ...and the event log records the refusal" || { echo "FAIL: no refusal event"; _fail=1; }
@@ -116,7 +116,7 @@ dnf-offline-clean) echo "kempt-apply: refusing dnf-offline-clean: a Fedora relea
 rc=0
 KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-fail-clean-refused" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "1" "an arm failure whose unwind is refused still fails the run"
-assert_eq "$(last_error)" "the updates were staged, but could not be set to install on the next restart" "...and the reason stays the arm"
+assert_eq "$(last_error)" "the updates were downloaded, but could not be set to install on the next restart" "...and the reason stays the arm"
 grep -q 'left in place because a Fedora release upgrade (44 -> 45) is stored' "$TESTTMP/err" \
   && echo "ok: ...and the warning says the stored transaction was left in place, and why" \
   || { echo "FAIL: no left-in-place warning"; _fail=1; cat "$TESTTMP/err"; }
@@ -134,7 +134,7 @@ rc=0
 KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-busy" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || rc=$?
 assert_eq "$rc" "1" "a busy arm fails the run"
 assert_eq "$(calls dnf-offline-clean)" "0" "...and is not unwound with a clean"
-assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished" \
+assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished" \
   "...and the reason says another Kempt update is in progress"
 no_clean_advice "...and nothing advises a clean"
 stage_real
@@ -144,7 +144,7 @@ stored offline-download-complete.toml; reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-stage-busy" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_eq "$(calls dnf-offline-clean)" "0" "a busy re-stage never cleans the previous stage"
 assert_eq "$(calls dnf-offline-arm)" "0" "...arms nothing"
-assert_eq "$(last_error)" "nothing was staged, because another Kempt update is still in progress. Try again when it has finished" \
+assert_eq "$(last_error)" "nothing was prepared, because another Kempt update is still in progress. Try again when it has finished" \
   "...and says another Kempt update is in progress"
 
 # --- a failed re-stage whose clean is refused keeps the marker for the doctor --------------------
@@ -158,7 +158,7 @@ KEMPT_APPLY_HELPER="$TESTTMP/apply-stage-fail-clean-refused" "$KEMPT" update --s
 assert_eq "$(calls dnf-offline-clean)" "1" "a failed re-stage still tries its unwind"
 assert_exit 0 "...and when the helper refuses it, the marker stays" -- test -f "$marker"
 assert_eq "$(last_error)" \
-  "could not rebuild the staged update, and what is stored was left in place because a Fedora release upgrade (44 -> 45) is stored. See: kempt doctor" \
+  "could not replace the prepared updates, and what is stored was left in place because a Fedora release upgrade (44 -> 45) is stored. See: kempt doctor" \
   "...and the reason says what was left and why"
 no_clean_advice "...and nothing advises a clean"
 
@@ -184,7 +184,7 @@ stage_real
 reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-live-clean-refused" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_exit 0 "a refused supersede clean keeps the marker for the doctor" -- test -f "$marker"
-grep -q 'superseded the staged transaction. The staged update was left in place. Run kempt doctor.' "$TESTTMP/err" \
+grep -q 'superseded the staged transaction. These updates were left in place. Run kempt doctor.' "$TESTTMP/err" \
   && echo "ok: ...and warns that it was left in place" || { echo "FAIL: no warning"; _fail=1; cat "$TESTTMP/err"; }
 no_clean_advice "...and does not advise a clean"
 
@@ -202,14 +202,14 @@ KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-stage-unsafe
 assert_eq "$rc" "1" "a stage refused over an unsafe dnf folder fails the run"
 assert_eq "$(calls dnf-offline-arm)" "0" "...arms nothing"
 assert_eq "$(calls dnf-offline-clean)" "0" "...and cleans nothing"
-assert_eq "$(last_error)" "nothing was staged, because other users can change files in $UNSAFE. See: kempt doctor" \
+assert_eq "$(last_error)" "nothing was prepared, because other users can change files in $UNSAFE. See: kempt doctor" \
   "...and the reason names the folder and the doctor"
 
 apply_stub arm-unsafe "dnf-offline-arm) $(unsafe_refusal dnf-offline-arm) ;;"
 stored offline-ready.toml; rm -f "$marker"; reset_run; rm -rf "$UNSAFE"
 KEMPT_DNF_OFFLINE_PKG_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-arm-unsafe" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
 assert_eq "$(calls dnf-offline-clean)" "0" "an arm refused over an unsafe dnf folder is not unwound"
-assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart, because other users can change files in $UNSAFE. See: kempt doctor" \
+assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart, because other users can change files in $UNSAFE. See: kempt doctor" \
   "...and the reason names the staged-package folder"
 
 apply_stub live-unsafe "dnf-upgrade) $(unsafe_refusal dnf-upgrade) ;;"
@@ -233,7 +233,7 @@ rm -rf "$UNSAFE"
 # --- folders this user can already see are unsafe: no helper, so no password prompt -------------------
 mkdir -m 0777 "$UNSAFE"
 apply_stub ok ""
-for _sf in background offline terminal; do
+for _sf in widget offline; do
   stored offline-ready.toml; rm -f "$marker"; reset_run
   rc=0
   KEMPT_DNF_SYSIMAGE_DIR="$UNSAFE" KEMPT_APPLY_HELPER="$TESTTMP/apply-ok" "$KEMPT" update --surface=$_sf --no-flatpak >/dev/null 2>"$TESTTMP/err" </dev/null || rc=$?
@@ -280,11 +280,11 @@ for sentence in "$S_CHECK" "$S_NS" "$S_FUSE" "$S_UNSAFE"; do
   apply_stub "w-stage-$i" "dnf-offline-stage) $(says "$sentence") ;;"
   stored offline-ready.toml; rm -f "$marker"; reset_run
   KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stage-$i" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
-  assert_eq "$(last_error)" "nothing was staged. $sentence" "a refused stage reports the helper's sentence: ${sentence:0:40}"
+  assert_eq "$(last_error)" "nothing was prepared. $sentence" "a refused stage reports the helper's sentence: ${sentence:0:40}"
   apply_stub "w-arm-$i" "dnf-offline-arm) $(says "$sentence") ;;"
   stored offline-ready.toml; rm -f "$marker"; reset_run
   KEMPT_APPLY_HELPER="$TESTTMP/apply-w-arm-$i" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
-  assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart. $sentence" "...and a refused arm"
+  assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart. $sentence" "...and a refused arm"
   assert_eq "$(calls dnf-offline-clean)" "0" "...which is not unwound"
   apply_stub "w-live-$i" "dnf-upgrade) $(says "$sentence") ;;"
   stored offline-ready.toml; rm -f "$marker"; reset_run
@@ -295,11 +295,11 @@ done
 apply_stub w-stage-relup "dnf-offline-stage) cp '$RELUP' '$TOML'; $(says "$S_CHECK") ;;"
 stored offline-ready.toml; rm -f "$marker"; reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-w-stage-relup" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
-assert_eq "$(last_error)" "nothing was staged. $S_CHECK" "a stored release upgrade is not blamed when the helper named the folders"
+assert_eq "$(last_error)" "nothing was prepared. $S_CHECK" "a stored release upgrade is not blamed when the helper named the folders"
 apply_stub w-arm-relup "dnf-offline-arm) cp '$RELUP' '$TOML'; $(says "$S_FUSE") ;;"
 stored offline-ready.toml; rm -f "$marker"; reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-w-arm-relup" "$KEMPT" update --surface=offline --no-flatpak >/dev/null 2>&1 || true
-assert_eq "$(last_error)" "the updates were staged, but not set to install on the next restart. $S_FUSE" "...nor at the arm"
+assert_eq "$(last_error)" "the updates were downloaded, but not set to install on the next restart. $S_FUSE" "...nor at the arm"
 # And when the helper did refuse over what is stored, the CLI's reason still says so.
 apply_stub w-stage-stored 'dnf-offline-stage) cp "'"$RELUP"'" "'"$TOML"'"; echo "kempt-apply: refusing dnf-offline-stage: a Fedora release upgrade (44 -> 45) is stored" >&2; exit 3 ;;'
 stored offline-ready.toml; rm -f "$marker"; reset_run
@@ -315,7 +315,7 @@ stage_real
 apply_stub w-clean "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) $(says "$S_CHECK") ;;"
 reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-assert_contains "$(cat "$TESTTMP/err")" "this update superseded the staged transaction. The staged update was left in place. $S_CHECK" \
+assert_contains "$(cat "$TESTTMP/err")" "this update superseded the staged transaction. These updates were left in place. $S_CHECK" \
   "a clean refused over the folders says the helper's sentence"
 no_clean_advice "...and does not advise a clean"
 # ...with a stored record it cannot read by then: the helper's word still stands.
@@ -323,7 +323,7 @@ stage_real
 apply_stub w-clean-unread "dnf-upgrade) cp '$TESTTMP/live.tsv' '$WORLD/rpm.tsv' ;; dnf-offline-clean) sed -i '/releasever/d' '$TOML'; $(says "$S_CHECK") ;;"
 reset_run
 KEMPT_APPLY_HELPER="$TESTTMP/apply-w-clean-unread" "$KEMPT" update --surface=widget --no-flatpak >/dev/null 2>"$TESTTMP/err" || true
-assert_contains "$(cat "$TESTTMP/err")" "The staged update was left in place. $S_CHECK" "an unreadable record is not blamed when the helper named the folders"
+assert_contains "$(cat "$TESTTMP/err")" "These updates were left in place. $S_CHECK" "an unreadable record is not blamed when the helper named the folders"
 assert_not_contains "$(cat "$TESTTMP/err")" "could not be read" "...and is not mentioned"
 
 # dnf_status starts unknown and every path names it. A run that reached history says ok or failed.

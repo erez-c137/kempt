@@ -33,8 +33,8 @@ half a minute.
 | Key | Type | Default | Effect |
 | --- | --- | --- | --- |
 | `include_flatpak` | boolean | `true` | Include Flatpak apps **and runtimes** in checks and updates. `kempt update --no-flatpak` turns it off for one run. When off, the `flatpak` backend reports `enabled: false` and adds nothing to the counts. On a computer without Flatpak, it counts as off. If you set it to `true` yourself there, `kempt doctor` warns. |
-| `auto_accept` | boolean | `true` | Answer dnf5 and flatpak prompts automatically (`-y`). When off, the run always uses the `terminal` surface with live output, because no other surface can answer a prompt. |
-| `surface` | `terminal`, `popup`, `offline` | `popup` | Where `kempt run` sends the update. `kempt config set surface widget` stores `popup`. A config that still names `background`, from an older version, reads as `popup`. An unrecognised value logs a warning and falls back to `terminal`. |
+| `auto_accept` | boolean | `true` | Answer dnf5's prompts automatically (`-y`). When off, `kempt update` typed at a terminal lets dnf5 ask you. With no terminal it refuses and changes nothing. A press in the widget is the answer, so it still runs. |
+| `surface` | `popup`, `offline` | `popup` | How `kempt run` and `kempt update` install. `kempt config set surface widget` stores `popup`. `kempt config set surface terminal` stores `popup` too and says so. A config that still names `background` or `terminal`, from an older version, reads as `popup`. An unrecognised value logs a warning and falls back to `popup`. |
 | `refresh_interval_min` | integer (minutes) | `60` | How often the widget runs `kempt check`. The CLI itself schedules nothing. The widget clamps the value to 1..1440. Its settings page offers 15 and up, and lowers that floor to show a smaller value set from the CLI. |
 | `notify_startup` | boolean | `true` | Whether Kempt tells you when a service that started before an update fails after it. Kempt only looks. It never turns anything on or off, and the update count never includes this. Each check asks systemd which services failed. See [kempt startup](usage.md#startup). |
 | `reclaim` | `ask`, `off` | `ask` | What to do with Flatpak runtimes no installed app uses. See [Unused Flatpak runtimes](#unused-flatpak-runtimes). |
@@ -47,7 +47,7 @@ it. `kempt config get` on a key with no value and no default prints an empty lin
 accepts:
 
 ```bash
-kempt config set surfce terminal
+kempt config set surfce offline
 ```
 
 ```
@@ -59,7 +59,7 @@ kempt config set surface bogus
 ```
 
 ```
-warning: 'bogus' is not a value surface accepts. Accepted: terminal, widget, offline
+warning: 'bogus' is not a value surface accepts. Accepted: widget, offline
 ```
 
 The warning goes to stderr. The value is still written and the command still exits 0, because a
@@ -91,21 +91,16 @@ An unrecognised value means `ask`, and so does a saved `automatic` from an earli
 
 ## Run surfaces
 
-All four run the same `kempt update`. The surface decides where the output goes and who is told
-when it finishes.
+Both run the same `kempt update`. The surface decides when the updates install.
 
 | Surface | What it does | Good for |
 | --- | --- | --- |
-| `terminal` | `kempt run` opens Konsole running the update, with live dnf and flatpak output, ending in the summary and a "Press any key to close…" prompt. | Watching it happen. The only surface that can answer prompts. |
 | `popup` (default) | Detached run writing to the log. The widget follows the log and shows the summary when it finishes. From a shell it behaves like a detached run with a notification at the end. | Staying in the panel. |
 | `offline` | Stages the dnf transaction with `dnf5 upgrade --offline`. It installs during the next restart, and the first `kempt check` after that restart records the result. The widget's button reads **Install on Next Restart**. | Kernel, systemd, Qt/KDE: anything that can break a running desktop. |
 
-The `terminal` surface needs a terminal emulator, `konsole` by default. Without one, `kempt run`
-exits 4. To use another emulator that supports `-e`, set `KEMPT_TERMINAL`.
-
-The terminal asks before installing kernel, systemd or desktop updates. On the other surfaces,
-**Update Now** asks in the widget first, and offers **Install on Next Restart** or
-**Install Now**.
+To watch an update happen, type `kempt update` in a terminal. It shows live output and asks before
+installing kernel, systemd or desktop updates. In the widget, **Update Now** asks first, and offers
+**Install on Next Restart** or **Install Now**.
 
 ### Offline staging
 
@@ -152,12 +147,12 @@ battery or a metered connection. The widget's **Check for Updates** runs it. Whe
 no fetch, the widget says why and how old the metadata is.
 
 `kempt check --anyway` fetches now even on battery or a metered connection, for that check only.
-The widget's **Download Anyway** button runs it. No setting or automatic check ever does. With
+The widget's **Check Anyway** button runs it. No setting or automatic check ever does. With
 `KEMPT_SKIP_REFRESH` set it still fetches nothing, and says so in one line on stderr.
 
 Skipped refreshes stay visible. Every check writes `metadata_refreshed` to `state.json` once a dnf
 refresh has worked, and leaves it out until then. Once the metadata is over 24 hours old, the
-widget's footer shows `lists N days old`, and `kempt doctor` reports it on its own row. A
+widget's footer shows `update info N days old`, and `kempt doctor` reports it on its own row. A
 skipped refresh is also written to the event log, at most once a
 day.
 
@@ -179,7 +174,6 @@ day.
 | `~/.local/state/kempt/offline_staged.json` | Marker for a staged update waiting for the next restart |
 | `~/.local/state/kempt/reclaim-sizes.json` | The measured size of each unused Flatpak runtime, reused until the installed set changes |
 | `~/.local/state/kempt/reclaim-last.json` | What the last removal of unused runtimes did, with Flatpak's error line if it failed. The next check copies it into `state.json` |
-| `~/.local/state/kempt/run-start.*` | One token per `kempt run` launch, deleted by the window it starts. A window that never opens leaves one behind |
 | `~/.local/state/kempt/discover-offer-answered` | Empty marker: the Discover notifier offer was answered, so the widget does not ask again |
 | `~/.local/state/kempt/discover-unattended-answered` | The widget drew its warning about Discover's automatic updates. Removed when the setting reads false and by `kempt discover-notifier on` |
 | `~/.local/state/kempt/offline-partial` | Which copy of dnf5's stored transaction is what is left of a stage only partly installed, for `kempt doctor`. Removed once that copy changes |
@@ -200,8 +194,8 @@ Retention runs automatically whenever the CLI sets up its directories:
 - **History:** the newest 50 entries are kept.
 - **Logs:** deleted after 60 days. The history entry outlives its log.
 - **The event log:** past 2500 lines, it is cut to the last 2000.
-- **Stray temporary files:** deleted after 60 minutes. These are interrupted writes (`.atomic.*`),
-  run-start tokens from a window that never opened, and `reclaim-out.*` files from a killed removal.
+- **Stray temporary files:** deleted after 60 minutes. These are interrupted writes (`.atomic.*`)
+  and `reclaim-out.*` files from a killed removal.
 
 Nothing else prunes these directories, so back them up if a run's raw log matters to you.
 
@@ -212,7 +206,6 @@ prefer the config keys.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `KEMPT_TERMINAL` | `konsole` | Terminal emulator for the `terminal` surface. |
 | `KEMPT_RISKY_RE` | (empty) | Overrides `risky_regex` for this invocation. |
 | `KEMPT_NOTIFY` | `notify-send` | Notification command. |
 | `KEMPT_RETRY_DELAY` | `10` | Seconds between retries when another tool holds the package lock. |

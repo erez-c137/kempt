@@ -295,7 +295,7 @@ lev("popup.focusPrimary()")
 p.pump(50)
 p.check("premise: the keyboard is on Update Now, with a run to start", focused(), "updateButton")
 
-ev('root.enterUpdating("terminal")')
+ev('root.enterUpdating("offline")')
 p.pump(120)
 p.check("a run swaps the pane in and takes the primary button off the screen",
         lev("updateButton.visible"), False)
@@ -307,7 +307,7 @@ p.check("...and it is a real control, not the pane or nothing at all",
         [lev("popup.Window.activeFocusItem.visible"),
          lev("popup.Window.activeFocusItem.enabled")], [True, True])
 p.check("...naming the surface the run is really using rather than the configured one",
-        lev("updatingLabel.text"), "Updating in a terminal window…")
+        lev("updatingLabel.text"), "Preparing updates for the next restart…")
 
 # ...and Space on it really is the way out, from the keyboard, without a pointer.
 before_check = p.call_count("check")
@@ -322,9 +322,9 @@ p.check("...handing the keyboard back to a control that is on screen",
          lev("popup.Window.activeFocusItem.visible && popup.Window.activeFocusItem.enabled")],
         [True, True])
 
-# The other three surfaces say where to look, which "Updating in the terminal surface…" never did.
+# Each surface says what is happening.
 for _surface, _said in (("popup", "Updating…"),
-                        ("offline", "Staging updates for the next restart…")):
+                        ("offline", "Preparing updates for the next restart…")):
     ev('root.enterUpdating("%s")' % _surface)
     p.pump(80)
     p.check("a run on the %s surface says where to look for it" % _surface,
@@ -464,11 +464,11 @@ _do = json.load(open(fixture("state-live.json")))
 _do["discover_offer"] = True
 _dopath = os.path.join(p.sandbox, "state-discover-offer.json")
 open(_dopath, "w").write(json.dumps(_do))
-for index, what in ((0, "Turn Off Discover's Notifier"), (1, "Keep Discover's Notifier")):
+for index, what in ((0, "Turn Off Discover's Update Checks"),):
     ev("root.discoverOfferAnswered = false")
     state(_dopath)
-    p.check("premise: the offer about Discover is up", lev("discoverOfferMessage.visible"), True)
-    answer("discoverOfferMessage", index, what)
+    p.check("premise: the offer about Discover is up", lev("discoverMessage.visible"), True)
+    answer("discoverMessage", index, what)
 ev('root.actionDone = ""')
 
 # The risky choice: Update Now on a session-critical set opens it, and each answer closes it.
@@ -478,8 +478,8 @@ for index, what in ((1, "Install Now"), (0, "Install on Next Restart")):
     lev("updateButton.forceActiveFocus(Qt.TabFocusReason)")
     press(Qt.Key_Return)
     p.pump(150)
-    p.check("premise: Update Now opened the choice", lev("riskyMessage.asking"), True)
-    answer("riskyMessage", index, what)
+    p.check("premise: Update Now opened the choice", lev("questionMessage.asking"), True)
+    answer("questionMessage", index, what)
     if ev("root.updating"):
         ev("root.leaveUpdating()")
         settle()

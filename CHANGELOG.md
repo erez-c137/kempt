@@ -7,8 +7,33 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- **A kernel, NVIDIA driver or desktop update now says so on the status line.** The message that used to sit in the widget before you pressed anything is gone. The status line reads "23 updates available, including a new kernel", and Update Now asks its question only when pressed. That question and the one about another updater's restart now share one message.
+- **One message says why Kempt cannot go ahead:** an image-based Fedora, a system folder with unsafe permissions, or a stored Fedora release upgrade. It shows one cause at a time. The commands for a release upgrade moved to **Check Installation**, whose full report now gives them for every state.
+- **One message about Discover**, in two sentences. When Discover is set to install updates by itself, it is a warning right under what is waiting for the restart. Otherwise it is a calm note low in the stack. It has one button, **Turn Off Discover's Update Checks**, and a close button that replaces **Keep Discover's Notifier**.
+- **The note about a check that got no fresh lists moved into the report**, in shorter words. It goes at the next check and has no close button of its own. The footer always gives the lists' age.
+- **A service that failed reads "Bluetooth failed to start after the update."** With several, the heading names two of them. The widget no longer says when a service is running again: the warning going away is the news, and the desktop notification still says so.
+- **The widget says "ready", not "staged", and "System" and "Apps", not dnf and flatpak.** The message reads "5 updates are ready and install on the next restart." with **Discard Updates**, and the header says the same. What discarding costs is on the button's tooltip. `kempt status` shares the header and restart sentences. The command line keeps the rest of its wording.
+- **Shorter sentences:** "Restart to finish updating.", "Updated 12 packages in 34 s.", "No packages changed." and "The update failed: the reason." **Not Updating? Check Again** replaces the longer button.
+- **Show Log appears only after a run that failed**, on the report and on the Last update row.
+- **An armed Fedora release upgrade stays on screen beside a folder problem.** The message says the next restart installs the upgrade and that other updates are paused for the folder.
+- **Check Installation under an upgrade message says how to finish or remove the upgrade**, in the words of its report, instead of only finding no problems. The message now reads "A Fedora 45 upgrade installs on the next restart, so other updates cannot wait for that restart." or "A Fedora 45 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how."
+- **Update Now no longer asks about a risky update while updates are paused**, because no answer could start a run.
+- **`kempt config set surface terminal` says what it stored**, one line, because that value now means the widget.
+- **A cancelled or replaced update is announced at a check that can show the notification.** Someone with no desktop session at the check that found it hears at the next one, instead of never.
+- **The warning about a hold behind prepared updates is shorter:** "You held firefox after these updates were prepared, so it still installs. Discard them and install again to skip it." The download cost of discarding is in the button's tooltip.
+- **A service that failed offers Startup Report.** **Copy Command** moved to the report page, and the message reads "Bluetooth failed to start after the update. System service: bluetooth.service."
+- **Failures and notifications about updates waiting for the next restart say downloaded, prepared or ready**, not staged, and the widget draws them without "See: kempt doctor" beside its **Check Installation** button. `kempt summary` and other terminal text keep the word for now.
+- Shorter widget sentences. The count goes in the header and the sentence under it says when: "They install the next time you restart." The header no longer says "available". The kernel recommendation reads "The next restart is the safest time to install a new kernel.", it names only parts with a plain name, and a failed check no longer says "just now" or repeats "last check failed" in the footer.
+- One word for each thing in the widget. The other updater's stage is always "prepared", the footer says "update info 3 days old", the buttons are **Check Anyway** and **Discard Updates**, and tooltips no longer name dnf or flatpak. A failed check's tooltip says which half failed in the popup's words rather than quoting the tool's error.
+- The widget page describes the messages as they now read, with the list numbered in order.
+
 ### Removed
 
+- **`install.sh`.** Kempt installs as a package. Developers use `tools/build-local.sh`, which builds the packages from a checkout. If you installed from a checkout, run `./install.sh --uninstall` from your current copy before you pull, then install the package. The `kempt doctor` rows that only applied to a checkout go too: `helpers:`, `policy:`, `widget:`, `install: packaged`, the commit line and `getfacl`, which the package requires.
+- **Updating in a terminal window.** The `terminal` setting, the **Terminal window** choice in the widget's settings, the `KEMPT_TERMINAL` variable and `kempt run`'s exits 4 and 5 are gone. A saved `terminal` now reads as **In this widget**. To watch an update, type `kempt update` in a terminal: it always shows live output and asks before kernel, systemd or desktop updates.
+- **Apply updates without asking for confirmation** in the widget's settings. Its only effect was to open a terminal window. `auto_accept=false` still makes `kempt update` at a terminal let dnf5 ask you. A script with `auto_accept=false` and no terminal is refused with exit 5 and nothing changes. A press in the widget still runs.
 - **Put It Back and `kempt restore-stage`.** When another program cancels a staged update, Kempt now
   tells you and the updates stay in the list. Stage them again with **Install on Next Restart** or
   `kempt update --surface=offline`. The packages are still downloaded, so this costs no new download.

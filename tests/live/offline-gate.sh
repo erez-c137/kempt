@@ -56,7 +56,7 @@ trap gate_restore EXIT
 ROOT=/opt/kempt
 export HOME=/root
 export KEMPT_PKEXEC= KEMPT_APPLY_HELPER=$ROOT/libexec/kempt-apply KEMPT_REFRESH_HELPER=$ROOT/libexec/kempt-refresh
-export KEMPT_NOTIFY=/tmp/gate-notify KEMPT_TERMINAL=/bin/true
+export KEMPT_NOTIFY=/tmp/gate-notify
 # notify() stays quiet with no desktop session, and this container has none.
 export DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent
 # The gate drives Kempt as root inside its container, which Kempt otherwise refuses.
@@ -119,7 +119,7 @@ is "marker names equal dnf5's stored transaction" "$(jq -r '.staged_names[]' <<<
 is "nothing excluded (no holds)" "$(jq -c '.staged_excluded' <<<"$m")" "[]"
 is "marker is private" "$(stat -c %a "$STATE/offline_staged.json")" "600"
 has "event: offline staged" "$(events)" "offline staged"
-has "notification: staged" "$(notes)" "staged"
+has "notification: ready" "$(notes)" "are ready"
 NAME=$(jq -r '.staged_names[0]' <<<"$m"); OTHER=$(jq -r '.staged_names[1] // .staged_names[0]' <<<"$m")
 echo "  staged: $(txnames | tr '\n' ' ')"
 
@@ -193,7 +193,7 @@ lacks_name "...and it is the same stage, still without $OTHER" "$(txnames)" "$OT
 is "the marker is the same marker" "$(jq -r .staged_at < "$STATE/offline_staged.json" 2>/dev/null)" "$at5"
 is "no clean was run against it" "$(events | grep -c 'offline marker cleared')" "$ev5"
 has "event: restage failed, previous stage intact" "$(events)" "offline restage failed (previous stage intact)"
-has "notification says the previous one still installs" "$(notes)" "still installs on the next restart"
+has "notification says the previous one still installs" "$(notes)" "The earlier ones are unchanged and still install"
 cp "$REPOS_BAK"/*.repo "$REPOS_DIR"/
 
 section "S6 dnf5 replaces the old stage and then fails (simulated): the unwind, with and without a working clean"
@@ -240,7 +240,7 @@ has "event: the destroyed stage was discarded and the marker cleared" "$(events)
 is "marker gone" "$(marker)" ""
 is "transaction gone" "$(toml_status)" "absent"
 [[ -L "$LINK" ]] && bad "boot symlink still standing" || ok "boot symlink gone"
-has "notification says what was lost" "$(notes)" "the previous staged update was discarded and could not be rebuilt"
+has "notification says what was lost" "$(notes)" "the earlier updates were removed and could not be prepared again"
 rm -f /tmp/gate-destroy-old
 
 section "S7 arm failure: the stage is unwound"
@@ -293,7 +293,7 @@ is "a stage with nothing in it exits 0" "$nrc" "0"
 is "...and dnf5 stored no transaction" "$(toml_status)" "absent"
 [[ -z "$(marker)" ]] && ok "...so no marker promises one" || bad "a marker was written for an empty stage" "$(marker)"
 has "the event names the reason" "$(events)" "nothing to stage"
-has "...and so does the notification" "$(notes)" "Nothing to stage"
+has "...and so does the notification" "$(notes)" "has nothing to install"
 hasnt "...which does not blame the arm" "$(notes)" "could not be set to install"
 hasnt "...and does not promise a restart" "$(notes)" "install on the next restart"
 d=$("$K" doctor 2>&1); rc=$?
@@ -317,7 +317,7 @@ is "marker demoted rather than deleted" "$(jq -r '.armed' <<<"$(marker)")" "fals
 is "dnf5 still says ready - the demote is Kempt's reading, not dnf5's" "$(toml_status)" "ready"
 is "nothing is published as a pending install" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
 d=$("$K" doctor 2>&1)
-has "doctor says to stage again" "$d" "Stage it again with: kempt update --surface=offline"
+has "doctor says to stage again" "$d" "Prepare them again with: kempt update --surface=offline"
 # The way back, which is what the widget and the docs offer: stage again over the lost stage. Whether
 # that downloads again is measured rather than assumed, because the changelog tells people it does not.
 rpms_before=$(stage_rpms); rx_before=$(rx_bytes)
@@ -367,7 +367,7 @@ has "the user is told the stage can no longer install" "$(notes)" "can no longer
 is "the marker is demoted, not deleted" "$(jq -r '.armed' <<<"$(marker)")" "false"
 is "...and nothing is published as pending" "$(jq -r '.offline_staged // "absent"' "$STATE/state.json")" "absent"
 d=$("$K" doctor 2>&1); rc=$?
-has "doctor names it" "$d" "staged update can never install"
+has "doctor names it" "$d" "prepared updates can never install"
 is "...exit 1" "$rc" "1"
 dnf5 -y -q offline clean >/dev/null 2>&1
 KEMPT_BOOT_ID=s11-boot "$K" check >/dev/null 2>&1
@@ -416,7 +416,7 @@ KEMPT_BOOT_ID=s12-boot "$K" check >/dev/null 2>&1
 section "S9 restore"
 mv -f "$DNF5_REAL" "$DNF5_BIN"
 d=$("$K" doctor 2>&1)
-hasnt "doctor: no staged-update failure left" "$(grep -E '^FAIL' <<<"$d")" "staged update"
+hasnt "doctor: no staged-update failure left" "$(grep -E '^FAIL' <<<"$d")" "prepared updates"
 hasnt "doctor: no boot-symlink failure left" "$(grep -E '^FAIL' <<<"$d")" "boot symlink"
 grep -E '^FAIL' <<<"$d" | sed 's/^/  doctor (container, expected): /' 
 
@@ -540,7 +540,7 @@ rm -f "$LINK"
 before_hist=$(ls -1 "$STATE/history" 2>/dev/null | wc -l)
 : > /tmp/gate-notifications
 KEMPT_BOOT_ID=s16-boot "$K" check >/dev/null 2>&1
-has "announced once as installed" "$(notes)" "Your staged updates are installed."
+has "announced once as installed" "$(notes)" "Your prepared updates are installed."
 hasnt "...never as unable to install" "$(notes)" "can no longer install"
 is "the marker is consumed" "$(marker)" ""
 is "one history entry" "$(ls -1 "$STATE/history" 2>/dev/null | wc -l)" "$((before_hist + 1))"

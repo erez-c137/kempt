@@ -43,9 +43,9 @@ Before you commit, syntax-check and lint. CI runs the same commands. The third c
 Python file Kempt ships, the Flatpak listing helper:
 
 ```bash
-bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply install.sh
+bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply
 shellcheck -x -s bash --source-path="$PWD" --source-path="$PWD/lib" --source-path="$PWD/backends" \
-  bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply install.sh
+  bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply
 python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' libexec/kempt-flatpak-unused
 ```
 
@@ -53,51 +53,17 @@ Install ShellCheck with `sudo dnf install ShellCheck`. The `--source-path` entri
 `bin/kempt`'s `source` lines. Fix every finding, or disable it on one line with a comment that says
 why. There are no file-wide suppressions.
 
-**Never run a real privileged update while developing.** Use the seams, or stage the install into a
-directory with no `pkexec` and no prompts:
-
-```bash
-./install.sh --destdir /tmp/stage
-./install.sh --destdir /tmp/stage --uninstall
-```
+**Never run a real privileged update while developing.** Use the seams.
 
 ### Installing from a checkout
 
 ```bash
-./install.sh
+tools/build-local.sh
 ```
 
-The installer does four things, in this order:
-
-1. **Symlinks the CLI and its man page** into `~/.local/bin/kempt` and
-   `~/.local/share/man/man1/kempt.1`, so `man kempt` works without root.
-2. **Asks for authentication once**, through one `pkexec`. As root, it copies the two helpers and
-   the polkit action out of the repo.
-3. **Installs the panel widget and its icons** with `kpackagetool6`, with no authentication. If
-   you decline the dialog in step 2, this step is skipped, because the widget cannot work without
-   the root helpers.
-4. **Offers to turn off Discover's notifier**, as [described in the install guide](docs/install.md#the-discover-notifier-opt-out).
-
-The CLI, its library, the backends and the passwordless rules template all run from the checkout.
-Moving or deleting the checkout breaks `kempt`. Only the root-owned files and the widget are
-copies.
-
-#### What lands where
-
-| Path | Owner | Installed by |
-| --- | --- | --- |
-| `~/.local/bin/kempt` | you | `install.sh` (symlink into the checkout) |
-| `~/.local/share/man/man1/kempt.1` | you | `install.sh` (symlink into the checkout) |
-| `/usr/local/libexec/kempt-refresh` | `root:root` 0755 | the one `pkexec` |
-| `/usr/local/libexec/kempt-apply` | `root:root` 0755 | the one `pkexec` |
-| `/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy` | `root:root` 0644 | the one `pkexec` |
-| `~/.local/share/plasma/plasmoids/io.github.erez_c137.kempt/` | you | `install.sh` (a **copy**, via `kpackagetool6`) |
-| `~/.local/share/icons/hicolor/{scalable,64x64,48x48,32x32,22x22,16x16}/apps/kempt.svg` | you | `install.sh`, so the icon resolves by name in Add Widgets |
-| No file: an `org.kde.KIconLoader.iconChanged` signal on your session bus | none | `install.sh`, so a running Plasma finds the new icon |
-| `~/.config/autostart/org.kde.discover.notifier.desktop` | you | only if you turn Discover's notifier off |
-| `/etc/polkit-1/rules.d/49-kempt.rules` | `root:root` 0644 | only after `kempt enable-passwordless` |
-
-The widget is a copy, so re-run `./install.sh` after changing anything under `plasmoid/`.
+This runs the suite, builds the packages from your checkout under a preview version name, installs
+them and reloads the widget. The real release upgrades over them by itself. `--no-test` skips the
+suite and `--no-install` only builds. The full list is at the top of the script.
 Installing the widget does not put it on a panel: right-click the panel > **Add Widgets…** >
 search for **Kempt**.
 
@@ -184,8 +150,8 @@ or earlier scenarios' calls are counted too.
 
 ## Working on the widget
 
-The widget lives in `plasmoid/`. `./install.sh` copies it, so run it again after every change. A
-running Plasma keeps the old copy until `plasmashell --replace` or a new login.
+The widget lives in `plasmoid/`. Run `tools/build-local.sh` to see a change in your panel. A running
+Plasma keeps the old copy until `plasmashell --replace` or a new login.
 
 - **Rules go in `logic.js`, bindings go in QML.** Everything the widget decides lives in
   `plasmoid/contents/ui/logic.js`, so node can test it. Keep it plain, old-style JavaScript: no Qt,

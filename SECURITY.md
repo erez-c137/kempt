@@ -38,8 +38,7 @@ Fixes ship as a patch release and a COPR rebuild, so they arrive through `dnf up
 
 Nothing Kempt installs is setuid. Two helper scripts run as root, through `pkexec` and two polkit
 actions. The only other root commands are behind their own password prompts: the `install` and
-`rm` in `kempt enable-passwordless` and `kempt disable-passwordless`, and one `pkexec /usr/bin/bash -c` in
-`install.sh`. Every installed file is mode 0755 or 0644.
+`rm` in `kempt enable-passwordless` and `kempt disable-passwordless`. Every installed file is mode 0755 or 0644.
 
 ## Scope
 
@@ -51,8 +50,7 @@ Where to look, most important first:
 2. `polkit/io.github.erez_c137.kempt.policy`: the two actions and who may use them.
 3. `polkit/49-kempt.rules.in` and `render_passwordless_rule` in `lib/common.sh`: the passwordless
    rule and the check that verifies it.
-4. The root part of `install.sh`.
-5. How the widget builds commands: `shellQuote` in `plasmoid/contents/ui/logic.js` and its callers.
+4. How the widget builds commands: `shellQuote` in `plasmoid/contents/ui/logic.js` and its callers.
    The widget runs as you, but it puts package names into shell commands.
 
 In scope:
@@ -65,8 +63,6 @@ In scope:
 Out of scope:
 
 - attacks that need root to begin with;
-- the checkout being writable by its owner, which a checkout install depends on (see
-  [accepted limitations](docs/security.md#accepted-limitations));
 - holding the package manager's lock, which any program can do (Kempt retries, then reports it);
 - problems that exist only in a modified checkout, unless the modification is the point.
 

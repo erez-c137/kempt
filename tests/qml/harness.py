@@ -46,7 +46,7 @@ def config_arm(**overrides):
     """The `config` arm of a stub CLI, answering `get` with the real defaults.
 
     Each override is a shell snippet that PRINTS the answer, not a bare value: a probe that has to
-    change a setting mid-run passes `auto_accept="cat /path/to/file"`, and one that only wants a
+    change a setting mid-run passes `surface="cat /path/to/file"`, and one that only wants a
     different constant passes `surface="echo popup"`.
 
     An unknown key exits 2 rather than printing nothing under exit 0, because that is what the CLI

@@ -126,7 +126,7 @@ state_is_silent "a later boot, every staged package moved, the stored state empt
 # ...and when it can be read again, the ordinary answer comes back, nothing lost on the way.
 sed "s/^status = .*/status = \"ready\"/" "$FIXTURES/offline-ready.toml" > "$TOML"; rm -f "$LINK"
 check_on boot-after
-assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your staged updates are installed." "readable again: the install is reported then"
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your prepared updates are installed." "readable again: the install is reported then"
 assert_exit 1 "...and only now the note goes" -- test -f "$marker"
 
 # --- a note of a partly installed stage is not retired by a read that failed --------------------------

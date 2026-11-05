@@ -33,8 +33,8 @@ Nothing is setuid, and the CLI never runs as root.
 
 **1. Never run an update while testing.** `kempt update`, `kempt run`, `pkexec` and the helpers in
 `libexec/` change the machine you are on. Use a container, or replace every seam in the same
-environment. Set `KEMPT_PKEXEC=` to empty. Point `KEMPT_APPLY_HELPER`, `KEMPT_REFRESH_HELPER`,
-`KEMPT_TERMINAL` and `KEMPT_NOTIFY` at scripts that only log their arguments. Point
+environment. Set `KEMPT_PKEXEC=` to empty. Point `KEMPT_APPLY_HELPER`, `KEMPT_REFRESH_HELPER`
+and `KEMPT_NOTIFY` at scripts that only log their arguments. Point
 `KEMPT_CONFIG_DIR` and `KEMPT_STATE_DIR` at temporary directories. `tests/lib.sh` builds this
 sandbox for you: source it and call `sandbox`.
 

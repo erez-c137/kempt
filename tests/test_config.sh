@@ -23,15 +23,15 @@ assert_eq "$(KEMPT_FLATPAK_LIST_CMD="true list" flatpak_included && echo in || e
   "...and include_flatpak=false leaves it out wherever the command exists"
 : > "$KEMPT_CONFIG_DIR/config"
 
-assert_eq "$(config_get surface terminal)" "terminal" "default when unset"
+assert_eq "$(config_get surface fallback)" "fallback" "default when unset"
 config_set surface popup
-assert_eq "$(config_get surface terminal)" "popup" "reads set value"
+assert_eq "$(config_get surface fallback)" "popup" "reads set value"
 config_set surface offline
-assert_eq "$(config_get surface terminal)" "offline" "overwrite same key"
+assert_eq "$(config_get surface fallback)" "offline" "overwrite same key"
 assert_eq "$(grep -c '^surface=' "$KEMPT_CONFIG_DIR/config")" "1" "no duplicate keys"
 config_set include_flatpak false
 assert_eq "$(config_get include_flatpak true)" "false" "second key independent"
-assert_eq "$(config_get surface terminal)" "offline" "setting a second key preserves the first"
+assert_eq "$(config_get surface fallback)" "offline" "setting a second key preserves the first"
 assert_eq "$(config_get refresh_interval_min 60)" "60" "default numeric"
 
 # Input validation: a key that could smuggle syntax, and a multi-line value that could inject
@@ -44,7 +44,7 @@ assert_exit 2 "config get refuses a key that is not a key" config_get 's.*'
 assert_eq "$(config_get 's.*' 2>/dev/null)" "" "...and prints no other setting's value"
 assert_exit 2 "...and kempt config get says so with a usage error" "$REPO_ROOT/bin/kempt" config get 's.*'
 # A rejected write must not have disturbed what was already stored.
-assert_eq "$(config_get surface terminal)" "offline" "rejected writes leave surface intact"
+assert_eq "$(config_get surface fallback)" "offline" "rejected writes leave surface intact"
 assert_eq "$(config_get include_flatpak true)" "false" "rejected writes leave include_flatpak intact"
 assert_eq "$(grep -c '' "$KEMPT_CONFIG_DIR/config")" "2" "rejected writes added no lines"
 
@@ -89,6 +89,15 @@ assert_contains "$(cat "$TESTTMP/rc-err")" "Accepted: ask, off" "...and the warn
 assert_eq "$("$KEMPT" config set reclaim off 2>&1 >/dev/null)" "" "...and a value it accepts says nothing"
 sed -i '/^reclaim=/d' "$KEMPT_CONFIG_DIR/config"
 
+# A surface that merged into the widget is stored as the widget, and the person is told.
+assert_eq "$("$KEMPT" config set surface terminal 2>&1)" "Stored surface=popup, the widget, because terminal is no longer a choice." \
+  "config set surface terminal says what was stored"
+assert_eq "$(config_get surface)" "popup" "...and that is what was stored"
+assert_eq "$("$KEMPT" config set surface background 2>&1)" "Stored surface=popup, the widget, because background is no longer a choice." "...and the same for background"
+assert_eq "$("$KEMPT" config set surface widget 2>&1)" "" "...while a current value says nothing"
+assert_eq "$("$KEMPT" config set surface offline 2>&1)" "" "...offline included"
+sed -i '/^surface=/d' "$KEMPT_CONFIG_DIR/config"
+
 # --- config set says when it did not recognise what you wrote ------------------------------------
 # A typo used to be stored in silence: `kempt config set surfce terminal` wrote a key nothing
 # reads, and `kempt config set surface bogus` wrote a value nothing accepts, both under exit 0 with
@@ -121,7 +130,7 @@ grep -q "not a value surface accepts" "$ERR" \
 rc=0; "$KEMPT" config set Bad x 2>"$TESTTMP/cfg-badkey" >/dev/null || rc=$?
 assert_eq "$rc" "2" "an invalid key is refused with exit 2"
 assert_eq "$(cat "$TESTTMP/cfg-badkey")" "invalid config key: Bad" "...and only the invalid-key error is printed"
-for v in terminal widget offline; do
+for v in widget offline; do
   grep -q "$v" "$ERR" || { echo "FAIL: the warning does not offer $v"; _fail=1; }
 done
 echo "ok: ...and lists every value it does accept"
@@ -200,27 +209,9 @@ assert_eq "$(cat "$TESTTMP/alias.err")" "" "...with no warning, since widget is 
 assert_eq "$("$KEMPT" config get surface)" "popup" "...and config get prints the stored value"
 "$KEMPT" config set surface " Widget " 2>/dev/null
 assert_eq "$(grep '^surface=' "$KEMPT_CONFIG_DIR/config")" "surface=popup" "...trimmed and in any case, as surfaces are read"
-assert_contains "$("$KEMPT" config set surface bogus 2>&1)" "Accepted: terminal, widget, offline" \
+assert_contains "$("$KEMPT" config set surface bogus 2>&1)" "Accepted: widget, offline" \
   "the warning for an unknown surface names widget"
 assert_not_contains "$("$KEMPT" config set surface bogus 2>&1)" "popup" "...and never the stored word"
 assert_eq "$(surface_word popup)|$(surface_word offline)" "widget|offline" "surface_word shows popup as widget and leaves the rest"
-
-# The run-start token, swept on the same rule as the orphan temps above. `kempt run` drops one in
-# the state directory and the window it launches claims it by deleting it (wait_for_window), so a
-# terminal that never opens - or one that hangs forever without running its script - leaves it
-# behind. Nothing else ever removes those, so they accumulate one per wedged launch, for good.
-# The SAME +60min bound, and that bound is load-bearing in the other direction too: `kempt run`
-# waits seconds for the window to claim its token, so a token belonging to a launch that is still
-# waiting must never be eligible. An hour is far past any honest wait.
-printf 'x' > "$KEMPT_STATE_DIR/run-start.old";   touch -d '2 hours ago' "$KEMPT_STATE_DIR/run-start.old"
-printf 'x' > "$KEMPT_STATE_DIR/run-start.fresh"
-# A name that merely STARTS like a token is not one: the glob is anchored on "run-start." and this
-# file is here to prove the sweep cannot widen into the rest of the state directory.
-printf 'x' > "$KEMPT_STATE_DIR/run-started.keep"; touch -d '2 hours ago' "$KEMPT_STATE_DIR/run-started.keep"
-kempt_init_dirs
-assert_exit 0 "an aged run-start token is swept" -- test ! -e "$KEMPT_STATE_DIR/run-start.old"
-assert_exit 0 "...while a live launch's token is left alone" -- test -f "$KEMPT_STATE_DIR/run-start.fresh"
-assert_exit 0 "...and the sweep only ever takes its own file names" -- test -f "$KEMPT_STATE_DIR/run-started.keep"
-rm -f "$KEMPT_STATE_DIR/run-start.fresh" "$KEMPT_STATE_DIR/run-started.keep"
 
 finish

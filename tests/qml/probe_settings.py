@@ -32,7 +32,7 @@ PWSLOW = os.path.join(p.sandbox, "pwslow")     # ...and the passwordless action,
 for d in (VALUES, FAILGET, FAILSET, SLOWSET):
     os.makedirs(d)
 
-DEFAULTS = (("include_flatpak", "true"), ("auto_accept", "true"),
+DEFAULTS = (("include_flatpak", "true"),
             ("surface", "popup"), ("refresh_interval_min", "60"),
             ("notify_startup", "true"), ("reclaim", "off"))
 # Whether flatpak is installed, as the page asks it: `command -v` on the first word of the CLI's
@@ -159,8 +159,8 @@ page0, ev0 = build(wait=False)
 p.check("the page has reads outstanding the instant it is created", ev0("page.pendingReads") > 0, True)
 p.check("...so it reports itself as still loading", ev0("page.loading"), True)
 p.check("...and its controls are disabled meanwhile",
-        [ev0("includeFlatpak.enabled"), ev0("autoAccept.enabled"), ev0("interval.enabled")],
-        [False, False, False])
+        [ev0("includeFlatpak.enabled"), ev0("interval.enabled")],
+        [False, False])
 ev0("page.saveConfig()")
 p.wait_idle(ev0, "cfgExecutor")
 p.check("an Apply before the settings have been read writes NOTHING", p.calls_matching("config set"), [])
@@ -191,8 +191,7 @@ p.check("each unused-runtimes radio is named with its setting",
                   "Unused Flatpak runtimes: Never"]))
 p.check("...and each surface radio",
         ev0(NAMES % {"r": "surfaceRepeater"}),
-        "|".join(["Run updates in: Terminal window", "Run updates in: In this widget",
-                  "Run updates in: On the next restart"]))
+        "|".join(["Run updates in: In this widget", "Run updates in: On the next restart"]))
 p.check("...while the words drawn beside them stay the option alone",
         ev0("reclaimRepeater.itemAt(1).text"), "Never")
 p.check("the interval spin box is named by its label, and so is the text field inside it",
@@ -229,7 +228,7 @@ for k, v in DEFAULTS:
 p.clear_calls()
 pageR, evR = build()
 p.check("opening checks exactly one surface radio, the stored one",
-        group(evR, "surfaceRepeater"), [1, 1])
+        group(evR, "surfaceRepeater"), [1, 0])
 p.check("...and exactly one unused-runtimes radio, the stored one",
         group(evR, "reclaimRepeater"), [1, 1])
 
@@ -240,11 +239,11 @@ p.check("...and exactly one unused-runtimes radio, the stored one",
 # `checked` binding, so the button would stay lit whatever the page property said afterwards and
 # this section would be proving nothing. The other group must not move.
 before_reclaim = group(evR, "reclaimRepeater")
-evR("surfaceRepeater.itemAt(2).toggle()")
-evR("surfaceRepeater.itemAt(2).toggled()")
+evR("surfaceRepeater.itemAt(1).toggle()")
+evR("surfaceRepeater.itemAt(1).toggled()")
 p.pump(60)
 p.check("clicking a surface radio moves the surface choice", evR("page.surfaceKey"), "offline")
-p.check("...leaving exactly one of its own buttons checked", group(evR, "surfaceRepeater"), [1, 2])
+p.check("...leaving exactly one of its own buttons checked", group(evR, "surfaceRepeater"), [1, 1])
 p.check("...and the unused-runtimes group exactly as it was",
         group(evR, "reclaimRepeater"), before_reclaim)
 
@@ -260,7 +259,7 @@ p.check("...and the surface group untouched", group(evR, "surfaceRepeater"), bef
 # Clicking the radio that is ALREADY selected unchecks it in C++, and the page puts it back. Put
 # back by assignment, `checked` stops following the page property, so the next click on another
 # radio would leave both lit. Every group, clicked the way a mouse clicks.
-for _rep, _key, _other in (("surfaceRepeater", "surfaceKey", 1),
+for _rep, _key, _other in (("surfaceRepeater", "surfaceKey", 0),
                            ("reclaimRepeater", "reclaimKey", 1)):
     _sel = group(evR, _rep)[1]
     evR("%s.itemAt(%d).toggle()" % (_rep, _sel))
@@ -321,54 +320,22 @@ ev("page.saveConfig()")
 p.wait_idle(ev, "cfgExecutor")
 p.check("saving twice does not rewrite what it just wrote", p.calls_matching("config set"), [])
 
+# A saved terminal choice reads as the widget, and Apply on an untouched page leaves it alone:
+# the value on disk changes only when the person picks a surface.
 # ==================================================================================================
-# The surface lock is a RUN-time fact, not an edit.
-# Measured: with auto_accept already false in the config, opening the settings and pressing Apply -
-# touching nothing - rewrote a stored `popup` to `terminal`.
-# ==================================================================================================
-setval("auto_accept", "false")
-setval("surface", "popup")
+setval("surface", "terminal")
 setval("include_flatpak", "true")
 setval("refresh_interval_min", "60")
 p.clear_calls()
 page2, ev2 = build()
-p.check("the page opens on a config whose confirmation is on", ev2("autoAccept.checked"), False)
-p.check("...so the non-terminal surfaces are locked", ev2("page.surfacesLocked"), True)
-p.check("...but the stored choice is still the selected one", ev2("page.surfaceKey"), "popup")
-p.check("...and it is what Apply would write", ev2("page.selectedSurface()"), "popup")
-p.check("...shown as selected, just not changeable", ev2("surfaceRepeater.itemAt(1).checked"), True)
-p.check("...greyed out, with the reason stated above it",
-        ev2("surfaceRepeater.itemAt(1).enabled"), False)
-p.check("...while the terminal option stays reachable",
-        ev2("surfaceRepeater.itemAt(0).enabled"), True)
-ev2("page.saveConfig()")
-p.wait_idle(ev2, "cfgExecutor")
-p.check("an untouched Apply on a locked page writes NOTHING", p.calls_matching("config set"), [])
-p.check("...and the stored preference survives it", stored("surface"), "popup")
-
-# ...and ticking confirmation IN the page does not quietly edit the surface either.
-setval("auto_accept", "true")
+p.check("a saved terminal opens with the widget selected", ev2("page.selectedSurface()"), "popup")
+p.check("...and only two surfaces are offered", ev2("surfaceRepeater.count"), 2)
+setval("surface", "popup")
 p.clear_calls()
 page3, ev3 = build()
-p.check("a page opened with confirmation off is unlocked", ev3("page.surfacesLocked"), False)
-ev3("autoAccept.checked = false")
-ev3("autoAccept.toggled()")
-p.pump(60)
-p.check("ticking confirmation locks the other surfaces", ev3("page.surfacesLocked"), True)
-p.check("...and does NOT throw away the surface the user had chosen", ev3("page.surfaceKey"), "popup")
-ev3("autoAccept.checked = true")
-ev3("autoAccept.toggled()")
-p.pump(60)
-p.check("...so unticking it hands that choice straight back", ev3("page.surfaceKey"), "popup")
-p.check("...and the radios are live again", ev3("surfaceRepeater.itemAt(1).enabled"), True)
-p.clear_calls()
 ev3("page.saveConfig()")
 p.wait_idle(ev3, "cfgExecutor")
-# Ticked then unticked: auto_accept is back to the value the CLI already holds, so there is
-# nothing to write. A page that wrote it anyway would be rewriting a key on the strength of
-# having been LOOKED at, which is the whole class of bug this section exists for.
-p.check("a setting toggled and toggled back writes nothing at all",
-        sorted(c.split()[2] for c in p.calls_matching("config set")), [])
+p.check("an untouched Apply writes NOTHING", p.calls_matching("config set"), [])
 p.check("...and the surface is still what it was", stored("surface"), "popup")
 
 # A deliberate surface change still writes, of course.
@@ -426,7 +393,6 @@ p.check("...and is not written a fourth time", p.calls_matching("config set"), [
 # ==================================================================================================
 setval("include_flatpak", "true")
 setval("surface", "popup")
-setval("auto_accept", "true")
 setval("refresh_interval_min", "45")
 toggle_fail(FAILGET, "include_flatpak")
 p.clear_calls()
@@ -490,8 +456,7 @@ p.check("...as four arguments the CLI can read",
         p.argv("config"), ["config", "set", "notify_startup", "false"])
 p.check("...and the CLI holds the value the user chose", stored("notify_startup"), "false")
 p.check("...while the keys the user never touched stand", stored("surface"), "popup")
-p.check("...including the other two booleans", [stored("include_flatpak"), stored("auto_accept")],
-        ["true", "true"])
+p.check("...including the other boolean", stored("include_flatpak"), "true")
 p.check("...and the page is clean again", evRem("page.unsavedChanges"), False)
 p.check("...so the dialog's Apply button greys back out", hevRem("host.applyEnabled"), False)
 
@@ -517,7 +482,7 @@ p.check("ticking it back writes true", stored("notify_startup"), "true")
 p.check("...having called the CLI exactly once", p.call_count("config set notify_startup"), 1)
 p.check("...and written nothing else", p.call_count("config set"), 1)
 
-# The durable form. Same argument as the auto_accept section at the bottom of this file: the
+# The durable form. Same argument as the durable-write section at the bottom of this file: the
 # dialog's OK is `applyAction.trigger(); configDialog.close()`, so this write is dispatched into
 # its own teardown and a plain `sh -c` would be SIGKILLed with the config set still unrun. The
 # slow-write seam keeps the job in flight long enough for the command string to be readable.
@@ -588,7 +553,7 @@ p.clear_calls()
 page6, ev6 = build()
 p.check("every setting the page writes is read back on open",
         sorted(c.split()[2] for c in p.calls_matching("config get")),
-        ["auto_accept", "include_flatpak", "notify_startup", "reclaim", "refresh_interval_min",
+        ["include_flatpak", "notify_startup", "reclaim", "refresh_interval_min",
          "surface"])
 p.check("...and the holds list too", p.call_count("holds"), 1)
 p.check("a true boolean renders as a ticked box", ev6("includeFlatpak.checked"), True)
@@ -827,8 +792,8 @@ p.check("...which then finishes normally, with its own last words",
 # ==================================================================================================
 # Every write this page dispatches outlives the dialog that dispatched it.
 #
-# The measured failure: a person ticked "Apply updates without asking for confirmation",
-# pressed OK, and `kempt config get auto_accept` still read the old value. Plasma's OK is
+# The measured failure: a person changed a checkbox on this page, pressed OK, and
+# `kempt config get` on that key still read the old value. Plasma's OK is
 # `applyAction.trigger(); configDialog.close()` (AppletConfiguration.qml, acceptAction) - so
 # saveConfig() DISPATCHES and the close in the same turn destroys the page, cfgExecutor and its
 # DataSource. The engine drops the unused container, deletes the KProcess behind it, and a
@@ -845,12 +810,12 @@ p.check("...which then finishes normally, with its own last words",
 # ==================================================================================================
 for k, v in DEFAULTS:
     setval(k, v)
-setval("auto_accept", "false")            # so the user's move here is the one that writes `true`
-toggle_fail(SLOWSET, "auto_accept")
+setval("include_flatpak", "false")        # so the user's move here is the one that writes `true`
+toggle_fail(SLOWSET, "include_flatpak")
 page11, ev11 = build()
-p.check("the page opened on the stored value", ev11("autoAccept.checked"), False)
-ev11("autoAccept.checked = true")
-ev11("autoAccept.toggled()")
+p.check("the page opened on the stored value", ev11("includeFlatpak.checked"), False)
+ev11("includeFlatpak.checked = true")
+ev11("includeFlatpak.toggled()")
 p.pump(50)
 p.clear_calls()
 ev11("page.saveConfig()")
@@ -859,16 +824,16 @@ src11 = ev11("cfgExecutor.current ? cfgExecutor.current.source : ''")
 p.check("the write is stamped as the widget's, which is what `kempt log` reports",
         "KEMPT_VIA=widget kempt config set" in cmd11, True)
 p.check("...carries the value quoted by Logic.shellQuote",
-        "config set auto_accept 'true'" in cmd11, True)
+        "config set include_flatpak 'true'" in cmd11, True)
 p.check("...and ends in the durable form, so a SIGKILL at the shell cannot lose it",
         cmd11.endswith(" & wait $!"), True)
 p.check("...with Executor's dedup tag after it, where sh reads it as a comment",
         src11 == cmd11 + " #kempt" + str(ev11("cfgExecutor.serial")), True)
 p.wait_idle(ev11, "cfgExecutor", timeout_ms=20000)
-p.check("...and the write still lands the way it always did", stored("auto_accept"), "true")
+p.check("...and the write still lands the way it always did", stored("include_flatpak"), "true")
 p.check("...leaving the page clean, so `wait $!` did carry the exit status back",
         ev11("page.unsavedChanges"), False)
-toggle_fail(SLOWSET, "auto_accept", False)
+toggle_fail(SLOWSET, "include_flatpak", False)
 
 # Removing a hold is the page's other write, and it sits on the same dying dialog.
 p.clear_calls()
@@ -916,8 +881,8 @@ p.check("the page asks the CLI for the notifier's state",
 p.check("on, it says Discover counts on its own and offers to turn it off",
         [ev13("discoverStatus.visible"), ev13("discoverStatus.text"),
          ev13("discoverButton.visible"), ev13("discoverButton.text")],
-        [True, "Discover also shows update notifications, with its own count.",
-         True, "Turn Off Discover's Notifier"])
+        [True, "Discover also checks for updates, with its own count.",
+         True, "Turn Off Discover's Update Checks"])
 
 open(DNSLOW, "w").close()
 p.clear_calls()
@@ -936,7 +901,7 @@ p.check("...then asks again",
         ["discover-notifier off", "discover-notifier status --json"])
 p.check("...and turned off by Kempt, the row offers to turn it back on",
         [ev13("discoverStatus.text"), ev13("discoverButton.text")],
-        ["Discover's notifier is off.", "Turn On Discover's Notifier"])
+        ["Discover's update checks are off.", "Turn On Discover's Update Checks"])
 p.check("...which is an action, not an unsaved change", ev13("page.unsavedChanges"), False)
 
 open(DNFAIL, "w").write("A startup file keeps Discover's notifier off: /x. Delete it, then run kempt discover-notifier on.\n")
@@ -952,8 +917,8 @@ p.check("...a refusal shows the CLI's reason",
         "A startup file keeps Discover's notifier off: /x. Delete it, then run kempt discover-notifier on.")
 p.check("...and off by the person's own entry, the row says so with no button",
         [ev13("discoverStatus.text"), ev13("discoverButton.visible")],
-        ["Discover's notifier is turned off by a startup file: /h/.config/autostart/x.desktop."
-         " Delete that file to turn it back on.", False])
+        ["Discover's update checks are turned off by a startup file: /h/.config/autostart/x.desktop."
+         " Delete that file to turn them back on.", False])
 open(DNFAIL, "w").write("")
 open(DNSTATUS, "w").write("")
 

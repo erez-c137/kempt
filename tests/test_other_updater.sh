@@ -92,7 +92,7 @@ assert_not_contains "$("$KEMPT" status 2>&1 || true)" "belongs to another update
 foreign_link
 "$KEMPT" check >/dev/null
 assert_eq "$(state .restart_holder)" "other" "the state names another updater"
-assert_contains "$("$KEMPT" status 2>&1 || true)" "The next restart belongs to another updater" "...and status has a line saying so"
+assert_contains "$("$KEMPT" status 2>&1 || true)" "Another updater has prepared the next restart" "...and status has a line saying so"
 # The write a run makes once its stage is armed, with no check behind it yet.
 jq -c '.restart_holder = "none"' "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/s.json" && cp "$TESTTMP/s.json" "$KEMPT_STATE_DIR/state.json"
 bash -c 'source "$1/lib/common.sh"; publish_staged_state_write "" ""' _ "$REPO_ROOT"
@@ -107,12 +107,12 @@ gate_refuses() {  # label, then the environment and arguments
   err="$(env "$@" 2>&1 >/dev/null)" || rc=$?
   assert_eq "$rc" "5" "$label: refused with the code for this condition"
   assert_eq "$(cat "$WORLD/calls")" "" "$label: no download and no Flatpak"
-  assert_contains "$err" "the next restart belongs to another updater" "$label: says why"
+  assert_contains "$err" "another updater has prepared the next restart" "$label: says why"
   assert_eq "$(ls "$KEMPT_STATE_DIR/history" 2>/dev/null | wc -l)" "$hist_before" "$label: nothing recorded as a run"
 }
 foreign_link
 gate_refuses "a foreign link" "$KEMPT" update --surface=offline
-assert_contains "$(cat "$WORLD/notifications")" "the next restart belongs to another updater" "...and the notification says so"
+assert_contains "$(cat "$WORLD/notifications")" "another updater has prepared the next restart" "...and the notification says so"
 assert_not_contains "$(cat "$WORLD/notifications")" "install on" "...and promises nothing"
 rm -f "$LINK"; ln -s "$TESTTMP/no/such/target" "$LINK"
 gate_refuses "a dangling link" "$KEMPT" update --surface=offline
@@ -123,10 +123,10 @@ foreign_link
 "$KEMPT" config set surface offline
 gate_refuses "the configured surface" "$KEMPT" update
 "$KEMPT" config set auto_accept false
-gate_refuses "a run with no terminal and auto_accept off" "$KEMPT" update --surface=offline </dev/null
-gate_refuses "...and the same from the configured surface" "$KEMPT" update </dev/null
+gate_refuses "a press with auto_accept off" "$KEMPT" update --answered --surface=offline </dev/null
+gate_refuses "...and the same from the configured surface" "$KEMPT" update --answered </dev/null
 # The widget's consent is to a live run, so it does not turn a stage asked for into one.
-gate_refuses "a stage asked for with the flag and auto_accept off" "$KEMPT" update --surface=offline --risky-ok </dev/null
+gate_refuses "a stage asked for with the flag and auto_accept off" "$KEMPT" update --answered --surface=offline --risky-ok </dev/null
 # ...where a terminal must not turn the stage asked for into a live run.
 : > "$WORLD/calls"; rc=0
 python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$KEMPT" update --surface=offline >/dev/null 2>&1 </dev/null || rc=$?
@@ -163,7 +163,6 @@ done
 
 # Live with nobody asked: the widget's last read may have said Flatpak alone, and this check found more.
 gate_refuses "a live run nobody was asked about" "$KEMPT" update --surface=popup
-gate_refuses "...and one with no terminal" "$KEMPT" update --surface=terminal </dev/null
 _live_err="$("$KEMPT" update --surface=popup 2>&1 >/dev/null || true)"
 assert_contains "$_live_err" "updating now may stop what it prepared" "...saying what a live update risks"
 assert_not_contains "$_live_err" "nothing was staged" "...not that a stage was refused"
@@ -175,7 +174,7 @@ for _args in "--surface=popup" "--surface=offline"; do
   _err="$(KEMPT_DNF_CACHE_DIR="$_unsafe" "$KEMPT" update $_args 2>&1 >/dev/null || true)"
   assert_contains "$_err" "other users can change files in $_unsafe" "$_args: names the folder"
   assert_contains "$_err" "See: kempt doctor" "$_args: sends the reader to the fix"
-  assert_not_contains "$_err" "--surface=terminal" "$_args: offers no run the helper would refuse"
+  assert_not_contains "$_err" "in a terminal" "$_args: offers no run the helper would refuse"
 done
 # Flatpak alone is not held up by the restart, so this refusal is not the one that speaks for it.
 : > "$WORLD/calls"; rc=0
@@ -190,12 +189,12 @@ assert_eq "$rc" "0" "a live run the widget asked about is not refused"
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-upgrade" "...and upgrades"
 # A terminal: dnf5 asks there, and it is the way the refusal names.
 : > "$WORLD/calls"; rc=0
-python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$KEMPT" update --surface=terminal >/dev/null 2>&1 </dev/null || rc=$?
+python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' "$KEMPT" update --surface=widget >/dev/null 2>&1 </dev/null || rc=$?
 assert_eq "$rc" "0" "a terminal is not refused"
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-upgrade" "...and upgrades"
 # A terminal on one side only cannot show and ask.
 : > "$WORLD/calls"; rc=0
-python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' bash -c '"$0" update --surface=terminal </dev/null' "$KEMPT" >/dev/null 2>&1 </dev/null || rc=$?
+python3 -c 'import pty, sys; sys.exit(pty.spawn(sys.argv[1:]) >> 8)' bash -c '"$0" update --surface=widget </dev/null' "$KEMPT" >/dev/null 2>&1 </dev/null || rc=$?
 assert_eq "$rc" "5" "output to a terminal with no input from one is refused"
 assert_eq "$(grep -c APPLY "$WORLD/calls" || true)" "0" "...and installs nothing"
 # Flatpak alone: nothing that updater prepared is touched.
@@ -217,18 +216,18 @@ rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR"/snapshots/offlin
 export KEMPT_RISKY_RE='^bash$'
 foreign_link
 : > "$WORLD/calls"; : > "$WORLD/notifications"
-sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" 2>&1)" || true
-assert_contains "$sout" "Staging is not available: the next restart belongs to another updater" "the risky prompt drops staging"
+sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" 2>&1)" || true
+assert_contains "$sout" "Staging is not available: another updater has prepared the next restart" "the risky prompt drops staging"
 assert_not_contains "$sout" "[s]" "...and does not offer the key"
 assert_eq "$(grep -c 'APPLY dnf-offline-stage' "$WORLD/calls" || true)" "0" "...and answering s anyway never stages"
-assert_contains "$sout" "Staging is not available, because the next restart belongs to another updater. Answer u or a." "...and is turned down in words"
+assert_contains "$sout" "Staging is not available, because another updater has prepared the next restart. Answer u or a." "...and is turned down in words"
 assert_contains "$sout" "aborted" "...and the end of input ends the run"
 : > "$WORLD/notifications"
-KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=popup </dev/null >/dev/null 2>&1 || true
+"$KEMPT" update --surface=popup </dev/null >/dev/null 2>&1 || true
 assert_not_contains "$(cat "$WORLD/notifications")" "--surface=offline" "...and the notification gives no advice to stage"
 no_link
 : > "$WORLD/calls"
-sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=terminal <<<"s" 2>&1)" || true
+sout="$(KEMPT_ASSUME_TTY=1 "$KEMPT" update --surface=widget <<<"s" 2>&1)" || true
 assert_contains "$(cat "$WORLD/calls")" "APPLY dnf-offline-stage" "with nobody holding the restart the same answer stages"
 rm -f "$KEMPT_STATE_DIR/offline_staged.json" "$KEMPT_STATE_DIR"/snapshots/offline-pre-*.tsv
 unset KEMPT_RISKY_RE
@@ -284,7 +283,7 @@ staged_marker "$NAMES"
 moved $'librepo\t1.21.0-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'7zip\t26.03-1.fc44'
 grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"
 qa_from_after; harvest
-assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your staged updates are installed." "all of it: as before"
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your prepared updates are installed." "all of it: as before"
 assert_eq "$(entry .surface)" "offline (installed by another updater)" "...with its history entry"
 assert_exit 0 "...and the marker goes" -- test ! -f "$marker"
 
@@ -396,7 +395,7 @@ rm -f "$KEMPT_STATE_DIR/offline-partial"
 staged_marker "$NAMES"
 moved $'zzz-unrelated\t1.0-1.fc44'
 qa_from_after; foreign_link; harvest
-assert_contains "$(cat "$WORLD/notifications")" "The next restart belongs to another updater" "held: says whose restart it is"
+assert_contains "$(cat "$WORLD/notifications")" "Another updater has prepared the next restart" "held: says whose restart it is"
 assert_not_contains "$(cat "$WORLD/notifications")" "--surface=offline" "...and does not advise a stage"
 assert_not_contains "$(cat "$WORLD/notifications")" "dnf5 offline clean" "...nor a clean that would cancel that updater's"
 no_link; rm -f "$marker" "$pre"
@@ -574,7 +573,7 @@ rm -f "$marker"; rm -rf "$KEMPT_STATE_DIR/history"
 # None of it changed, with the set as it was.
 staged_marker "$NAMES"; cp "$pre" "$after_tsv"; qa_from_after
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_contains "$(cat "$WORLD/notifications")" "Your staged update did not finish installing on the restart, and none of it was installed." "none of an unfinished restart: says so"
+assert_contains "$(cat "$WORLD/notifications")" "Your prepared updates did not finish installing on the restart, and none of them were installed." "none of an unfinished restart: says so"
 assert_not_contains "$(cat "$WORLD/notifications")" "can no longer install" "...and not that it can no longer install"
 assert_eq "$(entries)" "0" "...with no history"
 assert_contains "$(tail -n 4 "$KEMPT_STATE_DIR/events.log")" "offline stage did not finish on the restart (status transaction-incomplete) - announced" "...and the log agrees"
@@ -590,7 +589,7 @@ rm -f "$marker" "$pre"
 staged_marker "$NAMES"; moved $'zzz-unrelated\t1.0-1.fc44'
 grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"; qa_from_after
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_contains "$(cat "$WORLD/notifications")" "did not finish installing on the restart, and none of it was installed" "none of it, whatever else moved"
+assert_contains "$(cat "$WORLD/notifications")" "did not finish installing on the restart, and none of them were installed" "none of it, whatever else moved"
 assert_eq "$(entries)" "0" "...with no history"
 rm -f "$marker" "$pre"
 
@@ -598,7 +597,7 @@ rm -f "$marker" "$pre"
 staged_marker "$NAMES"; moved $'aardvark-dns\t2:1.18.0-1.fc44'; qa_from_after
 jq -c 'del(.staged_names)' "$marker" > "$marker.t"; mv "$marker.t" "$marker"
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_contains "$(cat "$WORLD/notifications")" "Your staged update did not finish installing on the restart." "cannot tell how much: says it did not finish"
+assert_contains "$(cat "$WORLD/notifications")" "Your prepared updates did not finish installing on the restart." "cannot tell how much: says it did not finish"
 assert_not_contains "$(cat "$WORLD/notifications")" "none of it" "...and nothing about how much"
 assert_not_contains "$(cat "$WORLD/notifications")" "of your staged updates" "...either way"
 assert_eq "$(entries)" "0" "...with no history"
@@ -609,7 +608,7 @@ staged_marker "$NAMES"
 moved $'librepo\t1.21.0-1.fc44' $'aardvark-dns\t2:1.18.0-1.fc44' $'7zip\t26.03-1.fc44'
 grep -v '^bash-color-prompt'$'\t' "$after_tsv" > "$after_tsv.x"; mv "$after_tsv.x" "$after_tsv"; qa_from_after
 KEMPT_OFFLINE_TOML="$TESTTMP/incomplete.toml" harvest
-assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your staged updates are installed." "all of an unfinished restart: installed, with no count to get wrong"
+assert_eq "$(cat "$WORLD/notifications")" "NOTIFY Kempt Your prepared updates are installed." "all of an unfinished restart: installed, with no count to get wrong"
 rm -f "$marker" "$pre"
 
 

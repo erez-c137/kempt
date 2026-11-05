@@ -76,14 +76,9 @@ Recommends:     flatpak
 # The bindings come only with flatpak: without it there is nothing to list.
 Requires:       (python3-gobject-base if flatpak)
 Requires:       (flatpak-libs if flatpak)
-# Both of these are weak on purpose. libnotify was declared nowhere, and konsole was only
-# Suggested, which dnf does not install.
-# notify-send is how every detached surface reports what it did; without it those runs finish
-# silently. konsole is what the DEFAULT surface launches, so with it merely Suggested
-# `kempt doctor` reported a FAIL on a fresh, correct install - the first command the docs tell a
-# new user to run.
+# Weak on purpose. notify-send is how every detached run reports what it did; without it those
+# runs finish silently.
 Recommends:     libnotify
-Recommends:     konsole
 # Blocks a shutdown while rpm is changing packages, so a restart pressed during an update waits.
 Recommends:     rpm-plugin-systemd-inhibit
 
@@ -92,7 +87,7 @@ Recommends:     rpm-plugin-systemd-inhibit
 %description
 Kempt shows which dnf5 and Flatpak updates are pending with the version each
 package moves from and to, counts only the updates you have not held, and
-applies them in the panel widget, in a terminal, or staged for the next
+applies them in the panel widget, from a terminal, or staged for the next
 restart.
 The Plasma panel widget is a separate package, which dnf5 adds by default on a
 system that has Plasma, so installing this package on a server or in a
@@ -126,9 +121,8 @@ the same cache the update uses.
 cp -a . ../%{name}-pristine
 
 # The polkit action pins the helper path with an exec.path annotation, and the library must agree
-# with it or pkexec refuses to run the helper. The dev installer uses /usr/local/libexec; a
-# packaged build uses the FHS libexec dir. install.sh names the same path a third time, but it is
-# not packaged - a checkout install is the only thing that runs it.
+# with it or pkexec refuses to run the helper. The tree says /usr/local/libexec; a packaged build
+# uses the FHS libexec dir.
 sed -i 's|/usr/local/libexec|%{_libexecdir}|g' \
     polkit/io.github.erez_c137.kempt.policy \
     lib/common.sh
@@ -149,7 +143,7 @@ ln -s %{_datadir}/%{name}/bin/kempt %{buildroot}%{_bindir}/kempt
 
 # Two files the CLI reads out of its own tree at runtime, and the tree is $ROOT here rather than a
 # checkout. Verified by installing the package without them: `kempt --version` printed
-# "kempt unknown", and `kempt doctor` reported the install as an incomplete checkout.
+# "kempt unknown".
 install -p -m 0644 VERSION %{buildroot}%{_datadir}/%{name}/VERSION
 # `kempt enable-passwordless` renders this template into /etc/polkit-1/rules.d. Without it that
 # command has nothing to render and fails on the day someone runs it, not before.
@@ -187,7 +181,7 @@ install -d %{buildroot}%{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt
 cp -a plasmoid/metadata.json plasmoid/contents \
     %{buildroot}%{_datadir}/plasma/plasmoids/io.github.erez_c137.kempt/
 
-# The icon ladder, same six rungs install.sh puts into the user's hicolor theme. No icon-cache
+# The icon ladder, six rungs in the hicolor theme. No icon-cache
 # scriptlet: hicolor-icon-theme's own file triggers fire for any package touching that tree.
 for pair in scalable:kempt.svg 64x64:kempt-48.svg 48x48:kempt-48.svg \
             32x32:kempt-32.svg 22x22:kempt-22.svg 16x16:kempt-16.svg; do

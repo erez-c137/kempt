@@ -64,8 +64,8 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
   shows how much space the unused ones take and removes them when you agree, or after each update.
 - **Holds.** A held package stays out of updates but stays in the list, so you do not forget it.
   Click its padlock, or run `kempt hold dnf:kernel-core`.
-- **Three ways to update.** In a terminal with live output, in the widget, or staged to install on
-  the next restart. When the kernel, systemd, Qt or graphics
+- **Two ways to update.** Now, in the widget, or staged to install on the next restart. `kempt update`
+  in a terminal shows live output. When the kernel, systemd, Qt or graphics
   drivers have updates, Kempt suggests the restart option. `kempt unstage` or the widget takes a
   staged update back.
 - **The download size up front.** The widget's footer shows it before you start, from data already on
@@ -78,7 +78,7 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
 - **You choose when to restart.** When an update needs one, Kempt opens KDE's restart prompt, which
   you can cancel.
 - **A self-check.** `kempt doctor` checks the install one line at a time.
-- **One count.** Kempt can turn off Discover's notifier, so you see one number.
+- **One count.** Kempt can turn off Discover's update checks, so you see one number.
 
 ![The widget after staging: 55 updates install on the next restart, with buttons to restart now or discard the staged update](docs/images/kempt-staged.png)
 
@@ -92,23 +92,14 @@ discard the staged update and keep working.*
 
 ## From a checkout
 
-```bash
-git clone https://github.com/erez-c137/kempt.git
-cd kempt
-./install.sh          # one password prompt: the root helpers and polkit action, then the widget
-kempt doctor
-```
-
-`install.sh` links `bin/kempt` into `~/.local/bin`, so keep the checkout where it is. If `kempt` is
-not found afterwards, log out and back in. The
-[contributing guide](CONTRIBUTING.md#installing-from-a-checkout) covers the details, and the
-[install guide](docs/install.md#from-a-checkout-developers) how to update and undo it.
+To try unreleased changes, `tools/build-local.sh` builds the packages from your checkout and installs
+them. The [contributing guide](CONTRIBUTING.md#installing-from-a-checkout) covers the details.
 
 ## Documentation
 
 | Document | What is in it |
 | --- | --- |
-| [docs/install.md](docs/install.md) | Installing from the package or a checkout, passwordless updates, and removing Kempt |
+| [docs/install.md](docs/install.md) | Installing from the package, passwordless updates, and removing Kempt |
 | [docs/widget.md](docs/widget.md) | What the panel widget shows, and what each message, button and setting does |
 | [docs/usage.md](docs/usage.md) | Every command with its options, output and exit codes |
 | [docs/configuration.md](docs/configuration.md) | Every setting with its default, holds, and where Kempt keeps its files |

@@ -295,15 +295,14 @@ if dnf -y -q copr enable "${KEMPT_COPR:-erez-c137/kempt}" >/dev/null 2>&1 \
   is "...and both packages still verify clean after this build's commands ran" \
      "$(rpm -V kempt kempt-plasmoid >/dev/null 2>&1 && echo clean || echo dirty)" "clean"
   # Then the edge cases a real run cannot reach, written by hand and read by this build.
-  # Somebody who has used Kempt and never chose a surface: a state file and no config. When the
-  # default was the terminal, that meant the terminal, and the upgrade must keep it so.
+  # Somebody who has used Kempt and never chose a surface: a state file and no config.
   su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.local/state/kempt/history ~/.local/state/kempt/snapshots && cd ~/.local/state/kempt && echo "{}" > state.json && echo "{}" > history/20250101T000000.json && echo pkg > snapshots/offline-pre-1.tsv'
-  is "an install that used the terminal keeps it across the upgrade" \
-     "$(su - alice -c 'kempt config get surface')" "terminal"
+  is "an install with history and no config runs in the widget" \
+     "$(su - alice -c 'kempt config get surface')" "popup"
   # The other install that predates the default: a config with a setting and no state at all.
   su - alice -c 'rm -rf ~/.config/kempt ~/.local/state/kempt && mkdir -p ~/.config/kempt && echo "notify_startup=false" > ~/.config/kempt/config'
-  is "an install with only a settings file keeps the terminal too" \
-     "$(su - alice -c 'kempt config get surface')" "terminal"
+  is "an install with only a settings file runs in the widget too" \
+     "$(su - alice -c 'kempt config get surface')" "popup"
   # Back to the release it came from, if the repository still carries it. A downgrade is the
   # rollback somebody reaches for when an update misbehaves.
   if [[ "$prev" != "$VER" ]]; then

@@ -16,24 +16,17 @@ Two more commands run as root, only when you run them. Each raises its own `pkex
 pkexec's generic authentication, outside Kempt's actions. `kempt enable-passwordless` runs
 `install(1)` to write one polkit rule, and `kempt disable-passwordless` runs `rm -f` on that file.
 Both are fixed to `/etc/polkit-1/rules.d/49-kempt.rules` (see
-[Passwordless mode](#passwordless-mode)). A checkout install also runs one
-`pkexec /usr/bin/bash -c` from `install.sh` (see [Accepted limitations](#accepted-limitations)).
+[Passwordless mode](#passwordless-mode)).
 
-The helpers are `/usr/libexec/kempt-{refresh,apply}` from the package and
-`/usr/local/libexec/...` from a checkout install. Each polkit action's `exec.path` pins the path
-for that build, and `kempt doctor` prints it. pkexec matches an action by that path alone.
+The helpers are `/usr/libexec/kempt-{refresh,apply}`. Each polkit action's `exec.path` pins the
+path, and `kempt doctor` prints it. pkexec matches an action by that path alone.
 
 `libexec/kempt-apply` honours a test setting (a `KEMPT_*` variable) only when not root, or as root
 when its uid map is not the full identity and its own path is not one a polkit action binds to.
 pkexec only ever runs those paths, so a real root run reads none of them.
 
-Either way, both helpers are `root:root` 0755 **copies**, installed once by `install.sh` or owned
-by the package. The CLI, its library and the backends run as you.
-
-On a checkout install, the CLI is a symlink into a git checkout you can write to. Editing the
-checkout changes what your user runs, and cannot change what root runs. Replacing the root half
-already requires root. On a packaged install, the whole tree under `/usr/share/kempt` is
-root-owned.
+Both helpers are `root:root` 0755 and owned by the package. The CLI, its library and the backends
+run as you, from a tree under `/usr/share/kempt` that is root-owned.
 
 ## Two polkit actions
 
@@ -446,9 +439,6 @@ left in place.
 - **Removing unused runtimes is system scope only.** Runtimes installed for you only are updated,
   and never removed.
 - **Holds apply to Kempt only.** A manual `sudo dnf5 upgrade` ignores them.
-- **`install.sh` runs one `pkexec /usr/bin/bash -c`.** Every repo path is passed as a positional
-  argument, outside the script text. A checkout path containing a quote cannot break or inject into
-  the root command.
 - **Inside the retention window, an armed offline transaction can be replaced without a prompt.**
   `dnf-offline-stage` is covered by the window, and staging over a transaction replaces it. For a
   few minutes after you authenticate a stage, another process running as you can swap the

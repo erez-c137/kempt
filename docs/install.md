@@ -13,9 +13,7 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | `polkit` (`pkexec`) | The two root helpers are launched through polkit actions. Present on any Plasma install. |
 | bash 4+, coreutils, GNU awk/grep/sed/join/sort, `flock` | The CLI is bash and the parsers are GNU text tools. All are in a base Fedora install. |
 | `flatpak` | Only for Flatpak apps. Without it, Kempt checks and updates system packages only. |
-| `getfacl` (acl) | `kempt doctor` reads ACL entries with it. Checkout installs: `sudo dnf install acl`. |
 | `notify-send` (libnotify) | Desktop notifications from runs outside a terminal. If it is missing, notifications are skipped. |
-| `konsole` | Only for updates in a terminal window (`surface=terminal`). For another emulator, set `KEMPT_TERMINAL` in your environment. |
 | KDE Plasma 6 with `kpackagetool6` | Only for the panel widget. If it is missing, the installer says so and installs everything else. |
 
 Installing on the next restart also needs a dnf5 that supports staged transactions. Check with:
@@ -102,7 +100,6 @@ ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 ok    polkit exec.path (refresh): /usr/libexec/kempt-refresh
 ok    polkit exec.path (apply): /usr/libexec/kempt-apply
-ok    terminal emulator: /usr/bin/konsole
 ok    flatpak: /usr/bin/flatpak
 info  package lists: no dnf refresh recorded yet. Fetch them now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its package lists, and sudo dnf5 makecache --refresh shows why
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
@@ -116,12 +113,9 @@ Recent events (kempt log):
 kempt doctor: all checks passed
 ```
 
-Two rows differ from a checkout install:
-
-- **`install: packaged`** means `install.sh` is absent from the tree. The package does not ship it.
-- **`widget engine`** finds `kempt` on the widget's own `PATH` (`~/.local/bin` first) and compares
-  it with the CLI that printed the report. A leftover `~/.local/bin/kempt` from an old checkout
-  install would run in the panel instead. That is a `FAIL`, and it names both files.
+The **`widget engine`** row finds `kempt` on the widget's own `PATH` (`~/.local/bin` first) and compares it with the
+CLI that printed the report. A leftover `~/.local/bin/kempt` from an old install would run in the panel
+instead. That is a `FAIL`, and it names both files.
 
 Doctor also catches a widget installed from the KDE Store before the package; see
 [Installing from the KDE Store first](#installing-from-the-kde-store-first).
@@ -144,15 +138,8 @@ files are not part of the package, so they stay:
 
 ## From a checkout (developers)
 
-```bash
-git clone https://github.com/erez-c137/kempt.git
-cd kempt
-./install.sh
-```
-
-What the installer does, every path it writes and how the widget copy works are in
-[CONTRIBUTING.md](../CONTRIBUTING.md#installing-from-a-checkout). Updating and removing a checkout
-install are below.
+`tools/build-local.sh` builds the packages from a checkout and installs them. See
+[CONTRIBUTING.md](../CONTRIBUTING.md#installing-from-a-checkout).
 
 ### Installing from the KDE Store first
 
@@ -191,11 +178,6 @@ and says to install `kempt-plasmoid` first. Removing the copy keeps the widget o
 packaged copy takes its place when the shell reloads.
 
 If you install the package first, none of this applies.
-
-### If the authentication prompt is declined
-
-The installer exits 1 and says where it stopped: the CLI symlink is in place, but the root helpers
-and the widget are not, so `kempt check` will not work yet. Re-run `./install.sh` when ready.
 
 ### The Discover-notifier opt-out
 
@@ -267,71 +249,9 @@ The full grant is in [security.md](security.md#passwordless-mode).
 
 ## Updating Kempt
 
-**From the package**, `sudo dnf upgrade` updates Kempt with everything else. Kempt lists itself in
+`sudo dnf upgrade` updates Kempt with everything else. Kempt lists itself in
 the widget while the update is pending. [RELEASING.md](RELEASING.md) says why there is no
 self-update.
 
 To go back one release, run `sudo dnf downgrade kempt kempt-plasmoid`. Your settings, holds and
 history stay, and an older release ignores settings it does not know.
-
-**From a checkout**, pull first:
-
-```bash
-cd /path/to/kempt && git pull
-```
-
-The CLI updates at once, because `~/.local/bin/kempt` points into the checkout. Re-run
-`./install.sh` if the root helpers, the polkit action or the widget changed, because those are
-copies.
-
-The installer upgrades the widget in place, so it stays on your panel. Plasma keeps the QML it
-already loaded, so run `plasmashell --replace` or log out and back in to see the new version.
-
-Then `kempt doctor` confirms every copy matches the checkout:
-
-```
-info  version: kempt 0.1.x (checkout a1b2c3d clean)
-ok    helpers: match checkout
-ok    policy: match checkout
-ok    widget: match checkout
-```
-
-A `DIFFER` line is a change you have pulled but not installed, and it names the command that
-fixes it. A packaged install prints `install: packaged` instead of these three lines.
-
-## Staged install (packagers and testers)
-
-`--destdir` stages every file into a prefix, unprivileged, with no `pkexec` and no prompts:
-
-```bash
-./install.sh --destdir /tmp/stage
-find /tmp/stage -type f -o -type l
-./install.sh --destdir /tmp/stage --uninstall
-```
-
-The test suite and packaging both start from this path.
-
-## Uninstall
-
-For the package, see [Removing the package](#removing-the-package). From a checkout:
-
-```bash
-./install.sh --uninstall
-```
-
-This removes the `~/.local/bin/kempt` and man-page symlinks, and the widget and its icons, with no
-authentication. It then asks for authentication once to remove the two root helpers, the polkit
-action and the passwordless rule if present. If you decline, it exits 1 and says what is left, so
-a second run can finish.
-
-These stay:
-
-- `~/.config/kempt/` and `~/.local/state/kempt/`: your settings, holds and update history.
-- `~/.config/autostart/org.kde.discover.notifier.desktop`: your choice about Discover's notifier.
-
-To turn Discover's notifier back on, run `kempt discover-notifier on` before you uninstall. To
-remove your settings and history too:
-
-```bash
-rm -rf ~/.config/kempt ~/.local/state/kempt
-```

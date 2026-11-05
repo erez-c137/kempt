@@ -16,13 +16,6 @@ source "$(dirname "$0")/lib.sh"; sandbox
 KEMPT="$REPO_ROOT/bin/kempt"
 EV="$KEMPT_STATE_DIR/events.log"
 
-# The real doctor runs below, and doctor checks that the terminal emulator exists - a host
-# fact, not a subject of this file. Stub it like test_doctor.sh does, so the assertions hold
-# on boxes with no konsole (the RPM check stage, CI runners) instead of leaning on the CI
-# workflow's konsole shim.
-printf '#!/bin/sh\nexit 0\n' > "$TESTTMP/fake-terminal"; chmod +x "$TESTTMP/fake-terminal"
-export KEMPT_TERMINAL="$TESTTMP/fake-terminal"
-
 export WORLD="$TESTTMP/world"; mkdir -p "$WORLD"
 cp "$FIXTURES/snap-before.tsv" "$WORLD/rpm.tsv"
 cp "$FIXTURES/flatpak-list.tsv" "$WORLD/fp.tsv"
@@ -449,7 +442,7 @@ plain_in=(
   "offline stage left in place (another updater has prepared the next restart)"
   "offline stage replaced outside Kempt (x) - announced"
   "offline stage replaced outside Kempt (x) - not announced"
-  "notification shown: Updates are staged and install on the next restart"
+  "notification shown: Updates are ready and install on the next restart"
   "notification not shown (no desktop session): Update failed: no network"
   "offline restage failed (stage left in place, another updater has prepared the next restart)"
   "offline marker dropped (superseded by live update, another updater has prepared the next restart)"
@@ -495,7 +488,7 @@ assert_contains "$plain_out" "cli Staged update cannot install (it was cancelled
   "a stage cancelled outside Kempt says so without the marker's name"
 assert_contains "$plain_out" "cli Staged update replaced outside Kempt (x), but the notification could not be shown" \
   "a stage line never claims a notification that did not show"
-assert_contains "$plain_out" "cli Notified: Updates are staged and install on the next restart" \
+assert_contains "$plain_out" "cli Notified: Updates are ready and install on the next restart" \
   "a notification that showed says what it said"
 assert_contains "$plain_out" "cli Notification not shown (no desktop session): Update failed: no network" \
   "...and one that did not says why"
@@ -562,28 +555,16 @@ assert_eq "$(grep -c '' "$EV")" "2401" "below the threshold the file is left exa
 rm -f "$EV"
 chmod 500 "$KEMPT_STATE_DIR"
 assert_exit 0 "a config write still succeeds when the event log cannot be written" \
-  "$KEMPT" config set surface terminal
+  "$KEMPT" config set surface offline
 assert_eq "$(cat "$TESTTMP/last_output")" "" "...silently: no warning, no stderr noise"
 assert_exit 0 "...and nothing was created in a directory that refused it" -- test ! -e "$EV"
 chmod 700 "$KEMPT_STATE_DIR"
-assert_eq "$("$KEMPT" config get surface)" "terminal" "...while the write it was logging landed"
+assert_eq "$("$KEMPT" config get surface)" "offline" "...while the write it was logging landed"
 
 # ==================================================================================================
 # doctor ends with the last five events, because "is this install sound?" is followed by "then
 # why did my change not take effect?" and the answer is right there.
 # ==================================================================================================
-# doctor's install-skew section compares the INSTALLED copies against the checkout, and left at
-# their defaults those paths are /usr/local/libexec and this developer's own widget - so the FAIL
-# count below would depend on whether the box running the suite happens to have re-installed since
-# its last pull. Staged into the sandbox through install.sh's own --destdir seam, the way
-# tests/test_doctor.sh does it. The executable helper seams above are untouched: only the annotated
-# paths move, so every other line of the report reads exactly as it did.
-LOGSTAGE="$TESTTMP/stage"
-bash "$REPO_ROOT/install.sh" --destdir "$LOGSTAGE" >/dev/null
-export KEMPT_REFRESH_HELPER_PATH="$LOGSTAGE/usr/local/libexec/kempt-refresh"
-export KEMPT_APPLY_HELPER_PATH="$LOGSTAGE/usr/local/libexec/kempt-apply"
-export KEMPT_POLICY_FILE="$LOGSTAGE/usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy"
-export KEMPT_PLASMOID_DIR="$LOGSTAGE$HOME/.local/share/plasma/plasmoids/io.github.erez_c137.kempt"
 : > "$EV"
 out="$("$KEMPT" doctor 2>&1 || true)"
 assert_eq "$(grep -c 'Recent events (kempt log):' <<<"$out")" "1" "doctor has a Recent events section"

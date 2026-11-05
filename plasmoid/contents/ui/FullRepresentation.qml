@@ -69,8 +69,8 @@ PlasmaExtras.Representation {
     // COPY.installOnNextRestartSystemTooltip, written once here as literals for i18n() to extract.
     // It promises Flatpak apps update now only when some are waiting.
     readonly property string stageTooltip: vm.stageTooltipNamesFlatpak
-        ? i18n("Installs system updates during the next restart. Flatpak apps update now.")
-        : i18n("Installs system updates during the next restart.")
+        ? i18n("System updates install during the next restart. Apps update now.")
+        : i18n("System updates install during the next restart.")
 
     // The representation-switch heuristic, not decoration: Plasma compares the space it has
     // against these to decide between the panel icon and this popup. Removing them is how a widget
@@ -233,16 +233,30 @@ PlasmaExtras.Representation {
         })(message);
     }
 
-    // The risky choice opens on the recommended answer, so Enter stages rather than installs.
-    // Later, not now: the message's buttons are laid out after the visibility change that shows them.
-    // `then` runs after the focus move, in the same turn, so what it says is queued behind the
-    // button's name rather than cut off by it.
-    function focusRiskyChoice(then) {
-        Qt.callLater(function () {
-            const button = popup.buttonFor(riskyMessage, riskyStageAction);
-            if (button && popup.canTakeFocus(button)) button.forceActiveFocus(Qt.TabFocusReason);
-            if (typeof then === "function") then();
-        });
+    // The question opens on its first answer, so on a session-critical set Enter stages rather than
+    // installs. Later, not now: the message's buttons are laid out after the visibility change that
+    // shows them. `then` runs after the focus move, in the same turn, so what it says is queued
+    // behind the button's name rather than cut off by it.
+    // The message was hidden until now and Kirigami lays its buttons out only once it is shown, so
+    // the button may not exist yet: look again for a moment, then speak either way.
+    function focusQuestion() {
+        questionFocus.tries = 25;
+        questionFocus.restart();
+    }
+    Timer {
+        id: questionFocus
+        property int tries: 0
+        interval: 20
+        repeat: true
+        onTriggered: {
+            const button = popup.buttonFor(questionMessage,
+                                           questionMessage.held ? questionRunAction : questionStageAction);
+            const landed = button && popup.canTakeFocus(button);
+            if (landed) button.forceActiveFocus(Qt.TabFocusReason);
+            if (!landed && --tries > 0) return;
+            stop();
+            if (questionMessage.asking) popup.announce(questionMessage.Accessible.name, false);
+        }
     }
 
     // Mute Until It Starts for the message at `at`. The callback is made here, not in the message:
@@ -406,7 +420,10 @@ PlasmaExtras.Representation {
         }
         // Assertive for a run that finished or a press that failed. Polite for good news about
         // something the person just did (actionDone), which is the answer to their own press.
-        popup.speakMessage(reportMessage, popup.plasmoidItem.reportLatest !== "done");
+        // Polite too for a fetch that did not land. Its words are passed as they are, as on the staged
+        // banner: Accessible.name follows `text` a binding later.
+        popup.speakMessage(reportMessage, !reportMessage.aboutFetch && popup.plasmoidItem.reportLatest !== "done",
+                           reportMessage.text);
     }
 
     // A message's words come from outside the widget (flatpak's error line, the CLI's stderr), so
@@ -667,11 +684,11 @@ PlasmaExtras.Representation {
                 // first: the heading is never a tab stop, and Update Now says it when it is there.
                 Accessible.description: [
                     updateButton.visible ? "" : popup.vm.headerText,
-                    i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer."),
-                    popup.vm.stale ? popup.vm.staleReason : ""
+                    i18n("Checks for updates now, instead of waiting for the timer."),
+                    popup.vm.staleTip
                 ].filter(s => s.length > 0).join("\n")
-                PlasmaComponents.ToolTip.text: popup.vm.stale && popup.vm.staleReason.length > 0
-                                               ? text + "\n" + popup.vm.staleReason : text
+                PlasmaComponents.ToolTip.text: popup.vm.staleTip.length > 0
+                                               ? text + "\n" + popup.vm.staleTip : text
                 PlasmaComponents.ToolTip.visible: hovered || visualFocus
                 PlasmaComponents.ToolTip.delay: Kirigami.Units.toolTipDelay
                 // QQC2 activates on Space only. The shipped Plasma pattern is per button, not one
@@ -831,8 +848,8 @@ PlasmaExtras.Representation {
             // the worst outcome available: a button that appears to do nothing is indistinguishable
             // from one that did something invisible.
             text: popup.plasmoidItem.restartError.length > 0
-                  ? i18n("Restart to apply installed updates") + "\n" + popup.plasmoidItem.restartError
-                  : i18n("Restart to apply installed updates")
+                  ? i18n("Restart to finish updating.") + "\n" + popup.plasmoidItem.restartError
+                  : i18n("Restart to finish updating.")
             actions: [
                 Kirigami.Action {
                     // A real ellipsis: this opens KDE's own confirmation screen, and Kempt never
@@ -889,9 +906,7 @@ PlasmaExtras.Representation {
             // the same way the text does, and tests/test_widget_logic.sh guards the binding.
             type: popup.vm.stagedType === "warning"
                   ? Kirigami.MessageType.Warning : Kirigami.MessageType.Positive
-            // The plain banner shows only what the header does not say. Its accessible name, and
-            // what is announced, is the whole sentence (`sentence` below).
-            text: popup.vm.stagedBanner
+            text: popup.vm.stagedMessage
             // The flip has to arrive as WORDS. Without a name a screen reader announces the icon,
             // "Positive" and later "Warning", and the difference between the two banners would
             // be a colour, which for that person is no difference at all.
@@ -901,7 +916,6 @@ PlasmaExtras.Representation {
             // because this is not the outcome of a press: it is the machine telling the person
             // that what they were promised has changed under them.
             property string spoken: ""
-            // On the whole sentence, which changes with the count while the banner may not.
             readonly property string sentence: popup.vm.stagedMessage
             onSentenceChanged: popup.speakMessage(stagedMessage, true, sentence)
             onVisibleChanged: popup.speakMessage(stagedMessage, true, sentence)
@@ -925,12 +939,12 @@ PlasmaExtras.Representation {
                     // for. On a warning it is the first half of the remedy. It is on the green
                     // banner too: staging an update and then thinking better of it is not a problem
                     // anybody should have to open a terminal to fix.
-                    text: i18n("Discard Staged Update")
+                    text: i18n("Discard Updates")
                     icon.name: "edit-delete"
                     // The tooltip is the disclosure, not a hint. Accessible.description carries the
                     // identical words because a polkit dialog takes the focus the moment this is
                     // pressed: a screen-reader user who has not heard the cost by then hears it never.
-                    tooltip: i18n("Removes the update waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so staging again downloads them again.")
+                    tooltip: i18n("Removes the updates waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again.")
                     Accessible.description: tooltip
                     visible: popup.vm.stagedShowDiscard
                     enabled: visible && !popup.plasmoidItem.actionPending
@@ -939,220 +953,118 @@ PlasmaExtras.Representation {
             ]
         }
 
-        // Discover set to install updates by itself. Drawn once per setting (main.qml), and its one
-        // button is the notifier's off: with the notifier stopped nothing reads that setting.
+        // Discover, in one of two sentences. Its button is the notifier's off: with the notifier
+        // stopped nothing reads Discover's setting. Closing the mild form answers it for good, and
+        // the serious one, drawn once per setting (main.qml), for this open.
         Kirigami.InlineMessage {
-            id: discoverUnattendedMessage
-            Component.onCompleted: popup.plainTextMessage(discoverUnattendedMessage)
+            id: discoverMessage
+            Component.onCompleted: popup.plainTextMessage(discoverMessage)
             Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: i18n("Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.")
+            type: popup.vm.discoverSerious ? Kirigami.MessageType.Warning : Kirigami.MessageType.Information
+            showCloseButton: true
+            text: popup.vm.discoverMessage
             Accessible.name: text
-            visible: popup.shows("discoverUnattended")
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Turn Off")
-                    icon.name: "notifications-disabled"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
-                }
-            ]
-        }
-
-        // Update Now while another updater holds the next restart, asked before anything runs.
-        Kirigami.InlineMessage {
-            id: heldChoiceMessage
-            Component.onCompleted: popup.plainTextMessage(heldChoiceMessage)
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: popup.vm.heldChoiceMessage
-            Accessible.name: text
-            visible: popup.shows("heldChoice")
-            onVisibleChanged: if (visible) popup.announce(text, false)
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Update Now")
-                    icon.name: "system-software-update"
-                    enabled: !popup.plasmoidItem.actionPending && !popup.plasmoidItem.runRequested
-                    onTriggered: source => { popup.plasmoidItem.startUpdate(true); popup.rescueFocus(); }
-                },
-                Kirigami.Action {
-                    text: i18n("Cancel")
-                    icon.name: "dialog-cancel"
-                    onTriggered: source => { popup.plasmoidItem.heldChoiceOpen = false; popup.rescueFocus(); }
-                }
-            ]
-        }
-
-        // The Discover offer, while something it can cancel is staged. Same answers, same marker.
-        Kirigami.InlineMessage {
-            id: stageDiscoverWarningMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: i18n("Discover's update check can cancel your staged updates before you restart. Turning off its notifier should stop that.")
-            Accessible.name: text
-            visible: popup.shows("stageDiscoverWarning")
-            actions: [
-                Kirigami.Action {
-                    text: i18n("Turn Off Discover's Notifier")
-                    icon.name: "notifications-disabled"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
-                },
-                Kirigami.Action {
-                    text: i18n("Keep Discover's Notifier")
-                    icon.name: "dialog-ok"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("keep"); popup.rescueFocus(); }
-                }
-            ]
-        }
-
-        // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr,
-        // dnf is not how the machine updates, and `kempt update` aborts in pre-flight. Those images
-        // ship dnf5 and plasma-workspace, so Kempt installs cleanly and everything here fills in
-        // with dnf's answers - which is exactly why this has to be said outright rather than left
-        // to a button press to discover.
-        //
-        // Information: the machine is not broken and neither is Kempt, it is the wrong tool for
-        // this box. No action of its own - Discover is where this belongs, and an update widget
-        // launching another updater is not a button anybody asked for.
-        Kirigami.InlineMessage {
-            id: imageBasedMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: popup.vm.imageBasedMessage
-            Accessible.name: text
-            visible: popup.shows("imageBased")
-        }
-
-        // The last check found a dnf folder other users can change, so the root helper refuses updates.
-        Kirigami.InlineMessage {
-            id: foldersPausedMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Warning
-            text: popup.vm.foldersPausedMessage
-            Accessible.name: text
-            visible: popup.shows("foldersPaused")
-        }
-
-        // A Fedora release upgrade staged outside Kempt. dnf5 keeps ONE stored transaction for that
-        // and for an ordinary offline update alike, so staging updates for a restart would cancel it
-        // - and re-downloading a release upgrade is gigabytes. The CLI refuses the press; this is
-        // what makes the popup stop offering it, so nobody presses a button to be told no.
-        //
-        // Information, and no action of its own: nothing here is broken, there is nothing to fix,
-        // and the two things a person might want to do about it - restart, or drop the upgrade -
-        // are theirs to choose rather than a button in an update widget. It displaces the kernel
-        // recommendation deliberately (logic.js, messageStack), because that message recommends the
-        // one thing this state does not allow.
-        Kirigami.InlineMessage {
-            id: releaseUpgradeMessage
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: popup.vm.releaseUpgradeMessage
-            Accessible.name: text
-            visible: popup.shows("releaseUpgrade")
-        }
-
-        // The offline recommendation. The CLI has already decided this transaction touches
-        // session-critical packages; the widget's job is to make acting on it one click.
-        //
-        // vm.riskyMessage and NOT vm.riskySummary, and only ever one of them: with no kernel in the
-        // set riskyMessageOf falls back to the very sentence riskySummary holds, so rendering both
-        // would print the same words twice inside one message.
-        Kirigami.InlineMessage {
-            id: riskyMessage
-            Layout.fillWidth: true
-            // INFORMATION, not Warning. Nothing here is broken: one of two ways of doing the same
-            // update is safer than the other, and the message says which. An amber box over a
-            // button labelled Install on Next Restart, before anything has started, reads as an
-            // order to restart the machine now.
-            type: Kirigami.MessageType.Information
-            // The same words become a question after Update Now on a surface that cannot ask for
-            // itself (logic.js, updateAsksFirst): staging, recommended, or installing now. The
-            // lead-in says the click did not start anything, and the question ends it on screen
-            // as it does out loud.
-            text: asking ? Logic.COPY.riskyAskLead + " " + popup.vm.riskyMessage
-                           + " " + Logic.COPY.riskyAskQuestion
-                         : popup.vm.riskyMessage
-            Accessible.name: text
-            readonly property bool asking: popup.shows("riskyChoice")
-            // Its buttons' words for a screen reader (speakActionsAs), hooked as the banner's are.
-            function speakButtons() { popup.speakActionsAs(riskyMessage); }
-            property var spokenHooks: []
-            Component.onCompleted: Qt.callLater(speakButtons)
-            onVisibleChanged: Qt.callLater(speakButtons)
-            visible: popup.shows("kernel") || asking
-            // Polite: it answers the click. Said after the focus lands on Install on Next Restart,
-            // so it follows the button's name instead of being cut off by it, and it ends on the
-            // question that button answers.
-            onAskingChanged: {
-                if (!asking) return;
-                popup.focusRiskyChoice(function () {
-                    if (!riskyMessage.asking) return;
-                    popup.announce(riskyMessage.text, false);
-                });
+            visible: popup.shows("discover")
+            onVisibleChanged: {
+                if (visible) return;
+                if (!popup.closedByButton(discoverMessage, "discover")) return;
+                popup.plasmoidItem.closeDiscover();
+                popup.rescueFocus();
+                visible = Qt.binding(function () { return popup.shows("discover"); });
             }
             actions: [
                 Kirigami.Action {
-                    id: riskyStageAction
-                    // Named for what it does to the user rather than for the dnf5 flag behind it.
+                    text: i18n("Turn Off Discover's Update Checks")
+                    icon.name: "notifications-disabled"
+                    tooltip: i18n("Turning off Discover's update checks should stop that.")
+                    enabled: !popup.plasmoidItem.actionPending
+                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
+                }
+            ]
+        }
+
+        // The question Update Now asks before anything runs: a session-critical set, whether now or
+        // on the next restart, or another updater's restart, whether to run at all. Its sentence is
+        // the reason; its buttons are the answers; closing it answers nothing and starts nothing.
+        Kirigami.InlineMessage {
+            id: questionMessage
+            Component.onCompleted: {
+                popup.plainTextMessage(questionMessage);
+                Qt.callLater(speakButtons);
+            }
+            Layout.fillWidth: true
+            readonly property bool asking: popup.shows("question")
+            readonly property bool held: popup.vm.questionHeld
+            // Information for the safer of two ways, Warning for what a run may cost another updater.
+            type: held ? Kirigami.MessageType.Warning : Kirigami.MessageType.Information
+            showCloseButton: true
+            text: popup.vm.questionMessage
+            // The lead-in is spoken only: on screen, the buttons show nothing has run.
+            Accessible.name: Logic.COPY.riskyAskLead + " " + text
+            visible: asking
+            // Its buttons' words for a screen reader (speakActionsAs), hooked as the banner's are.
+            function speakButtons() { popup.speakActionsAs(questionMessage); }
+            property var spokenHooks: []
+            // Polite: it answers the click. Said after the focus lands on the first answer, so it
+            // follows the button's name instead of being cut off by it.
+            onAskingChanged: {
+                if (!asking) return;
+                popup.focusQuestion();
+            }
+            // The close button breaks the visibility binding, as on the restart message: turn it
+            // into closing the question and put the binding back.
+            onVisibleChanged: {
+                Qt.callLater(speakButtons);
+                if (visible) return;
+                if (!popup.closedByButton(questionMessage, "question")) return;
+                popup.plasmoidItem.closeQuestion();
+                popup.rescueFocus();
+                visible = Qt.binding(function () { return questionMessage.asking; });
+            }
+            actions: [
+                Kirigami.Action {
+                    id: questionStageAction
                     text: i18n("Install on Next Restart")
-                    // ...and drawn as what it does: this INSTALLS software, at a moment of the
-                    // machine's choosing. `system-reboot` is Restart…'s alone - two adjacent
-                    // restart-shaped actions under one icon, one opening KDE's logout prompt and
-                    // one staging a transaction, is not a distinction anybody can make.
                     icon.name: "system-software-update"
                     tooltip: popup.stageTooltip
-                    // As the question after Update Now the popup opens here, with Update Now gone,
-                    // so this is where a listener hears the heading's count.
+                    // The popup opens here with Update Now gone, so this is where a listener hears
+                    // the heading's count.
                     readonly property string spokenName: text
-                    readonly property string spokenDescription: riskyMessage.asking
-                        ? popup.vm.headerText + "\n" + tooltip : tooltip
-                    // Gone, not greyed, while a Fedora release upgrade is stored: the message that
-                    // replaces this one says why, and a disabled button with its explanation in a
-                    // different message is a puzzle rather than an answer.
-                    visible: popup.vm.offlineStageOffered
+                    readonly property string spokenDescription: popup.vm.headerText + "\n" + tooltip
+                    visible: !questionMessage.held
                     enabled: visible && !popup.plasmoidItem.actionPending
                     onTriggered: source => { popup.plasmoidItem.stageOffline(); popup.rescueFocus(); }
                 },
                 Kirigami.Action {
-                    id: riskyInstallNowAction
-                    // Only as the answer to Update Now. Runs what Update Now would have run, and
-                    // tells the CLI the person chose it, so no notification repeats the question.
-                    text: i18n("Install Now")
-                    tooltip: i18n("Installs the update now, while your desktop is running.")
-                    icon.name: "run-build-install"
-                    visible: riskyMessage.asking
-                    enabled: visible && !popup.plasmoidItem.runRequested
-                             && !popup.plasmoidItem.actionPending
+                    id: questionRunAction
+                    // Runs what Update Now would have run, and tells the CLI the person chose it,
+                    // so no notification repeats the question.
+                    text: questionMessage.held ? i18n("Update Now") : i18n("Install Now")
+                    tooltip: questionMessage.held ? "" : i18n("Installs the update now, while your desktop is running.")
+                    icon.name: questionMessage.held ? "system-software-update" : "run-build-install"
+                    enabled: !popup.plasmoidItem.runRequested && !popup.plasmoidItem.actionPending
                     onTriggered: source => { popup.plasmoidItem.startUpdate(true); popup.rescueFocus(); }
                 }
             ]
         }
 
-        // The one-time offer to turn off Discover's own update notifier, which counts updates on
-        // its own schedule. Either answer ends it. Settings can turn the notifier back on.
+        // Why Kempt cannot go ahead on this box: logic.js picks the cause and words it. No button of
+        // its own on an image-based box, where Discover is the answer and an update widget launching
+        // another updater is not a button anybody asked for.
         Kirigami.InlineMessage {
-            id: discoverOfferMessage
+            id: blockedMessage
             Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            text: i18n("Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.")
+            type: popup.vm.blockedWarns ? Kirigami.MessageType.Warning : Kirigami.MessageType.Information
+            text: popup.vm.blockedMessage
             Accessible.name: text
-            visible: popup.shows("discoverOffer")
+            visible: popup.shows("blocked")
             actions: [
                 Kirigami.Action {
-                    text: i18n("Turn Off Discover's Notifier")
-                    icon.name: "notifications-disabled"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("off"); popup.rescueFocus(); }
-                },
-                Kirigami.Action {
-                    text: i18n("Keep Discover's Notifier")
-                    icon.name: "dialog-ok"
-                    enabled: !popup.plasmoidItem.actionPending
-                    onTriggered: source => { popup.plasmoidItem.setDiscoverNotifier("keep"); popup.rescueFocus(); }
+                    text: i18n("Check Installation")
+                    icon.name: "tools-report-bug"
+                    visible: popup.vm.blockedOffersDoctor
+                    enabled: visible
+                    onTriggered: source => popup.plasmoidItem.runDoctor()
                 }
             ]
         }
@@ -1167,9 +1079,12 @@ PlasmaExtras.Representation {
             id: reportMessage
             Component.onCompleted: popup.plainTextMessage(reportMessage)
             Layout.fillWidth: true
-            type: popup.plasmoidItem.reportFailed ? Kirigami.MessageType.Error
-                                                  : Kirigami.MessageType.Positive
-            text: popup.plasmoidItem.reportText
+            // Information for a fetch that did not land: the counts are still the best known.
+            readonly property bool aboutFetch: popup.vm.reportFetchMessage.length > 0
+            type: aboutFetch ? Kirigami.MessageType.Information
+                : popup.plasmoidItem.reportFailed ? Kirigami.MessageType.Error
+                : Kirigami.MessageType.Positive
+            text: aboutFetch ? popup.vm.reportFetchMessage : Logic.withoutDoctorPointer(popup.plasmoidItem.reportText)
             visible: popup.shows("report")
             Accessible.name: text
             // Assertive: a run that has just finished, or a press that failed, is the answer to
@@ -1181,11 +1096,13 @@ PlasmaExtras.Representation {
                 Kirigami.Action {
                     text: i18n("Show Log")
                     icon.name: "text-x-generic"
-                    // Only for a RUN, and only for one that recorded a log: a history entry old
-                    // enough (or damaged enough) to have none is an ordinary event, and a failed
-                    // button press has no log at all.
-                    enabled: popup.plasmoidItem.reportLatest === "run"
+                    // Only for a RUN that failed and recorded a log. A history entry old enough (or
+                    // damaged enough) to have none is an ordinary event, and a failed button press
+                    // has no log at all.
+                    enabled: !reportMessage.aboutFetch
+                             && popup.plasmoidItem.reportLatest === "run"
                              && !!popup.plasmoidItem.lastRun
+                             && popup.plasmoidItem.lastRun.failed
                              && popup.plasmoidItem.lastRun.logPath.length > 0
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
@@ -1195,9 +1112,21 @@ PlasmaExtras.Representation {
                 Kirigami.Action {
                     text: i18n("Check Installation")
                     icon.name: "tools-report-bug"
-                    enabled: popup.plasmoidItem.reportOffersDoctor
+                    enabled: !reportMessage.aboutFetch && popup.plasmoidItem.reportOffersDoctor
                     visible: enabled
                     onTriggered: source => popup.plasmoidItem.runDoctor()
+                },
+                // On battery or a metered connection, one press downloads the lists anyway.
+                Kirigami.Action {
+                    id: fetchAnywayAction
+                    text: i18n("Check Anyway")
+                    icon.name: "download"
+                    visible: popup.vm.fetchMissedAnyway.length > 0
+                    tooltip: popup.vm.fetchMissedAnyway === "metered"
+                             ? i18n("Checks online now over this metered connection.")
+                             : i18n("Checks online now on battery power.")
+                    enabled: visible && !popup.plasmoidItem.updating
+                    onTriggered: source => popup.plasmoidItem.downloadAnyway()
                 }
             ]
         }
@@ -1273,9 +1202,7 @@ PlasmaExtras.Representation {
             }
         }
 
-        // A service that stopped starting after an update, and one that runs again. The failure has
-        // the `startup` slot, above the restart; the running-again line alone has `startupRecovered`,
-        // below it, and rides in the failure's slot when there is one (logic.js, MESSAGE_ORDER). A Warning per service, each with its own two buttons, under
+        // A service that stopped starting after an update, in the `startup` slot above the restart. A Warning per service, each with its own two buttons, under
         // a heading only when there are several; the services already failing before the update are
         // one quiet line under them. Nothing here acts on a unit: Copy Command puts the command that
         // shows why on the clipboard, and Mute Until It Starts only tells Kempt to stop mentioning it.
@@ -1285,9 +1212,8 @@ PlasmaExtras.Representation {
             id: startupBanner
             Layout.fillWidth: true
             spacing: Kirigami.Units.smallSpacing
-            visible: popup.shows("startup") || popup.shows("startupRecovered")
-            readonly property string sentence: [popup.vm.startupTitle, popup.vm.startupRecoveredText]
-                .filter(function (t) { return t.length > 0; }).join("\n")
+            visible: popup.shows("startup")
+            readonly property string sentence: popup.vm.startupTitle
             property string spoken: ""
             function speak() {
                 if (sentence.length > 0) popup.speakMessage(startupBanner, false, sentence);
@@ -1348,21 +1274,20 @@ PlasmaExtras.Representation {
                     actions: [
                         // Each button names its service to a screen reader (speakActionsAs):
                         // with three services up, the drawn words are the same three times.
-                        // Copy is the first stop in each message, so its description is the
-                        // message's own news as well as the command it copies.
+                        // The report is the first stop in each message, so its description is
+                        // the message's own news. The command to copy is on the report.
                         Kirigami.Action {
                             // The drawn words first, so voice control finds the button by
                             // what it shows, as the Startup page's Copy Command does.
                             readonly property string spokenName:
                                 i18nc("@action:button a service's name follows",
-                                      "Copy Command: %1", startupEntry.modelData.name)
-                            readonly property string spokenDescription:
-                                startupEntry.whatHappened + "\n" + startupEntry.modelData.command
-                            text: i18n("Copy Command")
-                            icon.name: "edit-copy"
-                            tooltip: startupEntry.modelData.command
+                                      "Startup Report: %1", startupEntry.modelData.name)
+                            readonly property string spokenDescription: startupEntry.whatHappened
+                            text: i18n("Startup Report")
+                            icon.name: "system-run"
+                            tooltip: i18n("Shows what failed, and the command to see why.")
                             Accessible.description: tooltip
-                            onTriggered: source => popup.copyToClipboard(startupEntry.modelData.command)
+                            onTriggered: source => popup.plasmoidItem.showStartupPage()
                         },
                         Kirigami.Action {
                             readonly property bool muting:
@@ -1394,69 +1319,6 @@ PlasmaExtras.Representation {
                 wrapMode: Text.Wrap
                 font: Kirigami.Theme.smallFont
                 opacity: 0.7
-            }
-
-            // Shown once: main.qml acknowledges it while it is on screen, and keeps it until the
-            // popup closes.
-            Kirigami.InlineMessage {
-                id: startupRecovered
-                Component.onCompleted: popup.plainTextMessage(startupRecovered)
-                Layout.fillWidth: true
-                type: Kirigami.MessageType.Positive
-                visible: text.length > 0
-                text: popup.vm.startupRecoveredText
-                Accessible.name: text
-            }
-        }
-
-        // A Check for Updates that could not fetch fresh lists: why, and how old the lists behind
-        // the counts are. Information, because those counts are still the best known. It goes at
-        // the next check, whoever starts it, or with its close button.
-        Kirigami.InlineMessage {
-            id: fetchMissedMessage
-            Component.onCompleted: popup.plainTextMessage(fetchMissedMessage)
-            Layout.fillWidth: true
-            type: Kirigami.MessageType.Information
-            showCloseButton: true
-            // Passed to speakMessage as it is, as on the staged banner: Accessible.name follows
-            // `text` a binding later, so reading it in this handler would say the previous one.
-            readonly property string sentence: popup.vm.fetchMissedMessage
-            text: sentence
-            Accessible.name: text
-            visible: popup.shows("fetchMissed")
-            // On battery or a metered connection, one press downloads the lists anyway.
-            actions: [
-                Kirigami.Action {
-                    id: fetchAnywayAction
-                    text: i18n("Download Anyway")
-                    icon.name: "download"
-                    visible: popup.vm.fetchMissedAnyway.length > 0
-                    tooltip: popup.vm.fetchMissedAnyway === "metered"
-                             ? i18n("Downloads fresh package lists now over this metered connection.")
-                             : i18n("Downloads fresh package lists now, on battery power.")
-                    enabled: visible && !popup.plasmoidItem.updating
-                    onTriggered: source => popup.plasmoidItem.downloadAnyway()
-                }
-            ]
-            // Polite. While the check's answer lands, that answer says this sentence itself.
-            property string spoken: ""
-            function speak() {
-                if (popup.plasmoidItem.answeringCheck) {
-                    fetchMissedMessage.spoken = fetchMissedMessage.visible ? sentence : "";
-                    return;
-                }
-                popup.speakMessage(fetchMissedMessage, false, sentence);
-            }
-            onSentenceChanged: speak()
-            // The close button breaks the visibility binding, as on the restart message: turn it
-            // into a dismissal and put the binding back.
-            onVisibleChanged: {
-                if (visible) { speak(); return; }
-                fetchMissedMessage.spoken = "";
-                if (!popup.closedByButton(fetchMissedMessage, "fetchMissed")) return;
-                popup.plasmoidItem.dismissFetchMissed();
-                popup.rescueFocus();
-                visible = Qt.binding(function () { return popup.shows("fetchMissed"); });
             }
         }
 
@@ -1712,16 +1574,16 @@ PlasmaExtras.Representation {
                 onTriggered: source => popup.plasmoidItem.runDoctor()
             }
 
-            // ...or, under the battery and metered hints, Download Anyway: the lists were never
+            // ...or, under the battery and metered hints, Check Anyway: the lists were never
             // downloaded, and one press fetches them now. Enabled while a check runs: the press
             // runs next.
             Kirigami.Action {
                 id: anywayPlaceholderAction
-                text: i18n("Download Anyway")
+                text: i18n("Check Anyway")
                 icon.name: "download"
                 tooltip: popup.vm.problemAnyway === "metered"
-                         ? i18n("Downloads fresh package lists now over this metered connection.")
-                         : i18n("Downloads fresh package lists now, on battery power.")
+                         ? i18n("Checks online now over this metered connection.")
+                         : i18n("Checks online now on battery power.")
                 enabled: popup.vm.problemAnyway.length > 0 && !popup.plasmoidItem.updating
                 onTriggered: source => popup.plasmoidItem.downloadAnyway()
             }
@@ -1843,7 +1705,7 @@ PlasmaExtras.Representation {
                 // reboot_needed: that is a fact about the moment the run ended, and the state
                 // file's live answer is what the restart message above is bound to. Repeating the
                 // history entry here would go on claiming a restart after the user had done it.
-                subtitle: Logic.lastRunSubtitle(popup.plasmoidItem.lastRun)
+                subtitle: Logic.withoutDoctorPointer(Logic.lastRunSubtitle(popup.plasmoidItem.lastRun))
                 subtitleCanWrap: true
                 customExpandedViewContent: lastRunPackages
                 contextualActions: [
@@ -1851,7 +1713,9 @@ PlasmaExtras.Representation {
                         text: i18n("Show Log")
                         icon.name: "text-x-generic"
                         enabled: !!popup.plasmoidItem.lastRun
+                                 && popup.plasmoidItem.lastRun.failed
                                  && popup.plasmoidItem.lastRun.logPath.length > 0
+                        visible: enabled
                         onTriggered: source => popup.plasmoidItem.showLog(popup.plasmoidItem.lastRun.logPath)
                     },
                     // A failed run whose reason says to run kempt doctor: the button that does it.
@@ -1990,12 +1854,12 @@ PlasmaExtras.Representation {
                 // for a restart, and this button would start it again, live, over the top of it.
                 // ...and the fourth is a machine dnf cannot update at all, where the run would
                 // abort in pre-flight whatever it was asked to do.
-                // ...and the fifth is the risky question: while it is open, its two buttons are the
-                // answers, and a third that asks the same question again is noise. It comes back
-                // when the question closes, however that happens (main.qml, riskyChoiceOpen).
+                // ...and the fifth is the question: while it is open, its buttons are the answers,
+                // and another that asks the same question again is noise. It comes back when the
+                // question closes, however that happens (main.qml, closeQuestion).
                 visible: popup.vm.actionable > 0 && !popup.plasmoidItem.updating
                          && !popup.vm.stagedArmed && popup.vm.updateOffered
-                         && !riskyMessage.asking && !heldChoiceMessage.visible
+                         && !questionMessage.asking
                 // ...and refusing from the press until `kempt run` comes back. That call launches
                 // the surface and returns, and is allowed fifteen seconds to do it; startUpdate's
                 // guard tests `updating`, which is still false for all of them. Disabled rather
@@ -2010,7 +1874,7 @@ PlasmaExtras.Representation {
                 // delivers Space and Return to whatever holds activeFocus whether it is drawn or
                 // not, so what is left is an invisible button that starts `kempt run` on a box with
                 // nothing to update.
-                onVisibleChanged: if (!visible && activeFocus && !riskyMessage.asking) popup.focusPrimary()
+                onVisibleChanged: if (!visible && activeFocus && !questionMessage.asking) popup.focusPrimary()
 
                 // The belt to that braces. A control that is invisible and still operable is a trap
                 // however the keyboard reached it, and the focus move above is not the only route
@@ -2088,22 +1952,16 @@ PlasmaExtras.Representation {
             // and "surface" is a word nobody outside this project knows. The literals are written
             // here, not read out of logic.js, because i18n() extracts literals - see the copy
             // table's own header - and Logic.updatingLabelOf is what a node test pins.
-            text: {
-                switch (popup.plasmoidItem.runningSurface) {
-                case "popup":      return i18n("Updating…");
-                case "offline":    return i18n("Staging updates for the next restart…");
-                default:           return i18n("Updating in a terminal window…");
-                }
-            }
+            text: popup.plasmoidItem.runningSurface === "offline"
+                ? i18n("Preparing updates for the next restart…") : i18n("Updating…")
             // Not for a run in this widget: the header already says "Updating…", and the log
             // under it shows where.
             visible: popup.plasmoidItem.runningSurface !== "popup"
             wrapMode: Text.WordWrap
         }
 
-        // The way out. A terminal run that is aborted - the DEFAULT answer to the one question
-        // Kempt asks, on the default configuration - never writes state.json, and only a state.json
-        // change ends this pane, so without this the popup sits here for three hours with no list,
+        // The way out. A run that dies never writes state.json, and only a state.json change ends
+        // this pane, so without this the popup sits here for three hours with no list,
         // no Update Now and a disabled Refresh.
         // FLAT, not raised: a raised button here would read as "press this to finish the update".
         // Deliberately NOT Kirigami.LinkButton: measured on this box, that component is a
@@ -2120,13 +1978,13 @@ PlasmaExtras.Representation {
             flat: true
             icon.name: "view-refresh"
             display: PlasmaComponents.AbstractButton.TextBesideIcon
-            text: i18n("Not Updating? Check for Updates")
+            text: i18n("Not Updating? Check Again")
             // Refuses while the check it started is running, so it cannot be pressed twice into the
             // same answer. Disabled rather than hidden: this is the pane's only control, and a
             // control that leaves the screen takes the keyboard with it.
             enabled: !popup.plasmoidItem.checking
             Accessible.name: text
-            Accessible.description: i18n("Asks dnf and flatpak what is pending now, instead of waiting for the timer.")
+            Accessible.description: i18n("Checks for updates now, instead of waiting for the timer.")
             Keys.onReturnPressed: animateClick()
             Keys.onEnterPressed: animateClick()
             onClicked: popup.plasmoidItem.checkAgain()

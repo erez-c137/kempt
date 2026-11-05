@@ -673,11 +673,8 @@ cmd_check() {
     state_merge --argjson b "$sec_parsed" '. + {security: {count: ($b | length), packages: $b}}'
   fi
   printf '%s\n' "$state"                 # answer first: a read-only state dir must not eat the result
-  # CHECK_WROTE_STATE tells cmd_update, in this same shell, that state.json was replaced. The exit
-  # status cannot: the lock-timeout branch above returns 0 without writing. `return 1` keeps a
-  # failed write a failed check for a caller with errexit off.
-  if printf '%s\n' "$state" | write_state; then CHECK_WROTE_STATE=1
-  else [[ -z "$wlocked" ]] || writer_unlock; return 1; fi
+  # `return 1` keeps a failed write a failed check for a caller with errexit off.
+  printf '%s\n' "$state" | write_state || { [[ -z "$wlocked" ]] || writer_unlock; return 1; }
   [[ -z "$wlocked" ]] || writer_unlock
   # One line per check, in the event log's fixed vocabulary. The lock-timeout return above records
   # nothing on purpose: it served a previous answer and looked at nothing.
@@ -698,18 +695,15 @@ cmd_check() {
 KEMPT_RETRY_DELAY="${KEMPT_RETRY_DELAY:-10}"
 
 # Surfaces are a closed set. An unknown one (a config typo, an older widget's value) must not
-# silently mean "detached": fall back to the surface that can show a human what happened.
+# silently mean "wait for the next restart": fall back to the surface that runs and reports now.
 resolve_surface() {  # surface → a known surface (single definition: cmd_update and cmd_run must never drift)
-  # Trimmed and lower-cased first, which the widget's resolveSurface has always done. Without it
-  # the two disagreed about a value `kempt config set surface " OFFLINE "` will happily store -
-  # config_set validates the KEY and stores the value as given - and the popup would then hide
-  # Update Now for a box whose runs go to the terminal. The warning still names what was written,
-  # not what it was read as.
+  # Trimmed and lower-cased first, which the widget's resolveSurface also does. The warning still
+  # names what was written, not what it was read as.
   local s
   s="$(surface_canon "$1")"
   case "$s" in
-    terminal|popup|offline) printf '%s\n' "$s" ;;
-    *) echo "warning: surface='$1' is not a known value, so updates run in a terminal window" >&2; printf 'terminal\n' ;;
+    popup|offline) printf '%s\n' "$s" ;;
+    *) echo "warning: surface='$1' is not a known value, so updates run in the widget" >&2; printf 'popup\n' ;;
   esac
 }
 
@@ -766,7 +760,7 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
     # previous attempt's lock error and retries a run that failed for another reason entirely.
     before_sz=0; [[ -f "$log" ]] && before_sz="$(stat -c %s "$log" 2>/dev/null || echo 0)"
     if [[ "${KEMPT_LIVE_OUTPUT:-}" == "1" ]]; then
-      # terminal surface: the user must SEE live output, and any prompt when auto_accept=false.
+      # At a terminal: the person SEES live output, and any prompt when auto_accept=false.
       # `|| rc=` (not `; rc=`): keeps the pipeline errexit-exempt for a caller that invokes
       # apply_with_retry bare, where `; rc=` would abort the run instead of retrying.
       "$runner" "$@" 2>&1 | tee -a "$log" || rc=${PIPESTATUS[0]}
@@ -805,10 +799,10 @@ apply_with_retry() {  # log_file runner args... ; retries on foreign package-loc
 }
 
 # Pre-flight failure: nothing has been changed and nothing will be. Loud on stderr, exit 5 (never
-# a bare backend rc through errexit), and a notification where nobody reads stderr. Reads $surface.
+# a bare backend rc through errexit), and a notification where nobody reads stderr. Reads $at_terminal.
 preflight_abort() {  # message
   echo "$1" >&2
-  [[ "$surface" != "terminal" ]] && notify "Kempt" "Update did not start: $1"
+  [[ "$at_terminal" == true ]] || notify "Kempt" "Update did not start: $1"
   # Recorded, because `kempt log` is where somebody looks when a press did nothing and they want to
   # know why. Two of the three things that reach here are deliberate refusals rather than faults,
   # and a refusal that leaves no trace is indistinguishable from a button that does not work.
@@ -855,7 +849,7 @@ refuse_run_behind_other_updater() {
   restart_held_by_other || return 0
   if [[ "$wanted_stage" != true ]]; then
     [[ -z "$risky_ok" ]] || return 0
-    [[ -t 0 && -t 1 ]] && return 0
+    [[ "$at_terminal" == true ]] && return 0
   fi
   local rc=0
   run_pending_count || rc=$?
@@ -863,12 +857,12 @@ refuse_run_behind_other_updater() {
   # The root helper would refuse the terminal run named below, so that is not the way out here.
   local unsafe_dir
   if unsafe_dir="$(apply_unsafe_dir)"; then
-    preflight_abort "the next restart belongs to another updater, and $(apply_unsafe_words "$unsafe_dir"), so nothing was changed. See: kempt doctor"
+    preflight_abort "another updater has prepared the next restart, and $(apply_unsafe_words "$unsafe_dir"), so nothing was changed. See: kempt doctor"
   fi
   if [[ "$wanted_stage" != true ]]; then
-    preflight_abort "the next restart belongs to another updater, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now with: kempt update --surface=terminal"
+    preflight_abort "another updater has prepared the next restart, and updating now may stop what it prepared from installing, so nothing was changed. Open Kempt to choose, or update now by typing this in a terminal: kempt update --surface=widget"
   fi
-  preflight_abort "the next restart belongs to another updater, so nothing was staged or changed. Restart when you are ready, or update now with: kempt update --surface=terminal"
+  preflight_abort "another updater has prepared the next restart, so nothing was prepared or changed. Restart when you are ready, or update now by typing this in a terminal: kempt update --surface=widget"
 }
 
 # The sentence for a step the root helper refused: what the helper said about a folder, else the
@@ -930,8 +924,8 @@ recommend_offline_if_risky() {
     no_stage_answer="Staging would cancel the stored Fedora release upgrade"
   elif restart_held_by_other; then
     relup_blocks=true
-    no_stage_why="the next restart belongs to another updater"
-    no_stage_answer="Staging is not available, because the next restart belongs to another updater"
+    no_stage_why="another updater has prepared the next restart"
+    no_stage_answer="Staging is not available, because another updater has prepared the next restart"
   fi
   if [[ "$surface" != "offline" ]]; then
     local risky_list="" rerr rcount fams
@@ -956,7 +950,7 @@ recommend_offline_if_risky() {
     rm -f "$rerr"
     if [[ -n "$risky_list" ]]; then
       rcount="$(wc -l <<<"$risky_list")"
-      if [[ "$surface" == "terminal" && ( -t 0 || -n "${KEMPT_ASSUME_TTY:-}" ) ]]; then
+      if [[ "$at_terminal" == true ]]; then
         # ONE ROW PER FAMILY, CARRYING ITS OWN COUNT. Same family rule as the notification below -
         # a Qt bump's first eight names alphabetically would otherwise push a pending KERNEL out of
         # sight, and kernel-core and kernel-modules are one decision, not two.
@@ -1403,11 +1397,13 @@ reconcile_stage_after_live_run() {
 }
 
 cmd_update() {
-  local a h surface include_fp="" risky_ok=""
+  local a h surface include_fp="" risky_ok="" answered=""
   surface="$(config_get surface)"
   for a in "$@"; do case "$a" in
     --no-flatpak) include_fp=false ;;
     --risky-ok) risky_ok=1 ;;
+    # A press in the widget: kempt run passes this, because the press was the answer.
+    --answered) answered=1 ;;
     --surface=*) surface="${a#--surface=}" ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
@@ -1415,19 +1411,23 @@ cmd_update() {
     if flatpak_included; then include_fp=true; else include_fp=false; fi
   fi
   local auto; auto="$(config_get auto_accept)"
-  # validate BEFORE the auto-accept guard so the two compose (unknown → terminal → still terminal)
   surface="$(resolve_surface "$surface")"
   # Asked for a stage, whatever the next lines turn this run into. The gate for another updater's
   # restart below answers this, not what the run became.
   local wanted_stage=false
   [[ "$surface" == offline ]] && wanted_stage=true
-  # only a terminal can prompt - enforced HERE too (cmd_run also guards, but update can be invoked directly)
-  # The one exception is a stage asked for at a terminal (what `kempt run --surface=offline` opens
-  # with auto_accept off): dnf5 asks before staging there, and turning a request to install on the
-  # next restart into a live update is the surprise this guard exists to prevent.
-  is_true "$auto" || { [[ "$surface" == "offline" && -t 0 && -t 1 ]] || surface="terminal"; KEMPT_LIVE_OUTPUT=1; }
-  [[ "$surface" == "terminal" ]] && KEMPT_LIVE_OUTPUT=1
-  export KEMPT_LIVE_OUTPUT
+  # Somebody at a terminal sees the output and can answer the questions. KEMPT_ASSUME_TTY stands in
+  # for the terminal in tests.
+  local at_terminal=false
+  if [[ -n "${KEMPT_ASSUME_TTY:-}" || ( -t 0 && -t 1 ) ]]; then
+    at_terminal=true
+    KEMPT_LIVE_OUTPUT=1
+    export KEMPT_LIVE_OUTPUT
+  fi
+  # auto_accept=false means a person answers. With nobody here and no press, nothing may install.
+  if ! is_true "$auto" && [[ "$at_terminal" != true && -z "$answered" ]]; then
+    preflight_abort "auto_accept is off and nobody is at a terminal to answer, so nothing was changed. Type kempt update in a terminal, or set auto_accept to true."
+  fi
 
   # An image-based Fedora - Silverblue, Kinoite, Bazzite, a bootc image - updates through
   # rpm-ostree, and /usr is not dnf's to write. Refused HERE, before the lock, before the
@@ -1478,11 +1478,11 @@ cmd_update() {
       # Refused in all three states - staging cancels a stored transaction whatever state it is in -
       # and the remedy named is the one that applies to the state it is actually in.
       case "$(offline_release_upgrade_state)" in
-        armed)      preflight_abort "a Fedora release upgrade ($relup) is already staged and installs on the next restart. Staging updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
-        foreign)    preflight_abort "a Fedora release upgrade ($relup) is stored, and another updater has prepared the next restart. Staging updates would cancel the upgrade. Remove it with: sudo dnf5 offline clean" ;;
-        stranded)   preflight_abort "a Fedora release upgrade ($relup) is stored but no longer set to install, so no restart installs it. Staging updates would cancel it. Set it to install again with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
-        incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish. Staging updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
-        *)          preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started. Staging updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
+        armed)      preflight_abort "a Fedora release upgrade ($relup) is already prepared and installs on the next restart. Preparing updates would cancel it. Restart to install it, or remove it with: sudo dnf5 offline clean" ;;
+        foreign)    preflight_abort "a Fedora release upgrade ($relup) is stored, and another updater has prepared the next restart. Preparing updates would cancel the upgrade. Remove it with: sudo dnf5 offline clean" ;;
+        stranded)   preflight_abort "a Fedora release upgrade ($relup) is stored but no longer set to install, so no restart installs it. Preparing updates would cancel it. Set it to install again with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
+        incomplete) preflight_abort "a Fedora release upgrade ($relup) is stored and did not finish. Preparing updates would cancel it. See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean" ;;
+        *)          preflight_abort "a Fedora release upgrade ($relup) has been downloaded but not started. Preparing updates would cancel it. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean" ;;
       esac
     fi
   fi
@@ -1532,7 +1532,9 @@ cmd_update() {
   # Empty when it cannot, and everything downstream then reports the run from its two snapshots, the
   # way it did before the lookup existed. Declared here because the live branch below is one of two.
   local live_txid="" live_keep=""
-  is_true "$auto" && yflag=(-y)
+  # auto_accept=false asks a person, so it applies only where one can answer: past the refusal
+  # above, a run with no terminal is a press.
+  if is_true "$auto" || [[ "$at_terminal" != true ]]; then yflag=(-y); fi
   local held_dnf; held_dnf="$(holds_for dnf)"
   while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done <<<"$held_dnf"
   # reason_override - a reason worked out here, because after a failed arm the log's first
@@ -1617,13 +1619,13 @@ cmd_update() {
     apply_with_retry "$log" priv_apply dnf-offline-stage "${yflag[@]}" "${excl[@]}" || stage_rc=$?
     if [[ $stage_rc -eq $KEMPT_APPLY_REFUSED ]]; then
       dnf_status="failed"; status="failed"
-      reason_override="$(refusal_words "$log" "nothing was staged" "$(apply_refusal_reason) and staging would replace it")"
+      reason_override="$(refusal_words "$log" "nothing was prepared" "$(apply_refusal_reason) and preparing updates would replace it")"
       log_event "offline stage refused by the root helper"
     elif [[ $stage_rc -eq $KEMPT_APPLY_BUSY ]]; then
       # The stage Kempt started earlier is still running, so this one changed nothing. No unwind,
       # for the arm's reason below: a clean now would discard what that run is building.
       dnf_status="failed"; status="failed"
-      reason_override="nothing was staged, because another Kempt update is still in progress. Try again when it has finished"
+      reason_override="nothing was prepared, because another Kempt update is still in progress. Try again when it has finished"
       log_event "offline stage not started (another Kempt run is still in progress)"
     elif [[ $stage_rc -eq 0 ]]; then
       # `dnf5 upgrade --offline` exits 0 and stores NOTHING when the transaction would be empty:
@@ -1668,29 +1670,29 @@ cmd_update() {
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
           if clean_refused_over_folders "$log"; then
-            reason_override="nothing new was staged. $(clean_left_words "$log")"
+            reason_override="nothing new was prepared. $(clean_left_words "$log")"
           else
-            reason_override="nothing new was staged, and the previous staged update was left in place because $(apply_refusal_reason). See: kempt doctor"
+            reason_override="nothing new was prepared, and the earlier updates were left in place because $(apply_refusal_reason). See: kempt doctor"
           fi
         else
           dnf_status="failed"; status="failed"
-          reason_override="nothing new was staged, and the previous staged update could not be removed, so it still installs on the next restart, held packages included. Run: sudo dnf5 offline clean"
+          reason_override="nothing new was prepared, and the earlier updates could not be removed, so they still install on the next restart, held packages included. Run: sudo dnf5 offline clean"
         fi
       elif { apply_with_retry "$log" priv_apply dnf-offline-arm || arm_rc=$?; [[ $arm_rc -eq $KEMPT_APPLY_REFUSED ]]; }; then
         # Refused as root: what is stored now is not the transaction this run built (a release
         # upgrade replaced it), or cannot be read. No unwind - the clean would be refused for the
         # same reason, and it would target the wrong transaction if it were not.
         dnf_status="failed"; status="failed"
-        reason_override="$(refusal_words "$log" "the updates were staged, but not set to install on the next restart" "$(apply_refusal_reason)")"
+        reason_override="$(refusal_words "$log" "the updates were downloaded, but not set to install on the next restart" "$(apply_refusal_reason)")"
       elif [[ $arm_rc -eq $KEMPT_APPLY_BUSY ]]; then
         # The arm Kempt started earlier is still running, so this one started nothing. No unwind:
         # the clean would land beside that run and could take away what it is setting up.
         dnf_status="failed"; status="failed"
-        reason_override="the updates were staged, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished"
+        reason_override="the updates were downloaded, but not set to install on the next restart, because another Kempt update is still in progress. Try again when it has finished"
         log_event "offline stage not armed (another Kempt run is still in progress)"
       elif [[ $arm_rc -ne 0 ]]; then
         dnf_status="failed"; status="failed"
-        reason_override="the updates were staged, but could not be set to install on the next restart"
+        reason_override="the updates were downloaded, but could not be set to install on the next restart"
         # Unwind, or the box keeps a downloaded transaction nothing can apply while every later
         # check, doctor run and popup promises an install forever. Best-effort, and a cleanup
         # that also fails must not overwrite the reason with its own.
@@ -1720,7 +1722,7 @@ cmd_update() {
           # Escalated past stderr because this is state (d): the toml and the boot symlink
           # now disagree and only root can settle it. The reason stays the ARM - the step
           # that failed - so the command travels on the notification instead.
-          notify_tail=". The staged update could not be removed. Run: sudo dnf5 offline clean"
+          notify_tail=". These updates could not be removed. Run: sudo dnf5 offline clean"
         fi
       else
         # Staged and armed.
@@ -1742,7 +1744,7 @@ cmd_update() {
           # The same untouched transaction, behind another updater's symlink. The clean below would
           # remove that symlink too and cancel the other updater's restart install, so nothing is
           # unwound, and the sentence says what the next restart does.
-          reason_override="could not rebuild the staged update. The previous one is unchanged, but another updater has prepared the next restart, so it will not install then"
+          reason_override="could not replace the prepared updates. The earlier ones are unchanged, but another updater has prepared the next restart, so they will not install then"
           log_event "offline restage failed (previous stage intact)"
         elif offline_armed; then
           # dnf5 failed BEFORE replacing the previous transaction: a download that cannot complete
@@ -1751,17 +1753,17 @@ cmd_update() {
           # BOTH halves of armed, never the status alone: any live dnf5 transaction removes
           # /system-update and leaves the toml at `ready`, and that stage installs on no restart.
           # It is stale, and takes the clean below like any other leftover.
-          reason_override="could not rebuild the staged update. The previous one is unchanged and still installs on the next restart"
+          reason_override="could not replace the prepared updates. The earlier ones are unchanged and still install on the next restart"
           log_event "offline restage failed (previous stage intact)"
         elif [[ "$(offline_link_state)" == other ]]; then
           # dnf5 replaced the previous transaction before failing, so the old marker describes
           # nothing. The clean would remove another updater's /system-update and cancel its
           # restart install, so only the marker goes.
-          reason_override="could not rebuild the staged update, and the previous one is gone. Another updater has prepared the next restart. Try again after the restart"
+          reason_override="could not replace the prepared updates, and the earlier ones are gone. Another updater has prepared the next restart. Try again after that restart"
           if [[ -n "$prev_marker" ]]; then rm -f "$OFFLINE_MARKER" ${prev_pre:+"$prev_pre"}; fi
           log_event "offline restage failed (stage left in place, another updater has prepared the next restart)"
         elif { apply_with_retry "$log" priv_apply dnf-offline-clean || clean_rc=$?; [[ $clean_rc -eq 0 ]]; }; then
-          reason_override="the previous staged update was discarded and could not be rebuilt"
+          reason_override="the earlier updates were removed and could not be prepared again"
           # The marker described a transaction that no longer exists: the re-stage destroyed it,
           # the clean took the remains. Left in place it promises an install nothing can deliver.
           if [[ -n "$prev_marker" ]]; then
@@ -1771,12 +1773,12 @@ cmd_update() {
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           # Marker kept, as in the branch below, so doctor can compare it with what is stored.
           if clean_refused_over_folders "$log"; then
-            reason_override="could not rebuild the staged update. $(clean_left_words "$log")"
+            reason_override="could not replace the prepared updates. $(clean_left_words "$log")"
           else
-            reason_override="could not rebuild the staged update, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
+            reason_override="could not replace the prepared updates, and what is stored was left in place because $(apply_refusal_reason). See: kempt doctor"
           fi
         else
-          reason_override="the previous staged update was discarded and could not be rebuilt or cleaned up. Run: sudo dnf5 offline clean"
+          reason_override="the earlier updates were removed and could not be prepared again or cleaned up. Run: sudo dnf5 offline clean"
           # Marker KEPT here, deliberately - state (d) again. doctor reads it against the toml
           # and FAILs on that row, the boot-symlink row FAILs beside it, and both name the command
           # that fixes it. Clearing it downgrades the first to a benign "staged outside Kempt".
@@ -2085,7 +2087,7 @@ cmd_update() {
   # rather than handed a path that does not exist, which would end the run here on jq's rc. The
   # notification below still goes out; it just cannot carry the counts.
   [[ -n "$hist" ]] && render_summary "$hist"
-  if [[ "$surface" != "terminal" ]]; then
+  if [[ "$at_terminal" != true ]]; then
     # Same truth as the summary: a run that installed and removed packages is never "0 updated".
     local phrase=""
     [[ -n "$hist" ]] && phrase="$(run_counts_phrase "$hist")"
@@ -2096,23 +2098,23 @@ cmd_update() {
       # reasons it was is the difference between "Kempt did nothing" and "your holds did what you
       # asked": the first reads as a fault.
       local discarded_tail=""
-      [[ "$stage_discarded" == true ]] && discarded_tail=". The update staged earlier was removed"
+      [[ "$stage_discarded" == true ]] && discarded_tail=". The updates prepared earlier were removed"
       if [[ -n "$held_dnf" ]]; then
-        notify "Kempt" "Nothing to stage, because every pending update is held$discarded_tail"
+        notify "Kempt" "Every waiting update is held, so the next restart has nothing to install$discarded_tail"
       else
-        notify "Kempt" "Nothing to stage, because no updates are pending$discarded_tail"
+        notify "Kempt" "No updates are waiting, so the next restart has nothing to install$discarded_tail"
       fi
     elif [[ "$surface" == "offline" && "$status" == "ok" && -n "$stage_untracked" ]]; then
       # The stage is REAL: it is downloaded, armed, and the next restart installs it. What failed is
       # Kempt's record of it, so the promise is kept and the limit stated in the same breath - this
       # is the one notification that has to carry both, because every later surface will be silent.
-      notify "Kempt" "Updates are staged and install on the next restart. Kempt could not record them ($stage_untracked), so it will not report the result afterwards"
+      notify "Kempt" "Updates are ready and install on the next restart. Kempt could not record them ($stage_untracked), so it will not report the result afterwards"
     elif [[ "$stage_blocked" == true ]]; then
-      notify "Kempt" "Updates are staged, but another updater has prepared the next restart, so they will not install then"
+      notify "Kempt" "Updates are ready, but another updater has prepared the next restart, so they will not install then"
     elif [[ "$surface" == "offline" && "$status" == "ok" ]]; then
       local discover_tail=""
       discover_offer_pending && discover_tail=". Discover's update check can cancel this, so restart soon or run kempt discover-notifier off"
-      notify "Kempt" "Updates are staged and install on the next restart${stage_unlisted:+ ($stage_unlisted)}$discover_tail"
+      notify "Kempt" "Updates are ready and install on the next restart${stage_unlisted:+ ($stage_unlisted)}$discover_tail"
     elif [[ "$status" == "ok" ]]; then
       notify "Kempt" "${phrase:-Update finished}$([[ "$reboot" == "true" ]] && echo ', restart needed')"
     else
@@ -2126,82 +2128,39 @@ cmd_update() {
   # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
   # already emptied. Never allowed to change the run's verdict. It takes seconds and prints
   # nothing, so a person watching is told what the pause is.
-  CHECK_WROTE_STATE=""
   # The skip this run set for itself covers its apply and its after-snapshot only. The check asks the
   # per-user installation again, so a listing that still fails is recorded there as failed.
   [[ "$fp_user_unreadable" == true ]] && unset FLATPAK_USER_SKIP
   [[ -t 1 ]] && printf '\nChecking for anything left to update…\n'
   cmd_check >/dev/null 2>&1 || true
-  # Tells the terminal wrapper (cmd_run) that this run has had its closing check, so it does not
-  # run a second one. Set only by that wrapper. Only after a check that wrote state: one that lost
-  # the check lock served the old state, so the window's own check is the one that counts.
-  if [[ -n "${KEMPT_CLOSING_CHECK_MARK:-}" && -n "$CHECK_WROTE_STATE" ]]; then
-    : > "$KEMPT_CLOSING_CHECK_MARK" 2>/dev/null || true
-  fi
   return "$run_rc"
 }
 
-# Waits for a launched update window to START, the one thing `kempt run` cannot otherwise see: the
-# emulator is detached and its streams go to /dev/null. The window's first act is to delete the
-# token, so the token going away IS the window starting. rm is atomic, so exactly one side gets the
-# token, and that is what stops a window arriving after this gave up from starting an update behind
-# a report that said none started.
-# 0: the window started, or its launcher is still running at the deadline (a slow start is not a
-#    failure, and the token is left for the window to claim).
-# 1: it will not start. RUN_LAUNCH_RC holds the launcher's status, 0 for one that handed the window
-#    to another process that never opened it.
-wait_for_window() {  # pid token seconds
-  local pid="$1" token="$2" ticks=$(( $3 * 10 )) i
-  RUN_LAUNCH_RC=""
-  for ((i = 0; i < ticks; i++)); do
-    [[ -e "$token" ]] || return 0
-    if [[ -z "$RUN_LAUNCH_RC" ]] && ! kill -0 "$pid" 2>/dev/null; then
-      RUN_LAUNCH_RC=0; wait "$pid" 2>/dev/null || RUN_LAUNCH_RC=$?
-      # An error means nothing is coming. Exit 0 may be an emulator that handed the window to an
-      # instance it already had running, so the token still gets the rest of the wait.
-      [[ "$RUN_LAUNCH_RC" -ne 0 ]] && break
-    fi
-    sleep 0.1
-  done
-  if [[ -z "$RUN_LAUNCH_RC" ]]; then
-    kill -0 "$pid" 2>/dev/null && return 0
-    RUN_LAUNCH_RC=0; wait "$pid" 2>/dev/null || RUN_LAUNCH_RC=$?
-  fi
-  rm -- "$token" 2>/dev/null || return 0    # claimed in the last instant: it started
-  return 1
-}
-
 # What the widget's "Update now" button calls: pick the surface, then get out of the way.
-# cmd_update re-checks auto_accept itself; this guard is the LAUNCH decision, since a detached run
-# can never answer a prompt.
 cmd_run() {
-  local dry="" surface auto a named="" named_set="" risky_arg=""
+  local dry="" surface a named="" named_set="" risky_arg=""
   # An unrecognised argument must never fall through to a real launch.
   for a in "$@"; do case "$a" in
     --print-command) dry=1 ;;
-    # The popup asked about session-critical updates and the person chose Install Now. Passed on
-    # to a detached update only: a terminal run asks its own question whatever the popup heard.
+    # The popup asked about session-critical updates and the person chose Install Now.
     --risky-ok) risky_arg=" --risky-ok" ;;
     # One run on a named surface instead of the configured one. The widget stages through this
     # (`run --surface=offline`) so a stage gets the refusals below - the held lock above all -
     # where the widget can read them, rather than inside a detached `kempt update` whose exit
     # status nobody reads. Strict where the setting is lenient: a stored typo falls back to the
-    # terminal (resolve_surface), but a surface asked for by name is a request, and guessing at it
+    # widget (resolve_surface), but a surface asked for by name is a request, and guessing at it
     # could turn a stage into a live update. Once only, so there is no "which one wins".
     --surface=*)
       [[ -z "$named_set" ]] || { echo "unknown option: $a (--surface given twice)" >&2; exit 2; }
       named_set=1; named="$(surface_canon "${a#--surface=}")"
       case "$named" in
-        terminal|popup|offline) ;;
-        *) echo "unknown --surface value: ${a#--surface=} (use terminal, widget or offline)" >&2; exit 2 ;;
+        popup|offline) ;;
+        *) echo "unknown --surface value: ${a#--surface=} (use widget or offline)" >&2; exit 2 ;;
       esac ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac; done
   if [[ -n "$named_set" ]]; then surface="$named"
   else surface="$(resolve_surface "$(config_get surface)")"; fi
-  auto="$(config_get auto_accept)"
-  # A named surface obeys this too, the same rule cmd_update applies to its own --surface.
-  is_true "$auto" || surface="terminal"   # only a terminal can prompt
 
   # Refused HERE, before anything is launched, while another update holds the lock. cmd_update
   # refuses too, but inside a window or a detached shell whose status nobody reads: `run` returned
@@ -2216,90 +2175,10 @@ cmd_run() {
     [[ $lock_rc -eq 75 ]] && { echo "An update is already running." >&2; exit 3; }
   fi
 
-  if [[ "$surface" == "terminal" ]]; then
-    # Checked before --print-command too: "what would happen" must include "nothing, you have no
-    # terminal emulator".
-    command -v "$KEMPT_TERMINAL" >/dev/null \
-      || { echo "Kempt could not find $KEMPT_TERMINAL. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2; exit 4; }
-    # A named surface is passed on to the update in the window, because `kempt update` reads the
-    # configured surface itself: without it, a terminal asked for by name on a box configured to
-    # stage would stage in that window. Nothing is added without one, so the default launch is
-    # the command it always was.
-    # A stage asked for by name stays a stage: with auto_accept off it runs in this window, where
-    # dnf5 can show the transaction and ask, and never turns into a live update.
-    local upd_arg=""
-    if [[ "$named" == "offline" ]]; then upd_arg=" --surface=offline"
-    elif [[ -n "$named_set" ]]; then upd_arg=" --surface=terminal"; fi
-    if [[ -n "$dry" ]]; then echo "terminal: $KEMPT_TERMINAL -e kempt update$upd_arg"; return 0; fi
-    # INVARIANT: the widget leaves its updating state on ONE event - state.json changing under its
-    # watcher (plasmoid/contents/ui/main.qml, pollWatch), or a three-hour guard. So EVERY exit
-    # from this window must rewrite state.json, or the popup sits on an empty "Updating…" pane for
-    # up to three hours. The two easy to miss: the risky prompt's abort (cmd_update exits 0 there,
-    # BEFORE its own post-run check) and the user closing the window mid-run.
-    # Hence two traps, NOT redundant: EXIT covers every ordinary exit whatever the status, and
-    # HUP/INT/TERM make the signal path certain: closing a terminal window SIGHUPs the foreground
-    # process group, and whether bash runs the EXIT trap when it dies of an untrapped fatal signal
-    # has differed between versions. They do nothing but `exit`, which is what makes EXIT fire.
-    # The check is quiet and its status discarded, so it cannot turn a good run into a failed one;
-    # $ec, the UPDATE's status, is what leaves this shell on both paths. run_check is guarded so
-    # the ordinary path checks once BEFORE the "press any key" prompt - the window must not be
-    # closable until the state has been rewritten.
-    # printf %q, not hand-written quotes: this builds a script for ANOTHER shell, and a checkout
-    # path containing an apostrophe would close the quote early and yield a wrapper that fails
-    # `bash -n`. Same in the detached branch below.
-    local wrapper self_q
-    printf -v self_q '%q' "$SELF"
-    # TWO ways to run the same check, and the difference is the whole point.
-    #   run_check   - the ordinary path, synchronous, before the "press any key" prompt, so the
-    #                 window cannot be closed until the state has been rewritten.
-    #   detach_check - the signal path. This shell and everything in its process group are about
-    #                 to be killed, and the check is the ONE event that takes the popup out of its
-    #                 updating state. Run in the group, it dies mid-flight: closing a terminal
-    #                 SIGHUPs the group and the emulator SIGKILLs whatever is still there moments
-    #                 later, while a real check takes SECONDS because it talks to dnf. setsid puts
-    #                 it in a session of its own, where neither signal reaches it.
-    #   `checked` makes them exclusive: whichever runs first, the other returns.
-    # The start token (see wait_for_window), claimed before anything else and BEFORE the traps: a
-    # window that finds it already taken back was reported as never having started, so it starts
-    # nothing, and it runs no check either, because there is no run for the check to end.
-    local token token_q launcher wait_s="${KEMPT_RUN_START_WAIT:-5}"
-    [[ "$wait_s" =~ ^[0-9]+$ ]] || wait_s=5
-    kempt_init_dirs
-    token="$(mktemp "$KEMPT_STATE_DIR/run-start.XXXXXX")"
-    printf -v token_q '%q' "$token"
-    wrapper="rm -- $token_q 2>/dev/null || { echo 'Kempt stopped waiting for this window, so the update was not started. Start it again from Kempt.'; read -rn1 -s -p 'Press any key to close…'; exit 1; }; "
-    # A finished update has already checked on its way out (the end of cmd_update), and a second
-    # check here only doubled the wait before the prompt and put one more check in the log. So the
-    # wrapper checks only when the update did not leave its closing-check mark, which is the abort
-    # and the early exits. A mark, not a comparison of state.json: the update writes that file
-    # twice, and the second write can get the first one's inode back, so an inode test read a
-    # checked run as unchecked; mtime has one-second granularity on some filesystems.
-    local mark_q
-    printf -v mark_q '%q' "$STATE_FILE.closing-check"
-    wrapper+="mark=$mark_q.\$\$; rm -f \"\$mark\"; "
-    wrapper+="checked=0; run_check() { [ \$checked = 1 ] && return 0; checked=1; echo; echo 'Checking for anything left to update…'; $self_q check >/dev/null 2>&1 || true; }; "
-    wrapper+="detach_check() { [ \$checked = 1 ] && return 0; checked=1; setsid $self_q check >/dev/null 2>&1 & }; "
-    wrapper+="trap 'ec=\$?; rm -f \"\$mark\"; detach_check; exit \$ec' EXIT; trap 'exit' HUP INT TERM; "
-    wrapper+="KEMPT_CLOSING_CHECK_MARK=\"\$mark\" $self_q update$upd_arg; ec=\$?; [ -e \"\$mark\" ] && checked=1; run_check; echo; read -rn1 -s -p 'Press any key to close…'; exit \$ec"
-    setsid "$KEMPT_TERMINAL" -e bash -c "$wrapper" >/dev/null 2>&1 &
-    launcher=$!
-    # A window that never opens used to be a complete no-op that said 0: no event, no history, and
-    # a widget sitting on its updating pane for three hours. Found installed is not the same as able
-    # to draw (an SSH session has no display), so the only honest answer is to wait for the start.
-    if ! wait_for_window "$launcher" "$token" "$wait_s"; then
-      local why
-      if [[ "$RUN_LAUNCH_RC" -ne 0 ]]; then why="$KEMPT_TERMINAL exited $RUN_LAUNCH_RC"
-      else why="$KEMPT_TERMINAL opened no window within ${wait_s}s"; fi
-      echo "The terminal window did not open, so the update did not start ($why). Run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)" >&2
-      log_event "run did not start: $why"
-      exit 5
-    fi
-  else
-    if [[ -n "$dry" ]]; then echo "detached: kempt update$risky_arg (surface=$(surface_word "$surface"))"; return 0; fi
-    local self_q surface_q
-    printf -v self_q '%q' "$SELF"; printf -v surface_q '%q' "$surface"
-    setsid bash -c "$self_q update --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
-  fi
+  if [[ -n "$dry" ]]; then echo "detached: kempt update --answered$risky_arg (surface=$(surface_word "$surface"))"; return 0; fi
+  local self_q surface_q
+  printf -v self_q '%q' "$SELF"; printf -v surface_q '%q' "$surface"
+  setsid bash -c "$self_q update --answered --surface=$surface_q$risky_arg" >/dev/null 2>&1 &
 }
 
 cmd_summary() {  # [N] - 1 = latest (default) | --json - the newest run's entry, verbatim
@@ -2616,12 +2495,12 @@ clear_gone_stage() {  # marker-owned pre-snapshot path (possibly empty), the mar
 # can never install"; without it that row degrades to "staged outside Kempt".
 # What to do about a stage that will not install as Kempt made it, for both announcements below.
 # Commands rather than a button: they work from a terminal and from the widget alike.
-KEMPT_STAGE_REMEDY="To stage your updates again, run kempt update --surface=offline. To remove the staged update, run sudo dnf5 offline clean."
+KEMPT_STAGE_REMEDY="To prepare your updates again, run kempt update --surface=offline. To remove them, run sudo dnf5 offline clean."
 # ...except over a stored Fedora release upgrade, where both commands would be wrong: a stage is
 # refused, and a clean would delete the upgrade.
-KEMPT_STAGE_RELUP_REMEDY="A Fedora release upgrade is stored, so Kempt will not stage updates now. See: kempt doctor"
+KEMPT_STAGE_RELUP_REMEDY="A Fedora release upgrade is stored, so Kempt will not prepare updates now. See: kempt doctor"
 # ...or behind another updater's restart, where a stage is refused and a clean would cancel that.
-KEMPT_STAGE_HELD_REMEDY="The next restart belongs to another updater, so staging again has to wait until you have restarted."
+KEMPT_STAGE_HELD_REMEDY="Another updater has prepared the next restart, so preparing updates again has to wait until you have restarted."
 stage_remedy() {
   if offline_release_upgrade >/dev/null; then printf '%s' "$KEMPT_STAGE_RELUP_REMEDY"
   elif restart_held_by_other; then printf '%s' "$KEMPT_STAGE_HELD_REMEDY"
@@ -2629,7 +2508,8 @@ stage_remedy() {
 }
 
 # The announce-once key is the marker itself - `armed: false` IS the record that this was said,
-# and a box checking every ten minutes would otherwise repeat it 144 times a day.
+# and a box checking every ten minutes would otherwise repeat it 144 times a day. Written only once
+# the notification was really shown: someone with no session at this check is told at the next one.
 reconcile_detour_stage() {  # marker-json toml-status [none, when nothing of it was installed]
   # `.armed == false` and never `.armed // true`: jq's alternative operator treats FALSE as empty,
   # so `//` would read the demoted marker as armed and announce it again on every check. Absent
@@ -2644,11 +2524,12 @@ reconcile_detour_stage() {  # marker-json toml-status [none, when nothing of it 
     # dnf5 started this on a restart and stopped. It was never unable to install, and whether any
     # of it went in is only said when the caller could tell.
     outcome="did not finish on the restart"
-    notify "Kempt" "Your staged update did not finish installing on the restart${3:+, and none of it was installed}. $(stage_remedy)"
+    notify "Kempt" "Your prepared updates did not finish installing on the restart${3:+, and none of them were installed}. $(stage_remedy)"
   else
-    notify "Kempt" "Your staged update can no longer install on a restart. $(stage_remedy)"
+    notify "Kempt" "Your prepared updates can no longer install on a restart. $(stage_remedy)"
   fi
   log_event "offline stage $outcome (status $2) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
+  [[ "$NOTIFY_SHOWN" == true ]] || return 0
   # Additive, like every field of this file: everything already there is kept, so the pre-snapshot
   # pointer, the names and the boot id survive for the doctor rows that read them.
   # lost_announced: people were told it can no longer install, so a later harvest does not report on it.
@@ -2685,13 +2566,28 @@ record_stage_did_not_run() {
 # before it rewrites this marker, and in between the two disagree for the most ordinary reason.
 # Reads and writes harvest_offline's `marker`, so every branch after it carries the flag forward.
 reconcile_replaced_stage() {
-  if jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1; then return 0; fi
+  # `replaced` is a fact other code reads, so it is recorded whether or not anyone was told.
+  # replaced_unannounced says the telling is still owed, and the next check tries again.
+  local owed=false
+  if jq -e '.replaced == true' <<<"$marker" >/dev/null 2>&1; then
+    jq -e '.replaced_unannounced == true' <<<"$marker" >/dev/null 2>&1 || return 0
+    owed=true
+  fi
   stage_lock_try || return 0
-  local why updated
-  if why="$(offline_stage_replaced "$marker")" && offline_marker_still "$marker"; then
-    notify "Kempt" "Your staged update was replaced outside Kempt, so the next restart will not install it. $(stage_remedy)"
-    log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
-    updated="$(jq -c '. + {replaced: true}' <<<"$marker" 2>/dev/null)" || updated=""
+  local why="" updated
+  if { [[ "$owed" == true ]] || why="$(offline_stage_replaced "$marker")"; } && offline_marker_still "$marker"; then
+    notify "Kempt" "Your prepared updates were replaced outside Kempt, so the next restart will not install them. $(stage_remedy)"
+    if [[ "$owed" == true && "$NOTIFY_SHOWN" != true ]]; then
+      stage_unlock
+      return 0
+    fi
+    [[ "$owed" == true ]] \
+      || log_event "offline stage replaced outside Kempt (${why//$'\n'/, }) - $([[ "$NOTIFY_SHOWN" == true ]] && echo announced || echo "not announced")"
+    if [[ "$NOTIFY_SHOWN" == true ]]; then
+      updated="$(jq -c '. + {replaced: true} | del(.replaced_unannounced)' <<<"$marker" 2>/dev/null)" || updated=""
+    else
+      updated="$(jq -c '. + {replaced: true, replaced_unannounced: true}' <<<"$marker" 2>/dev/null)" || updated=""
+    fi
     if [[ -n "$updated" ]] && printf '%s\n' "$updated" | write_offline_marker; then
       marker="$updated"
     else
@@ -3081,7 +2977,7 @@ harvest_offline() {
     # been the restart or a live run before it, and the sentence is true of both. What the person
     # asked for is what matters, and the history entry has the packages.
     log_event "offline stage installed by another updater${harvested:+ ($harvested)}"
-    notify "Kempt" "Your staged updates are installed."
+    notify "Kempt" "Your prepared updates are installed."
   elif [[ "$partly_elsewhere" == true ]]; then
     # Who did it stays unsaid, since `dnf upgrade foo` looks the same, and so does what became of the
     # rest: the normal list shows whatever is still pending. Nor does a restart that stopped name the
@@ -3100,7 +2996,7 @@ harvest_offline() {
     # Nothing here says what DID happen to the stage, because the history does not say it either:
     # removed, or replaced by a transaction that then ran. What it does say is that this was not it.
     log_event "harvest found the staged transaction did not run${harvested:+ ($harvested)}"
-    notify "Kempt" "The update Kempt staged did not run on the restart. Changes seen across the restart came from somewhere else${harvested:+: $harvested}"
+    notify "Kempt" "The updates Kempt prepared did not run on the restart. Changes seen across the restart came from somewhere else${harvested:+: $harvested}"
   elif [[ -n "$harvested" ]]; then
     log_event "harvest applied ($harvested)"
     notify "Kempt" "Staged updates were installed during the restart: $harvested"
@@ -3123,7 +3019,12 @@ cmd_config() {
          local v="$3"
          [[ "$2" != surface || "$(surface_canon "$v")" != popup ]] || v=popup
          config_warn_unknown "$2" "$v"
-         config_set "$2" "$v" ;;
+         config_set "$2" "$v"
+         # The two surfaces that merged into the widget are stored as it, which the person should hear.
+         case "$2=${3,,}" in
+           surface=*terminal*|surface=*background*)
+             [[ "$v" != popup ]] || echo "Stored surface=popup, the widget, because $3 is no longer a choice." ;;
+         esac ;;
     *) echo "usage: kempt config get <key> [default] | set <key> <value>" >&2; exit 2 ;;
   esac
 }
@@ -3215,13 +3116,13 @@ cmd_unstage() {
   # in this function - that is the command the refusal exists to protect against.
   local relup
   if relup="$(offline_release_upgrade)"; then
-    echo "Nothing was discarded. A Fedora release upgrade ($relup) is stored, and dnf5 keeps one stored transaction, so discarding it would cancel the upgrade. See: kempt doctor" >&2
+    echo "Nothing was discarded, because that would also cancel the Fedora ${relup##* } upgrade. See: kempt doctor" >&2
     log_event "unstage refused (a Fedora release upgrade ($relup) is stored)"
     exit 5
   fi
   # The update lock, for the race it exists for: a stage in flight is building the very transaction
   # this would remove. Same refusal and same status as a second `kempt update`.
-  acquire_lock || { echo "another kempt update is running" >&2; exit 3; }
+  acquire_lock || { echo "Another update is running." >&2; exit 3; }
   trap release_lock EXIT
 
   local marker pre status
@@ -3233,10 +3134,10 @@ cmd_unstage() {
     if [[ -n "$marker" ]]; then
       pre="$(jq -r '.pre_snapshot // empty' <<<"$marker" 2>/dev/null || true)"
       clear_gone_stage "$pre" "$marker"
-      echo "The staged update was already gone. Kempt's record of it has been cleared."
+      echo "These updates were already gone. The next restart installs nothing."
       log_event "unstage cleared a marker with no transaction under it"
     else
-      echo "Nothing is staged, so there is nothing to discard."
+      echo "Nothing is waiting for the next restart, so there is nothing to discard."
       log_event "unstage found nothing staged"
     fi
     cmd_check >/dev/null 2>&1 || true
@@ -3247,7 +3148,7 @@ cmd_unstage() {
   # stands, discarding Kempt's stage would cancel that updater's restart install too, so this waits
   # for the restart that runs it.
   if [[ "$(offline_link_state)" == other ]]; then
-    echo "Nothing was discarded. Another updater has prepared the next restart, and discarding now would cancel its update too. After the restart, run kempt unstage again." >&2
+    echo "Nothing was discarded. Another updater has prepared the next restart, and discarding now would cancel its update too. Try again after that restart." >&2
     log_event "unstage refused (another updater has prepared the next restart)"
     exit 5
   fi
@@ -3261,7 +3162,7 @@ cmd_unstage() {
   [[ -z "$err" ]] || printf '%s\n' "$err" >&2
   if [[ $rc -eq $KEMPT_APPLY_REFUSED ]]; then
     if [[ -n "$refused_why" ]]; then
-      echo "The staged update was left in place. $refused_why" >&2
+      echo "These updates were left in place. $refused_why" >&2
     elif clean_refused_over_folders; then
       echo "$KEMPT_CLEAN_LEFT" >&2
     else
@@ -3271,7 +3172,7 @@ cmd_unstage() {
     exit 5
   fi
   if [[ $rc -ne 0 ]]; then
-    echo "The staged update could not be discarded. See: kempt doctor" >&2
+    echo "These updates could not be discarded. See: kempt doctor" >&2
     log_event "unstage failed rc=$rc"
     exit 1
   fi
@@ -3283,7 +3184,7 @@ cmd_unstage() {
   if [[ "$status" != absent ]]; then
     local left="dnf5 still reports a stored transaction (status \"$status\")"
     [[ "$status" != unknown ]] || left="the stored transaction is still there and cannot be read"
-    echo "The staged update was not fully discarded: $left. Kempt's record of it has been kept. See: kempt doctor" >&2
+    echo "These updates were not fully discarded: $left. Kempt's record of them has been kept. See: kempt doctor" >&2
     log_event "unstage left a transaction behind (status ${status/#unknown/could not be read})"
     cmd_check >/dev/null 2>&1 || true
     exit 1
@@ -3292,7 +3193,7 @@ cmd_unstage() {
     pre="$(jq -r '.pre_snapshot // empty' <<<"$marker" 2>/dev/null || true)"
     clear_gone_stage "$pre" "$marker"
   fi
-  echo "Discarded the staged update. The next restart installs nothing."
+  echo "Discarded the updates waiting for the next restart. That restart installs nothing."
   log_event "unstage discarded the staged update"
   # state.json is the widget's only channel, so a discarded stage stops being advertised in the
   # panel exactly when this rewrites it.
@@ -3911,7 +3812,7 @@ policy_exec_path() {  # action_id file -> the annotated path, or "" if there is 
 }
 
 # The half of the polkit action a readable file can still get wrong. The RPM installs the helpers
-# under /usr/libexec and rewrites the annotation to match (kempt.spec); install.sh uses
+# under /usr/libexec and rewrites the annotation to match (kempt.spec); an old checkout install used
 # /usr/local/libexec. A box carrying both hands pkexec a path no action names, so it falls back to
 # an authentication dialog a background check cannot answer: priv_refresh times out after 120s and
 # the check reports stale, forever.
@@ -3932,7 +3833,7 @@ doctor_exec_path() {  # label action_id helper_seam annotated_path
     doctor_ok "polkit exec.path ($label): $pinned"
   else
     # Both paths and both remedies: which one is wrong depends on the install the reader meant.
-    doctor_fail "polkit exec.path ($label): the policy pins $pinned, this CLI runs $annotated. pkexec has no action for that path, so every privileged run falls back to an authentication dialog and background checks time out. Fix it with ./install.sh in a checkout, or: sudo dnf reinstall kempt for the package"
+    doctor_fail "polkit exec.path ($label): the policy pins $pinned, this CLI runs $annotated. pkexec has no action for that path, so every privileged run falls back to an authentication dialog and background checks time out. Fix it with: sudo dnf reinstall kempt"
   fi
 }
 
@@ -3949,8 +3850,8 @@ doctor_widget_engine() {
     doctor_info "widget engine: no kempt on the widget's PATH ($KEMPT_WIDGET_PATH), so the panel reports the engine as missing"
     return 0
   fi
-  # Resolved, because ~/.local/bin/kempt is a symlink on every checkout install: the question is
-  # which FILE runs, not which name came first.
+  # Resolved, because ~/.local/bin/kempt may be a symlink: the question is which FILE runs, not
+  # which name came first.
   w="$(readlink -f "$w" 2>/dev/null || printf '%s' "$w")"
   if [[ "$w" == "$SELF" ]]; then
     doctor_ok "widget engine: $w"
@@ -3962,7 +3863,7 @@ doctor_widget_engine() {
 doctor_helper() {  # label seam_path annotated_path
   local label="$1" path="$2" annotated="$3" own dir down
   if [[ ! -e "$path" ]]; then
-    doctor_fail "root helper ($label) not installed: $path. $(reinstall_hint "")"
+    doctor_fail "root helper ($label) not installed: $path. $KEMPT_REINSTALL_HINT"
     return 0
   fi
   # Not the path polkit execs, so its ownership says nothing about what root would run.
@@ -3972,7 +3873,7 @@ doctor_helper() {  # label seam_path annotated_path
   if [[ "$own" == "root:root 755" ]]; then
     doctor_ok "root helper ($label): $path (root:root 0755)"
   else
-    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. $(reinstall_hint again)"
+    doctor_fail "root helper ($label) is $own, expected root:root 755: $path. $KEMPT_REINSTALL_HINT"
   fi
   # The directory, too: whoever can write to it can rename the helper away and put their own file
   # at the path polkit runs as root, however the helper itself is owned. Quiet when it is sound, so
@@ -3981,37 +3882,6 @@ doctor_helper() {  # label seam_path annotated_path
   down="$(stat -L -c '%U:%G %a' "$dir" 2>/dev/null)" || return 0
   if [[ "${down%%:*}" != root ]] || (( 8#${down##* } & 8#022 )); then
     doctor_fail "root helper directory ($label) is $down, expected root-owned and not group- or world-writable: $dir. Fix it with: sudo chown root:root $dir && sudo chmod 755 $dir"
-  fi
-}
-
-# --- install skew -------------------------------------------------------------------------------
-# A checkout install is a SYMLINK for the CLI and a COPY for everything that cannot be one: the two
-# root helpers (root execs a file it owns, never a link into a user's tree), the polkit action, and
-# the widget kpackagetool6 copies into the user's plasmoid directory. So `git pull` moves the CLI
-# and silently leaves those three behind, root still running the last ./install.sh's code.
-# Compared by CONTENT, never mtime: the installer rewrites files it did not change, and a fresh
-# clone is younger than a correct install. No privilege needed - the copies are world-readable.
-doctor_install_copies() {  # label fix src dst [src dst ...]; a directory is compared whole
-  local label="$1" fix="$2" src dst unknown=0 missing=0 differ=0
-  shift 2
-  while [[ $# -gt 1 ]]; do
-    src="$1"; dst="$2"; shift 2
-    if [[ ! -r "$src" ]]; then unknown=1
-    elif [[ ! -e "$dst" ]]; then missing=1
-    elif [[ -d "$src" ]]; then
-      if ! command -v diff >/dev/null; then unknown=1
-      elif ! diff -rq "$src" "$dst" >/dev/null 2>&1; then differ=1; fi
-    elif ! same_content "$src" "$dst"; then differ=1; fi
-  done
-  if [[ $unknown -eq 1 ]]; then
-    doctor_info "$label: not compared, because the checkout has no copy or diff is not installed"
-  elif [[ $missing -eq 1 ]]; then
-    # info, not FAIL: a missing helper or action is already a FAIL above, and the widget is optional.
-    doctor_info "$label: not installed. Run ./install.sh"
-  elif [[ $differ -eq 1 ]]; then
-    doctor_fail "$label: DIFFER from checkout. $fix"
-  else
-    doctor_ok "$label: match checkout"
   fi
 }
 
@@ -4029,7 +3899,7 @@ doctor_privileged_rows() {
   if [[ -r "$KEMPT_POLICY_FILE" ]]; then
     doctor_ok "polkit action: $KEMPT_POLICY_FILE"
   else
-    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. $(reinstall_hint "")"
+    doctor_fail "polkit action not installed: $KEMPT_POLICY_FILE. $KEMPT_REINSTALL_HINT"
   fi
   # ...and the half a readable file can still get wrong: which helper path it pins.
   doctor_exec_path refresh io.github.erez_c137.kempt.refresh \
@@ -4051,26 +3921,6 @@ doctor_image_based_row() {
 }
 
 doctor_tool_rows() {
-  # getfacl: the root helper refuses every verb without it, because it cannot see ACL entries. The
-  # RPM requires the acl package; a checkout install does not.
-  command -v "$KEMPT_GETFACL" >/dev/null 2>&1 \
-    || doctor_fail "getfacl: not found, so Kempt cannot see ACL entries on the dnf folders. $KEMPT_FOLDERS_HOLD Install it with: sudo dnf install acl"
-
-  # The terminal emulator matters only where it is launched: surface=terminal, plus any surface
-  # when auto_accept=false (which forces terminal). A FAIL on a detached surface would be a
-  # warning nobody can act on.
-  local surface auto term_needed=false
-  surface="$(surface_canon "$(config_get surface)")"; auto="$(config_get auto_accept)"
-  case "$surface" in popup|offline) ;; *) term_needed=true ;; esac   # unknown → terminal, same as resolve_surface
-  is_true "$auto" || term_needed=true
-  if command -v "$KEMPT_TERMINAL" >/dev/null; then
-    doctor_ok "terminal emulator: $(command -v "$KEMPT_TERMINAL")"
-  elif [[ "$term_needed" == true ]]; then
-    doctor_fail "terminal emulator '$KEMPT_TERMINAL' not found, so 'kempt run' exits 4 with surface=terminal. Install it, or run updates another way: kempt config set surface widget (Settings > Run updates in > In this widget)"
-  else
-    doctor_info "terminal emulator '$KEMPT_TERMINAL' not found. Kempt does not need it while updates run with surface=$(surface_word "$surface")"
-  fi
-
   # flatpak: ask about the command the BACKEND runs (first word of its seam), never a hardcoded
   # name a test or a power user may have redirected.
   local fp_cmd; fp_cmd="${KEMPT_FLATPAK_LIST_CMD%% *}"
@@ -4225,7 +4075,7 @@ doctor_scan_tree() {  # dir [links] → DOCTOR_TREE_HIT, the first entry another
   fi
   # An ACL entry gives access the mode bits do not show, and a default one passes it to every file
   # root writes there later. getfacl -s lists only entries with more than the mode; -P stays off links.
-  command -v "$KEMPT_GETFACL" >/dev/null 2>&1 || return 0   # doctor_tool_rows has a row for that
+  command -v "$KEMPT_GETFACL" >/dev/null 2>&1 || return 0   # the package requires it
   rc=0
   out="$(LC_ALL=C "$KEMPT_GETFACL" -R -P -s -p -- "$d" 2>&1)" || rc=$?
   while IFS= read -r line; do
@@ -4273,10 +4123,10 @@ clean_refused_over_folders() {  # run log or "" → 0 when the folders are why
   [[ -e "$KEMPT_OFFLINE_TOML" || -L "$KEMPT_OFFLINE_TOML" ]] && ! offline_stored_is_readable && return 1
   return 0
 }
-KEMPT_CLEAN_LEFT="The staged update was left in place. Run kempt doctor."
+KEMPT_CLEAN_LEFT="These updates were left in place. Run kempt doctor."
 clean_left_words() {  # run log → KEMPT_CLEAN_LEFT, in the helper's words when it gave a folder reason
   local why
-  if why="$(log_folder_refusal "$1")"; then printf 'The staged update was left in place. %s\n' "$why"
+  if why="$(log_folder_refusal "$1")"; then printf 'These updates were left in place. %s\n' "$why"
   else printf '%s\n' "$KEMPT_CLEAN_LEFT"; fi
 }
 # The helper's own sentence for a refusal over the folders or the mount namespace. It alone knows
@@ -4698,10 +4548,6 @@ doctor_state_dir_row() {
   fi
 }
 
-# Which kind of install this is. install.sh is the file a checkout has and a package does not: it
-# is what a fix message would tell you to run, and exactly what a packaged tree does not ship.
-install_is_packaged() { [[ ! -r "$ROOT/install.sh" ]]; }
-
 # dnf5 still holds a transaction at `ready` whose packages are all installed, with no symlink of
 # its own in front of it: another updater installed the same updates. Nothing will run it again.
 # Advice only. `kempt unstage` removes it, but `dnf5 offline clean` also removes another updater's
@@ -4781,7 +4627,7 @@ doctor_offline_rows() {
       *)
         # Not `ready` means not armed, and no restart applies it. FAIL rather than info: a real
         # defect with an exact remedy, spelled out because the remedy needs root.
-        doctor_fail "staged update can never install: the transaction was downloaded but never set to install (status \"$dr_toml\"), so no restart applies it. Clear it with: sudo dnf5 offline clean" ;;
+        doctor_fail "prepared updates can never install: the transaction was downloaded but never set to install (status \"$dr_toml\"), so no restart applies it. Clear it with: sudo dnf5 offline clean" ;;
     esac
   elif [[ "$dr_relup_owns" == false && -f "$OFFLINE_MARKER" ]]; then
     # A marker is there and cannot be read. Reported as itself, not through the line below, which
@@ -4805,23 +4651,23 @@ doctor_offline_rows() {
       # happens to be Kempt's own.
       case "$(offline_release_upgrade_state)" in
         armed)
-          doctor_info "a Fedora release upgrade ($dr_relup) is staged outside Kempt and installs on the next restart. Kempt will not stage updates over it, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is prepared outside Kempt and installs on the next restart. Remove it with: sudo dnf5 offline clean. Kempt will not prepare updates over it, because that would cancel it" ;;
         foreign)
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and set to install, but another updater has prepared the next restart, so it will not install then. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and set to install, but another updater has prepared the next restart, so it will not install then. After that restart, install it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not prepare updates while it is there, because that would cancel it" ;;
         stranded)
           # `ready` with no boot symlink. Its own state, because the other sentences each say
           # something this one disproves: it is not waiting for a restart, and "downloaded but not
           # started" quotes a status word that says the opposite. The FAIL row further down is the
           # one that gives the remedy - two rows repeating the same two commands is one too many.
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was set to install, but the restart marker $KEMPT_OFFLINE_LINK is not in place. A restart went by without installing it, and no restart will install it now. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and was set to install, but the restart marker $KEMPT_OFFLINE_LINK is not in place. A restart went by without installing it, and no restart will install it now. Kempt will not prepare updates while it is there, because that would cancel it" ;;
         incomplete)
           # `unknown` here is a readable file with no `status` key, not an unreadable one - that
           # never reaches this branch, because offline_release_upgrade cannot read its releasevers.
           local dr_word="status \"$dr_toml\""
           [[ "$dr_toml" == unknown ]] && dr_word="no status recorded"
-          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and did not finish ($dr_word). See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) is stored outside Kempt and did not finish ($dr_word). See what happened with: sudo dnf5 offline log, or remove it with: sudo dnf5 offline clean. Kempt will not prepare updates while it is there, because that would cancel it" ;;
         *)
-          doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not stage updates while it is there, because that would cancel it" ;;
+          doctor_info "a Fedora release upgrade ($dr_relup) has been downloaded outside Kempt but not started (status \"$dr_toml\"), so no restart installs it yet. Begin it with: sudo dnf5 system-upgrade reboot, or remove it with: sudo dnf5 offline clean. Kempt will not prepare updates while it is there, because that would cancel it" ;;
       esac
     elif [[ "$dr_done" == true ]]; then
       doctor_stale_done_row "$dr_link"
@@ -4861,7 +4707,7 @@ doctor_offline_rows() {
     fi
   elif [[ "$dr_link" == dnf5 && "$dr_toml" != ready && "$dr_toml" != unknown ]]; then
     if [[ "$dr_toml" == absent ]]; then
-      doctor_fail "boot symlink is live with nothing staged behind it: $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Remove it with: sudo dnf5 offline clean"
+      doctor_fail "boot symlink is live with nothing prepared behind it: $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Remove it with: sudo dnf5 offline clean"
     else
       doctor_fail "boot symlink is live over a transaction that is not set to install (status \"$dr_toml\"): $KEMPT_OFFLINE_LINK. The next restart detours into the offline updater and installs nothing. Clear it with: sudo dnf5 offline clean"
     fi
@@ -4876,58 +4722,29 @@ doctor_offline_rows() {
     if offline_release_upgrade >/dev/null; then
       doctor_fail "the stored Fedora release upgrade can never install: dnf5 says \"ready\" but the restart marker $KEMPT_OFFLINE_LINK is not in place, so a restart has already been past it. Set it to install again with: sudo dnf5 system-upgrade reboot, or clear it with: sudo dnf5 offline clean"
     else
-      doctor_fail "staged update can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` sets it to install again. Stage it again with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
+      doctor_fail "prepared updates can never install: dnf5 says \"ready\" but $KEMPT_OFFLINE_LINK is gone, and only \`dnf5 offline reboot\` sets it to install again. Prepare them again with: kempt update --surface=offline, or clear it with: sudo dnf5 offline clean"
     fi
   fi
 }
 
-doctor_version_row() {
-  # The opening line names the release and the tree. On a git checkout this one names the commit.
-  [[ -e "$ROOT/.git" ]] || return 0
-  local sha tree=clean
-  sha="$(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null || true)"
-  [[ -n "$sha" ]] || return 0
-  [[ -z "$(git -C "$ROOT" status --porcelain 2>/dev/null)" ]] || tree=dirty
-  doctor_info "version: kempt $(kempt_version) (checkout $sha $tree)"
-}
-
 doctor_install_rows() {
-  # A packaged install has nothing to compare and nothing to drift: the RPM ships bin/, lib/ and
-  # backends/ under /usr/share/kempt and none of libexec/, polkit/ or plasmoid/, because the
-  # package manager owns those three and keeps them in step. install.sh's absence is what says
-  # which kind of install this is - it is the file the fix message would name, and exactly what a
-  # packaged tree does not ship.
-  if install_is_packaged; then
-    doctor_info "install: packaged, so the package manager keeps these files in step"
-    # ...and the one thing a packaged install can be silently wrong about. kpackagetool6 (the KDE
-    # Store route) installs into the USER's plasmoid directory, the package into /usr/share, and
-    # Plasma PREFERS the user one - so a store install predating the package stays the widget
-    # Plasma loads, invisibly, and no other row would catch it.
-    # Only in this branch: on a checkout that directory IS the install, and the message would tell
-    # a developer to delete their own widget. The skew comparison below covers that case.
-    # Shadowing needs TWO copies: with only the CLI package installed, the store copy is the one
-    # widget on the box, and failing the checkup over it tells somebody to delete their only panel.
-    # That case gets the same remedy as a pointer instead: install the widget package, THEN remove
-    # the store copy.
-    if [[ -d "$KEMPT_PLASMOID_DIR" && ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
-      doctor_info "store widget in use: the panel runs the KDE Store copy in $KEMPT_PLASMOID_DIR, and package updates do not reach it. Install the widget package with: sudo dnf install kempt-plasmoid, then remove the store copy with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
-    elif [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
-      doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR. Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
-    elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
-      # The panel half is its own package, so a working CLI can sit on a box with no widget and
-      # nothing would say why. info, not FAIL: the CLI is the whole tool for anyone who wanted it.
-      # ...and what going without it means, because the CLI alone is not a quieter widget.
-      doctor_info "panel widget not installed. It is a separate package: sudo dnf install kempt-plasmoid. Without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
-    fi
-  else
-    doctor_install_copies helpers "Run ./install.sh" \
-      "$ROOT/libexec/kempt-refresh" "$KEMPT_REFRESH_HELPER_PATH" \
-      "$ROOT/libexec/kempt-apply"   "$KEMPT_APPLY_HELPER_PATH"
-    doctor_install_copies policy "Run ./install.sh" \
-      "$ROOT/polkit/io.github.erez_c137.kempt.policy" "$KEMPT_POLICY_FILE"
-    # plasmashell --replace too: kpackagetool6 upgrades in place, and Plasma keeps the QML it loaded.
-    doctor_install_copies widget "Run ./install.sh, then plasmashell --replace" \
-      "$ROOT/plasmoid" "$KEMPT_PLASMOID_DIR"
+  # The RPM ships bin/, lib/ and backends/ under /usr/share/kempt, and the package manager keeps the
+  # helpers, the policy and the widget in step. What it cannot see is a widget in the user's own
+  # directory. kpackagetool6 (the KDE Store route) installs there, and Plasma PREFERS that copy, so
+  # a store install predating the package stays the widget Plasma loads, and no other row catches it.
+  # Shadowing needs TWO copies: with only the CLI package installed, the store copy is the one
+  # widget on the box, and failing the checkup over it tells somebody to delete their only panel.
+  # That case gets the same remedy as a pointer instead: install the widget package, THEN remove
+  # the store copy.
+  if [[ -d "$KEMPT_PLASMOID_DIR" && ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
+    doctor_info "store widget in use: the panel runs the KDE Store copy in $KEMPT_PLASMOID_DIR, and package updates do not reach it. Install the widget package with: sudo dnf install kempt-plasmoid, then remove the store copy with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
+  elif [[ -d "$KEMPT_PLASMOID_DIR" ]]; then
+    doctor_fail "user widget copy shadows the package: $KEMPT_PLASMOID_DIR. Plasma loads this copy instead of the packaged widget, so package updates never reach your panel. Remove it with: kpackagetool6 -t Plasma/Applet -r io.github.erez_c137.kempt, then plasmashell --replace"
+  elif [[ ! -d "$KEMPT_SYSTEM_PLASMOID_DIR" ]]; then
+    # The panel half is its own package, so a working CLI can sit on a box with no widget and
+    # nothing would say why. info, not FAIL: the CLI is the whole tool for anyone who wanted it.
+    # ...and what going without it means, because the CLI alone is not a quieter widget.
+    doctor_info "panel widget not installed. It is a separate package: sudo dnf install kempt-plasmoid. Without it nothing runs checks on a schedule, so the CLI checks only when you run it, from an active local session (not over SSH)"
   fi
 }
 
@@ -4967,11 +4784,8 @@ cmd_doctor() {
   doctor_state_dir_row
   doctor_offline_rows
   doctor_startup_row
-  doctor_version_row
   doctor_install_rows
-  # Outside that branch on purpose: both kinds of install can be shadowed for the widget alone - a
-  # leftover ~/.local/bin/kempt from a checkout wins over /usr/bin/kempt for the panel and for
-  # nothing else.
+  # A leftover ~/.local/bin/kempt wins over /usr/bin/kempt for the panel and for nothing else.
   doctor_widget_engine
 
   doctor_recent_events
@@ -4993,7 +4807,7 @@ cmd_doctor() {
 }
 
 # Turns Discover's update notifier off or on for this user, or says where it stands. The work is
-# in lib/common.sh, shared with install.sh's question.
+# in lib/common.sh.
 cmd_discover_notifier() {
   case "${1:-}" in
     off|on|keep) [[ $# -eq 1 ]] || { echo "unknown option: $2" >&2; exit 2; }
@@ -5090,7 +4904,6 @@ cmd_disable_passwordless() {
 #     Also reclaim when flatpak failed: partly removed, or with what went unknown
 #   2 usage error (unknown command, option or argument)
 #   3 cannot start: jq missing, or another kempt update already holds the lock
-#   4 launcher missing (no terminal emulator for the terminal surface)
 #   5 aborted during pre-flight - nothing was changed. For reclaim: may not remove, flatpak's refusal
 #     by polkit included
 #   6 reclaim only: what Flatpak would remove is not the set that was shown, or part of it became
@@ -5116,20 +4929,22 @@ usage_block() {  # command → its block, or nothing for a command Kempt does no
 EOF
     ;;
     update) cat <<'EOF'
-  update [--no-flatpak] [--surface=X] [--risky-ok]
+  update [--no-flatpak] [--surface=X] [--risky-ok] [--answered]
                         run the update now, in this process. The options override the config
                         for this run. --no-flatpak updates system packages only. --surface=X
-                        picks where it runs: terminal, widget or offline, which
-                        stages it for the next restart. --risky-ok leaves out the
-                        session-critical notification
+                        picks where it runs: widget, or offline, which stages it for
+                        the next restart. At a terminal it shows the output and asks
+                        before session-critical updates. --risky-ok leaves out the
+                        session-critical notification. With auto_accept off and no
+                        terminal it refuses, unless --answered says the person already chose
 EOF
     ;;
     run) cat <<'EOF'
   run [--print-command] [--surface=X] [--risky-ok]
                         start an update where the config says, as Update Now does, and return.
                         --print-command prints the launch command and starts nothing.
-                        --surface=X runs this one elsewhere: terminal, widget or offline.
-                        --risky-ok as for update, but a terminal run still asks
+                        --surface=X runs this one elsewhere: widget or offline.
+                        --risky-ok as for update
 EOF
     ;;
     status) cat <<'EOF'
@@ -5195,7 +5010,7 @@ EOF
     config) cat <<'EOF'
   config get <key> [default]
   config set <key> <value>
-                        read or write a setting. surface takes terminal, widget or offline
+                        read or write a setting. surface takes widget or offline
 EOF
     ;;
     discover-notifier) cat <<'EOF'

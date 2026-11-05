@@ -18,7 +18,7 @@
 
 // Titles match the CLI's own renderer (lib/common.sh render_summary) so the popup and the terminal
 // never name the same group differently.
-var SECTION_TITLES = { dnf: "System (dnf)", flatpak: "Apps (flatpak)" };
+var SECTION_TITLES = { dnf: "System", flatpak: "Apps" };
 var BACKEND_ORDER = ["dnf", "flatpak"];
 
 // A backend may group its pending items further, by the `kind` its items carry. Flatpak is the one
@@ -60,7 +60,7 @@ var COPY = {
     // `restartMessage` states a fact about the machine; `restartAction` opens KDE's own
     // logout/restart prompt and nothing else. Kempt never restarts anything itself, in any state,
     // with any setting.
-    restartMessage: "Restart to apply installed updates",
+    restartMessage: "Restart to finish updating.",
     restartAction: "Restart…",
     restartFailed: "Could not open the restart prompt.",
 
@@ -73,7 +73,7 @@ var COPY = {
     // called. `text` is already the accessible name, so a description bound to `text` spends the
     // one slot that could explain the effect.
     checkForUpdatesDescription:
-        "Asks dnf and flatpak what is pending now, instead of waiting for the timer.",
+        "Checks for updates now, instead of waiting for the timer.",
     configureDescription:
         "Check interval, where updates run, and the packages you hold.",
 
@@ -123,14 +123,12 @@ var COPY = {
     // --- the pane a run replaces the popup with ---------------------------------------------------
     // One sentence per surface, each naming where to look, and staging says what it is rather than
     // calling itself an update. Never the CONFIGURED surface, and never the word "surface".
-    updatingTerminal: "Updating in a terminal window…",
     updatingHere: "Updating…",
-    updatingOffline: "Staging updates for the next restart…",
-    // ...and the way out. Only a state.json change ends the updating state, and a terminal run
-    // that is aborted or closed never writes one - so without this the popup sits on an empty pane
-    // until a three-hour guard fires. On the default configuration that is what a first-timer gets
-    // for taking the default answer to Kempt's one question.
-    notUpdatingCheckAgain: "Not Updating? Check for Updates",
+    updatingOffline: "Preparing updates for the next restart…",
+    // ...and the way out. Only a state.json change ends the updating state, and a run that dies
+    // never writes one - so without this the popup sits on an empty pane until a three-hour guard
+    // fires.
+    notUpdatingCheckAgain: "Not Updating? Check Again",
 
     // The offline path, named for what it does to the user rather than for the dnf5 flag behind
     // it. The tooltip names what waits for the restart and what does not: Flatpak has no offline
@@ -138,9 +136,9 @@ var COPY = {
     // take the shorter one when no Flatpak app is waiting (stageTooltipOf).
     installOnNextRestart: "Install on Next Restart",
     installOnNextRestartTooltip:
-        "Installs system updates during the next restart. Flatpak apps update now.",
+        "System updates install during the next restart. Apps update now.",
     // ...and the same without the Flatpak half, for when no Flatpak app is waiting.
-    installOnNextRestartSystemTooltip: "Installs system updates during the next restart.",
+    installOnNextRestartSystemTooltip: "System updates install during the next restart.",
     // ...and the other answer, offered beside it only after Update Now was pressed on a set the
     // message above calls risky, on a box that would otherwise install it live without asking.
     installNow: "Install Now",
@@ -152,50 +150,36 @@ var COPY = {
     settingTimedOut: "Kempt did not answer in time. The setting may not have changed. Try again.",
     holdTimedOut: "Kempt did not answer in time. The hold may not have changed. Try again.",
 
-    // The one offer to turn off Discover's own update notifier, while it starts with the session.
-    // Turning it back on is in Settings, under the same name.
-    discoverOffer: "Discover, Plasma's software center, also shows update notifications. Its count can differ from Kempt's, and its checks can make an update wait. Kempt shows new updates on its panel icon and does not send notifications for them.",
-    stageDiscoverWarning:
-        "Discover's update check can cancel your staged updates before you restart. Turning off its notifier should stop that.",
-    // Discover is set to install updates by itself, which puts its update ahead of Kempt's at the
-    // next restart. Not the offer above: that one is about a count.
+    // One message on Discover, in two sentences on one flag the CLI publishes. Serious: Discover is
+    // set to install updates by itself, which puts its update ahead of Kempt's at the next restart.
+    // Mild: its notifier starts with the session. Turning it back on is in Settings.
+    discoverMild: "Discover also checks for updates, and that can cancel updates waiting for your next restart.",
     discoverUnattended:
         "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.",
-    discoverOfferOff: "Turn Off Discover's Notifier",
-    discoverOfferKeep: "Keep Discover's Notifier",
-    discoverOn: "Turn On Discover's Notifier",
-    discoverStatusOn: "Discover also shows update notifications, with its own count.",
-    discoverStatusOff: "Discover's notifier is off.",
-    discoverStatusOwn: "Discover's notifier is turned off by a startup file: %1. Delete that file to turn it back on.",
-    discoverStatusOwnNoPath: "Discover's notifier is turned off by a startup file. Delete that file to turn it back on.",
+    discoverOff: "Turn Off Discover's Update Checks",
+    // "should": nobody has confirmed it always stops an install.
+    discoverOffTip: "Turning off Discover's update checks should stop that.",
+    discoverOn: "Turn On Discover's Update Checks",
+    discoverStatusOn: "Discover also checks for updates, with its own count.",
+    discoverStatusOff: "Discover's update checks are off.",
+    discoverStatusOwn: "Discover's update checks are turned off by a startup file: %1. Delete that file to turn them back on.",
+    discoverStatusOwnNoPath: "Discover's update checks are turned off by a startup file. Delete that file to turn them back on.",
 
-    // Four spellings, because two things vary: whether a kernel is in the set, and whether the
-    // NVIDIA driver is with it (that box has a second, worse failure mode - a kernel module built
-    // against a kernel that is not the running one - and naming it makes the advice credible).
-    // Each says what the BUTTON underneath does, never "restart when it finishes": recommending
-    // the live path over a button offering the offline one reads as an order to restart now.
+    // Three spellings, because two things vary: whether a kernel is in the set, and whether the
+    // NVIDIA driver is with it. Each is the reason for the question Update Now asks, whose buttons
+    // answer it.
     kernelRestart:
-        "This update includes a kernel. The safest way is to install it on the next restart, "
-        + "so nothing changes under the running desktop.",
+        "The next restart is the safest time to install a new kernel.",
     kernelNvidiaRestart:
-        "This update includes a kernel and the NVIDIA driver. The safest way is to install them "
-        + "on the next restart, so nothing changes under the running desktop.",
-    // ...and the same recommendation with no kernel in the set. The family list is kept, capped
-    // where the count sentence caps it, because it is the evidence for the claim.
-    riskySessionOne:
-        "This update touches 1 package your running session depends on (%1). "
-        + "The safest way is to install it on the next restart.",
-    riskySessionMore:
-        "This update touches %1 packages your running session depends on (%2). "
-        + "The safest way is to install them on the next restart.",
-    // When Update Now turns that message into a choice: the lead-in goes in front of it on screen,
-    // because nothing else says the click did not start a run, and the question ends what is read
-    // out, because the focus lands on a button and a screen reader would read only that.
+        "The next restart is the safest time to install a new kernel and NVIDIA driver.",
+    // ...and with no kernel in the set. The family list is the evidence for the claim.
+    riskySession:
+        "The next restart is the safest time to change parts your desktop is using (%1).",
+    // Said before the question, out loud only: nothing else tells a listener the press started nothing.
     riskyAskLead: "Nothing is installed yet.",
-    riskyAskQuestion: "Install on the next restart, or now?",
-    // The same risk with no advice, for a box with no route to the next restart.
-    riskySummaryOne: "1 pending update touches a package your running session depends on (%1).",
-    riskySummaryMore: "%1 pending updates touch packages your running session depends on (%2).",
+    // The status line's half of the same fact, on screen before any press.
+    statusKernel: "%1, including a new kernel",
+    statusSession: "%1, including parts your desktop is using",
 
     // `held` is a suffix to a number ("3 held") rather than a sentence, because the same word has
     // to serve the tooltip too.
@@ -242,7 +226,7 @@ var COPY = {
     checkNoCacheMeteredHint: "Switch to an unmetered connection, then press Check for Updates.",
     // KEMPT_SKIP_REFRESH turns fetching off, so no press can download them.
     checkNoCacheOffHint: "Fetching package lists is turned off.",
-    checkRefreshFailedHint: "dnf could not download them. Its error is below.",
+    checkRefreshFailedHint: "The download failed. The error is below.",
     // ...and the panel tooltip in that state: a title, and the reason in a few words.
     checkFailedTooltip: "Cannot check for updates",
     stateUnreadableTooltip: "Cannot read the update state",
@@ -252,85 +236,76 @@ var COPY = {
     lastSuccessfulCheck: "Last successful check %1",
     countsFrom: "The counts are from %1.",
     // A Check for Updates whose fetch did not land, over counts the check still answered from the
-    // lists already here. One lead says why, then fetchCountsFrom says how old those lists are.
-    // %1 is an age such as "3 hours old".
-    fetchNoServers: "Kempt could not reach the update servers to download fresh package lists.",
-    fetchFailed: "Kempt could not download fresh package lists.",
-    fetchWaitsForPower: "Kempt waits for mains power to download fresh package lists.",
-    fetchWaitsForUnmetered: "Kempt waits for an unmetered connection to download fresh package lists.",
-    fetchMissed: "Kempt did not get fresh package lists.",
+    // lists already here. It says why, and %1 is when those lists are from, where that is the news.
+    fetchNoServers: "Kempt could not reach the update servers, so this may be out of date.",
+    fetchFailed: "The check failed, so this is from %1.",
+    fetchFailedNoAge: "The check failed, so this may be out of date.",
+    fetchWaitsForPower: "Kempt skips the online check on battery, so this may be out of date.",
+    fetchWaitsForUnmetered: "Kempt skips the online check on a metered connection, so this may be out of date.",
+    fetchMissed: "Kempt did not download fresh update info, so this is from %1.",
+    fetchMissedNoAge: "Kempt did not download fresh update info, so this may be out of date.",
     // The button on fetchWaitsFor* and under the battery and metered no-cache hints. One press runs
     // one check that downloads anyway. Its tooltip follows the reason the check published.
-    downloadAnyway: "Download Anyway",
-    downloadAnywayPowerTip: "Downloads fresh package lists now, on battery power.",
-    downloadAnywayMeteredTip: "Downloads fresh package lists now over this metered connection.",
+    downloadAnyway: "Check Anyway",
+    downloadAnywayPowerTip: "Checks online now on battery power.",
+    downloadAnywayMeteredTip: "Checks online now over this metered connection.",
     // A press whose check waited out another check's lock: the CLI served the state from before
     // the press and downloaded nothing, so the press is asked for again.
-    anywayLost: "Another check was running. Press Download Anyway again.",
-    fetchCountsFrom: "The counts are from lists %1.",
+    anywayLost: "Another check was running. Press Check Anyway again.",
 
     // The last run: its expander action, and the two phrases that stand in for a package list.
     showLog: "Show Log",
-    noPackageChanges: "No package changes",
-    updateFailed: "Update failed",
+    noPackageChanges: "No packages changed.",
+    updateFailed: "The update failed",
     // The root helper refused because a folder of dnf's, or one above it, is not root's alone. A
     // short form of the CLI's reason; the row offers Check Installation, where doctor has the fix.
-    updatesPausedFolder: "Updates paused: a system folder has unsafe permissions. Run kempt doctor.",
+    updatesPausedFolder: "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.",
 
     // THREE spellings, because two things vary independently: the count can be unknown (a marker
     // written before the CLI recorded one), and one update is not the plural with a 1 in it: noun
     // and verb move together ("1 update IS staged and INSTALLS"). `stagedTail` stays a
     // FRAGMENT for the plural spellings only, so the two say the identical thing about the
     // identical transaction; the tests pin the finished sentences, not the pieces.
-    stagedTail: "are staged and install on the next restart",
-    stagedOne: "1 update is staged and installs on the next restart",
-    stagedUnknownCount: "Updates are staged and install on the next restart",
-    // ...and what the banner shows under the header, which already says how many are staged.
-    // The full sentence above stays its accessible name and what is announced.
-    stagedBannerOne: "It installs when you restart.",
-    stagedBannerMore: "They install when you restart.",
+    stagedTail: "They install the next time you restart",
+    stagedOne: "It installs the next time you restart",
+    // ...and a finished run's own line, with no header above it to say what "they" are.
+    stagedRunDone: "Updates are ready and install on the next restart.",
     // ...and the updates the stage leaves out: dnf updates published after it was built
     // (offline_staged.not_staged) and pending Flatpak apps, which never stage. Worded as a fact
     // about the stage, never a promise of when they install: dnf may skip some of them, and the
     // Flatpak list can be stale after a failed check.
-    stagedOthersOne: "1 other update is not in the staged update.",
-    stagedOthersMore: "%1 other updates are not in the staged update.",
+    stagedOthersOne: "1 other update waits until after that.",
+    stagedOthersMore: "%1 other updates wait until after that.",
 
     // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
     // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
-    // about the restart that follows. Word for word what the CLI's own notification says, so the
-    // panel and the notification that arrives beside it cannot describe the same second
-    // differently. Saying WHICH of the two reasons it was is the point: "Kempt did nothing" reads
-    // as a fault, and "your holds did what you asked" is the same fact told properly.
-    stagedNothingHeld: "Nothing to stage, because every pending update is held",
-    stagedNothingNonePending: "Nothing to stage, because no updates are pending",
+    // about the restart that follows. Saying WHICH of the two reasons it was is the point: "Kempt
+    // did nothing" reads as a fault, and "your holds did what you asked" is the same fact told properly.
+    stagedNothingHeld: "Every waiting update is held, so the next restart has nothing to install.",
+    stagedNothingNonePending: "No updates are waiting, so the next restart has nothing to install.",
     // ...and the past-tense form, for the row that describes a run that has already finished.
-    lastRunNothingStaged: "nothing needed staging",
+    lastRunNothingStaged: "the next restart has nothing to install",
 
     // ...and the HEADER over that banner, same three spellings, same reasons. While a stage is
-    // armed the pending count is a true number saying a false thing: "23 updates available" over a
+    // armed the pending count is a true number saying a false thing: "23 updates" over a
     // green banner about the same 23 reads as "so it did not work?". The BADGE is deliberately
     // untouched - those updates really are pending until the restart runs.
-    stagedHeaderOne: "1 update staged for the next restart",
-    stagedHeaderTail: "updates staged for the next restart",
-    stagedHeaderUnknown: "Updates staged for the next restart",
+    stagedHeaderOne: "1 update ready for the next restart",
+    stagedHeaderTail: "updates ready for the next restart",
+    stagedHeaderUnknown: "Updates ready for the next restart",
 
     // A stage Kempt made that the next restart will NOT install: another updater (Discover, through
     // PackageKit) has prepared that restart, and dnf5 does not run behind its symlink. The CLI
     // publishes offline_stage_blocked for it and never offline_staged, so nothing above applies.
-    stageBlocked: "The next restart belongs to another updater, so the updates Kempt staged "
-        + "will not install then. Restart when you're ready. Kempt then shows what is still "
-        + "pending.",
+    stageBlocked: "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart.",
 
     // The same restart with nothing of Kempt's behind it. The short form is what `kempt status`
-    // prints, and what the Update Now question opens with.
-    restartHeld: "The next restart belongs to another updater",
-    restartHeldBanner: "The next restart belongs to another updater. Restart when you're ready. "
-        + "Kempt then shows what is still pending.",
-    restartHeldFooter: "the next restart belongs to another updater",
+    // prints.
+    restartHeld: "Another updater has prepared the next restart",
+    restartHeldBanner: "Another updater has prepared your next restart, so restart when you are ready.",
+    restartHeldFooter: "another updater has prepared the next restart",
     // Update Now with system updates waiting: a live run may cancel what that updater prepared.
-    restartHeldAsk: "The next restart belongs to another updater. If you update now, the update "
-        + "it prepared may no longer install.",
+    restartHeldAsk: "Updating now may stop another updater's prepared update from installing.",
 
     // ...and the three the banner has once a hold lands behind the stage. These REPLACE
     // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
@@ -340,23 +315,20 @@ var COPY = {
     // substitutes.
     // A NAME then a count of the rest, not familiesOf - collapsing kernel-core and kernel-modules
     // is right for "what is risky here" and wrong here, where the person is owed the number of
-    // packages their holds did not stop. In the USER'S order of events, with BOTH remedies: named
-    // after the mechanism it has no antecedent once the green banner is gone.
+    // packages their holds did not stop. In the USER'S order of events. Discarding's download cost
+    // is in the button's tooltip and accessible description.
     stagedConflictOne:
-        "You held %1 after the update was staged, so it still installs. "
-        + "To skip %1, discard the staged update and use Install on Next Restart again, or stop holding %1 to keep the current plan.",
+        "You held %1 after these updates were prepared, so it still installs. "
+        + "Discard them and install again to skip it.",
     stagedConflictMore:
-        "You held %1 and %2 more after the update was staged, so they still install. "
-        + "To skip them, discard the staged update and use Install on Next Restart again, or stop holding them to keep the current plan.",
+        "You held %1 and %2 more after these updates were prepared, so they still install. "
+        + "Discard them and install again to skip them.",
     // "may", because that is exactly what is known: names_source "none" means an empty conflict
     // list is "cannot tell", never "no conflict". The spec's rule is that names may CONFIRM a
     // conflict and may never DENY one, so silence here would be denying one on no evidence.
     stagedConflictUnknown:
-        "You added holds after the update was staged, so it may still install held packages. "
-        + "To apply your holds, discard the staged update and use Install on Next Restart again.",
-    // The cost, as the banner's SECOND SENTENCE rather than only in the action's tooltip, which
-    // discloses it only to somebody who has already hovered the button they are deciding about.
-    stagedDiscardCost: "Discarding deletes the downloaded packages, so staging again downloads them again.",
+        "You added holds after these updates were prepared, so held packages may still install. "
+        + "Discard them and install again to apply your holds.",
 
     // --- discarding the staged update from the popup instead of from a terminal ------------------
     // The other way out of a staged update, and the one a person who simply changed their mind
@@ -365,32 +337,30 @@ var COPY = {
     // discard - so the button says Discard. "Cancel Staged Update" was the other candidate and it
     // is worse in exactly one place: a button labelled Cancel inside a message reads as "close
     // this message", which is the one thing it does not do.
-    stagedDiscardAction: "Discard Staged Update",
+    stagedDiscardAction: "Discard Updates",
     // The whole cost, before the press: `dnf5 offline clean` removes the downloaded packages with
     // the transaction. Said as what happens NEXT time rather than as a
     // warning, because that cost is only paid by somebody who stages again.
     stagedDiscardTooltip:
-        "Removes the update waiting for the next restart, so the restart installs nothing. "
-        + "May ask for your password. It deletes the packages it downloaded, so staging again "
+        "Removes the updates waiting for the next restart, so the restart installs nothing. "
+        + "May ask for your password. It deletes the packages it downloaded, so installing again "
         + "downloads them again.",
     // One sentence per outcome, for the run that said nothing for itself - discardStagedMessage
     // prefers the CLI's own first line wherever there is one. None of them is silence: this press
     // makes a banner disappear and nothing else, and a message that only vanished is
     // indistinguishable from a button that did nothing at all.
-    stagedDiscardDone: "The staged update is gone. The next restart installs nothing.",
+    stagedDiscardDone: "These updates are gone. The next restart installs nothing.",
     stagedDiscardRefused: "Nothing was discarded. Press Check Installation to find out why.",
     stagedDiscardBusy:
         "An update is running, so nothing was discarded. Try again when it has finished.",
     // The status is in this one because it is the only evidence left: a failure the CLI could not
     // describe leaves the reader with nothing else to quote.
     stagedDiscardFailed:
-        "The staged update could not be discarded (exit %1). "
+        "These updates could not be discarded (exit %1). "
         + "Press Check Installation to find out why.",
     // ...and the click-time re-verify's refusal: a press with no effect must never be indistinguishable from a broken button.
     // main.qml assigns it.
-    stagedDiscardChanged:
-        "The staged update changed since this was offered. Nothing was discarded; "
-        + "check the banner above.",
+    stagedDiscardChanged: "These updates changed since this was offered. Nothing was discarded.",
 
     // The hold round trip. The first two are never DRAWN: the popup speaks them through one
     // Accessible.announce when the row has actually moved, because otherwise a hold lands in
@@ -429,7 +399,7 @@ var COPY = {
     // which from an exit code, so it names none of them and hands over the one command that can.
     // The header above it already says the engine will not run, so this does not repeat it.
     engineUnrunnable: "The engine is installed but cannot start, so nothing can check for updates.",
-    engineUnrunnableFix: "Check Installation can find the problem. If it cannot start, its error says why.",
+    engineUnrunnableFix: "Press Check Installation to find the problem.",
     engineUnrunnableCopy: "kempt doctor",
     // The Copy button's label, which follows its payload rather than being fixed: the install
     // remedy is two commands and the repair one is a single command, and a button offering to copy
@@ -455,42 +425,18 @@ var COPY = {
     // transaction for that and for an ordinary offline update alike, so staging updates for a
     // restart would cancel it - and re-downloading a release upgrade is gigabytes. The CLI refuses
     // to; this is the popup saying so before the press rather than after it.
-    // Two entries, joined: what is true and the commands that install or remove it, then what it
-    // means for this widget. Text only: a Copy button cannot offer two commands with one payload.
-    releaseUpgradeStaged: "A Fedora %1 upgrade is staged and installs on the next restart. To remove it, run sudo dnf5 offline clean.",
-    // ...and the state a release upgrade actually spends most of its life in: downloaded, and not
-    // started. Nothing installs on any restart until somebody arms it, so saying it does would send
-    // a person to restart a machine that comes back exactly as it was.
-    releaseUpgradeReady: "A Fedora %1 upgrade has been downloaded but not started, so no restart installs it yet. To install it, restart with sudo dnf5 system-upgrade reboot. To remove it, run sudo dnf5 offline clean.",
-    // The third state, which reads as neither of the others: it WAS armed, and a restart has
-    // already been past it without running it. Nothing further will until somebody arms it again,
-    // so "installs on the next restart" and "not started yet" are both false here.
-    releaseUpgradeStranded: "A Fedora %1 upgrade was set to install, but a restart went by without installing it. To install it, restart with sudo dnf5 system-upgrade reboot. To remove it, run sudo dnf5 offline clean.",
-    // The fourth: dnf5 says the transaction did not finish - download-incomplete, or one that
-    // started during a restart and stopped part way. "Downloaded" would say the opposite of the
-    // word dnf5 recorded, and pointing at `system-upgrade reboot` would be advice dnf5 declines.
-    releaseUpgradeIncomplete: "A Fedora %1 upgrade is stored but did not finish, so no restart installs it. Run sudo dnf5 offline log to see what happened. To remove it, run sudo dnf5 offline clean.",
-    // The fifth: dnf5 says ready, but /system-update points at another updater's prepared update,
-    // so the next restart runs that instead. The upgrade's own commands work only after it.
-    releaseUpgradeForeign: "A Fedora %1 upgrade is stored, but another updater has prepared the next restart, so it will not install then. After that restart, sudo dnf5 system-upgrade reboot installs the upgrade and sudo dnf5 offline clean removes it.",
-    releaseUpgradeNoStage: "Kempt will not stage updates for a restart while it is there, because that would cancel it.",
-    // ...and only where it is true. A box configured to run updates on the next reboot has no
-    // "update now" to fall back on: staging IS what its button does, and that is the thing being
-    // refused. Saying otherwise would send a person to press it and watch the run decline.
-    releaseUpgradeLiveStillWorks: "Updating now still works.",
-    releaseUpgradeNoRoute: "This computer is set to install updates on the next restart, so there is nothing to press until the upgrade is installed or removed.",
+    // One sentence each. The commands that install or remove it are doctor's, behind the button:
+    // only an armed transaction may be said to install on a restart.
+    releaseUpgradeArmed: "A Fedora %1 upgrade installs on the next restart, so other updates cannot wait for that restart.",
+    releaseUpgradeWaiting: "A Fedora %1 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how.",
+    // The restart still installs the upgrade, whatever the folder pauses.
+    releaseUpgradeArmedFolder: "A Fedora %1 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it.",
 
     // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr and
     // dnf is not how the machine updates - but those images ship dnf5 and plasma-workspace, so
     // Kempt installs cleanly, the widget appears and every list here fills in. Nothing about the
     // box gives it away, which is why this has to be said outright.
-    // Two entries, joined, on the pattern the engine messages use: what is true, then what to do.
-    imageBased: "This system updates with rpm-ostree, so Kempt cannot install updates on it. Support for these images is planned.",
-    // Names bootc as well, because bootc images set the same marker and `rpm-ostree upgrade` is not
-    // their command. And it points at Discover for the Flatpak rows, which are the one thing on
-    // this list somebody CAN act on - saying nothing about them next to a list of them would be
-    // its own small lie.
-    imageBasedUse: "Use Discover, or run rpm-ostree upgrade in a terminal (bootc upgrade on a bootc image). Discover also updates the Flatpak apps listed below.",
+    imageBased: "This computer installs updates through Discover, not Kempt.",
 
     // --- unused Flatpak runtimes (`kempt reclaim`) ---------------------------------------------
     // The offer, assembled by reclaimMessageOf. The size is formatDownload's "~" figure: the CLI's
@@ -622,10 +568,7 @@ function fill(template, token, value) {
 function isArray(v) { return Object.prototype.toString.call(v) === "[object Array]"; }
 function arrayOf(v) { return isArray(v) ? v : []; }
 
-// The run surfaces the CLI knows, in the order the settings page offers them.
-var SURFACES = ["terminal", "popup", "offline"];
 // What a config with no `surface` key runs on: lib/common.sh's kempt_default, which this twins.
-// A value the CLI does not recognise is a different case and still means terminal (resolveSurface).
 var DEFAULT_SURFACE = "popup";
 
 // isTrue(s) -> the same answer lib/common.sh's is_true() gives. The settings page reads booleans
@@ -639,49 +582,25 @@ function isTrue(value) {
 }
 
 // resolveSurface(s) -> a surface the CLI recognises, mirroring bin/kempt's resolve_surface():
-// anything unknown is `terminal`, because that is what the CLI itself would run.
-// `widget` is the CLI's other name for the stored `popup`, and an older config's `background`
-// reads as it too (lib/common.sh, surface_canon).
+// anything unknown is `popup`, because that is what the CLI itself would run.
+// `widget` is the CLI's other name for the stored `popup`, and an older config's `background` or
+// `terminal` reads as it too (lib/common.sh, surface_canon).
 function resolveSurface(value) {
     var s = String(value === undefined || value === null ? "" : value).trim().toLowerCase();
-    if (s === "widget" || s === "background") s = "popup";
-    return SURFACES.indexOf(s) >= 0 ? s : "terminal";
+    return s === "offline" ? s : "popup";
 }
 
 // updatingLabelOf(surface) -> what the pane says while a run on that surface is in flight. Takes
-// the surface the RUNNING transaction is using, which is not always the configured one: with
-// confirmation on `kempt run` collapses every surface to terminal, and Install on Next Restart
-// stages offline whatever the setting says.
+// the surface the RUNNING transaction is using, which is not always the configured one: Install on
+// Next Restart stages offline whatever the setting says.
 function updatingLabelOf(surface) {
-    switch (resolveSurface(surface)) {
-    case "popup":      return COPY.updatingHere;
-    case "offline":    return COPY.updatingOffline;
-    default:           return COPY.updatingTerminal;
-    }
-}
-
-// effectiveSurfaceOf(surface, autoAccept) -> the surface a run will ACTUALLY use. bin/kempt's
-// cmd_run resolves the configured surface and then overrides it: with auto_accept false only a
-// terminal can ask the confirmation question. The popup has to apply the same rule or it offers an
-// in-widget log pane while a terminal window is what opens.
-function effectiveSurfaceOf(surface, autoAccept) {
-    return isTrue(autoAccept) ? resolveSurface(surface) : "terminal";
+    return resolveSurface(surface) === "offline" ? COPY.updatingOffline : COPY.updatingHere;
 }
 
 // updateButtonOf(surface, dnfActionable, flatpakPending) -> the footer button: whether the press
-// stages, its label, and its tooltip. Takes the CONFIGURED surface: with confirmation on, the run
-// opens a terminal, and `kempt update` on a terminal still stages when offline is configured.
-// Only system updates stage, so with none actionable (only Flatpak pending, or every dnf update
+// stages, its label, and its tooltip. Only system updates stage, so with none actionable (only Flatpak pending, or every dnf update
 // held) the press stages nothing and the button says Update Now. The tooltip names Flatpak only
 // when Flatpak apps are waiting.
-// heldLiveSurfaceOf(effectiveSurface) -> the surface Update Now names while another updater holds the
-// next restart. Named on every such run, because `run` with none reads the setting, and offline there
-// is the stage the CLI refuses. With confirmation on the effective surface is the terminal already.
-function heldLiveSurfaceOf(effectiveSurface) {
-    var s = resolveSurface(effectiveSurface);
-    return s === "offline" ? "popup" : s;
-}
-
 function updateButtonOf(surface, dnfActionable, flatpakPending) {
     if (resolveSurface(surface) !== "offline" || typeof dnfActionable !== "number" || !(dnfActionable > 0))
         return { stages: false, text: COPY.updateNow, tooltip: "" };
@@ -970,9 +889,8 @@ function parseState(text) {
 function looksLikeState(state) {
     if (!state || typeof state !== "object") return false;
     // A declared schema we do not know is NOT rendered optimistically. Version skew is the normal
-    // state of this pair, not an edge case: the CLI is installed as a symlink into the checkout
-    // while the widget is a COPY, so after a `git pull` the CLI is new and the widget is whatever
-    // was last installed - and a schema 2 field could mean anything.
+    // state of this pair, not an edge case: the CLI and the widget are separate packages, and Plasma
+    // keeps the QML it loaded until it restarts - and a schema 2 field could mean anything.
     if (typeof state.schema === "number" && state.schema !== 1) return false;
     if (typeof state.actionable === "number") return true;
     if (state.backends && typeof state.backends === "object") return true;
@@ -1093,22 +1011,15 @@ function labelFor(family) {
 // the sentence's job is to say what those packages ARE. The terminal listing keeps the name beside
 // the label, because there the name is the row's identity and there is room for both.
 function riskyFamiliesOf(names) {
-    var fams = familiesOf(names, RISKY_FAMILIES_SHOWN), out = [], i, lbl;
-    for (i = 0; i < fams.shown.length; i++) {
-        lbl = labelFor(fams.shown[i]);
-        out.push(lbl !== "" ? lbl : fams.shown[i]);
+    // Only the parts with a plain name. A set with none of them still says what it holds.
+    var all = familiesOf(names, 0).shown, out = [], i, lbl;
+    for (i = 0; i < all.length; i++) {
+        lbl = labelFor(all[i]);
+        if (lbl !== "") out.push(lbl);
     }
-    return out.join(", ") + (fams.total > fams.shown.length ? ", …" : "");
-}
-
-// "20 pending updates touch packages your running session depends on (dbus, glibc, kernel, kf6,
-// ...).", from the same family names as the CLI's notification. Drawn only where the
-// recommendation below cannot be: there is no route to the next restart.
-function riskySummaryOf(names) {
-    if (!names || !names.length) return "";
-    return names.length === 1
-        ? fill(COPY.riskySummaryOne, "%1", riskyFamiliesOf(names))
-        : fill(fill(COPY.riskySummaryMore, "%1", String(names.length)), "%2", riskyFamiliesOf(names));
+    if (out.length === 0) out = all;
+    var shown = out.slice(0, RISKY_FAMILIES_SHOWN);
+    return shown.join(", ") + (out.length > shown.length ? ", …" : "");
 }
 
 // pendingNamesOf(sections, riskyNames) -> "kernel-core, bash, curl and 7 more", for the panel
@@ -1146,23 +1057,25 @@ function pendingNamesOf(sections, riskyNames) {
 // a kernel that is about to stop being the running one.
 function riskyMessageOf(names) {
     if (!isArray(names) || names.length === 0) return "";
-    // The 0 is a cap of NONE and has to stay one. This is a LOOKUP, not a list being shown:
-    // RISKY_FAMILIES_SHOWN caps what riskySummaryOf PRINTS, and passing it here - the
-    // obvious-looking tidy-up - would make the kernel warning depend on where "kernel" falls in an
-    // alphabetical sort. Four families ahead of it (akmod, alsa, atk, bash) and the most important
-    // sentence this popup has silently stops being said.
-    if (familiesOf(names, 0).shown.indexOf("kernel") < 0) {
-        // No kernel: the offline install really is safer and nothing has to be said about the
-        // running kernel. Whole literals, because count, noun and pronoun move together.
-        var fams = riskyFamiliesOf(names);
-        return names.length === 1
-            ? fill(COPY.riskySessionOne, "%1", fams)
-            : fill(fill(COPY.riskySessionMore, "%1", String(names.length)), "%2", fams);
-    }
+    if (!riskyHasKernel(names)) return fill(COPY.riskySession, "%1", riskyFamiliesOf(names));
     for (var i = 0; i < names.length; i++) {
         if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return COPY.kernelNvidiaRestart;
     }
     return COPY.kernelRestart;
+}
+
+// statusLineOf(count, names) -> the status line over a set with a session-critical package in it.
+function statusLineOf(count, names) {
+    return fill(riskyHasKernel(names) ? COPY.statusKernel : COPY.statusSession, "%1", count);
+}
+
+function riskyHasKernel(names) {
+    // The 0 is a cap of NONE and has to stay one. This is a LOOKUP, not a list being shown:
+    // RISKY_FAMILIES_SHOWN caps what riskyFamiliesOf PRINTS, and passing it here - the
+    // obvious-looking tidy-up - would make the kernel warning depend on where "kernel" falls in an
+    // alphabetical sort. Four families ahead of it (akmod, alsa, atk, bash) and the most important
+    // sentence this popup has silently stops being said.
+    return familiesOf(names, 0).shown.indexOf("kernel") >= 0;
 }
 
 // stagedMessageOf(offline_staged) -> what the next restart will install, in one sentence.
@@ -1177,9 +1090,9 @@ function riskyMessageOf(names) {
 function stagedMessageOf(staged) {
     if (!staged || typeof staged !== "object" || isArray(staged)) return "";
     var n = staged.count;
-    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedUnknownCount;
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedTail;
     // Exactly one takes the singular - zero is plural in English ("0 updates"), so `=== 1`.
-    return n === 1 ? COPY.stagedOne : n + " updates " + COPY.stagedTail;
+    return n === 1 ? COPY.stagedOne : COPY.stagedTail;
 }
 
 // --- how many messages the popup may show at once ------------------------------------------------
@@ -1198,32 +1111,20 @@ var MESSAGE_CAP = 2;
 //            message that changes what the rest of the popup may offer.
 //   restart  a restart is owed. The footer says "restart pending" whenever this message is not on
 //            screen, and the footer wraps rather than cutting its last words off.
-//   fetchMissed  a Check for Updates whose fetch did not land. Below the banners, whose buttons
-//            act on the system: when it is crowded out the footer gives the lists' age instead.
-//   kernel   the offline recommendation: advice about a transaction that will still be there next
-//            time the popup is opened.
 //   reclaim  unused Flatpak runtimes. Last: the space stays free to take at any later open.
 // `releaseUpgrade` sits below the report and imageBased, above Kempt's own staged transaction:
 // the next restart replaces the whole operating system, which outranks anything below it, and it is the reason the offline
 // button is missing - a person looking for that button needs this message, not the one it displaced.
-// `riskyChoice` is the kernel message again, with Install Now beside Install on Next Restart. It
-// comes first because it answers the Update Now press just made, and nothing runs until it is
-// answered.
-// `discoverUnattended` sits right after `staged`: it says who may take the restart that message
-// is counting on. It draws once, so a restart or a failure it displaces is back on the next open.
-// `stageDiscoverWarning` sits under the failure and the restart: a person warned to restart soon
-// needs the restart banner's button, and a failure is worse news than something that may happen.
-// `discoverOffer` is the other one-time offer. It waits for the surface offer to be answered, so
-// only one of the two is ever on screen.
+// `question` comes first because it answers the Update Now press just made, and nothing runs until
+// it is answered. Either a session-critical set or another updater's restart asks it, never both.
+// `discover`, in its serious form, moves up to right after `staged`: it says who may take the
+// restart that message is counting on. It draws once, so what it displaces is back on the next open.
+// In its mild form it stays last but one: it is about something that may happen.
 // `startup` (a service that stopped starting after an update) sits above the restart: a live run
 // that broke a service and owes a restart shows its report and the failure, and the footer says
-// `restart pending`. `startupRecovered`, the one-time "running again" line on its own, is calmer
-// and sits under the restart. With a failure up, that line rides in the failure's slot instead.
-// Either is acknowledged only while drawn.
-// `foldersPaused` sits under imageBased: every button below it ends in the helper's refusal.
-var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "foldersPaused", "releaseUpgrade", "staged", "discoverUnattended", "startup",
-                     "restart", "stageDiscoverWarning", "startupRecovered", "fetchMissed", "kernel",
-                     "discoverOffer", "reclaim"];
+// `restart pending`.
+var MESSAGE_ORDER = ["question", "report", "blocked", "staged", "startup",
+                     "restart", "discover", "reclaim"];
 
 // messageStack(wants) -> the messages that may actually be drawn, in order.
 // `engineFault` is not in the order at all: it shows ALONE, because everything below it presumes
@@ -1237,9 +1138,13 @@ var MESSAGE_ORDER = ["heldChoice", "riskyChoice", "report", "imageBased", "folde
 function messageStack(wants) {
     var w = (wants && typeof wants === "object") ? wants : {};
     if (w.engineFault) return w.doctor ? ["engineFault", "doctor"] : ["engineFault"];
-    var out = [], i;
-    for (i = 0; i < MESSAGE_ORDER.length && out.length < MESSAGE_CAP; i++) {
-        if (w[MESSAGE_ORDER[i]]) out.push(MESSAGE_ORDER[i]);
+    var out = [], i, order = MESSAGE_ORDER;
+    if (w.discover === "serious") {
+        order = MESSAGE_ORDER.filter(function (key) { return key !== "discover"; });
+        order.splice(order.indexOf("staged") + 1, 0, "discover");
+    }
+    for (i = 0; i < order.length && out.length < MESSAGE_CAP; i++) {
+        if (w[order[i]]) out.push(order[i]);
     }
     if (w.doctor) {
         var at = out.indexOf("report");
@@ -1284,22 +1189,29 @@ function startupVerbArgs(verb, entry) {
     return " startup " + verb + " " + shellQuote(entry.unit) + (entry.scope === "user" ? " --user" : "");
 }
 
-// startupOf(state, kept) -> what the banner says. `kept` is the recovered set this widget already
-// acknowledged: the CLI has cleared it, and the line stays until the widget closes.
-function startupOf(state, kept) {
+// startupShortName(entry) -> its name in a sentence, without the word the sentence supplies.
+function startupShortName(e) {
+    return e.name.replace(/ service$/, "");
+}
+
+// startupOf(state) -> what the banner says, and the digest of what recovered: that one is
+// acknowledged, so `kempt startup` stops listing it, and the warning having gone is the news.
+function startupOf(state) {
     var b = state && state.startup && typeof state.startup === "object" && !isArray(state.startup)
         ? state.startup : null;
-    var none = { entries: [], title: "", heading: "", already: "", recoveredText: "", digest: "" };
+    var none = { entries: [], title: "", heading: "", already: "", digest: "" };
     if (b === null || b.notify !== true) return none;
     var when = b.attribution === "update" ? "update" : "last restart";
     var announced = startupEntriesOf(b.announced), i;
-    var title = announced.length === 1 ? announced[0].name + " didn't start after the " + when + "."
-        : announced.length > 1 ? announced.length + " services didn't start after the " + when + "." : "";
+    var failed = " failed to start after the " + when;
+    var title = announced.length === 1 ? startupShortName(announced[0]) + failed + "."
+        : announced.length === 2 ? startupShortName(announced[0]) + " and " + startupShortName(announced[1]) + failed + "."
+        : announced.length > 2 ? announced.length + " services" + failed + ", including "
+            + startupShortName(announced[0]) + " and " + startupShortName(announced[1]) + "." : "";
     var entries = [];
     for (i = 0; i < announced.length; i++) {
         var a = announced[i];
-        var body = "It stopped with an error. " + (a.scope === "user" ? "A service in your session" : "A system service")
-            + " (" + a.unit + ").";
+        var body = (a.scope === "user" ? "Session service: " : "System service: ") + a.unit + ".";
         entries.push({ unit: a.unit, scope: a.scope, name: a.name, command: startupCommandOf(a),
                        text: (announced.length === 1 ? title : a.name) + "\n" + body });
     }
@@ -1307,14 +1219,12 @@ function startupOf(state, kept) {
     var recovered = startupEntriesOf(b.recovered);
     var digest = recovered.length > 0 && typeof b.recovered_digest === "string"
         && STARTUP_DIGEST_RE.test(b.recovered_digest) ? b.recovered_digest : "";
-    if (recovered.length === 0) recovered = startupEntriesOf(kept);
     return {
         entries: entries,
         title: title,
         heading: announced.length > 1 ? title : "",
         already: announced.length > 0 && already.length > 0
             ? "Already failing before the " + when + ": " + already.join(", ") + "." : "",
-        recoveredText: recovered.map(function (e) { return e.name + " is running again."; }).join("\n"),
         digest: digest
     };
 }
@@ -1718,8 +1628,7 @@ function stagedOthersOf(staged, fpPending) {
 }
 
 // stagedVariantOf(staged, heldDnf[, fpPending]) -> which of the three banners this stage gets, and its words:
-//   { type: "positive" | "warning", message, banner, stagedAt: "" }
-// banner is set on the plain variant only; viewModel shows a warning's whole message.
+//   { type: "positive" | "warning", message, stagedAt: "" }
 //
 // THE PROBLEM IT EXISTS FOR: stage 83 updates with a kernel among them, press the pin on
 // kernel-core, and restart into the kernel you just tried to keep out. dnf5 built and stored that
@@ -1743,15 +1652,10 @@ function stagedOthersOf(staged, fpPending) {
 // deliberate: a well-formed list of names warns whether or not names_source is readable, because
 // names may CONFIRM a conflict and may never DENY one.
 function stagedVariantOf(staged, heldDnf, fpPending) {
-    var plain = { type: "positive", message: stagedMessageOf(staged), banner: "",
-                  stagedAt: "" };
+    var plain = { type: "positive", message: stagedMessageOf(staged), stagedAt: "" };
     if (plain.message === "") return plain;
-    // The plain banner sits under a header that already gives the count, so it shows only the
-    // rest. A warning shows its whole message.
-    plain.banner = staged.count === 1 ? COPY.stagedBannerOne : COPY.stagedBannerMore;
-    // On the whole sentence too, which is the banner's accessible name and what is announced.
     var others = stagedOthersOf(staged, fpPending);
-    if (others !== "") { plain.banner += " " + others; plain.message += ". " + others; }
+    plain.message += "." + (others !== "" ? " " + others : "");
     // A stamp that is not a string is not a stamp. main.qml compares this for EQUALITY against the
     // state file at click time, and a number here would compare equal to a number there and spend
     // the user's consent on a transaction they never saw.
@@ -1768,22 +1672,16 @@ function stagedVariantOf(staged, heldDnf, fpPending) {
         }
     }
 
-    // The cost is joined on HERE rather than written into each of the three templates: one fact
-    // about one button, identical in all three, and three copies would drift. It only ever rides a
-    // warning, because the warning is the only variant that offers the button it is about.
     if (names.length > 0) {
         return { type: "warning",
-                 message: (names.length === 1
+                 message: names.length === 1
                      ? fill(COPY.stagedConflictOne, "%1", names[0])
                      : fill(fill(COPY.stagedConflictMore, "%1", names[0]),
-                            "%2", String(names.length - 1)))
-                     + " " + COPY.stagedDiscardCost,
+                            "%2", String(names.length - 1)),
                  stagedAt: plain.stagedAt };
     }
     if (staged.names_source === "none" && heldDnf) {
-        return { type: "warning",
-                 message: COPY.stagedConflictUnknown + " " + COPY.stagedDiscardCost,
-                 stagedAt: plain.stagedAt };
+        return { type: "warning", message: COPY.stagedConflictUnknown, stagedAt: plain.stagedAt };
     }
     return plain;
 }
@@ -1897,11 +1795,11 @@ function metadataAgeText(iso, nowMs, floorMs) {
     if (age < floor) return "";
     if (age >= METADATA_STALE_MS) {
         var days = Math.floor(age / METADATA_STALE_MS);
-        return "lists " + days + (days === 1 ? " day old" : " days old");
+        return "update info " + days + (days === 1 ? " day old" : " days old");
     }
     var hours = Math.floor(age / 3600000);
-    if (hours >= 1) return "lists " + hours + (hours === 1 ? " hour old" : " hours old");
-    return "lists " + Math.floor(age / 60000) + " min old";
+    if (hours >= 1) return "update info " + hours + (hours === 1 ? " hour old" : " hours old");
+    return "update info " + Math.floor(age / 60000) + " min old";
 }
 
 // refreshMissed(state, askedMs) -> whether the check a Check for Updates press started at `askedMs`
@@ -1943,16 +1841,19 @@ function fetchMissedOf(state, askedMs, pressStamp) {
     var asked = Math.floor(Number(askedMs) / 1000) * 1000;
     var checked = stampMs(state.last_check);
     if (!isFinite(checked) || checked < asked) return "";
-    // No stamp means nobody knows how old the lists are: the lead stands alone, without an age.
     var stamped = isFinite(stampMs(state.metadata_refreshed));
-    var age = stamped ? ageWords(checked - stampMs(state.metadata_refreshed)) : "";
-    if (stamped && age === "") return "";
+    if (stamped && stampMs(state.metadata_refreshed) > checked) return "";
     var err = refreshErrorOf(state);
-    var lead = state.refresh_skipped === "battery" ? COPY.fetchWaitsForPower
-        : state.refresh_skipped === "metered" ? COPY.fetchWaitsForUnmetered
-        : err === "" || typeof state.refresh_skipped === "string" ? COPY.fetchMissed
-        : REFRESH_NETWORK_RE.test(err) ? COPY.fetchNoServers : COPY.fetchFailed;
-    return age === "" ? lead : lead + " " + COPY.fetchCountsFrom.replace("%1", age);
+    if (state.refresh_skipped === "battery") return COPY.fetchWaitsForPower;
+    if (state.refresh_skipped === "metered") return COPY.fetchWaitsForUnmetered;
+    var named = err === "" || typeof state.refresh_skipped === "string";
+    if (!named && REFRESH_NETWORK_RE.test(err)) return COPY.fetchNoServers;
+    // No stamp means nobody knows how old the lists are. Measured at the check, so the sentence does
+    // not change while the widget is open.
+    if (!stamped) return named ? COPY.fetchMissedNoAge : COPY.fetchFailedNoAge;
+    var when = relativeTime(state.metadata_refreshed, checked);
+    if (when === "just now") return named ? COPY.fetchMissedNoAge : COPY.fetchFailedNoAge;
+    return (named ? COPY.fetchMissed : COPY.fetchFailed).replace("%1", when);
 }
 
 // servedBeforePress(state, askedMs) -> whether a check started at `askedMs` answered with a state
@@ -1966,26 +1867,15 @@ function servedBeforePress(state, askedMs) {
     return isFinite(checked) && checked < Math.floor(asked / 1000) * 1000;
 }
 
-// anywayReasonOf(refreshSkipped) -> "battery" or "metered" when Download Anyway can pass the rule
+// anywayReasonOf(refreshSkipped) -> "battery" or "metered" when Check Anyway can pass the rule
 // that skipped the fetch, else "". Fetching turned off ("off") is a setting no press overrides.
 function anywayReasonOf(refreshSkipped) {
     return refreshSkipped === "battery" || refreshSkipped === "metered" ? refreshSkipped : "";
 }
 
-// ageWords(ms) -> "5 min old", "3 hours old", "2 days old", or "" for an age that is not one.
-function ageWords(age) {
-    if (typeof age !== "number" || !isFinite(age) || age < 0) return "";
-    if (age < 60000) return "less than a minute old";
-    var days = Math.floor(age / METADATA_STALE_MS);
-    if (days >= 1) return days + (days === 1 ? " day old" : " days old");
-    var hours = Math.floor(age / 3600000);
-    if (hours >= 1) return hours + (hours === 1 ? " hour old" : " hours old");
-    return Math.floor(age / 60000) + " min old";
-}
-
 // --- the check command ------------------------------------------------------------------------
 // checkArgs(automatic, refresh, anyway) -> what doCheck appends to `kempt`. Check for Updates fetches
-// fresh metadata (`--refresh`). Download Anyway also passes the battery and metering rules, and
+// fresh metadata (`--refresh`). Check Anyway also passes the battery and metering rules, and
 // only for a press: never for a check nobody asked for. The checks nobody asked for coalesce and
 // keep the CLI's 3-hour interval. Any other press (a hold, Check again) runs a check of its own
 // from the cache.
@@ -2260,7 +2150,8 @@ function postRunLine(run) {
         // only, because a panel is one line wide and the log is one click away.
         var why = firstLineOf(run.error);
         if (/(other users|users other than root) can change/.test(why)) return COPY.updatesPausedFolder;
-        return why === "" ? COPY.updateFailed : COPY.updateFailed + ": " + why;
+        if (why === "") return COPY.updateFailed + ".";
+        return COPY.updateFailed + ": " + why + (/[.!?:]$/.test(why) ? "" : ".");
     }
     // The staging run's entry has empty package lists BY CONSTRUCTION - nothing changes until the
     // restart - so the count sentences below would call it "No package changes": true about the
@@ -2271,7 +2162,7 @@ function postRunLine(run) {
     if (run.surface === "offline" && run.stagedNothing !== null) {
         return run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending;
     }
-    if (run.surface === "offline") return COPY.stagedUnknownCount;
+    if (run.surface === "offline") return COPY.stagedRunDone;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     if (n === 0) return COPY.noPackageChanges;
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
@@ -2279,8 +2170,8 @@ function postRunLine(run) {
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
-    var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + "s" : "";
-    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong;
+    var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + " s" : "";
+    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + ".";
 }
 
 // reportRepeatsStaged(run) -> does the post-run line only say what the staged message says?
@@ -2320,8 +2211,7 @@ function runFinishedSince(run, sinceMs) {
 // runStartMessage(rc, stdout, stderr) -> "" when `kempt run` started a run, otherwise what to tell
 // the person. Only exit 0 means a run began, so only exit 0 may enter the updating pane: any other
 // status is a run that will never write state.json, and the pane would wait three hours for it.
-// The CLI's own first line wherever there is one: exit 4 names the missing emulator, exit 5 a
-// window that never opened, exit 3 the update already holding the lock.
+// The CLI's own first line wherever there is one: exit 3 names the update already holding the lock.
 function runStartMessage(rc, stdout, stderr) {
     if (rc === 0) return "";
     var msg = firstLineOf(stderr) || firstLineOf(stdout);
@@ -2380,10 +2270,16 @@ function answerOutcomeOf(rc, stdout, stderr, fallback, timedOut) {
 var DOCTOR_TIMEOUT_MS = 60000;
 
 // mentionsDoctor(text) -> does this message tell the person to run `kempt doctor`? The CLI's own
-// refusals end "See: kempt doctor", and so do the copy table's fallbacks. Each one gets the button.
+// refusals end "See: kempt doctor", and the copy table's sentences name the button. Each one gets it.
 function mentionsDoctor(text) {
     return typeof text === "string"
         && (/\bkempt doctor\b/.test(text) || text.indexOf(COPY.doctorAction) >= 0);
+}
+
+// The CLI's pointer at the command, for a message drawn beside Check Installation, which is that
+// command. mentionsDoctor keeps reading the raw string, which is how the button gets there.
+function withoutDoctorPointer(text) {
+    return typeof text === "string" ? text.replace(/\s*See: kempt doctor\.?\s*$/, "") : "";
 }
 
 // The longest result sentence. Longer ones end at a word, with the full report one press away.
@@ -2402,9 +2298,16 @@ function capAtWord(text, max) {
 // 1 when there is one. The summary quotes the first problem; the report is everything it printed.
 // A doctor that printed no rows did not run, and stderr says why: on a box whose engine will not
 // start, that is the shell's own reason.
+// A stored Fedora release upgrade is not a problem with Kempt, but the blocked message sends the
+// person here to learn how to finish or remove it. So its row, which holds the commands, replaces
+// "no problems", and neither that row nor doctor's FAIL row about it is cut short.
 function doctorOutcomeOf(rc, stdout, stderr) {
     var said = doctorVerdictOf(rc, stdout, stderr);
-    said.summary = capAtWord(said.summary, DOCTOR_SUMMARY_MAX);
+    if (!said.failed) {
+        var row = /^info\s+(a Fedora release upgrade .*\S)\s*$/m.exec(typeof stdout === "string" ? stdout : "");
+        if (row) said.summary = row[1].charAt(0).toUpperCase() + row[1].slice(1) + ".";
+    }
+    if (said.summary.indexOf("Fedora release upgrade") < 0) said.summary = capAtWord(said.summary, DOCTOR_SUMMARY_MAX);
     return said;
 }
 
@@ -2470,7 +2373,7 @@ function lastRunText(run, nowMs, restartHeld) {
     // harvest's surface is "offline (applied on reboot)" and its counts render.
     if (!run.failed && run.surface === "offline") {
         // The same exception postRunLine makes, for the same reason: a run that staged nothing is
-        // `offline` and `ok`, and "staged for restart" over it promises an install that no restart
+        // `offline` and `ok`, and "ready for the next restart" over it promises an install that no restart
         // performs. WHICH reason is left to the post-run line - this row is one line among several
         // and the distinction needs a clause it has no room for.
         if (run.stagedNothing !== null) {
@@ -2480,7 +2383,7 @@ function lastRunText(run, nowMs, restartHeld) {
         if (restartHeld === true) {
             return "Last update " + relativeTime(run.when, nowMs) + DOT + COPY.restartHeldFooter;
         }
-        return "Last update " + relativeTime(run.when, nowMs) + DOT + "staged for restart";
+        return "Last update " + relativeTime(run.when, nowMs) + DOT + "ready for the next restart";
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
     var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
@@ -2570,7 +2473,7 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
     }
     if (noCache === parts.length) {
         // This check's own skip comes first: a refresh error on record can be older than it, and
-        // the power and metered hints are the ones Download Anyway sits under. That error is still
+        // the power and metered hints are the ones Check Anyway sits under. That error is still
         // the detail. Otherwise a refresh that failed says why in its own words, and with none on
         // record it was skipped or turned off.
         var hasRefreshError = refreshError !== null && refreshError !== "";
@@ -2600,22 +2503,27 @@ function checkFailedOverOf(rc) {
 // check failed: ..."), by its fixed prefixes only: what follows them is a tool's stderr, which is
 // not something to read to a person. Then how old the counts are, from last_success.
 function staleAnswerOf(state, nowMs) {
-    var names = [];
-    var parts = (typeof state.error === "string" ? state.error : "").split("; ");
-    for (var i = 0; i < parts.length; i++) {
-        var m = /^(dnf|flatpak) check failed/.exec(parts[i]);
-        if (m === null) continue;
-        var name = m[1] === "flatpak" ? "Flatpak" : "dnf";
-        if (names.indexOf(name) < 0) names.push(name);
-    }
-    var said = names.length > 0 ? fill(COPY.checkFailedFor, "%1", names.join(" and "))
-                                : COPY.checkFailedPlain;
+    var said = staleSaidOf(state);
     var ls = typeof state.last_success === "string" ? state.last_success.trim() : "";
     if (ls === "") return said + " " + COPY.noSuccessfulCheckYet + ".";
     if (!isRenderableStamp(ls)) return said;
     var when = relativeTime(ls, nowMs);
     if (when === "just now") when = "a moment ago";
     return said + " " + fill(COPY.countsFrom, "%1", when);
+}
+
+// staleSaidOf(state) -> which half of a failed check failed, in the words the popup's lists use.
+function staleSaidOf(state) {
+    var names = [];
+    var parts = (typeof state.error === "string" ? state.error : "").split("; ");
+    for (var i = 0; i < parts.length; i++) {
+        var m = /^(dnf|flatpak) check failed/.exec(parts[i]);
+        if (m === null) continue;
+        var name = m[1] === "flatpak" ? "Apps" : "System";
+        if (names.indexOf(name) < 0) names.push(name);
+    }
+    return names.length > 0 ? fill(COPY.checkFailedFor, "%1", names.join(" and "))
+                            : COPY.checkFailedPlain;
 }
 
 // viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
@@ -2736,7 +2644,7 @@ function viewModel(state, updating, cliError, opts) {
         countPhrase = actionable === 0
             ? (heldTotal > 0 ? nothingWaiting + DOT + heldTotal + " " + COPY.held
                 : userUnchecked ? nothingWaiting + DOT + COPY.userAppsUncheckedShort : nothingWaiting)
-            : (actionable === 1 ? "1 update available" : actionable + " updates available");
+            : (actionable === 1 ? "1 update" : actionable + " updates");
     }
 
     // --- a transaction that is already staged and armed ------------------------------------------
@@ -2753,7 +2661,6 @@ function viewModel(state, updating, cliError, opts) {
     // Strictly `=== true`: absent in every state file written before this existed, and it takes the
     // primary button off the screen, so nothing unexpected may switch it on.
     var imageBased = usable && state.image_based === true;
-    var imageBasedMessage = imageBased ? COPY.imageBased + "\n" + COPY.imageBasedUse : "";
     var foldersPausedMessage = usable && !imageBased && typeof state.unsafe_folder === "string"
         && state.unsafe_folder !== "" ? COPY.updatesPausedFolder : "";
 
@@ -2773,26 +2680,25 @@ function viewModel(state, updating, cliError, opts) {
     var relState = (releaseUpgrade && REL_STATES.indexOf(relUp.state) >= 0)
         ? relUp.state : "downloaded";
     // What a run started now would ACTUALLY do, which decides whether "updating now" is a thing
-    // this box can do at all. Unstated reads as terminal, the CLI's own fallback.
+    // this box can do at all.
     var runSurface = resolveSurface(typeof opts.surface === "string" ? opts.surface : "");
     var stagesByDefault = (runSurface === "offline");
     var flatpakPending = usable && backendActionable(state, "flatpak") > 0;
     // Another updater holds the next restart. Taken from the CLI's word, like every other fact here;
     // anything that acts on it asks again there. No stage can install behind it, so the press is a
-    // live run whatever the setting says (heldLiveSurfaceOf), and the staging routes go.
+    // live run whatever the setting says, and the staging routes go.
     var restartHeld = usable && state.restart_holder === "other";
     var updateButton = updateButtonOf(
-        restartHeld ? "terminal"
-            : (typeof opts.configuredSurface === "string" ? opts.configuredSurface : runSurface),
+        restartHeld ? "popup" : runSurface,
         usable ? backendActionable(state, "dnf") : 0, flatpakPending);
-    var releaseUpgradeMessage = !releaseUpgrade ? ""
-        : (relState === "armed"      ? COPY.releaseUpgradeStaged.replace("%1", relTo)
-         : relState === "stranded"   ? COPY.releaseUpgradeStranded.replace("%1", relTo)
-         : relState === "incomplete" ? COPY.releaseUpgradeIncomplete.replace("%1", relTo)
-         : relState === "foreign"    ? COPY.releaseUpgradeForeign.replace("%1", relTo)
-                                     : COPY.releaseUpgradeReady.replace("%1", relTo))
-          + " " + COPY.releaseUpgradeNoStage
-          + " " + (stagesByDefault ? COPY.releaseUpgradeNoRoute : COPY.releaseUpgradeLiveStillWorks);
+    // Why Kempt cannot go ahead on this box, one cause at a time, worst first: a box it cannot
+    // update at all, then a pause every button would end in, then the one route an upgrade closes.
+    // An armed upgrade is said alongside the pause, because the next restart installs it either way.
+    var blockedMessage = imageBased ? COPY.imageBased
+        : foldersPausedMessage !== "" && relState === "armed" ? COPY.releaseUpgradeArmedFolder.replace("%1", relTo)
+        : foldersPausedMessage !== "" ? foldersPausedMessage
+        : !releaseUpgrade ? ""
+        : (relState === "armed" ? COPY.releaseUpgradeArmed : COPY.releaseUpgradeWaiting).replace("%1", relTo);
 
     var heldDnf = false;
     for (var h = 0; h < counted.heldItems.length; h++) {
@@ -2821,16 +2727,15 @@ function viewModel(state, updating, cliError, opts) {
     var stagedWarning = stagedVariant.type === "warning";
 
     // What to DO about a session-critical set, which is a different question from how big it is.
-    // Silent while a transaction is already staged: this message IS the "Install on Next Restart"
+    // Silent while a transaction is already staged: this question IS the "Install on Next Restart"
     // offer, and offering it over an armed transaction invites a second staging of the same
-    // updates. riskySummary is deliberately NOT silenced - those packages really are still pending
+    // updates. The status line still says what the set holds: those packages are still pending
     // until the restart runs.
     // isArray, not a duck-typed length check: a STRING has a numeric length and indexes into its
     // own characters, so `risky_pending: "kernel-core"` would walk out of here as "11
     // session-critical pending (c, e, k, l, ...)".
     // The recommendation is only printable where the route it recommends exists. Where it does not,
-    // the summary sentence stands in - it states the risk and advises nothing, which is the honest
-    // half to keep.
+    // the status line alone states the risk and advises nothing.
     var noOfflineRoute = releaseUpgrade || imageBased || restartHeld;
     // ...and on a box Kempt cannot update AT ALL, the risk is not the widget's to raise: no button
     // it offers can act on it, dnf's view is not what installs there, and a second message under
@@ -2838,15 +2743,13 @@ function viewModel(state, updating, cliError, opts) {
     // opposite - the live button stays on screen, so the warning has to stay with it.
     var riskyIsMoot = imageBased;
     var riskyPending = usable && isArray(state.risky_pending) ? state.risky_pending : [];
-    // Where the offline route exists, the recommendation - what to DO about a kernel. Where it does
-    // not, the summary, which states the same risk and advises nothing. Silence was the wrong third
-    // option: it took the warning off the screen while the live button stayed on it.
-    var riskyMessage = (staged || riskyIsMoot) ? ""
-        : (noOfflineRoute ? riskySummaryOf(riskyPending) : riskyMessageOf(riskyPending));
+    // What the question says. Where no route to the next restart exists there is nothing to choose,
+    // and the status line still names what the set holds.
+    var riskyMessage = (staged || noOfflineRoute) ? "" : riskyMessageOf(riskyPending);
     // Whether Update Now asks before it runs: a risky set, a route to the next restart, and a run
-    // that would install it live with nobody asked. A terminal asks for itself, and the offline
-    // surface already is the next restart.
-    var updateAsksFirst = riskyMessage !== "" && !noOfflineRoute && runSurface === "popup";
+    // that would install it live with nobody asked. The offline surface already is the next restart.
+    // Not while Kempt is blocked: no answer could start a run.
+    var updateAsksFirst = riskyMessage !== "" && runSurface === "popup" && blockedMessage === "";
     var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
     // Nothing of Kempt's staged behind that restart: the banner stands by itself. Not beside what
     // the release-upgrade and image-based messages already say about the same restart.
@@ -2858,7 +2761,7 @@ function viewModel(state, updating, cliError, opts) {
         && backendActionable(state, "dnf") > 0;
     var heldChoice = opts.heldChoiceOpen === true && updateAsksHeld && !updating;
 
-    // The one offer to turn off Discover's notifier. The CLI publishes discover_offer while the
+    // The mild Discover message. The CLI publishes discover_offer while the
     // notifier starts with the session and nobody has answered. It waits for the widget to read
     // the CLI's answered marker, which a state.json from before the answer does not reflect.
     var discoverOffer = usable && !imageBased && state.discover_offer === true && !updating
@@ -2866,9 +2769,10 @@ function viewModel(state, updating, cliError, opts) {
     // Discover's setting, over the offer: it says the larger thing. Kept up once drawn, for as long
     // as this popup stays open (main.qml), since drawing it is what clears the CLI's flag.
     var discoverUnattended = usable && !imageBased && state.discover_unattended === true && !updating
-        && opts.discoverTurnedOff !== true
+        && opts.discoverWarningGone !== true
         && (state.discover_unattended_warn === true || opts.discoverWarningKept === true);
-    if (discoverUnattended) discoverOffer = false;
+    // ...and closing the serious form does not bring up the mild one under it in the same open.
+    if (discoverUnattended || opts.discoverWarningGone === true) discoverOffer = false;
 
     // Strictly the boolean, and only out of a state this build can read. In this schema `false`
     // means "nothing to say", NEVER "no restart needed": backends/dnf.sh's dnf_reboot_needed
@@ -2912,7 +2816,9 @@ function viewModel(state, updating, cliError, opts) {
         tooltipMain = headerText;
     } else {
         tooltipMain = countPhrase;
-        headerText = countPhrase;
+        // The kernel message of old in six words: what the set holds, before anything is pressed.
+        headerText = actionable > 0 && !riskyIsMoot && riskyPending.length > 0
+            ? statusLineOf(countPhrase, riskyPending) : countPhrase;
     }
 
     var lastSuccessText = usable ? formatStamp(state.last_success) : "";
@@ -2998,7 +2904,7 @@ function viewModel(state, updating, cliError, opts) {
         // Staleness is a tooltip fact, not an icon alarm, so the tooltip carries BOTH halves: what
         // went wrong, and how old the numbers above it therefore are.
         if (stale) {
-            subParts.push(staleReason);
+            subParts.push(staleSaidOf(state));
             subParts.push(everSucceeded
                 ? fill(COPY.lastSuccessfulCheck, "%1", relativeTime(state.last_success, opts.nowMs))
                 : COPY.noSuccessfulCheckYet);
@@ -3018,10 +2924,10 @@ function viewModel(state, updating, cliError, opts) {
     // check has not finished") would be a promise about a check that will never finish. The
     // placeholder hides itself on empty text.
     else if (noEngine) emptyStateText = "";
-    else if (iconState === "unknown") emptyStateText = "No update data yet. The first check has not finished.";
+    else if (iconState === "unknown") emptyStateText = "The first check has not finished.";
     else if (iconState === "error") emptyStateText = problemText;
     else if (nothingKnown) {
-        emptyStateText = stale ? "No updates in the last known state."
+        emptyStateText = stale ? "No updates found the last time Kempt could check."
             : (userUnchecked ? COPY.userAppsUnchecked : COPY.everythingUpToDate);
     }
 
@@ -3061,24 +2967,23 @@ function viewModel(state, updating, cliError, opts) {
     // this by itself would leave logic.js unable to tell whether it had.
     // `reportShown` is the one input this file cannot derive - the post-run line and a failed press
     // are main.qml's own state, not the CLI's.
-    // A Check for Updates whose fetch did not land. Shown until the next check, whoever starts it, or
-    // its close button (opts.fetchMissedDismissed).
+    // A Check for Updates whose fetch did not land. In the report's slot, until the next check,
+    // whoever starts it. A report of something that happened takes the slot first.
     var fetchMissedMessage = usable && !updating && !noEngine
         ? fetchMissedOf(state, opts.refreshAskedMs, opts.refreshCheckStamp) : "";
     // --- a service that stopped starting after an update ---------------------------------------
     // Never in the count, the badge, the icon or its attention: the update count is about updates.
-    var startup = startupOf(usable ? state : null, opts.startupRecoveredKept);
+    var startup = startupOf(usable ? state : null);
     var startupFree = !updating && !noEngine;
     var startupWanted = startupFree && startup.entries.length > 0;
-    var startupRecoveredWanted = startupFree && !startupWanted && startup.recoveredText !== "";
 
+    // ...and while a blocked stage is up, a report saying the stage installs on the next restart
+    // is the very promise that warning takes back, so it gives way the same way.
+    var reportRun = opts.reportShown === true
+        && !((staged || stageBlocked || restartHeldBanner) && opts.reportRepeatsStaged === true);
     var messageSlots = messageStack({
         engineFault: engineFaultMessage !== "",
-        // ...and while a blocked stage is up, a report saying the stage installs on the next restart
-        // is the very promise that warning takes back, so it gives way the same way.
-        report: opts.reportShown === true
-            && !((staged || stageBlocked || restartHeldBanner) && opts.reportRepeatsStaged === true),
-        fetchMissed: fetchMissedMessage !== "" && opts.fetchMissedDismissed !== true,
+        report: reportRun || fetchMissedMessage !== "",
         // Check Installation's result, or its busy line: main.qml's own state, like the report.
         // Never hidden with a report that repeats the staged message: it says something else.
         doctor: opts.doctorShown === true && !updating,
@@ -3086,30 +2991,15 @@ function viewModel(state, updating, cliError, opts) {
         // dismissal guard could not tell a run starting from the user closing the message.
         restart: restartMessageVisible && !updating,
         staged: staged || stageBlocked || restartHeldBanner,
-        // Above everything except a report of something that just happened: it is the one message
-        // that says what this machine is, and every other message here presumes a box Kempt can
-        // update. The kernel message is not displaced here but SILENCED (riskyIsMoot above): with
-        // no button of any kind on offer, a count of session-critical packages has nowhere to go.
-        imageBased: imageBasedMessage !== "",
-        foldersPaused: foldersPausedMessage !== "",
-        releaseUpgrade: releaseUpgradeMessage !== "",
-        // The kernel message RECOMMENDS installing on the next restart, which a stored release
-        // upgrade does not allow - so what is shown there is the summary instead: the same fact,
-        // without the advice. Dropping it entirely took the warning off the screen while the live
-        // button stayed on it, which is the wrong half to lose. On an image-based box there is no
-        // live button either, and riskyIsMoot silences it outright.
-        // ...and while the choice is open the same message is in the first slot instead, so it is
-        // never drawn twice.
-        kernel: riskyMessage !== "" && !riskyChoice,
-        riskyChoice: riskyChoice,
-        heldChoice: heldChoice,
-        discoverUnattended: discoverUnattended,
+        // Above everything except a report of something that just happened: every message under it
+        // presumes a box Kempt can update. On an image-based box the status line says nothing of the
+        // set either (riskyIsMoot above): with no button on offer, the set has nowhere to go.
+        blocked: blockedMessage !== "",
+        question: riskyChoice || heldChoice,
+        discover: discoverUnattended ? "serious" : (discoverOffer ? "mild" : false),
         // The same offer with the reason that matters while something is staged, and higher up.
-        discoverOffer: discoverOffer && !staged,
-        stageDiscoverWarning: discoverOffer && staged && !stageBlocked,
         reclaim: reclaimShown && !updating,
-        startup: startupWanted,
-        startupRecovered: startupRecoveredWanted
+        startup: startupWanted
     });
     var restartShown = messageSlots.indexOf("restart") >= 0;
 
@@ -3132,15 +3022,14 @@ function viewModel(state, updating, cliError, opts) {
         }
         // ...and the staleness, beside the date it explains. Not an alarm - the counts above are
         // still the best known truth - with the CLI's reason one hover away on the retry button.
-        if (stale) footerParts.push(COPY.lastCheckFailed);
+        if (stale && headerText.indexOf(COPY.lastCheckFailedHeader) < 0) footerParts.push(COPY.lastCheckFailed);
         if (userUnchecked) footerParts.push(COPY.userAppsUncheckedShort);
         // ...and how old the metadata behind those counts is, which the dateline above cannot say.
         // The two are different clocks: the check ran four minutes ago, the metadata it answered
         // from may be a week old, and only this line can tell the person that.
         var metaAge = metadataAgeText(state.metadata_refreshed, opts.nowMs,
                                       refreshMissed(state, opts.refreshAskedMs) ? 60000 : undefined);
-        // ...unless the notice above is saying it already.
-        if (metaAge !== "" && messageSlots.indexOf("fetchMissed") < 0) footerParts.push(metaAge);
+        if (metaAge !== "") footerParts.push(metaAge);
     } else if (noState) {
         // No state at all - the first seconds of a session, or a CLI that could not be run. There
         // has been no successful check as far as this widget knows, and saying so is true.
@@ -3161,7 +3050,7 @@ function viewModel(state, updating, cliError, opts) {
     // What Check for Updates says out loud when it lands, in the words already on screen. ONE
     // sentence for both places that can speak it (the panel icon while the popup is closed, the
     // popup while it is open), so the two cannot drift apart.
-    //   * the line at the top, which is the answer: "3 updates available", "Up to date", or that
+    //   * the line at the top, which is the answer: "3 updates", "Up to date", or that
     //     the engine is missing or will not run.
     //   * a check that failed: which half failed and how old the counts are (staleAnswerOf). The
     //     counts at the top are the old ones, and reading them out as the answer would be the
@@ -3194,9 +3083,10 @@ function viewModel(state, updating, cliError, opts) {
         // "" when fine; otherwise the CLI's own error text, so the popup says what actually went
         // wrong instead of a generic apology.
         staleReason: staleReason,
+        staleTip: stale ? staleSaidOf(state) : "",
         // The fact, then what to do about it, on two lines. Empty means there is nothing to say,
-        // and that empty string is the popup's only gate - exactly how riskyMessage and
-        // stagedMessage already work. The other two follow it: the clipboard payload the button
+        // and that empty string is the popup's only gate - exactly how stagedMessage
+        // already works. The other two follow it: the clipboard payload the button
         // copies, and the button's own label, which names how many commands that is.
         engineFaultMessage: engineFaultMessage,
         engineFaultCopyText: engineFaultCopyText,
@@ -3209,27 +3099,22 @@ function viewModel(state, updating, cliError, opts) {
         problemHint: remedyCommand !== "" ? COPY.checkFailedHint
             : (problemNetwork || problemNoCache ? problemHint : ""),
         remedyCommand: remedyCommand,
-        // isArray, not a duck-typed length check - see the riskyMessage derivation above for what
-        // a string in this key otherwise renders as. These two must agree about the same key.
-        riskySummary: riskySummaryOf(
-            usable && isArray(state.risky_pending) ? state.risky_pending : []),
-        riskyMessage: riskyMessage,
+        // The question Update Now asks, and which of the two it is: the other updater's has no
+        // route to the next restart, so its one answer is to run now.
+        questionMessage: riskyChoice ? riskyMessage : (heldChoice ? COPY.restartHeldAsk : ""),
+        questionHeld: heldChoice,
         // Update Now opens the risky choice instead of running (main.qml, startUpdate).
         updateAsksFirst: updateAsksFirst,
         // Who holds the next restart, and what Update Now does about it (main.qml, startUpdate).
         restartHeld: restartHeld,
         updateAsksHeld: updateAsksHeld,
-        heldLiveSurface: restartHeld
-            ? heldLiveSurfaceOf(typeof opts.surface === "string" ? opts.surface : "") : "",
-        heldChoiceMessage: updateAsksHeld
-            ? COPY.restartHeldAsk + (riskyPending.length > 0 ? " " + riskySummaryOf(riskyPending) : "") : "",
+        heldLiveSurface: restartHeld ? "popup" : "",
         stagedMessage: stageBlocked ? COPY.stageBlocked
             : restartHeldBanner ? COPY.restartHeldBanner : stagedMessage,
-        // A Check for Updates whose fetch did not land: why, and how old the lists are. Shown in
-        // the "fetchMissed" slot. Empty when there is nothing to say.
-        fetchMissedMessage: fetchMissedMessage,
-        // Why that message may offer Download Anyway: "battery", "metered", or "" for no button.
-        fetchMissedAnyway: fetchMissedMessage !== "" ? anywayReasonOf(state.refresh_skipped) : "",
+        // A Check for Updates whose fetch did not land, when the report's slot is free for it.
+        reportFetchMessage: reportRun ? "" : fetchMissedMessage,
+        // Why that message may offer Check Anyway: "battery", "metered", or "" for no button.
+        fetchMissedAnyway: !reportRun && fetchMissedMessage !== "" ? anywayReasonOf(state.refresh_skipped) : "",
         // The same for the placeholder over lists never downloaded: only under the battery and
         // metered hints, so never beside Check Installation or fetching turned off. A refresh
         // error from before is only the detail there (checkProblemOf).
@@ -3237,9 +3122,6 @@ function viewModel(state, updating, cliError, opts) {
             && (problemHint === COPY.checkNoCachePowerHint || problemHint === COPY.checkNoCacheMeteredHint)
             ? anywayReasonOf(state.refresh_skipped) : "",
         // What the banner shows: the plain one gives way to the header's count.
-        stagedBanner: stageBlocked ? COPY.stageBlocked
-            : restartHeldBanner ? COPY.restartHeldBanner
-            : stagedVariant.type === "warning" ? stagedMessage : (stagedVariant.banner || ""),
         // "there is an armed transaction", for the surfaces that have to stand down rather than
         // say something about it. Update Now is hidden on this: pressing it over an armed stage
         // starts a second, live update of the same packages.
@@ -3269,11 +3151,16 @@ function viewModel(state, updating, cliError, opts) {
         // Both refusals land here: on an image-based system `kempt update` aborts in pre-flight
         // whatever surface it was asked for, so staging is no more available than updating.
         offlineStageOffered: !noOfflineRoute,
-        // Install on Next Restart in the widget's menus, for the box whose footer says Update Now and
-        // whose kernel message is not up: after a lost stage, or a discard with the kernel held.
+        // Install on Next Restart in the widget's menus, for the box whose footer says Update Now.
         stageMenuOffered: !updating && !staged && !stageBlocked && !noOfflineRoute
             && !updateButton.stages && usable && backendActionable(state, "dnf") > 0,
-        releaseUpgradeMessage: releaseUpgradeMessage,
+        discoverMessage: discoverUnattended ? COPY.discoverUnattended : (discoverOffer ? COPY.discoverMild : ""),
+        discoverSerious: discoverUnattended,
+        blockedMessage: blockedMessage,
+        // A warning for the one cause that needs fixing, and the button for every cause Kempt can
+        // explain: doctor names the folder, and the upgrade's commands for the state it is in.
+        blockedWarns: !imageBased && foldersPausedMessage !== "",
+        blockedOffersDoctor: !imageBased && blockedMessage !== "",
         // ...and the same for Update Now, which is the primary button. HIDDEN rather than
         // disabled, exactly as it is for a box with nothing pending: there is no action to offer
         // here, and a greyed primary button with its explanation elsewhere is a puzzle.
@@ -3284,8 +3171,6 @@ function viewModel(state, updating, cliError, opts) {
         // The footer button's words: the QML writes both literals for i18n and picks one with this.
         updateStages: updateButton.stages,
         stageTooltipNamesFlatpak: flatpakPending,
-        imageBasedMessage: imageBasedMessage,
-        foldersPausedMessage: foldersPausedMessage,
         // The stamp this banner was derived from, for main.qml's click-time re-verify. Consent is
         // given to a BANNER, and a banner describes ONE transaction: between render and click it
         // can be consumed by a restart, replaced or cleaned away. "" means there is nothing to compare, which the re-verify reads as "do not
@@ -3313,9 +3198,7 @@ function viewModel(state, updating, cliError, opts) {
         startupTitle: startup.title,
         startupHeading: startup.heading,
         startupAlready: startup.already,
-        startupRecoveredText: startup.recoveredText,
-        startupAckDigest: messageSlots.indexOf("startup") >= 0 || messageSlots.indexOf("startupRecovered") >= 0
-            ? startup.digest : "",
+        startupAckDigest: startupFree ? startup.digest : "",
         footerText: footerParts.join(DOT),
         checkAnswerText: checkAnswerText,
         // Published rather than left inside the two strings above, so a future surface (a
@@ -3352,9 +3235,9 @@ if (typeof module !== "undefined" && module.exports) {
         CHECK_BODY_MS: CHECK_BODY_MS,
         CHECK_TIMEOUT_MS: CHECK_TIMEOUT_MS,
         riskyMessageOf: riskyMessageOf,
+        riskyFamiliesOf: riskyFamiliesOf,
         pendingNamesOf: pendingNamesOf,
         stagedMessageOf: stagedMessageOf,
-        heldLiveSurfaceOf: heldLiveSurfaceOf,
         stagedVariantOf: stagedVariantOf,
         messageStack: messageStack,
         MESSAGE_CAP: MESSAGE_CAP,
@@ -3373,6 +3256,7 @@ if (typeof module !== "undefined" && module.exports) {
         DOCTOR_TIMEOUT_MS: DOCTOR_TIMEOUT_MS,
         DOCTOR_SUMMARY_MAX: DOCTOR_SUMMARY_MAX,
         mentionsDoctor: mentionsDoctor,
+        withoutDoctorPointer: withoutDoctorPointer,
         doctorOutcomeOf: doctorOutcomeOf,
         lastRunText: lastRunText,
         lastRunSubtitle: lastRunSubtitle,
@@ -3399,12 +3283,10 @@ if (typeof module !== "undefined" && module.exports) {
         isTrue: isTrue,
         DEFAULT_SURFACE: DEFAULT_SURFACE,
         resolveSurface: resolveSurface,
-        effectiveSurfaceOf: effectiveSurfaceOf,
         updateButtonOf: updateButtonOf,
         stageTooltipOf: stageTooltipOf,
         backendActionable: backendActionable,
         updatingLabelOf: updatingLabelOf,
-        SURFACES: SURFACES,
         holdsOf: holdsOf,
         discoverSettingOf: discoverSettingOf,
         lastLinesOf: lastLinesOf,
