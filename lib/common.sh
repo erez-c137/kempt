@@ -2886,9 +2886,13 @@ stage_read() {  # → one word from the table above
     download-complete|download-incomplete) printf 'unarmed\n' ;;
     ready)
       local holder rc=0 names
-      # A package list this build cannot read, or an empty one, is no promise about a restart.
-      names="$(offline_txjson_names)" && [[ -n "$names" ]] || { printf 'unknown\n'; return 0; }
       holder="$(restart_holder)"
+      # A package list this build cannot read, or an empty one, is no promise about a restart.
+      # Another updater's link says who holds the restart whatever the list reads.
+      if ! names="$(offline_txjson_names)" || [[ -z "$names" ]]; then
+        if [[ "$holder" == other ]]; then printf 'other\n'; else printf 'unknown\n'; fi
+        return 0
+      fi
       if [[ "$holder" == kempt ]]; then printf 'armed\n'; return 0; fi
       offline_stage_satisfied || rc=$?
       if [[ $rc -eq 0 ]]; then printf 'done\n'

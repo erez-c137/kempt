@@ -293,6 +293,22 @@ done
 world ready none; check
 assert_contains "$("$KEMPT" status 2>&1)" "something cancelled them" "a lost link is what something cancelled"
 
+# --- another updater holds the restart, and dnf5's list cannot be read or is empty: the holder is
+# known all the same, and a clean would remove the other updater's link
+for how in empty missing; do
+  world ready other
+  if [[ "$how" == empty ]]; then : > "$TX"; else rm -f "$TX"; fi
+  assert_eq "$(bash -c '. "$1"; stage_read' _ "$REPO_ROOT/lib/common.sh")" other "$how list behind another updater: the word is other"
+  check; silent "$how list behind another updater"
+  assert_eq "$(jq -r 'has("offline_stage_blocked")' "$STATE_FILE")" true "$how list: published as blocked"
+  assert_eq "$(jq -r 'has("offline_stage_problem")' "$STATE_FILE")" false "$how list: no problem published"
+  assert_not_contains "$("$KEMPT" status 2>&1)" "cannot tell" "$how list: status can tell"
+  dr="$("$KEMPT" doctor 2>&1)"
+  assert_not_contains "$dr" "cannot tell what the stored update" "$how list: doctor can tell"
+  assert_not_contains "$dr" "offline clean" "$how list: doctor offers no clean"
+  assert_contains "$dr" "another updater has prepared the next restart" "$how list: doctor names the holder"
+done
+
 # --- two restarts since the last check: told oldest first, and the newest is what is remembered
 world gone none; rpm_is "$NEW"; echo row=59 > "$SHOWN"; row 60 Ok 'dnf5 upgrade --offline -y'; row 61 Ok 'dnf5 upgrade --offline -y'; check
 assert_eq "$(entries)" 2 "two rows: two entries"
