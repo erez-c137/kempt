@@ -65,8 +65,7 @@ PlasmaExtras.Representation {
                                  & PlasmaCore.Types.ContainmentDrawsPlasmoidHeading) !== 0
 
     // The tooltip of every press that installs at the next restart: the risky message's restart
-    // choice and the footer button. COPY.installOnNextRestartTooltip and
-    // COPY.installOnNextRestartSystemTooltip, written once here as literals for i18n() to extract.
+    // choice and the footer button.
     // It promises Flatpak apps update now only when some are waiting.
     readonly property string stageTooltip: vm.stageTooltipNamesFlatpak
         ? i18n("System updates install during the next restart. Apps update now.")
@@ -968,7 +967,7 @@ PlasmaExtras.Representation {
             showCloseButton: true
             text: popup.vm.questionMessage
             // The lead-in is spoken only: on screen, the buttons show nothing has run.
-            Accessible.name: Logic.COPY.riskyAskLead + " " + text
+            Accessible.name: i18n("Nothing is installed yet. %1", text)
             visible: asking
             // Its buttons' words for a screen reader (speakActionsAs), hooked as the banner's are.
             function speakButtons() { popup.speakActionsAs(questionMessage); }
@@ -1134,7 +1133,7 @@ PlasmaExtras.Representation {
                     icon.name: "edit-copy"
                     // The will-not-run message above has the same button for the same command.
                     visible: !popup.vm.engineFaultOffersDoctor
-                    onTriggered: source => popup.copyToClipboard(Logic.COPY.engineUnrunnableCopy)
+                    onTriggered: source => popup.copyToClipboard("kempt doctor")
                 }
             ]
             // A new check starts with the report folded away.

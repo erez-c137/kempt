@@ -30,6 +30,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - One word for each thing in the widget. The other updater's stage is always "prepared", the footer says "update info 3 days old", the buttons are **Check Anyway** and **Discard Updates**, and tooltips no longer name dnf or flatpak. A failed check's tooltip says which half failed in the popup's words rather than quoting the tool's error.
 - The widget page describes the messages as they now read, with the list numbered in order.
 
+- **The widget's words can be translated.** Every sentence is whole in one `i18n()` call, with counts in `i18np`, so a translator can reorder it. `Messages.sh` writes the template in `po/`, and the package compiles any `po/<lang>.po` into the widget. No language is translated yet.
+
 ### Removed
 
 - **A message per failed service, and the Startup Report's folding lists.** The main view has one message however many services failed, so muting one starts from **Startup Report**. The report's **Show All** and **Hide**, its counts and its separate lists are gone, since the report now shows the CLI's text.

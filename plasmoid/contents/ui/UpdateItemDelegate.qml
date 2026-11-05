@@ -51,7 +51,7 @@ RowLayout {
     property bool forYouOnly: false
     // ...and the same id is installed for the system as well. A hold covers both copies.
     property bool bothScopes: false
-    // A system package whose pending update fixes a security advisory (Logic.COPY.securityToken).
+    // A system package whose pending update fixes a security advisory.
     property bool security: false
 
     // What the name line draws. One property, read by the label and by the pin's spellings, so the
@@ -91,8 +91,7 @@ RowLayout {
     signal pinFocused()
 
     // A package that is not installed yet: the CLI writes "?" for its current version, and there
-    // is nothing to hold it AT. What the padlock does on such a row is refuse the install - see
-    // COPY.skipInstalling.
+    // is nothing to hold it AT. What the padlock does on such a row is refuse the install.
     readonly property bool newPackage: row.from === Logic.VERSION_UNKNOWN
 
     // ...and what the version line draws in its place. One property, read by the line and by its

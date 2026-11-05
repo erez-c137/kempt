@@ -4,10 +4,15 @@
 // tests/test_widget_logic.sh (node, through the CommonJS guard at the bottom). That is the point.
 // A QML plasmoid cannot be executed in a test suite, so every rule the panel shows a human - the
 // badge number, the icon state, the tooltip, the popup rows - is derived HERE, where a node test
-// can pin it. Nothing in this file may touch Qt, i18n, the filesystem or a network.
+// can pin it. Nothing in this file may touch Qt, the filesystem or a network.
+//
+// Words go through i18n(): one whole sentence per call, written where it is used, with i18np for
+// counts. Plasma provides i18n in the scope this file shares with the QML that imports it, and the
+// node guard at the bottom provides an English one. Never call it at load time, in a table: it
+// must run for each answer, and a sentence built from fragments cannot be translated.
 //
 // NOT `.pragma library`: that pragma is not valid JavaScript, so node could not load this file at
-// all. The functions are pure, so the one shared copy it would buy buys nothing.
+// all, and a library file cannot see the i18n of the QML that imports it.
 // Old-school JS (var, function expressions, indexOf): this runs unchanged in whatever JS engine
 // the installed Plasma version ships.
 //
@@ -16,10 +21,13 @@
 //   1. empty stdout with exit 0 means "no data, keep the last known state", NEVER "zero updates";
 //   2. `status: "stale"` keeps the last known counts - a tooltip fact, not a fabricated 0.
 
+var BACKEND_ORDER = ["dnf", "flatpak"];
+
 // Titles match the CLI's own renderer (lib/common.sh render_summary) so the popup and the terminal
 // never name the same group differently.
-var SECTION_TITLES = { dnf: "System", flatpak: "Apps" };
-var BACKEND_ORDER = ["dnf", "flatpak"];
+function sectionTitleOf(key) {
+    return key === "dnf" ? i18n("System") : key === "flatpak" ? i18n("Apps") : key;
+}
 
 // A backend may group its pending items further, by the `kind` its items carry. Flatpak is the one
 // that does: `flatpak update` updates runtimes as well as apps, so Kempt counts and itemizes them -
@@ -27,461 +35,9 @@ var BACKEND_ORDER = ["dnf", "flatpak"];
 // that says "Apps". An item with no `kind` at all is the ordinary case and keeps the backend's own
 // heading, which is what makes the key additive: every state file written before runtimes were
 // counted has no `kind` anywhere in it and renders exactly as it always did.
-var KIND_SECTION_TITLES = { flatpak: { runtime: "Flatpak runtimes" } };
-
-// --- the copy table ----------------------------------------------------------------------------
-// Every user-facing string the QML writes as a literal, in ONE place, so the wording is decided
-// once and a node test can pin it. House rules: Title Case for buttons, sentence case for
-// messages; a real ellipsis (U+2026) on anything that opens something else; no em dashes; "held",
-// never "held back" - the CLI's section is Held and the command is `kempt hold`.
-//
-// IMPORTANT, and not what it looks like: the QML does NOT read these at runtime. It writes the
-// literal, `i18n("Update Now")`, because translation extraction works on LITERALS -
-// `i18n(Logic.COPY.updateNow)` extracts nothing and ships an untranslatable widget. This table is
-// the SPECIFICATION; the QML repeats the same literal. Do not "fix" that duplication by routing
-// these through i18n().
-// tests/test_widget_logic.sh pins the duplication so it cannot drift, and it does NOT ask for
-// "verbatim in a .qml" - that would be wrong for the 23 entries below that the view model renders
-// and the QML therefore never spells out. An entry has to be used in one of three ways: repeated
-// verbatim in a .qml, read as `Logic.COPY.<key>` by a .qml where a literal cannot go, or used by
-// this file. An entry in none of them is wording kept as a specification for nothing.
-//
-// What the table does NOT hold is the sentences viewModel ASSEMBLES - footerText, lastRunText,
-// postRunLine, relativeTime. QML cannot wrap an assembled string in i18n() at all, and moving
-// their fragments in here would not make them translatable either: a fragment is not a
-// translatable unit, and this widget has no message-format layer to turn it into one. That layer
-// is a later release; meanwhile the tests pin every assembled shape exactly.
-var COPY = {
-    // Header, and the placeholder under it - deliberately NOT the same sentence, so the popup does
-    // not say the same words twice in one glance.
-    upToDate: "Up to date",
-    everythingUpToDate: "Everything is up to date",
-
-    // `restartMessage` states a fact about the machine; `restartAction` opens KDE's own
-    // logout/restart prompt and nothing else. Kempt never restarts anything itself, in any state,
-    // with any setting.
-    restartMessage: "Restart to finish updating.",
-    restartAction: "Restart…",
-    restartFailed: "Could not open the restart prompt.",
-
-    // The two actions. Refresh is icon-only in the header, so this is its tooltip and its
-    // accessible name as well as its entry in the contextual-actions menu.
-    checkForUpdates: "Check for Updates",
-    updateNow: "Update Now",
-
-    // ...and what those icon-only buttons DO, which is a different question from what they are
-    // called. `text` is already the accessible name, so a description bound to `text` spends the
-    // one slot that could explain the effect.
-    checkForUpdatesDescription:
-        "Checks for updates now, instead of waiting for the timer.",
-    configureDescription:
-        "Check interval, where updates run, and the packages you hold.",
-
-    // --- the pin ---------------------------------------------------------------------------------
-    // The name carries the STATE, with a residual: a `checkable: false` button exposes no checked
-    // state to AT-SPI on Qt 6.11 (measured), and the one role that does - CheckBox - makes Breeze
-    // draw its sunken checked background on a control sitting directly under the tray's own
-    // checked Keep Open pin. So the state is words: these four sentences, the "Held" token on the
-    // row, and the glyph.
-    // TWO PAIRS, because a package that is not installed yet has no current version to be held AT:
-    // the CLI writes "?" for that `from`, and what the pin does there is refuse the install.
-    holdAt: "Hold %1 at %2",
-    stopHolding: "Stop holding %1",
-    skipInstalling: "Skip installing %1",
-    stopSkipping: "Stop skipping %1",
-    // The description is the CONSEQUENCE. Per package, and Kempt only - a dnf user reads
-    // versionlock into a padlock, and this is where that is answered.
-    holdConsequence: "Kempt skips it on every update until you stop holding it.",
-    heldConsequence: "Kempt offers its update again.",
-    // ...and the two for an app installed both ways: a hold is by id, so it covers both copies.
-    holdConsequenceBoth: "Kempt skips both copies, the system one and the one for you only, until you stop holding it.",
-    heldConsequenceBoth: "Kempt offers the update again for both copies, the system one and the one for you only.",
-    // A per-user Flatpak app, as a word on its row beside "Held".
-    forYouOnlyToken: "For you only",
-    // The state in words on the row. A glyph, a position and an opacity dip are not enough: a dip
-    // is a contrast REDUCTION on rows a person deliberately protected.
-    heldToken: "Held",
-    // A system package whose pending update fixes a security advisory, as a word on its row.
-    securityToken: "Security",
-    // ...and how many of them, in the panel tooltip after the pending names.
-    securityCount: "%1 security updates",
-    securityCountOne: "1 security update",
-    // What a row draws where the CLI wrote "?": "? → 9.9.9-1.fc44" reads as "the widget does not
-    // know". The DATA keeps the "?" - it is the CLI's sentinel and the padlock recognises it too.
-    versionNew: "new",
-    // When an update's version string does not move. Most Flatpak runtimes carry a date or nothing
-    // at all as their version, and the commit is what changes, so "2024-05-30 -> 2024-05-30" is a
-    // real update rendered as a contradiction. Said once here and used by every surface.
-    newBuild: "new build",
-    // ...and the line the Held heading owes a first-timer: a hold is Kempt's own list and does not
-    // touch `dnf upgrade`.
-    heldKemptOnly: "Kempt skips these. Other updaters still see them.",
-    // The version line as a sentence: on screen it is "3.105-… → 3.106-1.fc44", and that arrow
-    // goes through a screen reader's character table as a word nobody wants to hear.
-    versionRange: "from %1 to %2",
-
-    // --- the pane a run replaces the popup with ---------------------------------------------------
-    // One sentence per surface, each naming where to look, and staging says what it is rather than
-    // calling itself an update. Never the CONFIGURED surface, and never the word "surface".
-    updatingHere: "Updating…",
-    updatingOffline: "Preparing updates for the next restart…",
-    // ...and the way out. Only a state.json change ends the updating state, and a run that dies
-    // never writes one - so without this the popup sits on an empty pane until a three-hour guard
-    // fires.
-    notUpdatingCheckAgain: "Not Updating? Check Again",
-
-    // The offline path, named for what it does to the user rather than for the dnf5 flag behind
-    // it. The tooltip names what waits for the restart and what does not: Flatpak has no offline
-    // route, so a staging run still updates apps live. The footer button uses it too, and both
-    // take the shorter one when no Flatpak app is waiting (stageTooltipOf).
-    installOnNextRestart: "Install on Next Restart",
-    installOnNextRestartTooltip:
-        "System updates install during the next restart. Apps update now.",
-    // ...and the same without the Flatpak half, for when no Flatpak app is waiting.
-    installOnNextRestartSystemTooltip: "System updates install during the next restart.",
-    // ...and the other answer, offered beside it only after Update Now was pressed on a set the
-    // message above calls risky, on a box that would otherwise install it live without asking.
-    installNow: "Install Now",
-    installNowTooltip: "Installs the update now, while your desktop is running.",
-
-    // An answer the CLI did not confirm in time (ANSWER_TIMEOUT_MS). The write may still land.
-    answerTimedOut: "Kempt did not answer in time, so your answer may not be saved. Try again.",
-    // ...the same for a switch in Settings, and for a hold, which are changes rather than answers.
-    settingTimedOut: "Kempt did not answer in time. The setting may not have changed. Try again.",
-    holdTimedOut: "Kempt did not answer in time. The hold may not have changed. Try again.",
-
-    // One message on Discover, in two sentences on one flag the CLI publishes. Serious: Discover is
-    // set to install updates by itself, which puts its update ahead of Kempt's at the next restart.
-    // Mild: its notifier starts with the session. Turning it back on is in Settings.
-    discoverMild: "Discover also checks for updates, and that can cancel updates waiting for your next restart.",
-    discoverUnattended:
-        "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.",
-    discoverOff: "Turn Off Discover's Update Checks",
-    // "should": nobody has confirmed it always stops an install.
-    discoverOffTip: "Turning off Discover's update checks should stop that.",
-    discoverOn: "Turn On Discover's Update Checks",
-    discoverStatusOn: "Discover also checks for updates, with its own count.",
-    discoverStatusOff: "Discover's update checks are off.",
-    discoverStatusOwn: "Discover's update checks are turned off by a startup file: %1. Delete that file to turn them back on.",
-    discoverStatusOwnNoPath: "Discover's update checks are turned off by a startup file. Delete that file to turn them back on.",
-
-    // Three spellings, because two things vary: whether a kernel is in the set, and whether the
-    // NVIDIA driver is with it. Each is the reason for the question Update Now asks, whose buttons
-    // answer it.
-    kernelRestart:
-        "The next restart is the safest time to install a new kernel.",
-    kernelNvidiaRestart:
-        "The next restart is the safest time to install a new kernel and NVIDIA driver.",
-    // ...and with no kernel in the set. The family list is the evidence for the claim.
-    riskySession:
-        "The next restart is the safest time to change parts your desktop is using (%1).",
-    // Said before the question, out loud only: nothing else tells a listener the press started nothing.
-    riskyAskLead: "Nothing is installed yet.",
-    // The status line's half of the same fact, on screen before any press.
-    statusKernel: "%1, including a new kernel",
-    statusSession: "%1, including parts your desktop is using",
-
-    // `held` is a suffix to a number ("3 held") rather than a sentence, because the same word has
-    // to serve the tooltip too.
-    held: "held",
-    restartPending: "restart pending",
-    // What the footer gains while the counts above it are stale: three words on the line that
-    // DATES those counts. The CLI's reason goes in the tooltip of the button that tries again.
-    lastCheckFailed: "last check failed",
-    // ...and the header in place of "Up to date" when that check found nothing waiting.
-    lastCheckFailedHeader: "Last check failed",
-    // ...and while the per-user apps could not be listed. The rest of the check stands, so this is
-    // a footer fact like the one above. The sentence replaces "Everything is up to date".
-    userAppsUnchecked: "Apps installed for you only could not be checked.",
-    userAppsUncheckedShort: "apps for you only not checked",
-    // "No SUCCESSFUL check", not "not checked": the footer dates the counts by last_success, so
-    // its fallback has to be about last_success. A box whose every check since install has failed
-    // HAS checked - and that box is the one most likely to be reading this line.
-    noSuccessfulCheckYet: "No successful check yet",
-    // A check that never answered. The first is the problem line when there is no state at all;
-    // the other two are the report over counts we still hold, which otherwise change nothing on
-    // screen. Never the Executor's own "timeout after 540000ms": that is a log line, not a reason.
-    checkTimedOut: "The check did not finish in time.",
-    checkUnfinished: "The check did not finish. The counts shown are from the last check.",
-    checkFailedOver: "The check failed. The counts shown are from the last check.",
-    // What Check for Updates says out loud when the check itself reported a failure (status
-    // "stale"). Short on purpose: the footer line it replaces also carried the metadata age, the
-    // held count and the download size. %1 is the failed half, %2 when the counts are from.
-    checkFailedFor: "The check failed for %1.",
-    checkFailedPlain: "The check failed.",
-    // The placeholder over a check that answered nothing and left no counts to show. The tool's
-    // own words stay on screen in small print under it (vm.problemDetail). A network failure gets
-    // its own sentence, and no Check Installation: nothing in the installation is wrong.
-    checkFailedHeadline: "The check failed",
-    checkFailedHint: "Check Installation can find out why.",
-    checkNetworkHeadline: "Kempt could not reach the update servers",
-    checkNetworkHint: "Check your network connection.",
-    // dnf has no package lists and no network failure explains why. Doctor reports nothing
-    // wrong here, so neither hint offers Check Installation.
-    checkNoCacheHeadline: "The package lists have not been downloaded yet",
-    // Which one follows the check's refresh_skipped. The CLI tests power first, so a computer on
-    // battery AND a metered connection is told to plug in, and the next check names the network.
-    checkNoCacheHint: "Press Check for Updates to download them.",
-    checkNoCachePowerHint: "Plug in, then press Check for Updates.",
-    checkNoCacheMeteredHint: "Switch to an unmetered connection, then press Check for Updates.",
-    // KEMPT_SKIP_REFRESH turns fetching off, so no press can download them.
-    checkNoCacheOffHint: "Fetching package lists is turned off.",
-    checkRefreshFailedHint: "The download failed. The error is below.",
-    // ...and the panel tooltip in that state: a title, and the reason in a few words.
-    checkFailedTooltip: "Cannot check for updates",
-    stateUnreadableTooltip: "Cannot read the update state",
-    checkNetworkShort: "Could not reach the update servers",
-    checkFailedShort: "Open Kempt to see why",
-    // The age of the counts in the stale tooltip. %1 is a relative time ("1 day ago").
-    lastSuccessfulCheck: "Last successful check %1",
-    countsFrom: "The counts are from %1.",
-    // A Check for Updates whose fetch did not land, over counts the check still answered from the
-    // lists already here. It says why, and %1 is when those lists are from, where that is the news.
-    fetchNoServers: "Kempt could not reach the update servers, so this may be out of date.",
-    fetchFailed: "The check failed, so this is from %1.",
-    fetchFailedNoAge: "The check failed, so this may be out of date.",
-    fetchWaitsForPower: "Kempt skips the online check on battery, so this may be out of date.",
-    fetchWaitsForUnmetered: "Kempt skips the online check on a metered connection, so this may be out of date.",
-    fetchMissed: "Kempt did not download fresh update info, so this is from %1.",
-    fetchMissedNoAge: "Kempt did not download fresh update info, so this may be out of date.",
-    // The button on fetchWaitsFor* and under the battery and metered no-cache hints. One press runs
-    // one check that downloads anyway. Its tooltip follows the reason the check published.
-    downloadAnyway: "Check Anyway",
-    downloadAnywayPowerTip: "Checks online now on battery power.",
-    downloadAnywayMeteredTip: "Checks online now over this metered connection.",
-    // A press whose check waited out another check's lock: the CLI served the state from before
-    // the press and downloaded nothing, so the press is asked for again.
-    anywayLost: "Another check was running. Press Check Anyway again.",
-
-    // The last run: its expander action, and the two phrases that stand in for a package list.
-    showLog: "Show Log",
-    noPackageChanges: "No packages changed.",
-    updateFailed: "The update failed",
-    // The root helper refused because a folder of dnf's, or one above it, is not root's alone. A
-    // short form of the CLI's reason; the row offers Check Installation, where doctor has the fix.
-    updatesPausedFolder: "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.",
-
-    // THREE spellings, because two things vary independently: the count can be unknown (a marker
-    // written before the CLI recorded one), and one update is not the plural with a 1 in it: noun
-    // and verb move together ("1 update IS staged and INSTALLS"). `stagedTail` stays a
-    // FRAGMENT for the plural spellings only, so the two say the identical thing about the
-    // identical transaction; the tests pin the finished sentences, not the pieces.
-    stagedTail: "They install the next time you restart",
-    stagedOne: "It installs the next time you restart",
-    // ...and a finished run's own line, with no header above it to say what "they" are.
-    stagedRunDone: "Updates are ready and install on the next restart.",
-    // ...and the updates the stage leaves out: dnf updates published after it was built
-    // (offline_staged.not_staged) and pending Flatpak apps, which never stage. Worded as a fact
-    // about the stage, never a promise of when they install: dnf may skip some of them, and the
-    // Flatpak list can be stale after a failed check.
-    stagedOthersOne: "1 other update waits until after that.",
-    stagedOthersMore: "%1 other updates wait until after that.",
-
-    // A staging run that staged NOTHING. Every pending dnf update was held, or nothing was pending
-    // at all: the run succeeded, correctly did nothing, and the three sentences above are all lies
-    // about the restart that follows. Saying WHICH of the two reasons it was is the point: "Kempt
-    // did nothing" reads as a fault, and "your holds did what you asked" is the same fact told properly.
-    stagedNothingHeld: "Every waiting update is held, so the next restart has nothing to install.",
-    stagedNothingNonePending: "No updates are waiting, so the next restart has nothing to install.",
-    // ...and the past-tense form, for the row that describes a run that has already finished.
-    lastRunNothingStaged: "the next restart has nothing to install",
-
-    // ...and the HEADER over that banner, same three spellings, same reasons. While a stage is
-    // armed the pending count is a true number saying a false thing: "23 updates" over a
-    // green banner about the same 23 reads as "so it did not work?". The BADGE is deliberately
-    // untouched - those updates really are pending until the restart runs.
-    stagedHeaderOne: "1 update ready for the next restart",
-    stagedHeaderTail: "updates ready for the next restart",
-    stagedHeaderUnknown: "Updates ready for the next restart",
-
-    // A stage Kempt made that the next restart will NOT install: another updater (Discover, through
-    // PackageKit) has prepared that restart, and dnf5 does not run behind its symlink. The CLI
-    // publishes offline_stage_blocked for it and never offline_staged, so nothing above applies.
-    stageBlocked: "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart.",
-
-    // The same restart with nothing of Kempt's behind it. The short form is what `kempt status`
-    // prints.
-    restartHeld: "Another updater has prepared the next restart",
-    restartHeldBanner: "Another updater has prepared your next restart, so restart when you are ready.",
-    restartHeldFooter: "another updater has prepared the next restart",
-    // Update Now with system updates waiting: a live run may cancel what that updater prepared.
-    restartHeldAsk: "Updating now may stop another updater's prepared update from installing.",
-
-    // ...and the three the banner has once a hold lands behind the stage. These REPLACE
-    // stagedTail/stagedOne rather than joining them: a warning appended to a reassurance is the
-    // contradiction one level down. "%1"/"%2" because these are the only entries whose
-    // subject is a package name from another program, and a sentence with a name in it must be
-    // one whole translatable string, never a head and a tail glued together; stagedVariantOf
-    // substitutes.
-    // A NAME then a count of the rest, not familiesOf - collapsing kernel-core and kernel-modules
-    // is right for "what is risky here" and wrong here, where the person is owed the number of
-    // packages their holds did not stop. In the USER'S order of events. Discarding's download cost
-    // is in the button's tooltip and accessible description.
-    stagedConflictOne:
-        "You held %1 after these updates were prepared, so it still installs. "
-        + "Discard them and install again to skip it.",
-    stagedConflictMore:
-        "You held %1 and %2 more after these updates were prepared, so they still install. "
-        + "Discard them and install again to skip them.",
-    // "may", because that is exactly what is known: names_source "none" means an empty conflict
-    // list is "cannot tell", never "no conflict". The spec's rule is that names may CONFIRM a
-    // conflict and may never DENY one, so silence here would be denying one on no evidence.
-    stagedConflictUnknown:
-        "You added holds after these updates were prepared, so held packages may still install. "
-        + "Discard them and install again to apply your holds.",
-
-    // --- discarding the staged update from the popup instead of from a terminal ------------------
-    // The other way out of a staged update, and the one a person who simply changed their mind
-    // wants: remove it, and let the next restart install nothing. The CLI's own verb all the way
-    // through - `kempt unstage` prints "Discarded the staged update", and the usage page says
-    // discard - so the button says Discard. "Cancel Staged Update" was the other candidate and it
-    // is worse in exactly one place: a button labelled Cancel inside a message reads as "close
-    // this message", which is the one thing it does not do.
-    stagedDiscardAction: "Discard Updates",
-    // The whole cost, before the press: `dnf5 offline clean` removes the downloaded packages with
-    // the transaction. Said as what happens NEXT time rather than as a
-    // warning, because that cost is only paid by somebody who stages again.
-    stagedDiscardTooltip:
-        "Removes the updates waiting for the next restart, so the restart installs nothing. "
-        + "May ask for your password. It deletes the packages it downloaded, so installing again "
-        + "downloads them again.",
-    // One sentence per outcome, for the run that said nothing for itself - discardStagedMessage
-    // prefers the CLI's own first line wherever there is one. None of them is silence: this press
-    // makes a banner disappear and nothing else, and a message that only vanished is
-    // indistinguishable from a button that did nothing at all.
-    stagedDiscardDone: "These updates are gone. The next restart installs nothing.",
-    stagedDiscardRefused: "Nothing was discarded. Press Check Installation to find out why.",
-    stagedDiscardBusy:
-        "An update is running, so nothing was discarded. Try again when it has finished.",
-    // The status is in this one because it is the only evidence left: a failure the CLI could not
-    // describe leaves the reader with nothing else to quote.
-    stagedDiscardFailed:
-        "These updates could not be discarded (exit %1). "
-        + "Press Check Installation to find out why.",
-    // ...and the click-time re-verify's refusal: a press with no effect must never be indistinguishable from a broken button.
-    // main.qml assigns it.
-    stagedDiscardChanged: "These updates changed since this was offered. Nothing was discarded.",
-
-    // The hold round trip. The first two are never DRAWN: the popup speaks them through one
-    // Accessible.announce when the row has actually moved, because otherwise a hold lands in
-    // complete silence. Their %1 is substituted in the QML - an announcement is one translatable
-    // sentence with a name in it.
-    holdAnnounce: "Holding %1",
-    unholdAnnounce: "No longer holding %1",
-    // ...and the failure, reported in the ROW that failed rather than in a message up to 300 px
-    // from the pin that caused it. main.qml substitutes and assigns it.
-    holdFailed: "Could not change the hold on %1.",
-
-    // Right-click, and the popup's own gear. Opens a dialog, so: real ellipsis.
-    configure: "Configure Kempt…",
-
-    // The store-first first run: the KDE Store carries the plasmoid and not the CLI, so a store
-    // install's first check runs against nothing. Two entries because the message renders two lines
-    // - what is true, then what to type - and a person who cannot act on the second still gets the
-    // first. INGREDIENTS: engineFaultMessage assembles them; the tooltip takes the first alone.
-    // The commands are WHOLE: half a command line fails somewhere the reader has to debug.
-    // The header above it already says the engine is not installed, so this does not repeat it.
-    engineMissing: "Nothing can check for updates yet.",
-    // One command per line, so neither wraps in the middle.
-    engineMissingInstall:
-        "To install the engine on Fedora, run:\n"
-        + "sudo dnf copr enable erez-c137/kempt\n"
-        + "sudo dnf install kempt-plasmoid\n"
-        + "For other ways to install it, see github.com/erez-c137/kempt.",
-    // The CLIPBOARD form: one line, chained, one paste. Separate from engineMissingInstall because
-    // that one is a sentence (commas, "then", a URL) and a sentence pasted into a shell fails.
-    // The tests drift-guard the two: every command this copies must appear verbatim in the other.
-    engineMissingCopy: "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt-plasmoid",
-    // The OTHER way an engine can be unavailable, and a different fact with a different remedy:
-    // the program is THERE and will not start. Reinstalling it is not the answer, and a message
-    // that says to sends somebody to fix what is not broken. Three things produce it - a file
-    // without the execute bit, a noexec mount, a missing interpreter - and the widget cannot tell
-    // which from an exit code, so it names none of them and hands over the one command that can.
-    // The header above it already says the engine will not run, so this does not repeat it.
-    engineUnrunnable: "The engine is installed but cannot start, so nothing can check for updates.",
-    engineUnrunnableFix: "Press Check Installation to find the problem.",
-    engineUnrunnableCopy: "kempt doctor",
-    // The Copy button's label, which follows its payload rather than being fixed: the install
-    // remedy is two commands and the repair one is a single command, and a button offering to copy
-    // "Commands" that copies one is the kind of small wrongness that makes a person check.
-    engineCopyCommands: "Copy Commands",
-    engineCopyCommand: "Copy Command",
-
-    // Check Installation: `kempt doctor`, run by the widget so a message that names it can offer a
-    // button. Doctor reads files and needs no password. The result goes in its own message, and
-    // the full report opens under it. doctorOutcomeOf picks the sentence.
-    doctorAction: "Check Installation",
-    doctorRunning: "Checking Kempt's installation…",
-    doctorPassed: "Kempt checked its installation and found no problems.",
-    doctorFoundOne: "Kempt found a problem with its installation: %1",
-    doctorFoundMore: "Kempt found %1 problems with its installation. The first: %2",
-    // The shell's own reason ("sh: line 1: ...") goes in the full report, never in this sentence.
-    doctorCouldNotRun: "Kempt could not check its installation. The full report has the error.",
-    doctorCouldNotRunCode: "Kempt could not check its installation (exit %1).",
-    doctorTimedOut: "Kempt stopped waiting for the installation check. Try again in a minute.",
-    doctorShowReport: "Show Full Report",
-
-    // A Fedora release upgrade somebody has staged outside Kempt. dnf5 keeps ONE stored
-    // transaction for that and for an ordinary offline update alike, so staging updates for a
-    // restart would cancel it - and re-downloading a release upgrade is gigabytes. The CLI refuses
-    // to; this is the popup saying so before the press rather than after it.
-    // One sentence each. The commands that install or remove it are doctor's, behind the button:
-    // only an armed transaction may be said to install on a restart.
-    releaseUpgradeArmed: "A Fedora %1 upgrade installs on the next restart, so other updates cannot wait for that restart.",
-    releaseUpgradeWaiting: "A Fedora %1 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how.",
-    // The restart still installs the upgrade, whatever the folder pauses.
-    releaseUpgradeArmedFolder: "A Fedora %1 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it.",
-
-    // An image-based Fedora: Silverblue, Kinoite, Bazzite, a bootc image. rpm-ostree owns /usr and
-    // dnf is not how the machine updates - but those images ship dnf5 and plasma-workspace, so
-    // Kempt installs cleanly, the widget appears and every list here fills in. Nothing about the
-    // box gives it away, which is why this has to be said outright.
-    imageBased: "This computer installs updates through Discover, not Kempt.",
-
-    // --- unused Flatpak runtimes (`kempt reclaim`) ---------------------------------------------
-    // The offer, assembled by reclaimMessageOf. The size is formatDownload's "~" figure: the CLI's
-    // own estimate, never a promise. The second sentence is why removing them is safe.
-    reclaimSized: "%1 can be freed. No installed app uses these Flatpak runtimes.",
-    // After a ref in the Show Runtimes list whose branch Flatpak marks end of life.
-    reclaimEol: "(no longer supported)",
-    // The offer's button, and Freeing Up Space… while it runs. The QML repeats each literal for i18n.
-    reclaimAction: "Free Up Space",
-    reclaimRunning: "Freeing Up Space…",
-    reclaimTooltip: "Removes the Flatpak runtimes listed under Show Runtimes.",
-    reclaimShowWhat: "Show Runtimes",
-    // After Free Up Space, when the CLI said nothing.
-    reclaimNothing: "Nothing to remove. Every installed Flatpak runtime is in use.",
-    reclaimFailed: "Could not free the space (exit %1).",
-    reclaimTimedOut: "Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes.",
-
-    // A service that stopped starting after an update (state.json `startup`). Copy Command puts
-    // `systemctl status <unit>` on the clipboard; nothing in the widget acts on a unit.
-    startupCopyCommand: "Copy Command",
-    startupMute: "Mute Until It Starts",
-    startupMuteTooltip: "Kempt stops mentioning it until it starts cleanly again.",
-    startupMuting: "Muting…",
-    startupMuteFailed: "Could not mute %1.",
-    startupMuteRunning: "%1 is running again, so there is nothing to mute.",
-    startupStopMuting: "Stop Muting %1",
-    startupStopMutingDescription: "Kempt mentions it again if it still does not start.",
-    startupUnmuted: "Stopped muting %1.",
-    startupUnmuteFailed: "Could not stop muting %1.",
-    startupNothingMuted: "Nothing is muted.",
-    startupSetting: "Tell me when something stops starting after an update",
-    startupSettingNote: "Kempt only looks. It never turns anything on or off, and the update count never includes this.",
-
-    // The Startup page: an entry in the widget's menu, then a page that only reads.
-    startupPageAction: "Startup Report",
-    startupPageBack: "Back",
-    startupPageBackTip: "Returns to the list of updates.",
-    startupPageRefresh: "Refresh",
-    startupPageRefreshTip: "Reads the startup list again.",
-    startupPageLoading: "Reading what starts with the computer…",
-    startupPageUnreadable: "Kempt could not read the startup list.",
-    startupPageTimedOut: "Kempt did not answer in time. Press Refresh to try again.",
-    startupPageFailed: "Kempt could not gather the startup list: %1",
-    startupPageFailedCode: "Kempt could not gather the startup list (exit %1)."
-};
+function kindTitleOf(key, kind) {
+    return key === "flatpak" && kind === "runtime" ? i18n("Flatpak runtimes") : key + " " + kind;
+}
 
 // MIDDLE DOT with a space each side. One constant, because the footer status line and the Last
 // update row both use it and two would drift the first time one was edited.
@@ -498,11 +54,11 @@ var DOT = " \u00b7 ";
 // no "0 MB", no dash.
 function formatDownload(bytes) {
     if (typeof bytes !== "number" || !isFinite(bytes) || bytes <= 0) return "";
-    if (bytes < 1000000) return "< 1 MB";
+    if (bytes < 1000000) return i18n("< 1 MB");
     var mb = Math.round(bytes / 100000) / 10;
     // 999999999 bytes rounds to 1000.0 MB, which is a gigabyte spelled the long way.
-    if (mb < 1000) return "~" + trimZero(mb) + " MB";
-    return "~" + trimZero(Math.round(bytes / 100000000) / 10) + " GB";
+    if (mb < 1000) return i18n("~%1 MB", trimZero(mb));
+    return i18n("~%1 GB", trimZero(Math.round(bytes / 100000000) / 10));
 }
 
 // One decimal, minus a pointless one. Not toFixed(1) plus a string trim: toFixed rounds a second
@@ -533,13 +89,6 @@ var BADGE_MAX = 999;
 function shellQuote(s) {
     if (s === undefined || s === null) return "''";
     return "'" + String(s).split("'").join("'\\''") + "'";
-}
-
-// fill(template, token, value) -> EVERY occurrence replaced. String.replace with a string needle
-// replaces one, and stagedConflictOne names its package three times. split/join rather than a
-// regex, because the value is a package name from another program and a regex would interpret it.
-function fill(template, token, value) {
-    return String(template).split(token).join(value);
 }
 
 // Is this really an array? `typeof v.length === "number"` is not enough: a STRING has a length,
@@ -573,7 +122,7 @@ function resolveSurface(value) {
 // the surface the RUNNING transaction is using, which is not always the configured one: Install on
 // Next Restart stages offline whatever the setting says.
 function updatingLabelOf(surface) {
-    return resolveSurface(surface) === "offline" ? COPY.updatingOffline : COPY.updatingHere;
+    return resolveSurface(surface) === "offline" ? i18n("Preparing updates for the next restart…") : i18n("Updating…");
 }
 
 // updateButtonOf(surface, dnfActionable, flatpakPending) -> the footer button: whether the press
@@ -582,16 +131,16 @@ function updatingLabelOf(surface) {
 // when Flatpak apps are waiting.
 function updateButtonOf(surface, dnfActionable, flatpakPending) {
     if (resolveSurface(surface) !== "offline" || typeof dnfActionable !== "number" || !(dnfActionable > 0))
-        return { stages: false, text: COPY.updateNow, tooltip: "" };
-    return { stages: true, text: COPY.installOnNextRestart,
+        return { stages: false, text: i18n("Update Now"), tooltip: "" };
+    return { stages: true, text: i18n("Install on Next Restart"),
              tooltip: stageTooltipOf(flatpakPending) };
 }
 
 // stageTooltipOf(flatpakPending) -> the tooltip of a press that installs at the next restart. Only
 // promises that Flatpak apps update now when some are waiting.
 function stageTooltipOf(flatpakPending) {
-    return flatpakPending === true ? COPY.installOnNextRestartTooltip
-                                   : COPY.installOnNextRestartSystemTooltip;
+    return flatpakPending === true ? i18n("System updates install during the next restart. Apps update now.")
+                                   : i18n("System updates install during the next restart.");
 }
 
 // backendActionable(state, key) -> the actionable count of one backend: 0 when it is disabled or
@@ -885,7 +434,7 @@ var VERSION_UNKNOWN = "?";
 // history rows both go through this, so a package that was not installed reads "new" in both
 // places rather than "?" in one of them.
 function fromTextOf(from) {
-    return from === VERSION_UNKNOWN ? COPY.versionNew : from;
+    return from === VERSION_UNKNOWN ? i18n("new") : from;
 }
 
 // What a row draws BETWEEN two versions, which is not always an arrow. A Flatpak runtime can get a
@@ -900,7 +449,7 @@ function fromTextOf(from) {
 // so one update reads the same everywhere.
 function versionTextOf(from, to) {
     if (from === VERSION_UNKNOWN && to === VERSION_UNKNOWN) return "";
-    if (from === to) return String(to) + " (" + COPY.newBuild + ")";
+    if (from === to) return i18n("%1 (new build)", String(to));
     return fromTextOf(from) + " \u2192 " + to;
 }
 
@@ -959,27 +508,24 @@ function familiesOf(names, max) {
 //
 // Mirrors family_label in lib/common.sh on purpose: the terminal listing, this popup and the
 // notification all describe one transaction, and three vocabularies for it would be the product
-// disagreeing with itself. Keys are FAMILIES as familiesOf derives them (the name up to its first
-// - or .), so plasma-workspace keys as "plasma" and kwin-x11 as "kwin". The "#" prefix is there for
-// the reason familiesOf uses one: a family called "constructor" must not find Object.prototype's.
+// disagreeing with itself. Cases are FAMILIES as familiesOf derives them (the name up to its first
+// - or .), so plasma-workspace is "plasma" and kwin-x11 is "kwin".
 //
 // ONLY the families in the DEFAULT risky_regex appear here. risky_regex is the user's to extend, so
 // an unknown family keeps its bare name rather than wearing a description nobody wrote for it.
-var FAMILY_LABELS = {
-    "#kernel":  "the Linux kernel",
-    "#systemd": "the service manager",
-    "#glibc":   "the core system library",
-    "#dbus":    "the system message bus",
-    "#mesa":    "graphics drivers",
-    "#qt6":     "the desktop toolkit",
-    "#kf6":     "KDE framework libraries",
-    "#plasma":  "the Plasma desktop",
-    "#kwin":    "the window manager"
-};
-
 function labelFor(family) {
-    var v = FAMILY_LABELS["#" + family];
-    return typeof v === "string" ? v : "";
+    switch (family) {
+    case "kernel": return i18n("the Linux kernel");
+    case "systemd": return i18n("the service manager");
+    case "glibc": return i18n("the core system library");
+    case "dbus": return i18n("the system message bus");
+    case "mesa": return i18n("graphics drivers");
+    case "qt6": return i18n("the desktop toolkit");
+    case "kf6": return i18n("KDE framework libraries");
+    case "plasma": return i18n("the Plasma desktop");
+    case "kwin": return i18n("the window manager");
+    }
+    return "";
 }
 
 // The families in a risky set, capped, as both sentences below name them. One function, because a
@@ -1019,9 +565,9 @@ function pendingNamesOf(sections, riskyNames) {
     }
     var all = risky.concat(rest), shown = all.slice(0, PENDING_NAMES_SHOWN);
     if (shown.length === 0) return "";
-    if (all.length > shown.length) return shown.join(", ") + " and " + (all.length - shown.length) + " more";
+    if (all.length > shown.length) return i18np("%2 and %1 more", "%2 and %1 more", all.length - shown.length, shown.join(", "));
     if (shown.length === 1) return shown[0];
-    return shown.slice(0, -1).join(", ") + " and " + shown[shown.length - 1];
+    return i18n("%1 and %2", shown.slice(0, -1).join(", "), shown[shown.length - 1]);
 }
 
 // riskyMessageOf(names) -> what to DO about a session-critical transaction, in one sentence.
@@ -1036,16 +582,18 @@ function pendingNamesOf(sections, riskyNames) {
 // a kernel that is about to stop being the running one.
 function riskyMessageOf(names) {
     if (!isArray(names) || names.length === 0) return "";
-    if (!riskyHasKernel(names)) return fill(COPY.riskySession, "%1", riskyFamiliesOf(names));
+    if (!riskyHasKernel(names)) return i18n("The next restart is the safest time to change parts your desktop is using (%1).", riskyFamiliesOf(names));
     for (var i = 0; i < names.length; i++) {
-        if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return COPY.kernelNvidiaRestart;
+        if (String(names[i]).toLowerCase().indexOf("nvidia") >= 0) return i18n("The next restart is the safest time to install a new kernel and NVIDIA driver.");
     }
-    return COPY.kernelRestart;
+    return i18n("The next restart is the safest time to install a new kernel.");
 }
 
 // statusLineOf(count, names) -> the status line over a set with a session-critical package in it.
 function statusLineOf(count, names) {
-    return fill(riskyHasKernel(names) ? COPY.statusKernel : COPY.statusSession, "%1", count);
+    return riskyHasKernel(names)
+        ? i18np("1 update, including a new kernel", "%1 updates, including a new kernel", count)
+        : i18np("1 update, including parts your desktop is using", "%1 updates, including parts your desktop is using", count);
 }
 
 function riskyHasKernel(names) {
@@ -1069,9 +617,9 @@ function riskyHasKernel(names) {
 function stagedMessageOf(staged) {
     if (!staged || typeof staged !== "object" || isArray(staged)) return "";
     var n = staged.count;
-    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedTail;
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return i18n("They install the next time you restart.");
     // Exactly one takes the singular - zero is plural in English ("0 updates"), so `=== 1`.
-    return n === 1 ? COPY.stagedOne : COPY.stagedTail;
+    return n === 1 ? i18n("It installs the next time you restart.") : i18n("They install the next time you restart.");
 }
 
 // --- how many messages the popup may show at once ------------------------------------------------
@@ -1180,17 +728,23 @@ function startupOf(state) {
         ? state.startup : null;
     var none = { entries: [], title: "", heading: "", already: "", digest: "" };
     if (b === null || b.notify !== true) return none;
-    var when = b.attribution === "update" ? "update" : "last restart";
+    var afterUpdate = b.attribution === "update";
     var announced = startupEntriesOf(b.announced), i;
-    var failed = " failed to start after the " + when;
-    var title = announced.length === 1 ? startupShortName(announced[0]) + failed + "."
-        : announced.length === 2 ? startupShortName(announced[0]) + " and " + startupShortName(announced[1]) + failed + "."
-        : announced.length > 2 ? announced.length + " services" + failed + ", including "
-            + startupShortName(announced[0]) + " and " + startupShortName(announced[1]) + "." : "";
+    var one = announced.length > 0 ? startupShortName(announced[0]) : "";
+    var two = announced.length > 1 ? startupShortName(announced[1]) : "";
+    var title = announced.length === 0 ? ""
+        : announced.length === 1
+            ? (afterUpdate ? i18n("%1 failed to start after the update.", one)
+                           : i18n("%1 failed to start after the last restart.", one))
+        : announced.length === 2
+            ? (afterUpdate ? i18n("%1 and %2 failed to start after the update.", one, two)
+                           : i18n("%1 and %2 failed to start after the last restart.", one, two))
+        : afterUpdate ? i18n("%1 services failed to start after the update, including %2 and %3.", announced.length, one, two)
+                      : i18n("%1 services failed to start after the last restart, including %2 and %3.", announced.length, one, two);
     var entries = [];
     for (i = 0; i < announced.length; i++) {
         var a = announced[i];
-        var body = (a.scope === "user" ? "Session service: " : "System service: ") + a.unit + ".";
+        var body = a.scope === "user" ? i18n("Session service: %1.", a.unit) : i18n("System service: %1.", a.unit);
         entries.push({ unit: a.unit, scope: a.scope, name: a.name, command: startupCommandOf(a),
                        text: (announced.length === 1 ? title : a.name) + "\n" + body });
     }
@@ -1203,7 +757,8 @@ function startupOf(state) {
         title: title,
         heading: announced.length > 1 ? title : "",
         already: announced.length > 0 && already.length > 0
-            ? "Already failing before the " + when + ": " + already.join(", ") + "." : "",
+            ? (afterUpdate ? i18n("Already failing before the update: %1.", already.join(", "))
+                           : i18n("Already failing before the last restart: %1.", already.join(", "))) : "",
         digest: digest
     };
 }
@@ -1224,14 +779,14 @@ var STARTUP_PAGE_TIMEOUT_MS = 20000;
 
 // startupPageOutcomeOf(stdout, stderr, rc) -> {ok: true, text} or {ok: false, problem}.
 function startupPageOutcomeOf(stdout, stderr, rc) {
-    if (isExecutorTimeout(rc, stderr)) return { ok: false, problem: COPY.startupPageTimedOut };
+    if (isExecutorTimeout(rc, stderr)) return { ok: false, problem: i18n("Kempt did not answer in time. Press Refresh to try again.") };
     if (rc !== 0) {
         var why = firstLineOf(stderr);
-        return { ok: false, problem: why !== "" ? fill(COPY.startupPageFailed, "%1", why)
-                                                : fill(COPY.startupPageFailedCode, "%1", rc) };
+        return { ok: false, problem: why !== "" ? i18n("Kempt could not gather the startup list: %1", why)
+                                                : i18n("Kempt could not gather the startup list (exit %1).", rc) };
     }
     var text = String(stdout).replace(/\s+$/, "");
-    return text !== "" ? { ok: true, text: text } : { ok: false, problem: COPY.startupPageUnreadable };
+    return text !== "" ? { ok: true, text: text } : { ok: false, problem: i18n("Kempt could not read the startup list.") };
 }
 
 // --- the reclaim offer ------------------------------------------------------------------------
@@ -1268,7 +823,7 @@ function reclaimOffered(reclaim) {
 // reclaimMessageOf(state.reclaim) -> the offer's one line.
 function reclaimMessageOf(reclaim) {
     if (!reclaimOffered(reclaim)) return "";
-    return fill(COPY.reclaimSized, "%1", formatDownload(reclaimBytesOf(reclaim)));
+    return i18n("%1 can be freed. No installed app uses these Flatpak runtimes.", formatDownload(reclaimBytesOf(reclaim)));
 }
 
 // reclaimRefLineOf({ref, eol}) -> "org.kde.Platform 5.15-23.08", the id and branch of a
@@ -1277,8 +832,7 @@ function reclaimRefLineOf(entry) {
     if (!entry || typeof entry !== "object" || typeof entry.ref !== "string") return "";
     var parts = entry.ref.split("/");
     var line = parts.length === 4 ? parts[1] + " " + parts[3] : entry.ref;
-    if (typeof entry.eol === "string" && entry.eol !== "") line += " " + COPY.reclaimEol;
-    return line;
+    return typeof entry.eol === "string" && entry.eol !== "" ? i18n("%1 (no longer supported)", line) : line;
 }
 
 // stagedHeaderOf(offline_staged) -> what the popup header and the panel tooltip say while a
@@ -1288,8 +842,8 @@ function reclaimRefLineOf(entry) {
 function stagedHeaderOf(staged) {
     if (!staged || typeof staged !== "object" || isArray(staged)) return "";
     var n = staged.count;
-    if (typeof n !== "number" || !isFinite(n) || n < 0) return COPY.stagedHeaderUnknown;
-    return n === 1 ? COPY.stagedHeaderOne : n + " " + COPY.stagedHeaderTail;
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return i18n("Updates ready for the next restart");
+    return i18np("1 update ready for the next restart", "%1 updates ready for the next restart", n);
 }
 
 // stagedOthersOf(staged, fpPending) -> the sentence for updates the stage leaves out, or "".
@@ -1300,7 +854,7 @@ function stagedOthersOf(staged, fpPending) {
         && staged.not_staged > 0) n += Math.floor(staged.not_staged);
     if (typeof fpPending === "number" && isFinite(fpPending) && fpPending > 0) n += Math.floor(fpPending);
     if (n === 0) return "";
-    return n === 1 ? COPY.stagedOthersOne : fill(COPY.stagedOthersMore, "%1", String(n));
+    return i18np("1 other update waits until after that.", "%1 other updates wait until after that.", n);
 }
 
 // stagedVariantOf(staged, heldDnf[, fpPending]) -> which of the three banners this stage gets, and its words:
@@ -1331,7 +885,7 @@ function stagedVariantOf(staged, heldDnf, fpPending) {
     var plain = { type: "positive", message: stagedMessageOf(staged), stagedAt: "" };
     if (plain.message === "") return plain;
     var others = stagedOthersOf(staged, fpPending);
-    plain.message += "." + (others !== "" ? " " + others : "");
+    if (others !== "") plain.message += " " + others;
     // A stamp that is not a string is not a stamp. main.qml compares this for EQUALITY against the
     // state file at click time, and a number here would compare equal to a number there and spend
     // the user's consent on a transaction they never saw.
@@ -1351,13 +905,14 @@ function stagedVariantOf(staged, heldDnf, fpPending) {
     if (names.length > 0) {
         return { type: "warning",
                  message: names.length === 1
-                     ? fill(COPY.stagedConflictOne, "%1", names[0])
-                     : fill(fill(COPY.stagedConflictMore, "%1", names[0]),
-                            "%2", String(names.length - 1)),
+                     ? i18n("You held %1 after these updates were prepared, so it still installs. Discard them and install again to skip it.", names[0])
+                     : i18np("You held %2 and 1 more after these updates were prepared, so they still install. Discard them and install again to skip them.",
+                             "You held %2 and %1 more after these updates were prepared, so they still install. Discard them and install again to skip them.",
+                             names.length - 1, names[0]),
                  stagedAt: plain.stagedAt };
     }
     if (staged.names_source === "none" && heldDnf) {
-        return { type: "warning", message: COPY.stagedConflictUnknown, stagedAt: plain.stagedAt };
+        return { type: "warning", message: i18n("You added holds after these updates were prepared, so held packages may still install. Discard them and install again to apply your holds."), stagedAt: plain.stagedAt };
     }
     return plain;
 }
@@ -1381,9 +936,9 @@ function isRenderableStamp(iso) {
 // line by hours with nothing on screen to explain the gap. Normalised to one shape (+HH:MM, Z as
 // +00:00) so two stamps from two producers can be read against each other.
 function formatStamp(iso) {
-    if (typeof iso !== "string") return "never";
+    if (typeof iso !== "string") return i18n("never");
     var s = iso.split("\n")[0].trim();
-    if (s === "") return "never";
+    if (s === "") return i18n("never");
     var m = STAMP_HEAD_RE.exec(s);
     if (!m) return s;
     var z = STAMP_OFFSET_RE.exec(s);
@@ -1437,15 +992,15 @@ function relativeTime(iso, nowMs) {
 
     var age = nowMs - at;
     if (age < 0) return formatStamp(iso);
-    if (age < 60000) return "just now";
+    if (age < 60000) return i18n("just now");
     var n = Math.floor(age / 60000);
-    if (n < 60) return n === 1 ? "1 min ago" : n + " min ago";
+    if (n < 60) return i18np("1 min ago", "%1 min ago", n);
     n = Math.floor(age / 3600000);
-    if (n < 24) return n === 1 ? "1 hour ago" : n + " hours ago";
+    if (n < 24) return i18np("1 hour ago", "%1 hours ago", n);
     n = Math.floor(age / 86400000);
     // A week is the last age at which counting days answers "when?" better than the date does.
     // Past it, "23 days ago" makes a person do the arithmetic the stamp would have saved.
-    if (n <= 7) return n === 1 ? "1 day ago" : n + " days ago";
+    if (n <= 7) return i18np("1 day ago", "%1 days ago", n);
     return formatStamp(iso);
 }
 
@@ -1471,11 +1026,11 @@ function metadataAgeText(iso, nowMs, floorMs) {
     if (age < floor) return "";
     if (age >= METADATA_STALE_MS) {
         var days = Math.floor(age / METADATA_STALE_MS);
-        return "update info " + days + (days === 1 ? " day old" : " days old");
+        return i18np("update info 1 day old", "update info %1 days old", days);
     }
     var hours = Math.floor(age / 3600000);
-    if (hours >= 1) return "update info " + hours + (hours === 1 ? " hour old" : " hours old");
-    return "update info " + Math.floor(age / 60000) + " min old";
+    if (hours >= 1) return i18np("update info 1 hour old", "update info %1 hours old", hours);
+    return i18np("update info 1 min old", "update info %1 min old", Math.floor(age / 60000));
 }
 
 // refreshMissed(state, askedMs) -> whether the check a Check for Updates press started at `askedMs`
@@ -1520,16 +1075,17 @@ function fetchMissedOf(state, askedMs, pressStamp) {
     var stamped = isFinite(stampMs(state.metadata_refreshed));
     if (stamped && stampMs(state.metadata_refreshed) > checked) return "";
     var err = refreshErrorOf(state);
-    if (state.refresh_skipped === "battery") return COPY.fetchWaitsForPower;
-    if (state.refresh_skipped === "metered") return COPY.fetchWaitsForUnmetered;
+    if (state.refresh_skipped === "battery") return i18n("Kempt skips the online check on battery, so this may be out of date.");
+    if (state.refresh_skipped === "metered") return i18n("Kempt skips the online check on a metered connection, so this may be out of date.");
     var named = err === "" || typeof state.refresh_skipped === "string";
-    if (!named && REFRESH_NETWORK_RE.test(err)) return COPY.fetchNoServers;
+    if (!named && REFRESH_NETWORK_RE.test(err)) return i18n("Kempt could not reach the update servers, so this may be out of date.");
     // No stamp means nobody knows how old the lists are. Measured at the check, so the sentence does
     // not change while the widget is open.
-    if (!stamped) return named ? COPY.fetchMissedNoAge : COPY.fetchFailedNoAge;
+    if (!stamped) return named ? i18n("Kempt did not download fresh update info, so this may be out of date.") : i18n("The check failed, so this may be out of date.");
     var when = relativeTime(state.metadata_refreshed, checked);
-    if (when === "just now") return named ? COPY.fetchMissedNoAge : COPY.fetchFailedNoAge;
-    return (named ? COPY.fetchMissed : COPY.fetchFailed).replace("%1", when);
+    if (when === i18n("just now")) return named ? i18n("Kempt did not download fresh update info, so this may be out of date.") : i18n("The check failed, so this may be out of date.");
+    return named ? i18n("Kempt did not download fresh update info, so this is from %1.", when)
+                 : i18n("The check failed, so this is from %1.", when);
 }
 
 // servedBeforePress(state, askedMs) -> whether a check started at `askedMs` answered with a state
@@ -1689,15 +1245,14 @@ function collectItems(state) {
             }
         }
         if (pending.length > 0) {
-            sections.push({ title: SECTION_TITLES[key] || key, backend: key, items: pending });
+            sections.push({ title: sectionTitleOf(key), backend: key, items: pending });
         }
         // A kind this build has never heard of still gets a section, under a title built from its
         // own two words - the same rule backendKeys follows for an unknown backend. Dropping it
         // would hide pending updates the badge has already counted.
         for (k = 0; k < kindOrder.length; k++) {
             var kd = kindOrder[k];
-            var kindTitles = KIND_SECTION_TITLES[key] || {};
-            sections.push({ title: kindTitles[kd] || (key + " " + kd),
+            sections.push({ title: kindTitleOf(key, kd),
                             backend: key, kind: kd, items: byKind[kd] });
         }
     }
@@ -1718,7 +1273,7 @@ function rowsOf(sections, heldItems) {
     // Held last and always its own group: the spec's promise is that a held item stays VISIBLE
     // with its waiting version, just out of the way of the things you can act on.
     if (heldItems.length > 0) {
-        rows.push({ kind: "header", title: "Held", held: true });
+        rows.push({ kind: "header", title: i18n("Held"), held: true });
         for (i = 0; i < heldItems.length; i++) rows.push(rowOf(heldItems[i], "item"));
     }
     return rows;
@@ -1825,9 +1380,9 @@ function postRunLine(run) {
         // The CLI's own worked-out reason (run_failure_reason), not a generic apology - first line
         // only, because a panel is one line wide and the log is one click away.
         var why = firstLineOf(run.error);
-        if (/(other users|users other than root) can change/.test(why)) return COPY.updatesPausedFolder;
-        if (why === "") return COPY.updateFailed + ".";
-        return COPY.updateFailed + ": " + why + (/[.!?:]$/.test(why) ? "" : ".");
+        if (/(other users|users other than root) can change/.test(why)) return i18n("A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.");
+        if (why === "") return i18n("The update failed.");
+        return /[.!?:]$/.test(why) ? i18n("The update failed: %1", why) : i18n("The update failed: %1.", why);
     }
     // The staging run's entry has empty package lists BY CONSTRUCTION - nothing changes until the
     // restart - so the count sentences below would call it "No package changes": true about the
@@ -1836,18 +1391,19 @@ function postRunLine(run) {
     // ...unless the run staged nothing, which is a successful `offline` run too and was described
     // in the same words as one that staged sixty packages.
     if (run.surface === "offline" && run.stagedNothing !== null) {
-        return run.stagedNothing === "held" ? COPY.stagedNothingHeld : COPY.stagedNothingNonePending;
+        return run.stagedNothing === "held" ? i18n("Every waiting update is held, so the next restart has nothing to install.") : i18n("No updates are waiting, so the next restart has nothing to install.");
     }
-    if (run.surface === "offline") return COPY.stagedRunDone;
+    if (run.surface === "offline") return i18n("Updates are ready and install on the next restart.");
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
-    if (n === 0) return COPY.noPackageChanges;
+    if (n === 0) return i18n("No packages changed.");
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
     // long it took is described without it rather than described as instantaneous. A negative
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
-    var howLong = (typeof secs === "number" && isFinite(secs) && secs >= 0) ? " in " + secs + " s" : "";
-    return "Updated " + n + (n === 1 ? " package" : " packages") + howLong + ".";
+    return typeof secs === "number" && isFinite(secs) && secs >= 0
+        ? i18np("Updated 1 package in %2 s.", "Updated %1 packages in %2 s.", n, secs)
+        : i18np("Updated 1 package.", "Updated %1 packages.", n);
 }
 
 // reportRepeatsStaged(run) -> does the post-run line only say what the staged message says?
@@ -1892,8 +1448,8 @@ function runStartMessage(rc, stdout, stderr) {
     if (rc === 0) return "";
     var msg = firstLineOf(stderr) || firstLineOf(stdout);
     if (msg !== "") return msg;
-    if (rc === 3) return "An update is already running.";
-    return "Could not start the update (exit " + rc + ").";
+    if (rc === 3) return i18n("An update is already running.");
+    return i18n("Could not start the update (exit %1).", String(rc));
 }
 
 // discardStagedMessage(rc, stdout, stderr) -> the one sentence the popup reports after
@@ -1909,14 +1465,14 @@ function runStartMessage(rc, stdout, stderr) {
 // to discard) and the exit code cannot tell them apart, so the words come from the run rather than
 // from a guess here.
 function discardStagedMessage(rc, stdout, stderr) {
-    if (rc === 0) return firstLineOf(stdout) || COPY.stagedDiscardDone;
+    if (rc === 0) return firstLineOf(stdout) || i18n("These updates are gone. The next restart installs nothing.");
     var msg = firstLineOf(stderr) || firstLineOf(stdout);
     if (msg !== "") return msg;
     // Nothing was read and nothing was changed, which is what makes exit 5 a refusal rather than a
     // failed run - the CLI's own distinction, and the reason these are two sentences.
-    if (rc === 5) return COPY.stagedDiscardRefused;
-    if (rc === 3) return COPY.stagedDiscardBusy;
-    return fill(COPY.stagedDiscardFailed, "%1", String(rc));
+    if (rc === 5) return i18n("Nothing was discarded. Press Check Installation to find out why.");
+    if (rc === 3) return i18n("An update is running, so nothing was discarded. Try again when it has finished.");
+    return i18n("These updates could not be discarded (exit %1). Press Check Installation to find out why.", String(rc));
 }
 
 // --- answering an offer, or changing a setting through a CLI verb ----------------------------------
@@ -1928,14 +1484,14 @@ var ANSWER_TIMEOUT_MS = 40000;
 // answerOutcomeOf(rc, stdout, stderr, fallback, timedOut) -> {ok, text}: what the popup or the
 // settings page says after such a verb. Success is the CLI's first line, or `fallback` when it
 // printed nothing. Failure is its own reason, except the Executor's kill, which gets a sentence:
-// `timedOut` when given (a setting, a hold), COPY.answerTimedOut otherwise.
+// `timedOut` when given (a setting, a hold), the general sentence otherwise.
 function answerOutcomeOf(rc, stdout, stderr, fallback, timedOut) {
     if (rc === 0) {
         return { ok: true, text: firstLineOf(stdout) || (typeof fallback === "string" ? fallback : "") };
     }
     if (isExecutorTimeout(rc, stderr)) {
         return { ok: false, text: typeof timedOut === "string" && timedOut !== "" ? timedOut
-                                                                                 : COPY.answerTimedOut };
+                                                                                 : i18n("Kempt did not answer in time, so your answer may not be saved. Try again.") };
     }
     return { ok: false, text: firstLineOf(stderr) || firstLineOf(stdout) };
 }
@@ -1949,7 +1505,7 @@ var DOCTOR_TIMEOUT_MS = 60000;
 // refusals end "See: kempt doctor", and the copy table's sentences name the button. Each one gets it.
 function mentionsDoctor(text) {
     return typeof text === "string"
-        && (/\bkempt doctor\b/.test(text) || text.indexOf(COPY.doctorAction) >= 0);
+        && (/\bkempt doctor\b/.test(text) || text.indexOf(i18n("Check Installation")) >= 0);
 }
 
 // The CLI's pointer at the command, for a message drawn beside Check Installation, which is that
@@ -1997,44 +1553,40 @@ function doctorVerdictOf(rc, stdout, stderr) {
         var m = /^FAIL\s+(.*\S)\s*$/.exec(line);
         if (m) fails.push(m[1]);
     });
-    if (fails.length === 1) {
-        return { failed: true, summary: fill(COPY.doctorFoundOne, "%1", fails[0]), report: report };
-    }
-    if (fails.length > 1) {
+    if (fails.length > 0) {
         return { failed: true, report: report,
-                 summary: fill(fill(COPY.doctorFoundMore, "%1", String(fails.length)), "%2", fails[0]) };
+                 summary: i18np("Kempt found a problem with its installation: %2",
+                                "Kempt found %1 problems with its installation. The first: %2", fails.length, fails[0]) };
     }
     // Exit 0 with no FAIL row is a clean report, printed or not: doctor exits 1 on any problem.
-    if (rc === 0) return { failed: false, summary: COPY.doctorPassed, report: report };
+    if (rc === 0) return { failed: false, summary: i18n("Kempt checked its installation and found no problems."), report: report };
     // The Executor's own kill: it answers 124 and names its timeout on stderr.
-    if (rc === 124) return { failed: true, summary: COPY.doctorTimedOut, report: report };
+    if (rc === 124) return { failed: true, summary: i18n("Kempt stopped waiting for the installation check. Try again in a minute."), report: report };
     // Only stderr explains a failure. Stdout holds doctor's info rows, which do not. The
     // report carries stderr, so the sentence only says where to read it.
     var why = firstLineOf(err);
     return { failed: true, report: report,
-             summary: why !== "" ? COPY.doctorCouldNotRun
-                                 : fill(COPY.doctorCouldNotRunCode, "%1", String(rc)) };
+             summary: why !== "" ? i18n("Kempt could not check its installation. The full report has the error.")
+                                 : i18n("Kempt could not check its installation (exit %1).", String(rc)) };
 }
 
 // reclaimSaid(rc, stdout, stderr) -> {ok, text}: what the popup reports after Free Up Space, in the
 // CLI's words. With -y stdout starts with the list of runtimes, so on success its LAST line is the
 // outcome, followed by what stderr added. On failure stderr's first line is the outcome.
 function reclaimSaid(rc, stdout, stderr) {
-    if (isExecutorTimeout(rc, stderr)) return { ok: false, text: COPY.reclaimTimedOut };
+    if (isExecutorTimeout(rc, stderr)) return { ok: false, text: i18n("Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes.") };
     var msg = firstLineOf(stderr);
-    if (rc !== 0) return { ok: false, text: msg !== "" ? msg : fill(COPY.reclaimFailed, "%1", String(rc)) };
+    if (rc !== 0) return { ok: false, text: msg !== "" ? msg : i18n("Could not free the space (exit %1).", String(rc)) };
     var lines = String(stdout === undefined || stdout === null ? "" : stdout).split("\n");
     var tail = "";
     for (var i = lines.length - 1; i >= 0 && tail === ""; i--) tail = lines[i].trim();
-    return { ok: true, text: ((tail !== "" ? tail : COPY.reclaimNothing) + " " + msg).trim() };
+    return { ok: true, text: ((tail !== "" ? tail : i18n("Nothing to remove. Every installed Flatpak runtime is in use.")) + " " + msg).trim() };
 }
 
-// lastRunText(run, nowMs) -> the persistent Last update row's title.
-// The counting phrases are built here rather than kept in COPY because they are grammar around a
-// number, not a wording decision. The zero case is the exception: "no package changes" is the
-// CLI's own wording, emitted verbatim by KEMPT_JQ_COUNTS in lib/common.sh, and this line quotes
-// the terminal (lowercase because it sits mid sentence after the dot). Do NOT reword it here
-// alone - the tests tie all three spellings together.
+// lastRunText(run, nowMs) -> the persistent Last update row's title. "no package changes" is the
+// CLI's own wording, emitted verbatim by KEMPT_JQ_COUNTS in lib/common.sh, and this line quotes the
+// terminal (lowercase because it sits mid sentence after the dot). Do NOT reword it here alone -
+// the tests tie all three spellings together.
 function lastRunText(run, nowMs, restartHeld) {
     if (!run) return "";
     // An entry we cannot DATE gets no row. relativeTime answers "never" for a missing stamp, so
@@ -2053,20 +1605,22 @@ function lastRunText(run, nowMs, restartHeld) {
         // performs. WHICH reason is left to the post-run line - this row is one line among several
         // and the distinction needs a clause it has no room for.
         if (run.stagedNothing !== null) {
-            return "Last update " + relativeTime(run.when, nowMs) + DOT + COPY.lastRunNothingStaged;
+            return i18n("Last update %1 · the next restart has nothing to install", relativeTime(run.when, nowMs));
         }
         // ...and over a stage the next restart will not install, the same promise for a like reason.
         if (restartHeld === true) {
-            return "Last update " + relativeTime(run.when, nowMs) + DOT + COPY.restartHeldFooter;
+            return i18n("Last update %1 · another updater has prepared the next restart", relativeTime(run.when, nowMs));
         }
-        return "Last update " + relativeTime(run.when, nowMs) + DOT + "ready for the next restart";
+        return i18n("Last update %1 · ready for the next restart", relativeTime(run.when, nowMs));
     }
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
-    var what = n === 0 ? "no package changes" : (n === 1 ? "1 package" : n + " packages");
+    var when = relativeTime(run.when, nowMs);
     // Failed goes in the words of the title, because the transient line that said so clears when
     // the popup closes and this row is what is left.
-    return (run.failed ? "Last update failed " : "Last update ") + relativeTime(run.when, nowMs)
-        + DOT + what;
+    if (n === 0) return run.failed ? i18n("Last update failed %1 · no package changes", when)
+                                   : i18n("Last update %1 · no package changes", when);
+    return run.failed ? i18np("Last update failed %2 · 1 package", "Last update failed %2 · %1 packages", n, when)
+                      : i18np("Last update %2 · 1 package", "Last update %2 · %1 packages", n, when);
 }
 
 // lastRunSubtitle(run) -> the Last update row's second line, or "": why a failed run failed, as
@@ -2085,7 +1639,7 @@ function isExecutorTimeout(rc, stderr) {
 // state to fall back on (main.qml's cliError). The CLI's first stderr line, except for the
 // Executor's kill, which gets a sentence.
 function checkErrorOf(rc, stderr) {
-    if (isExecutorTimeout(rc, stderr)) return COPY.checkTimedOut;
+    if (isExecutorTimeout(rc, stderr)) return i18n("The check did not finish in time.");
     return firstLineOf(stderr);
 }
 
@@ -2124,11 +1678,11 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
     var raw = firstLineOf(typeof text === "string" ? text : "");
     var none = { network: false, noCache: false, headline: "", detail: "", hint: "" };
     if (raw === "") return none;
-    if (raw === COPY.checkTimedOut) {
-        return { network: false, noCache: false, headline: raw, detail: "", hint: COPY.checkFailedHint };
+    if (raw === i18n("The check did not finish in time.")) {
+        return { network: false, noCache: false, headline: raw, detail: "", hint: i18n("Check Installation can find out why.") };
     }
-    var failed = { network: false, noCache: false, headline: COPY.checkFailedHeadline, detail: raw,
-                   hint: COPY.checkFailedHint };
+    var failed = { network: false, noCache: false, headline: i18n("The check failed"), detail: raw,
+                   hint: i18n("Check Installation can find out why.") };
     if (mentionsDoctor(raw)) return failed;
     var refreshError = typeof dnfRefreshError === "string" ? firstLineOf(dnfRefreshError) : null;
     // A fetch this check skipped on battery or a metered link was never tried, so an older
@@ -2144,8 +1698,8 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
         else if (dnfNoCache) noCache++;
     }
     if (network === parts.length) {
-        return { network: true, noCache: false, headline: COPY.checkNetworkHeadline, detail: raw,
-                 hint: COPY.checkNetworkHint };
+        return { network: true, noCache: false, headline: i18n("Kempt could not reach the update servers"), detail: raw,
+                 hint: i18n("Check your network connection.") };
     }
     if (noCache === parts.length) {
         // This check's own skip comes first: a refresh error on record can be older than it, and
@@ -2154,16 +1708,16 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
         // record it was skipped or turned off.
         var hasRefreshError = refreshError !== null && refreshError !== "";
         if (skippedByRule) {
-            return { network: false, noCache: true, headline: COPY.checkNoCacheHeadline,
+            return { network: false, noCache: true, headline: i18n("The package lists have not been downloaded yet"),
                      detail: hasRefreshError ? refreshError : raw,
-                     hint: refreshSkipped === "battery" ? COPY.checkNoCachePowerHint
-                         : COPY.checkNoCacheMeteredHint };
+                     hint: refreshSkipped === "battery" ? i18n("Plug in, then press Check for Updates.")
+                         : i18n("Switch to an unmetered connection, then press Check for Updates.") };
         }
         return hasRefreshError
-            ? { network: false, noCache: true, headline: COPY.checkNoCacheHeadline,
-                detail: refreshError, hint: COPY.checkRefreshFailedHint }
-            : { network: false, noCache: true, headline: COPY.checkNoCacheHeadline, detail: raw,
-                hint: refreshSkipped === "off" ? COPY.checkNoCacheOffHint : COPY.checkNoCacheHint };
+            ? { network: false, noCache: true, headline: i18n("The package lists have not been downloaded yet"),
+                detail: refreshError, hint: i18n("The download failed. The error is below.") }
+            : { network: false, noCache: true, headline: i18n("The package lists have not been downloaded yet"), detail: raw,
+                hint: refreshSkipped === "off" ? i18n("Fetching package lists is turned off.") : i18n("Press Check for Updates to download them.") };
     }
     return failed;
 }
@@ -2171,7 +1725,7 @@ function checkProblemOf(text, dnfRefreshError, refreshSkipped) {
 // checkFailedOverOf(rc) -> the report for a Check for Updates that answered nothing while a state
 // is still held. The counts on screen do not change, so without this the press looked ignored.
 function checkFailedOverOf(rc) {
-    return rc === 124 ? COPY.checkUnfinished : COPY.checkFailedOver;
+    return rc === 124 ? i18n("The check did not finish. The counts shown are from the last check.") : i18n("The check failed. The counts shown are from the last check.");
 }
 
 // staleAnswerOf(state, nowMs) -> what Check for Updates says out loud for a check that reported a
@@ -2181,25 +1735,25 @@ function checkFailedOverOf(rc) {
 function staleAnswerOf(state, nowMs) {
     var said = staleSaidOf(state);
     var ls = typeof state.last_success === "string" ? state.last_success.trim() : "";
-    if (ls === "") return said + " " + COPY.noSuccessfulCheckYet + ".";
+    if (ls === "") return said + " " + i18n("No successful check yet.");
     if (!isRenderableStamp(ls)) return said;
     var when = relativeTime(ls, nowMs);
-    if (when === "just now") when = "a moment ago";
-    return said + " " + fill(COPY.countsFrom, "%1", when);
+    if (when === i18n("just now")) when = i18n("a moment ago");
+    return said + " " + i18n("The counts are from %1.", when);
 }
 
 // staleSaidOf(state) -> which half of a failed check failed, in the words the popup's lists use.
 function staleSaidOf(state) {
-    var names = [];
     var parts = (typeof state.error === "string" ? state.error : "").split("; ");
+    var system = false, apps = false;
     for (var i = 0; i < parts.length; i++) {
         var m = /^(dnf|flatpak) check failed/.exec(parts[i]);
         if (m === null) continue;
-        var name = m[1] === "flatpak" ? "Apps" : "System";
-        if (names.indexOf(name) < 0) names.push(name);
+        if (m[1] === "flatpak") apps = true; else system = true;
     }
-    return names.length > 0 ? fill(COPY.checkFailedFor, "%1", names.join(" and "))
-                            : COPY.checkFailedPlain;
+    return system && apps ? i18n("The check failed for System and Apps.")
+        : system ? i18n("The check failed for System.")
+        : apps ? i18n("The check failed for Apps.") : i18n("The check failed.");
 }
 
 // viewModel(state, updating, cliError, opts) -> everything the QML layer binds to. Called on every
@@ -2316,11 +1870,14 @@ function viewModel(state, updating, cliError, opts) {
         // what the badge and the button are about; the header is the sentence, and the sentence
         // owes the held count.
         // ...and a failed check has not looked. The footer and the tooltip say when something last did.
-        var nothingWaiting = stale ? COPY.lastCheckFailedHeader : COPY.upToDate;
-        countPhrase = actionable === 0
-            ? (heldTotal > 0 ? nothingWaiting + DOT + heldTotal + " " + COPY.held
-                : userUnchecked ? nothingWaiting + DOT + COPY.userAppsUncheckedShort : nothingWaiting)
-            : (actionable === 1 ? "1 update" : actionable + " updates");
+        countPhrase = actionable > 0 ? i18np("1 update", "%1 updates", actionable)
+            : heldTotal > 0
+                ? (stale ? i18np("Last check failed · %1 held", "Last check failed · %1 held", heldTotal)
+                         : i18np("Up to date · %1 held", "Up to date · %1 held", heldTotal))
+            : userUnchecked
+                ? (stale ? i18n("Last check failed · apps for you only not checked")
+                         : i18n("Up to date · apps for you only not checked"))
+            : stale ? i18n("Last check failed") : i18n("Up to date");
     }
 
     // --- a transaction that is already staged and armed ------------------------------------------
@@ -2338,7 +1895,7 @@ function viewModel(state, updating, cliError, opts) {
     // primary button off the screen, so nothing unexpected may switch it on.
     var imageBased = usable && state.image_based === true;
     var foldersPausedMessage = usable && !imageBased && typeof state.unsafe_folder === "string"
-        && state.unsafe_folder !== "" ? COPY.updatesPausedFolder : "";
+        && state.unsafe_folder !== "" ? i18n("A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.") : "";
 
     // Guarded the same way, and both halves or neither: "a Fedora  upgrade" with a hole where the
     // number goes is worse than saying nothing at all.
@@ -2370,11 +1927,12 @@ function viewModel(state, updating, cliError, opts) {
     // Why Kempt cannot go ahead on this box, one cause at a time, worst first: a box it cannot
     // update at all, then a pause every button would end in, then the one route an upgrade closes.
     // An armed upgrade is said alongside the pause, because the next restart installs it either way.
-    var blockedMessage = imageBased ? COPY.imageBased
-        : foldersPausedMessage !== "" && relState === "armed" ? COPY.releaseUpgradeArmedFolder.replace("%1", relTo)
+    var blockedMessage = imageBased ? i18n("This computer installs updates through Discover, not Kempt.")
+        : foldersPausedMessage !== "" && relState === "armed" ? i18n("A Fedora %1 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it.", relTo)
         : foldersPausedMessage !== "" ? foldersPausedMessage
         : !releaseUpgrade ? ""
-        : (relState === "armed" ? COPY.releaseUpgradeArmed : COPY.releaseUpgradeWaiting).replace("%1", relTo);
+        : relState === "armed" ? i18n("A Fedora %1 upgrade installs on the next restart, so other updates cannot wait for that restart.", relTo)
+        : i18n("A Fedora %1 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how.", relTo);
 
     var heldDnf = false;
     for (var h = 0; h < counted.heldItems.length; h++) {
@@ -2390,7 +1948,7 @@ function viewModel(state, updating, cliError, opts) {
         usable ? backendActionable(state, "flatpak") : 0);
     var stagedMessage = stagedVariant.message;
     var staged = stagedMessage !== "";
-    // A stage another updater's restart stands in front of (COPY.stageBlocked). It borrows the
+    // A stage another updater's restart stands in front of. It borrows the
     // staged slot as a warning and offers none of its actions: no restart (the restart installs the
     // other update) and no discard (the CLI
     // refuses one, since dnf5 offline clean would cancel the other update too). An object is all
@@ -2464,26 +2022,26 @@ function viewModel(state, updating, cliError, opts) {
 
     var tooltipMain, headerText;
     if (updating) {
-        tooltipMain = COPY.updatingHere;
-        headerText = COPY.updatingHere;
+        tooltipMain = i18n("Updating…");
+        headerText = i18n("Updating…");
     } else if (noEngine) {
         // Names the state instead of quoting the shell: `sh: line 1: kempt: command not found` is
         // true, unreadable, and about a program the reader has never heard of.
         headerText = engineFault === "missing"
-            ? "Kempt's engine is not installed"
-            : "Kempt's engine will not run";
-        // The header is the tooltip's title, and COPY.engineMissing or COPY.engineUnrunnable under
-        // it carries on from it rather than repeating it.
+            ? i18n("Kempt's engine is not installed")
+            : i18n("Kempt's engine will not run");
+        // The header is the tooltip's title, and the sentence under it carries on from it rather
+        // than repeating it.
         tooltipMain = headerText;
     } else if (iconState === "unknown") {
         tooltipMain = "Kempt";
-        headerText = "No update data yet";
+        headerText = i18n("No update data yet");
     } else if (iconState === "error") {
         tooltipMain = (cliError !== "" || neverAnswered)
-            ? COPY.checkFailedTooltip : COPY.stateUnreadableTooltip;
+            ? i18n("Cannot check for updates") : i18n("Cannot read the update state");
         headerText = (cliError !== "" || neverAnswered)
-            ? "Kempt cannot check for updates"
-            : "Could not read the update state";
+            ? i18n("Kempt cannot check for updates")
+            : i18n("Could not read the update state");
     } else if (staged) {
         // The one place the count gives way. Not a second line under it and not a badge emblem:
         // the header is the sentence a person reads first, and while a stage is armed the honest
@@ -2494,12 +2052,12 @@ function viewModel(state, updating, cliError, opts) {
         tooltipMain = countPhrase;
         // The kernel message of old in six words: what the set holds, before anything is pressed.
         headerText = actionable > 0 && !riskyIsMoot && riskyPending.length > 0
-            ? statusLineOf(countPhrase, riskyPending) : countPhrase;
+            ? statusLineOf(actionable, riskyPending) : countPhrase;
     }
 
     var lastSuccessText = usable ? formatStamp(state.last_success) : "";
     var staleReason = stale
-        ? (typeof state.error === "string" && state.error !== "" ? state.error : "the last check failed")
+        ? (typeof state.error === "string" && state.error !== "" ? state.error : i18n("the last check failed"))
         : "";
 
     // The one sentence an error state owes the user, in descending order of how much it knows.
@@ -2519,7 +2077,7 @@ function viewModel(state, updating, cliError, opts) {
             problemNoCache = problem.noCache;
             problemHint = problem.hint;
         } else {
-            problemText = "the update state could not be read";      // it answered something else
+            problemText = i18n("the update state could not be read");      // it answered something else
         }
     }
 
@@ -2529,13 +2087,13 @@ function viewModel(state, updating, cliError, opts) {
     // exist while the message does.
     var engineFaultMessage = "", engineFaultCopyText = "", engineFaultActionLabel = "";
     if (engineFault === "missing") {
-        engineFaultMessage = COPY.engineMissing + "\n" + COPY.engineMissingInstall;
-        engineFaultCopyText = COPY.engineMissingCopy;
-        engineFaultActionLabel = COPY.engineCopyCommands;
+        engineFaultMessage = i18n("Nothing can check for updates yet.") + "\n" + i18n("To install the engine on Fedora, run:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\nFor other ways to install it, see github.com/erez-c137/kempt.");
+        engineFaultCopyText = "sudo dnf copr enable erez-c137/kempt && sudo dnf install kempt-plasmoid";
+        engineFaultActionLabel = i18n("Copy Commands");
     } else if (engineFault === "unrunnable") {
-        engineFaultMessage = COPY.engineUnrunnable + "\n" + COPY.engineUnrunnableFix;
-        engineFaultCopyText = COPY.engineUnrunnableCopy;
-        engineFaultActionLabel = COPY.engineCopyCommand;
+        engineFaultMessage = i18n("The engine is installed but cannot start, so nothing can check for updates.") + "\n" + i18n("Press Check Installation to find the problem.");
+        engineFaultCopyText = "kempt doctor";
+        engineFaultActionLabel = i18n("Copy Command");
     }
     // Check Installation only where kempt is there to run. A missing engine has no doctor.
     var engineFaultOffersDoctor = engineFault === "unrunnable";
@@ -2549,13 +2107,13 @@ function viewModel(state, updating, cliError, opts) {
     var subParts = [];
     // The fact, and only the fact. The install commands belong in the popup, where they can be
     // read and copied; two command lines under a panel hover is noise.
-    if (engineFault === "missing") subParts.push(COPY.engineMissing);
-    else if (engineFault === "unrunnable") subParts.push(COPY.engineUnrunnable);
-    else if (iconState === "unknown") subParts.push("no data until the first check finishes");
+    if (engineFault === "missing") subParts.push(i18n("Nothing can check for updates yet."));
+    else if (engineFault === "unrunnable") subParts.push(i18n("The engine is installed but cannot start, so nothing can check for updates."));
+    else if (iconState === "unknown") subParts.push(i18n("no data until the first check finishes"));
     else if (iconState === "error") {
         // A short reason, never the tool's stderr: the popup has that in small print.
-        subParts.push(problemNetwork ? COPY.checkNetworkShort
-            : (problemDetail !== "" ? COPY.checkFailedShort : problemText));
+        subParts.push(problemNetwork ? i18n("Could not reach the update servers")
+            : (problemDetail !== "" ? i18n("Open Kempt to see why") : problemText));
     }
     else {
         // What is pending, by name - the count says how many, this says what. Not while a stage
@@ -2565,31 +2123,28 @@ function viewModel(state, updating, cliError, opts) {
         // ...and how many of them fix a security advisory. Not while a stage is armed, like the
         // names: the work is done and waiting for a restart.
         if (!staged && security.count > 0) {
-            subParts.push(security.count === 1 ? COPY.securityCountOne
-                                               : fill(COPY.securityCount, "%1", security.count));
+            subParts.push(i18np("1 security update", "%1 security updates", security.count));
         }
         // The Holds promise: a box whose only pending updates are held LOOKS up to date, and the
         // tooltip is where it still says the held ones exist.
-        // Not when the tooltip title already ends in it ("Up to date · 10 held").
-        if (heldTotal > 0 && tooltipMain.indexOf(heldTotal + " " + COPY.held) < 0) {
-            subParts.push(heldTotal + " " + COPY.held);
-        }
+        // Not when the tooltip title already says it ("Up to date · 10 held").
+        if (heldTotal > 0 && (actionable > 0 || tooltipMain !== countPhrase)) subParts.push(i18np("%1 held", "%1 held", heldTotal));
         // Only with something to download AND something to press. On an up-to-date box the number
         // is zero or absent; next to a held-only list it would describe bytes no run will fetch.
-        if (actionable > 0 && downloadText !== "") subParts.push(downloadText + " to download");
+        if (actionable > 0 && downloadText !== "") subParts.push(i18n("%1 to download", downloadText));
         // Staleness is a tooltip fact, not an icon alarm, so the tooltip carries BOTH halves: what
         // went wrong, and how old the numbers above it therefore are.
         if (stale) {
             subParts.push(staleSaidOf(state));
             subParts.push(everSucceeded
-                ? fill(COPY.lastSuccessfulCheck, "%1", relativeTime(state.last_success, opts.nowMs))
-                : COPY.noSuccessfulCheckYet);
+                ? i18n("Last successful check %1", relativeTime(state.last_success, opts.nowMs))
+                : i18n("No successful check yet"));
         }
-        if (userUnchecked) subParts.push(COPY.userAppsUncheckedShort);
+        if (userUnchecked) subParts.push(i18n("apps for you only not checked"));
         // A pending restart is the one fact needing an action from the person; without this line
         // it could only be found by opening the popup. Last, because it is about the machine
         // rather than about the counts above it.
-        if (rebootNeeded) subParts.push(COPY.restartPending);
+        if (rebootNeeded) subParts.push(i18n("restart pending"));
     }
 
     // What the popup shows where the list would be, when there is no list to show.
@@ -2600,11 +2155,11 @@ function viewModel(state, updating, cliError, opts) {
     // check has not finished") would be a promise about a check that will never finish. The
     // placeholder hides itself on empty text.
     else if (noEngine) emptyStateText = "";
-    else if (iconState === "unknown") emptyStateText = "The first check has not finished.";
+    else if (iconState === "unknown") emptyStateText = i18n("The first check has not finished.");
     else if (iconState === "error") emptyStateText = problemText;
     else if (nothingKnown) {
-        emptyStateText = stale ? "No updates found the last time Kempt could check."
-            : (userUnchecked ? COPY.userAppsUnchecked : COPY.everythingUpToDate);
+        emptyStateText = stale ? i18n("No updates found the last time Kempt could check.")
+            : (userUnchecked ? i18n("Apps installed for you only could not be checked.") : i18n("Everything is up to date"));
     }
 
     // The one thing a stuck user can usefully be told to type - offered ONLY where the widget has
@@ -2692,14 +2247,15 @@ function viewModel(state, updating, cliError, opts) {
         // relativeTime nothing to work with, so it hands the text back verbatim - right for a
         // tooltip, wrong in a sentence, where it reads "Checked not a date". The raw stamp stays
         // one hover away in footerTooltip.
-        if (!everSucceeded) footerParts.push(COPY.noSuccessfulCheckYet);
+        if (!everSucceeded) footerParts.push(i18n("No successful check yet"));
         else if (isRenderableStamp(state.last_success)) {
-            footerParts.push("Checked " + relativeTime(state.last_success, opts.nowMs));
+            footerParts.push(i18n("Checked %1", relativeTime(state.last_success, opts.nowMs)));
         }
         // ...and the staleness, beside the date it explains. Not an alarm - the counts above are
         // still the best known truth - with the CLI's reason one hover away on the retry button.
-        if (stale && headerText.indexOf(COPY.lastCheckFailedHeader) < 0) footerParts.push(COPY.lastCheckFailed);
-        if (userUnchecked) footerParts.push(COPY.userAppsUncheckedShort);
+        // Only over a count: with nothing waiting the header says it already.
+        if (stale && (actionable > 0 || headerText !== countPhrase)) footerParts.push(i18n("last check failed"));
+        if (userUnchecked) footerParts.push(i18n("apps for you only not checked"));
         // ...and how old the metadata behind those counts is, which the dateline above cannot say.
         // The two are different clocks: the check ran four minutes ago, the metadata it answered
         // from may be a week old, and only this line can tell the person that.
@@ -2709,19 +2265,19 @@ function viewModel(state, updating, cliError, opts) {
     } else if (noState) {
         // No state at all - the first seconds of a session, or a CLI that could not be run. There
         // has been no successful check as far as this widget knows, and saying so is true.
-        footerParts.push(COPY.noSuccessfulCheckYet);
+        footerParts.push(i18n("No successful check yet"));
     }
     // ...and the case with no branch: a state we HOLD and cannot read (a schema this build does
     // not know). It may well record a successful check; we cannot tell, and the header already
     // says the state could not be read.
-    if (heldTotal > 0) footerParts.push(heldTotal + " " + COPY.held);
+    if (heldTotal > 0) footerParts.push(i18np("%1 held", "%1 held", heldTotal));
     // Beside Update Now, which is the question it answers: pressing this costs about this much.
     // Same two conditions as the tooltip, and the same silence when either fails.
     if (actionable > 0 && downloadText !== "") footerParts.push(downloadText);
     // ...and the restart, whenever the message is not carrying it - including one the CAP
     // displaced, which is what makes displacing it honest rather than merely quiet. With the
     // message dismissed for this session, this line is the only place it is said.
-    if (rebootNeeded && !restartShown) footerParts.push(COPY.restartPending);
+    if (rebootNeeded && !restartShown) footerParts.push(i18n("restart pending"));
 
     // What Check for Updates says out loud when it lands, in the words already on screen. ONE
     // sentence for both places that can speak it (the panel icon while the popup is closed, the
@@ -2772,12 +2328,12 @@ function viewModel(state, updating, cliError, opts) {
         // The tool's own line under a plain emptyStateText, and whether it was a network failure.
         problemDetail: problemDetail,
         // The line under emptyStateText: what to do about it. Check Installation's when it is offered.
-        problemHint: remedyCommand !== "" ? COPY.checkFailedHint
+        problemHint: remedyCommand !== "" ? i18n("Check Installation can find out why.")
             : (problemNetwork || problemNoCache ? problemHint : ""),
         remedyCommand: remedyCommand,
         // The question Update Now asks, and which of the two it is: the other updater's has no
         // route to the next restart, so its one answer is to run now.
-        questionMessage: riskyChoice ? riskyMessage : (heldChoice ? COPY.restartHeldAsk : ""),
+        questionMessage: riskyChoice ? riskyMessage : (heldChoice ? i18n("Updating now may stop another updater's prepared update from installing.") : ""),
         questionHeld: heldChoice,
         // Update Now opens the risky choice instead of running (main.qml, startUpdate).
         updateAsksFirst: updateAsksFirst,
@@ -2785,8 +2341,8 @@ function viewModel(state, updating, cliError, opts) {
         restartHeld: restartHeld,
         updateAsksHeld: updateAsksHeld,
         heldLiveSurface: restartHeld ? "popup" : "",
-        stagedMessage: stageBlocked ? COPY.stageBlocked
-            : restartHeldBanner ? COPY.restartHeldBanner : stagedMessage,
+        stagedMessage: stageBlocked ? i18n("Another updater has prepared your next restart, so these updates will not install then. Try again after that restart.")
+            : restartHeldBanner ? i18n("Another updater has prepared your next restart, so restart when you are ready.") : stagedMessage,
         // A Check for Updates whose fetch did not land, when the report's slot is free for it.
         reportFetchMessage: reportRun ? "" : fetchMissedMessage,
         // Why that message may offer Check Anyway: "battery", "metered", or "" for no button.
@@ -2795,7 +2351,7 @@ function viewModel(state, updating, cliError, opts) {
         // metered hints, so never beside Check Installation or fetching turned off. A refresh
         // error from before is only the detail there (checkProblemOf).
         problemAnyway: usable && problemNoCache && remedyCommand === ""
-            && (problemHint === COPY.checkNoCachePowerHint || problemHint === COPY.checkNoCacheMeteredHint)
+            && (problemHint === i18n("Plug in, then press Check for Updates.") || problemHint === i18n("Switch to an unmetered connection, then press Check for Updates."))
             ? anywayReasonOf(state.refresh_skipped) : "",
         // What the banner shows: the plain one gives way to the header's count.
         // "there is an armed transaction", for the surfaces that have to stand down rather than
@@ -2830,7 +2386,7 @@ function viewModel(state, updating, cliError, opts) {
         // Install on Next Restart in the widget's menus, for the box whose footer says Update Now.
         stageMenuOffered: !updating && !staged && !stageBlocked && !noOfflineRoute
             && !updateButton.stages && usable && backendActionable(state, "dnf") > 0,
-        discoverMessage: discoverUnattended ? COPY.discoverUnattended : (discoverOffer ? COPY.discoverMild : ""),
+        discoverMessage: discoverUnattended ? i18n("Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.") : (discoverOffer ? i18n("Discover also checks for updates, and that can cancel updates waiting for your next restart.") : ""),
         discoverSerious: discoverUnattended,
         blockedMessage: blockedMessage,
         // A warning for the one cause that needs fixing, and the button for every cause Kempt can
@@ -2889,8 +2445,14 @@ function viewModel(state, updating, cliError, opts) {
 // The node half of the double life. `module` does not exist in QML's JS engine, so this is a
 // no-op there; typeof on an undeclared name is safe in every engine.
 if (typeof module !== "undefined" && module.exports) {
+    // Plasma's i18n, as English: the same substitution tests/qml/harness.py gives the probes.
+    var i18nFill = function (text, args, from) {
+        for (var a = from; a < args.length; a++) text = text.split("%" + (a - from + 1)).join(args[a]);
+        return text;
+    };
+    global.i18n = function (text) { return i18nFill(text, arguments, 1); };
+    global.i18np = function (one, many, n) { return i18nFill(n === 1 ? one : many, arguments, 2); };
     module.exports = {
-        COPY: COPY,
         VERSION_UNKNOWN: VERSION_UNKNOWN,
         fromTextOf: fromTextOf,
         versionTextOf: versionTextOf,

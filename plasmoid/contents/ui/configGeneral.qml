@@ -178,7 +178,7 @@ KCM.SimpleKCM {
                         Logic.ANSWER_TIMEOUT_MS, function (stdout, stderr, rc) {
             if (rc !== 0) {
                 page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "",
-                                                       Logic.COPY.settingTimedOut).text
+                                                       i18n("Kempt did not answer in time. The setting may not have changed. Try again.")).text
                                  || ("Could not save " + key + ".");
                 // Apply stays on, so the retry is one click rather than a reopened dialog.
                 page.writeFailed = true;
@@ -297,7 +297,7 @@ KCM.SimpleKCM {
                         Logic.ANSWER_TIMEOUT_MS, function (stdout, stderr, rc) {
             page.holdsBusy = false;
             if (rc !== 0) {
-                page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "", Logic.COPY.holdTimedOut).text
+                page.loadError = Logic.answerOutcomeOf(rc, "", stderr, "", i18n("Kempt did not answer in time. The hold may not have changed. Try again.")).text
                                  || ("Could not remove the hold on " + id + ".");
                 return;
             }
@@ -342,7 +342,7 @@ KCM.SimpleKCM {
         cfgExecutor.run(page.durable(kemptCmd + " discover-notifier " + verb), Logic.ANSWER_TIMEOUT_MS,
                         function (stdout, stderr, rc) {
             page.discoverBusy = false;
-            var said = Logic.answerOutcomeOf(rc, stdout, stderr, "", Logic.COPY.settingTimedOut);
+            var said = Logic.answerOutcomeOf(rc, stdout, stderr, "", i18n("Kempt did not answer in time. The setting may not have changed. Try again."));
             if (!said.ok) page.discoverResult = said.text;
             page.loadDiscover();
         });

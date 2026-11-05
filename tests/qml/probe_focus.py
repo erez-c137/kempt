@@ -361,7 +361,7 @@ lev("updateButton.clicked()")
 p.pump(200)
 p.check("Update Now on a session-critical set opens the choice", ev("root.riskyChoiceOpen"), True)
 p.check("...with the keyboard on Install on Next Restart", focused(),
-        "elsewhere:" + str(ev("Logic.COPY.installOnNextRestart")))
+        "elsewhere:" + "Install on Next Restart")
 p.check("...visibly", lev("popup.Window.activeFocusItem.visualFocus"), True)
 # ...and Enter there stages. QQC2 activates on Space only, and the message's buttons are Kirigami's.
 stages_before = p.call_count("run --surface=offline")

@@ -412,7 +412,7 @@ settle()
 p.check("three presses inside that window start ONE run", p.call_count("run"), 1)
 p.check("...and the flag is down once the CLI has come back", ev("root.runRequested"), False)
 p.check("...with the pane naming the surface that run is really using",
-        ev("Logic.updatingLabelOf(root.runningSurface)"), ev("Logic.COPY.updatingHere"))
+        ev("Logic.updatingLabelOf(root.runningSurface)"), "Updating…")
 
 # --- the way out of a pane nothing is going to end ---------------------------------------------
 # A run that stops before it starts never writes state.json, and only a state.json change ends
@@ -434,7 +434,7 @@ before_update = p.call_count("update")
 ev("root.stageOffline()")
 p.wait_for(ev, "root.updating", True, timeout_ms=8000)
 p.check("staging says it is preparing an install rather than calling itself an update",
-        ev("Logic.updatingLabelOf(root.runningSurface)"), ev("Logic.COPY.updatingOffline"))
+        ev("Logic.updatingLabelOf(root.runningSurface)"), "Preparing updates for the next restart…")
 p.check("...on the offline surface, whatever `surface` is configured to",
         [ev("root.runningSurface"), ev("root.surface")], ["offline", "popup"])
 ev("root.leaveUpdating()")
@@ -691,7 +691,7 @@ open(DBUSRC, "w").write("1")
 ev("root.promptRestart()")
 settle()
 p.check("a prompt that will not open says so instead of failing silently",
-        ev("root.restartError"), ev("Logic.COPY.restartFailed"))
+        ev("root.restartError"), "Could not open the restart prompt.")
 p.check("...in the words the copy table agreed", ev("root.restartError"),
         "Could not open the restart prompt.")
 open(DBUSRC, "w").write("0")
@@ -761,7 +761,7 @@ ev('root.actionMessage = ""')
 # which is the half that could break silently in a real panel.
 p.check("the contextual action was registered", ev("root.contextualActionsClaimed"), True)
 p.check("...named exactly what the copy table agreed", ev("checkAction.text"),
-        ev("Logic.COPY.checkForUpdates"))
+        "Check for Updates")
 p.check("...with the icon Plasma uses for a refresh", ev("checkAction.icon.name"), "view-refresh")
 before_check = p.call_count("check")
 ev("checkAction.trigger()")
@@ -780,7 +780,7 @@ menu_source = open(CHECKSRC).read()
 menu_state("state-live.json")
 p.check("the menu offers Install on Next Restart with updates pending",
         [ev("stageAction.visible"), ev("stageAction.enabled"), ev("stageAction.text")],
-        [True, True, ev("Logic.COPY.installOnNextRestart")])
+        [True, True, "Install on Next Restart"])
 before_stage = len(p.calls_matching("run --surface=offline"))
 ev("stageAction.trigger()")
 settle()
@@ -1044,20 +1044,20 @@ p.check("...as a Positive message: nothing is wrong and nothing needs pressing",
 p.check("...and offering the restart, since no restart message is carrying it",
         lev("stagedMessage.actions[0].visible"), True)
 p.check("...under the same label the restart message uses",
-        lev("stagedMessage.actions[0].text"), ev("Logic.COPY.restartAction"))
+        lev("stagedMessage.actions[0].text"), "Restart…")
 # ...and the way out of it, on the green banner as much as on the warnings: staging an update
 # and then thinking better of it is not a problem anybody should have to open a terminal to
 # fix.
 p.check("...with a second action, which is the way to discard the staged update",
-        lev("stagedMessage.actions[1].text"), ev("Logic.COPY.stagedDiscardAction"))
+        lev("stagedMessage.actions[1].text"), "Discard Updates")
 p.check("...on screen beside the restart", lev("stagedMessage.actions[1].visible"), True)
 # The tooltip is the disclosure, and the same words go to a screen reader: polkit takes the focus
 # the instant this is pressed.
 p.check("...disclosing the authorization and the downloads in its tooltip",
-        lev("stagedMessage.actions[1].tooltip"), ev("Logic.COPY.stagedDiscardTooltip"))
+        lev("stagedMessage.actions[1].tooltip"), "Removes the updates waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again.")
 p.check("...in the same words a screen reader gets, before polkit takes the focus",
         lev("stagedMessage.actions[1].Accessible.description"),
-        ev("Logic.COPY.stagedDiscardTooltip"))
+        "Removes the updates waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again.")
 
 dbus_staged = len(records("dbus-send"))
 lev("stagedMessage.actions[0].trigger()")
@@ -1078,7 +1078,7 @@ STAGED_NOCOUNT = staged_from("state-live.json", "state-staged-nocount.json", Non
 state(STAGED_NOCOUNT)
 # The fixture's pending Flatpak apps add their own sentence after it, so only the first is compared.
 p.check("an unknown count loses the number, not the sentence",
-        lev("stagedMessage.Accessible.name.split('. ')[0]"), ev("Logic.COPY.stagedTail"))
+        lev("stagedMessage.Accessible.name.split('. ')[0]"), "They install the next time you restart")
 
 # --- the banner FLIPS when a hold lands behind the stage ------------------------
 # The trap, in the user's own order: stage 61 updates with a kernel among them, read something
@@ -1140,7 +1140,7 @@ p.check("...and the Restart… button is NOT one of them: offering a restart her
 p.check("...inert as well as invisible", lev("stagedMessage.actions[0].enabled"), False)
 p.check("...the one action offered is the discard",
         [lev("stagedMessage.actions[1].text"), lev("stagedMessage.actions[1].visible")],
-        [ev("Logic.COPY.stagedDiscardAction"), True])
+        ["Discard Updates", True])
 
 # The only Restart button on screen sat forty pixels above the sentence saying what a
 # restart would install. The design had already removed it from the warning for that reason.
@@ -1277,7 +1277,7 @@ state(STAGED_OFFER)
 settle()
 p.check("a staged update with Discover's notifier on says so, with one button",
         [lev("discoverMessage.visible"), lev("discoverMessage.actions.length")], [True, 1])
-p.check("...in the copy's words", lev("discoverMessage.text"), ev("Logic.COPY.discoverMild"))
+p.check("...in the copy's words", lev("discoverMessage.text"), "Discover also checks for updates, and that can cancel updates waiting for your next restart.")
 state(CONFLICT1)
 settle()
 p.check("...and without the offer pending it does not",
@@ -1297,7 +1297,7 @@ state(held_state("state-held.json"))
 settle()
 p.check("held: the banner is up, with Restart",
         [lev("stagedMessage.visible"), ev("root.vm.stagedShowRestart")], [True, True])
-p.check("...in the copy's words", lev("stagedMessage.text"), ev("Logic.COPY.restartHeldBanner"))
+p.check("...in the copy's words", lev("stagedMessage.text"), "Another updater has prepared your next restart, so restart when you are ready.")
 p.check("...and the footer button says Update Now", lev("updateButton.text"), "Update Now")
 _held_runs = p.call_count("run")
 ev("root.startUpdate()")
@@ -1305,7 +1305,7 @@ settle()
 p.check("Update Now asks first, and starts nothing", p.call_count("run") - _held_runs, 0)
 p.check("...in the question's message, in its words",
         [lev("questionMessage.visible"), lev("questionMessage.text"), lev("questionMessage.held")],
-        [True, ev("Logic.COPY.restartHeldAsk"), True])
+        [True, "Updating now may stop another updater's prepared update from installing.", True])
 p.check("...as a warning", lev("questionMessage.type"), lev("Kirigami.MessageType.Warning"))
 p.check("...with one answer, and the footer button gone meanwhile",
         [lev("questionMessage.actions[0].visible"), lev("questionMessage.actions[1].text"), lev("updateButton.visible")],
@@ -1393,11 +1393,11 @@ ev("root.popupOpened()")
 settle()
 p.check("...and once drawn, it is marked, once",
         len([c for c in p.calls_matching("discover-notifier") if c.endswith(" seen")]) - _seen_before, 1)
-p.check("...its button says what it does", lev("discoverMessage.actions[0].text"), ev("Logic.COPY.discoverOff"))
+p.check("...its button says what it does", lev("discoverMessage.actions[0].text"), "Turn Off Discover's Update Checks")
 p.check("...the warning up, as a warning, with one button",
         [lev("discoverMessage.visible"), lev("discoverMessage.type === Kirigami.MessageType.Warning"), lev("discoverMessage.actions.length")],
         [True, True, 1])
-p.check("...in the copy's words", lev("discoverMessage.text"), ev("Logic.COPY.discoverUnattended"))
+p.check("...in the copy's words", lev("discoverMessage.text"), "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates.")
 _quiet = held_state("state-unattended-seen.json", discover_unattended=True)
 state(_quiet)
 settle()
@@ -1448,7 +1448,7 @@ settle()
 p.check("a discard clicked over a stage that has since been replaced runs NOTHING",
         p.call_count("unstage"), 0)
 p.check("...and says the stage moved, where the press happened",
-        ev("root.actionMessage"), ev("Logic.COPY.stagedDiscardChanged"))
+        ev("root.actionMessage"), "These updates changed since this was offered. Nothing was discarded.")
 
 # The path that acts. The stub answers as the real command does, and the check that follows it
 # is what takes the banner off the screen: `kempt unstage` rewrites state.json before it exits,
@@ -1565,7 +1565,7 @@ p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
 settle()
 p.check("a clean check says there are no problems",
         [lev("doctorMessage.text"), lev("doctorMessage.type")],
-        [ev("Logic.COPY.doctorPassed"), lev("Kirigami.MessageType.Positive")])
+        ["Kempt checked its installation and found no problems.", lev("Kirigami.MessageType.Positive")])
 p.check("...with the report folded again for the new answer", lev("doctorReportView.visible"), False)
 p.check("...and Show Full Report drawn closed with it", lev("doctorMessage.actions[0].checked"), False)
 lev("doctorMessage.actions[0].trigger()")
@@ -1681,7 +1681,7 @@ lev("stagedMessage.actions[1].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
 p.check("another update holding the lock is still a sentence, not a status code",
-        ev("root.actionMessage"), ev("Logic.COPY.stagedDiscardBusy"))
+        ev("root.actionMessage"), "An update is running, so nothing was discarded. Try again when it has finished.")
 
 # The same guard the staging actions have, for a plainer reason: a discard during a run would
 # be pulling the transaction out from under it.
@@ -1935,7 +1935,7 @@ settle()
 stack("after Check Installation on an engine that will not start",
       "engineFaultMessage", "doctorMessage")
 p.check("...saying doctor could not start, in plain words",
-        lev("doctorMessage.text"), ev("Logic.COPY.doctorCouldNotRun"))
+        lev("doctorMessage.text"), "Kempt could not check its installation. The full report has the error.")
 p.check("...with the shell's own words in the full report",
         ev("root.doctorReport"), "sh: line 1: /home/u/.local/bin/kempt: Permission denied")
 p.check("...with one Copy Command between the two messages, not two",
@@ -2087,7 +2087,7 @@ p.wait_for(ev, "root.doctorRunning", False, timeout_ms=8000)
 settle()
 p.check("...and pressing it runs doctor and shows the answer",
         [p.call_count("doctor"), lev("doctorMessage.visible"), lev("doctorMessage.text")],
-        [1, True, ev("Logic.COPY.doctorPassed")])
+        [1, True, "Kempt checked its installation and found no problems."])
 ev("root.popupClosed()")
 p.pump(50)
 p.check("closing the popup puts the result away", lev("doctorMessage.visible"), False)
@@ -2158,7 +2158,7 @@ open(CHECKSRC, "w").write(UPTODATE)
 ev("checkAction.trigger()")
 settle()
 p.check("...and one that finds nothing says so, from the menu entry too", said(),
-        [ev("Logic.COPY.upToDate")])
+        ["Up to date"])
 # A check nobody pressed for is not news: the timer, the watcher and the popup opening.
 _sev("clear()")
 open(CHECKSRC, "w").write(fixture("state-live.json"))
@@ -2184,7 +2184,7 @@ p.check("...a background check is running", ev("root.checking"), True)
 ev("checkAction.trigger()")
 settle()
 p.check("Check for Updates pressed during a background check is answered once",
-        [said(), compact_said()], [[ev("Logic.COPY.upToDate")], []])
+        [said(), compact_said()], [["Up to date"], []])
 
 # A failed check. The line at the top still shows the old counts, so it is not the answer; a short
 # sentence is: which half failed, and how old the counts are. Read out by the answer and not ALSO
@@ -2263,7 +2263,7 @@ _failed["backends"]["dnf"]["refresh_error"] = (
     "Curl error (7): Could not connect to server for https://mirrors.example/repomd.xml")
 open(os.path.join(p.sandbox, "state-fetch-failed.json"), "w").write(json.dumps(_failed))
 open(CHECKSRC, "w").write(os.path.join(p.sandbox, "state-fetch-failed.json"))
-_fetch_words = ev("Logic.COPY.fetchNoServers")
+_fetch_words = "Kempt could not reach the update servers, so this may be out of date."
 hush()
 ev("checkAction.trigger()")
 settle()
@@ -2284,7 +2284,7 @@ ev("root.refreshClock()")
 # New words while it is on screen, outside a check's answer: the new sentence is the one read.
 # Same last_check, so the message stays up and only its words change.
 _power = dict(_failed, refresh_skipped="battery")
-_power_words = ev("Logic.COPY.fetchWaitsForPower")
+_power_words = "Kempt skips the online check on battery, so this may be out of date."
 hush()
 ev("root.kemptState = JSON.parse(%s)" % json.dumps(json.dumps(_power)))
 settle()
@@ -2338,12 +2338,12 @@ p.check("a fetch skipped on battery offers Check Anyway on its message",
          lev("fetchAnywayAction.enabled"), lev("fetchAnywayAction.text")],
         [True, True, True, "Check Anyway"])
 p.check("...with the battery tooltip", lev("fetchAnywayAction.tooltip"),
-        ev("Logic.COPY.downloadAnywayPowerTip"))
+        "Checks online now on battery power.")
 ev("root.kemptState = JSON.parse(%s)" % json.dumps(json.dumps(dict(_skipped, refresh_skipped="metered"))))
 settle()
 p.check("...and the metered tooltip on a metered link",
         [lev("fetchAnywayAction.visible"), lev("fetchAnywayAction.tooltip")],
-        [True, ev("Logic.COPY.downloadAnywayMeteredTip")])
+        [True, "Checks online now over this metered connection."])
 p.check("premise: no check has asked to download anyway yet", p.call_count("check --anyway"), 0)
 _fetched_anyway = dict(_fetched, last_check=_stamp(8),
                        metadata_refreshed=datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
@@ -2376,11 +2376,11 @@ _show(_nocache)
 p.check("lists never downloaded on battery put Check Anyway under the hint",
         [lev("placeholder.explanation"), lev("placeholder.helpfulAction === anywayPlaceholderAction"),
          lev("anywayPlaceholderAction.enabled"), lev("anywayPlaceholderAction.tooltip")],
-        [ev("Logic.COPY.checkNoCachePowerHint"), True, True, ev("Logic.COPY.downloadAnywayPowerTip")])
+        ["Plug in, then press Check for Updates.", True, True, "Checks online now on battery power."])
 _show(dict(_nocache, refresh_skipped="metered"))
 p.check("...and on a metered connection, with its own tooltip",
         [lev("placeholder.helpfulAction === anywayPlaceholderAction"),
-         lev("anywayPlaceholderAction.tooltip")], [True, ev("Logic.COPY.downloadAnywayMeteredTip")])
+         lev("anywayPlaceholderAction.tooltip")], [True, "Checks online now over this metered connection."])
 _show(dict(_nocache, refresh_skipped="off"))
 p.check("...but not with fetching turned off",
         [lev("placeholder.helpfulAction === anywayPlaceholderAction"),
@@ -2429,10 +2429,10 @@ hush()
 ev("checkAction.trigger()")
 settle()
 p.check("a Check for Updates that fails over a state we still hold says so, once",
-        said(), [ev("Logic.COPY.checkFailedOver")])
+        said(), ["The check failed. The counts shown are from the last check."])
 p.check("...on screen too, in the report slot",
         [lev("reportMessage.visible"), lev("reportMessage.text")],
-        [True, ev("Logic.COPY.checkFailedOver")])
+        [True, "The check failed. The counts shown are from the last check."])
 p.check("...as an error", lev("reportMessage.type"), lev("Kirigami.MessageType.Error"))
 hush()
 ev("root.doCheck(true)")
@@ -2440,7 +2440,7 @@ settle()
 p.check("...a background check that fails the same way adds nothing", said(), [])
 p.check("...and leaves the report up, since nobody asked again and nothing has changed",
         [ev("root.actionMessage"), ev("root.checkFailNote")],
-        [ev("Logic.COPY.checkFailedOver"), ev("Logic.COPY.checkFailedOver")])
+        ["The check failed. The counts shown are from the last check.", "The check failed. The counts shown are from the last check."])
 # The refresh on open is such a check too: opening the popup must not wipe the note.
 _src_before = open(CHECKSRC).read()
 open(CHECKRC, "w").write("")
@@ -2448,7 +2448,7 @@ open(CHECKSRC, "w").write(fixture("state-stale.json"))
 ev("root.doCheck(true)")
 settle()
 p.check("an automatic recheck that answers with stale counts keeps the note",
-        ev("root.actionMessage"), ev("Logic.COPY.checkFailedOver"))
+        ev("root.actionMessage"), "The check failed. The counts shown are from the last check.")
 open(CHECKSRC, "w").write(fixture("state-live.json"))
 ev("root.doCheck(true)")
 settle()
@@ -2466,8 +2466,8 @@ p.check("premise: a Check for Updates is in flight", ev("root.checking"), True)
 ev('executor.finish("", "timeout after " + Logic.CHECK_TIMEOUT_MS + "ms", 124)')
 p.pump(100)
 p.check("a Check for Updates the Executor had to stop says it did not finish, once",
-        said(), [ev("Logic.COPY.checkUnfinished")])
-p.check("...on screen too", lev("reportMessage.text"), ev("Logic.COPY.checkUnfinished"))
+        said(), ["The check did not finish. The counts shown are from the last check."])
+p.check("...on screen too", lev("reportMessage.text"), "The check did not finish. The counts shown are from the last check.")
 p.check("...never the timeout text", "timeout after" in str(lev("reportMessage.text")), False)
 open(CHECKSLEEP, "w").write("")
 p.pump(3500)
@@ -2494,7 +2494,7 @@ hush()
 ev("checkAction.trigger()")
 settle()
 p.check("Check for Updates from the menu with the popup closed is said by the panel icon, once",
-        [compact_said(), said()], [[ev("Logic.COPY.upToDate")], []])
+        [compact_said(), said()], [["Up to date"], []])
 # ...and a failure the same way, without the hidden footer saying it as well.
 open(CHECKSRC, "w").write(fixture("state-stale.json"))
 hush()
@@ -2680,7 +2680,7 @@ settle()
 p.check("the message's own action is what opens KDE's prompt",
         len(records("dbus-send")) - dbus_before, 1)
 p.check("...labelled with a real ellipsis, KDE's mark for an action that opens something else",
-        lev("restartMessage.actions[0].text"), ev("Logic.COPY.restartAction"))
+        lev("restartMessage.actions[0].text"), "Restart…")
 
 # --- ...and the state where that button must not be there at all ---------------------------------
 # A Fedora release upgrade staged outside Kempt. dnf5 keeps ONE stored transaction for that and
@@ -2737,7 +2737,7 @@ _fppath = os.path.join(p.sandbox, "state-unsafe-folder.json")
 open(_fppath, "w").write(json.dumps(_fp))
 state(_fppath)
 p.check("a check that found an unsafe folder says updates are paused",
-        lev("blockedMessage.text"), ev("Logic.COPY.updatesPausedFolder"))
+        lev("blockedMessage.text"), "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.")
 p.check("...as a warning", lev("blockedMessage.type"), lev("Kirigami.MessageType.Warning"))
 p.check("...and it is drawn", lev("blockedMessage.visible"), True)
 state(_ibpath)
@@ -2774,23 +2774,23 @@ p.pump(100)
 settle()
 p.check("Update Now on a session-critical set in the popup starts nothing",
         p.call_count("run") - runs_before, 0)
-_lead = ev("Logic.COPY.riskyAskLead")
-p.check("...and gives the reason on screen", lev("questionMessage.text"), ev("Logic.COPY.kernelRestart"))
+_lead = "Nothing is installed yet."
+p.check("...and gives the reason on screen", lev("questionMessage.text"), "The next restart is the safest time to install a new kernel.")
 p.check("...with Update Now off the footer while the question is open",
         lev("updateButton.visible"), False)
 p.pump(700)  # the question's focus retry speaks when it ends, and there is no real window here
 p.check("...and out loud, once, saying first that nothing is installed yet",
-        said(), [_lead + " " + ev("Logic.COPY.kernelRestart")])
+        said(), [_lead + " " + "The next restart is the safest time to install a new kernel."])
 p.check("...and opens the choice instead", ev("root.riskyChoiceOpen"), True)
 p.check("...in the question's message",
         [lev("questionMessage.visible"), lev("questionMessage.asking")], [True, True])
 p.check("...which can be closed", lev("questionMessage.showCloseButton"), True)
 p.check("...offering Install on Next Restart first",
         [lev("questionMessage.actions[0].text"), lev("questionMessage.actions[0].visible")],
-        [ev("Logic.COPY.installOnNextRestart"), True])
+        ["Install on Next Restart", True])
 p.check("...and Install Now beside it",
         [lev("questionMessage.actions[1].text"), lev("questionMessage.actions[1].visible")],
-        [ev("Logic.COPY.installNow"), True])
+        ["Install Now", True])
 
 # Every way the question closes gives Update Now back to the footer, whenever its own rule allows
 # it. The rule here is the binding's, less the question.
@@ -2902,12 +2902,12 @@ _dopath = os.path.join(p.sandbox, "state-discover-offer.json")
 open(_dopath, "w").write(json.dumps(_do))
 state(_dopath)
 p.check("the mild Discover message is up", lev("discoverMessage.visible"), True)
-p.check("...in the words on screen", lev("discoverMessage.text"), ev("Logic.COPY.discoverMild"))
+p.check("...in the words on screen", lev("discoverMessage.text"), "Discover also checks for updates, and that can cancel updates waiting for your next restart.")
 p.check("...as information", lev("discoverMessage.type === Kirigami.MessageType.Information"), True)
 p.check("...with one button and a close",
         [lev("discoverMessage.actions.length"), lev("discoverMessage.actions[0].text"), lev("discoverMessage.showCloseButton")],
-        [1, ev("Logic.COPY.discoverOff"), True])
-p.check("...and a tooltip that says should", lev("discoverMessage.actions[0].tooltip"), ev("Logic.COPY.discoverOffTip"))
+        [1, "Turn Off Discover's Update Checks", True])
+p.check("...and a tooltip that says should", lev("discoverMessage.actions[0].tooltip"), "Turning off Discover's update checks should stop that.")
 
 # Turn Off Discover's Update Checks: the command, then a check, and the offer is gone.
 p.clear_calls()
@@ -3359,164 +3359,5 @@ p.check("...and the default size is tall enough for that",
         "Layout.preferredHeight: Kirigami.Units.gridUnit * 28" in _src, True)
 p.check("...and scrolls within that rather than clipping what it cannot show",
         "interactive: contentHeight > height" in _code_src, True)
-
-# --- the copy table is the specification, and the QML has to repeat it verbatim ---------------------
-# logic.js's COPY is where the wording is decided and node-tested, but the QML cannot READ it:
-# translation extraction works on literals, and `i18n(Logic.COPY.updateNow)` extracts nothing at all
-# and ships an untranslatable widget. So the QML writes the same literal, and this is what stops the
-# two drifting.
-#
-# Only the LABEL entries are pinned. The rest are ingredients logic.js assembles its own sentences
-# from - they reach the popup through the view model as DATA, and a QML file that wrote them as
-# literals would be the second copy this arrangement exists to prevent. Every key must be in one
-# bucket or the other, so a new entry cannot slip in unclassified.
-_QML_SRC = ""
-for _name in sorted(os.listdir(harness.UI)):
-    if _name.endswith(".qml"):
-        _QML_SRC += " " + " ".join(open(os.path.join(harness.UI, _name)).read().split())
-
-# ...and the third bucket, which is neither: a sentence with a name in it that the QML substitutes
-# itself. `i18n("Holding %1", name)` is one translatable unit with an argument, so the literal a
-# translator extracts ends at the comma rather than at the closing bracket - which is the only
-# thing that makes these different from the labels below.
-_SUBSTITUTED_IN_QML = {
-    "holdAnnounce",         # -> popup.announce, when a hold has landed
-    "unholdAnnounce",       # -> popup.announce, when one has been lifted
-    "holdAt",               # -> the padlock's name and tooltip on a pending row
-    "stopHolding",          # -> ...on a held one, and the settings page's remove button
-    "skipInstalling",       # -> ...on a row whose package is not installed yet
-    "stopSkipping",         # -> ...and its way out
-    "versionRange",         # -> the version line's accessible name
-    "discoverStatusOwn",    # -> the settings page's Discover row, with the startup file's path
-    "startupMuteFailed",    # -> a startup entry's message, or the settings page, when a mute failed
-    "startupMuteRunning",   # -> ...the same places, when the service started before the press
-    "startupUnmuteFailed",  # -> the settings page, when Stop Muting failed
-    "startupStopMuting",    # -> the settings page's button on a muted service
-    "startupUnmuted",       # -> ...and the line beside its Undo
-}
-
-_ASSEMBLED_IN_LOGIC = {
-    "startupPageUnreadable",     # -> startupPageOutcomeOf -> the page's problem line
-    "startupPageTimedOut",
-    "startupPageFailed",
-    "startupPageFailedCode",
-    "reclaimSized",         # -> reclaimMessageOf -> vm.reclaimMessage (the size goes into the %1)
-    "reclaimEol",           # -> reclaimRefLineOf -> vm.reclaimLines
-    "reclaimNothing",       # -> reclaimSaid -> actionDone
-    "reclaimFailed",        # -> reclaimSaid -> actionMessage (the exit code goes into the %1)
-    "reclaimTimedOut",      # -> reclaimSaid -> actionMessage, when the Executor gave up
-    "upToDate",             # -> countPhrase -> vm.headerText
-    "everythingUpToDate",   # -> vm.emptyStateText
-    "restartFailed",        # -> root.restartError, rendered inside the restart message
-    "kernelRestart",        # -> riskyMessageOf -> vm.questionMessage
-    "kernelNvidiaRestart",  # -> riskyMessageOf -> vm.questionMessage
-    "riskySession",         # -> riskyMessageOf -> vm.questionMessage (the family list goes in)
-    "statusKernel",         # -> statusLineOf -> vm.headerText
-    "statusSession",        # -> statusLineOf -> vm.headerText
-    "newBuild",             # -> versionTextOf, for an update whose version string did not move
-    "held",                 # -> vm.footerText and vm.tooltipSub
-    "restartPending",       # -> vm.footerText
-    "noSuccessfulCheckYet",  # -> vm.footerText
-    "lastCheckFailed",      # -> vm.footerText, beside the date it explains
-    "userAppsUnchecked",    # -> vm.emptyStateText, in place of everythingUpToDate
-    "userAppsUncheckedShort",  # -> vm.footerText and vm.tooltipSub
-    "noPackageChanges",     # -> postRunLine
-    "updateFailed",         # -> postRunLine
-    "updatesPausedFolder",  # -> postRunLine, for a run the helper refused over a system folder, and vm.blockedMessage
-    "stagedNothingHeld",    # -> postRunLine, for a staging run that staged nothing
-    "stagedNothingNonePending",  # -> postRunLine, the other reason it can have staged nothing
-    "lastRunNothingStaged",  # -> lastRunText, the past-tense row for the same run
-    "stagedTail",           # -> stagedMessageOf -> vm.stagedMessage
-    "stagedRunDone",  # -> postRunLine, after a run that prepared updates
-    "stagedOne",            # -> stagedMessageOf -> vm.stagedMessage
-    "stagedHeaderOne",      # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
-    "stagedHeaderTail",     # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
-    "stagedHeaderUnknown",  # -> stagedHeaderOf -> vm.headerText and vm.tooltipMain
-    "stagedConflictOne",    # -> stagedVariantOf -> vm.stagedMessage (a name goes into the %1)
-    "stagedConflictMore",   # -> stagedVariantOf -> vm.stagedMessage (a name and a count)
-    "stagedConflictUnknown",  # -> stagedVariantOf -> vm.stagedMessage
-    "discoverMild",         # -> vm.discoverMessage
-    "discoverUnattended",   # -> vm.discoverMessage
-    "stagedDiscardDone",    # -> discardStagedMessage, for a discard the CLI did not describe
-    "stagedDiscardRefused",  # -> discardStagedMessage, for a silent exit 5
-    "stagedDiscardBusy",    # -> discardStagedMessage, for a silent exit 3
-    "stagedDiscardFailed",  # -> discardStagedMessage, with the status in the %1
-    "stagedDiscardChanged",  # -> root.actionMessage, the same way restartFailed is assigned
-    "holdFailed",           # -> root.holdError.text, assigned by main.qml with the name filled in
-    "engineMissing",        # -> vm.engineFaultMessage, and vm.tooltipSub on its own
-    "engineMissingCopy",    # -> vm.engineFaultCopyText: a clipboard payload of shell commands,
-                            #    bound as data - and never a translatable unit at all
-    "engineMissingInstall",  # -> vm.engineFaultMessage
-    "engineUnrunnable",     # -> vm.engineFaultMessage, and vm.tooltipSub, for the rc 126 half
-    "engineUnrunnableCopy",  # -> vm.engineFaultCopyText: a command line, bound as data
-    "engineUnrunnableFix",  # -> vm.engineFaultMessage
-    "engineCopyCommands",   # -> vm.engineFaultActionLabel: the button's label follows its payload
-    "engineCopyCommand",    # -> vm.engineFaultActionLabel
-    "releaseUpgradeArmed",  # -> vm.blockedMessage (the release number goes into the %1)
-    "releaseUpgradeWaiting",  # -> vm.blockedMessage, for every other state
-    "releaseUpgradeArmedFolder",  # -> vm.blockedMessage, armed with an unsafe folder
-    "imageBased",           # -> vm.blockedMessage, and vm.tooltipSub is not given it: the panel
-                            #    hover is not where a person learns what kind of Fedora they run
-    "doctorPassed",         # -> doctorOutcomeOf -> root.doctorSummary
-    "doctorFoundOne",       # -> doctorOutcomeOf, with doctor's FAIL line in the %1
-    "doctorFoundMore",      # -> doctorOutcomeOf, with the count and the first FAIL line
-    "doctorCouldNotRun",    # -> doctorOutcomeOf, with the first line doctor's stderr gave
-    "doctorCouldNotRunCode",  # -> doctorOutcomeOf, with the status, when it gave none
-    "doctorTimedOut",       # -> doctorOutcomeOf, for the Executor's own kill
-    "checkTimedOut",        # -> checkErrorOf -> root.cliError, for the Executor's own kill
-    "checkUnfinished",      # -> checkFailedOverOf -> root.actionMessage and vm.checkAnswerText
-    "checkFailedOver",      # -> checkFailedOverOf, for any other failure over held counts
-    "checkFailedFor",       # -> staleAnswerOf -> vm.checkAnswerText (dnf and Flatpak into the %1)
-    "checkFailedPlain",     # -> staleAnswerOf, when the reason names neither
-    "countsFrom",           # -> staleAnswerOf, with the age of the counts in the %1
-    "fetchNoServers",       # -> fetchMissedOf -> vm.reportFetchMessage, for a network failure
-    "fetchFailed",          # -> fetchMissedOf, for any other failed fetch
-    "fetchWaitsForPower",   # -> fetchMissedOf, for a fetch skipped on battery
-    "fetchWaitsForUnmetered",  # -> fetchMissedOf, for a fetch skipped on a metered connection
-    "fetchFailedNoAge",     # -> fetchMissedOf, for a failed fetch with no stamp on the lists
-    "fetchMissed",          # -> fetchMissedOf, for an engine that does not say why
-    "fetchMissedNoAge",     # -> fetchMissedOf, the same with no stamp on the lists
-    "riskyAskLead",         # -> FullRepresentation's question, spoken in front of its words
-    "stagedOthersOne",      # -> stagedOthersOf -> vm.stagedMessage, after the banner's sentence
-    "stagedOthersMore",     # -> stagedOthersOf -> vm.stagedMessage, with the count in the %1
-    "stageBlocked",         # -> vm.stagedMessage and vm.stagedMessage, behind another updater's restart
-    "checkFailedHeadline",  # -> checkProblemOf -> vm.emptyStateText
-    "checkNetworkHeadline",  # -> checkProblemOf -> vm.emptyStateText, for a network failure
-    "checkNoCacheHeadline",  # -> checkProblemOf -> vm.emptyStateText, for dnf with no cache
-    "checkFailedHint",      # -> checkProblemOf -> vm.problemHint, beside Check Installation
-    "checkNetworkHint",     # -> checkProblemOf -> vm.problemHint, for a network failure
-    "checkNoCacheHint",     # -> checkProblemOf -> vm.problemHint, for lists never downloaded
-    "checkNoCachePowerHint",  # -> checkProblemOf, for lists never downloaded on battery
-    "checkNoCacheMeteredHint",  # -> checkProblemOf, for lists never downloaded on a metered connection
-    "checkNoCacheOffHint",  # -> checkProblemOf, for lists never downloaded with fetching turned off
-    "checkRefreshFailedHint",  # -> checkProblemOf -> vm.problemHint, over dnf's refresh error
-    "checkFailedTooltip",   # -> vm.tooltipMain, for a check that answered nothing
-    "stateUnreadableTooltip",  # -> vm.tooltipMain, for a state that could not be read
-    "checkNetworkShort",    # -> vm.tooltipSub, for a network failure
-    "checkFailedShort",     # -> vm.tooltipSub, for any other failure
-    "lastSuccessfulCheck",  # -> vm.tooltipSub while stale (a relative time goes into the %1)
-    "securityCount",        # -> vm.tooltipSub, the security updates pending (the count goes into the %1)
-    "securityCountOne",     # -> vm.tooltipSub, when there is one
-    "answerTimedOut",       # -> answerOutcomeOf, for the Executor's own kill
-    "settingTimedOut",      # -> answerOutcomeOf, for a Settings switch or config write the Executor killed
-    "holdTimedOut",         # -> answerOutcomeOf, for a hold or unhold the Executor killed
-    "restartHeld",          # -> what `kempt status` prints, the same words
-    "restartHeldBanner",    # -> vm.stagedMessage and vm.stagedMessage
-    "restartHeldFooter",    # -> lastRunText
-    "restartHeldAsk",       # -> vm.questionMessage
-    "lastCheckFailedHeader",  # -> vm.headerText and vm.tooltipMain, over a failed check with nothing waiting
-}
-_COPY = json.loads(str(ev("JSON.stringify(Logic.COPY)")))
-p.check("every string said to be assembled in logic.js is still in the copy table",
-        sorted(k for k in _ASSEMBLED_IN_LOGIC if k not in _COPY), [])
-for _key in sorted(_COPY):
-    if _key in _ASSEMBLED_IN_LOGIC:
-        continue
-    if _key in _SUBSTITUTED_IN_QML:
-        p.check("the widget writes the agreed `%s` as a literal with its argument after it" % _key,
-                'i18n("%s", ' % _COPY[_key] in _QML_SRC, True)
-        continue
-    p.check("the widget writes the agreed `%s` as a literal a translator can extract" % _key,
-            'i18n("%s")' % _COPY[_key] in _QML_SRC, True)
 
 sys.exit(p.done())

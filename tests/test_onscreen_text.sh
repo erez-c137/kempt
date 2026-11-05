@@ -4,7 +4,7 @@
 # "popup", and the code words surface, harvest, seam, arm and backend.
 #
 # Three sources, each read the way the program itself reads it:
-#   1. the widget's copy table and the sentences the view model assembles, from logic.js under node;
+#   1. the widget's sentences from the extraction template and the ones the view model assembles, from logic.js under node;
 #   2. every i18n()/i18nc() literal in the .qml files;
 #   3. the CLI's failure reasons, notifications, warnings and `kempt doctor` rows.
 source "$(dirname "$0")/lib.sh"; sandbox
@@ -18,7 +18,9 @@ if command -v node >/dev/null 2>&1; then
     const L = require(process.argv[1]);
     const out = [];
     const add = (src, s) => { if (typeof s === "string" && s !== "") out.push(src + "\t" + s.replace(/\n/g, " ")); };
-    for (const [k, v] of Object.entries(L.COPY)) add("COPY." + k, v);
+    // Every sentence the widget can show, from the extraction template.
+    const POT = fs.readFileSync(process.argv[3], "utf8");
+    for (const m of POT.matchAll(/^msgid(?:_plural)? "(.+)"$/gm)) add("template", JSON.parse("\"" + m[1] + "\""));
     // The sentences the view model builds out of the copy, for every state fixture, idle and
     // updating, plus the no-data state.
     const FIELDS = ["tooltipMain", "tooltipSub", "headerText", "emptyStateText",
@@ -68,10 +70,9 @@ if command -v node >/dev/null 2>&1; then
       tryAdd("reclaimSaid(" + rc + ")", () => L.reclaimSaid(rc, "", ""));
     }
     process.stdout.write(out.join("\n") + "\n");
-  ' "$UI/logic.js" "$FIXTURES" > "$TEXT"
+  ' "$UI/logic.js" "$FIXTURES" "$REPO_ROOT/po/plasma_applet_io.github.erez_c137.kempt.pot" > "$TEXT"
   assert_eq "$(grep -c '^postRunLine(failed)' "$TEXT")" "1" "the sentences built from a run are collected"
-  assert_eq "$(grep -c '^COPY\.' "$TEXT")" "$(node -e 'console.log(Object.keys(require(process.argv[1]).COPY).length)' "$UI/logic.js")" \
-    "every entry in the copy table is collected"
+  assert_eq "$([[ "$(grep -c '^template' "$TEXT")" -gt 200 ]] && echo yes)" "yes" "the widget's sentences are collected"
 else
   skip "node is not installed, so the widget's copy table was NOT checked in this run"
   : > "$TEXT"
@@ -111,7 +112,7 @@ for f in sorted(glob.glob(os.path.join(sys.argv[1], "*.qml"))):
             print(f"{os.path.basename(f)}:{n}\t{text}")
 PY
 assert_eq "$(grep -c '\.qml:' "$TEXT" | awk '{print ($1 > 50)}')" "1" "the .qml literals were collected"
-assert_eq "$(grep -c 'stopped waiting for the update to report back' "$TEXT")" "1" "main.qml's own messages are collected"
+assert_eq "$(grep -c '^main.qml:.*stopped waiting for the update to report back' "$TEXT")" "1" "main.qml's own messages are collected"
 
 # --- 3. the CLI ---------------------------------------------------------------------------------
 # The first double-quoted argument of the calls that put a sentence in front of a person, and the
@@ -173,7 +174,7 @@ assert_contains "$HELPER_TEXT" "Kempt could not check X (X). Run kempt doctor." 
 assert_contains "$HELPER_TEXT" "Kempt does not update atomic Fedora (Kinoite, Silverblue, bootc image mode); use Discover, rpm-ostree or bootc upgrade." "...and the atomic one"
 assert_contains "$(cut -f2- "$TEXT")" "These updates were left in place. Run kempt doctor." "the clean unwind's sentence is collected"
 if command -v node >/dev/null 2>&1; then
-  PAUSED="$(node -e 'console.log(require(process.argv[1]).COPY.updatesPausedFolder)' "$UI/logic.js")"
+  PAUSED="$(grep -oF 'A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it.' "$UI/logic.js" | head -1)"
   assert_eq "$PAUSED" "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it." "the widget's own form"
 fi
 

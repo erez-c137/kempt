@@ -599,7 +599,7 @@ state(fixture("state-risky-heavy.json"))
 ev("root.riskyChoiceOpen = true")
 p.pump(120)
 p.check("the question announces that nothing is installed yet, then the sentence it is showing",
-        lev("questionMessage.Accessible.name"), str(ev("Logic.COPY.riskyAskLead")) + " " + str(lev("questionMessage.text")))
+        lev("questionMessage.Accessible.name"), "Nothing is installed yet." + " " + str(lev("questionMessage.text")))
 ev("root.riskyChoiceOpen = false")
 p.pump(120)
 
@@ -901,7 +901,7 @@ _raw = open(os.path.join(harness.UI, "FullRepresentation.qml")).read()
 _stack = _raw[_raw.index("Kirigami.InlineMessage {"):_raw.index("--- the list, and what stands")]
 p.check("every message in the stack announces its own words",
         _stack.count("Accessible.name: text") + _stack.count("Accessible.name: popup.vm.stagedMessage")
-        + _stack.count('Accessible.name: Logic.COPY.riskyAskLead + " " + text'),
+        + _stack.count('Accessible.name: i18n("Nothing is installed yet. %1", text)'),
         _stack.count("Kirigami.InlineMessage {"))
 
 # ==================================================================================================
