@@ -140,6 +140,8 @@ source "$REPO_ROOT/backends/flatpak.sh"
 assert_eq "$(bad_list '.')" "accepted" "premise: the fixture passes the shape check"
 assert_eq "$(bad_list '.unused[0].ref = "--force-remove"')" "rejected" "a ref that looks like an option rejects the whole list"
 assert_eq "$(bad_list '.used[0].deploy_dir = "relative/dir"')" "rejected" "...and so does a deploy directory that is not absolute"
+assert_eq "$(bad_list '.unused[0].ref = "app/org.example.App/x86_64/stable"')" "rejected" "...and so does an app on the unused side"
+assert_eq "$(bad_list '.used[0].ref = "app/org.example.App/x86_64/stable"')" "accepted" "...while an app on the used side is what used means"
 reset
 
 # --- the size estimate ----------------------------------------------------------------------------

@@ -160,7 +160,8 @@ KEMPT_RECLAIM_UNINSTALL_TIMEOUT=600
 flatpak_present() { command -v "${KEMPT_FLATPAK_UNINSTALL_CMD%% *}" >/dev/null 2>&1; }
 
 # The helper's answer, checked for shape before anything reads it: every ref is kind/id/arch/branch
-# with an absolute deploy directory. One bad entry rejects the whole answer, since its deploy
+# with an absolute deploy directory, and only a runtime counts as unused, so an app can never reach
+# flatpak under a message about runtimes. One bad entry rejects the whole answer, since its deploy
 # directories are handed to du and its refs to flatpak.
 flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when the helper did not answer
   local out
@@ -172,7 +173,7 @@ flatpak_unused_list() {  # → the listing as one line of JSON; non-zero when th
       and (.ref | type == "string" and test("^(runtime|app)/[A-Za-z0-9._-]+/[A-Za-z0-9_-]+/[A-Za-z0-9._-]+$"))
       and (.deploy_dir | type == "string" and test("^/[^\t\n]*$"));
     select(type == "object" and (.unused | type == "array") and (.used | type == "array")
-           and all(.unused[]; okref and ((.eol == null) or (.eol | type == "string")))
+           and all(.unused[]; okref and (.ref | startswith("runtime/")) and ((.eol == null) or (.eol | type == "string")))
            and all(.used[]; okref))
     | {unused: [.unused[] | {ref, deploy_dir, eol}], used: [.used[] | {ref, deploy_dir}]}' <<<"$out" 2>/dev/null
 }
