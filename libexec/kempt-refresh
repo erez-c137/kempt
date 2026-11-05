@@ -7,8 +7,7 @@
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin LC_ALL=C.UTF-8
 
-ROOT="" OWNER=0 GROUP=0
-version="$(rpm -q --qf '%{VERSION}' dnf5 2>/dev/null || true)"
+ROOT="" OWNER=0 GROUP=0 version=""
 # The tests' stand-in tree. pkexec always runs this as root, which never enters this block.
 if (( EUID )); then
   ROOT="${KEMPT_HELPER_ROOT:?this helper runs through pkexec}" OWNER="$EUID" GROUP="$(id -g)"
@@ -25,6 +24,7 @@ case "$1" in
   # dnf5 5.4.0 added --json; Fedora 43 has 5.2. The CLI tells the two apart by content.
   check)
     args=(--cacheonly check-update --quiet)
+    (( EUID )) || version="$(rpm -q --qf '%{VERSION}' dnf5 2>/dev/null || true)"
     if [[ "$version" =~ ^[0-9][0-9.]*$ && "$(printf '%s\n' 5.4.0 "$version" | sort -V | head -n1)" == 5.4.0 ]]; then
       args+=(--json)
     fi
