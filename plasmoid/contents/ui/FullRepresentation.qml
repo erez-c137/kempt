@@ -1227,7 +1227,7 @@ PlasmaExtras.Representation {
                 }
             ]
             // The close button assigns visible = false and breaks the binding, as on the restart
-            // message: turn it into a dismissal of this digest and put the binding back. The guard
+            // message: turn it into a dismissal and put the binding back. The guard
             // tells a close apart from the popup hiding for a run.
             onVisibleChanged: {
                 if (visible) { popup.speakMessage(reclaimMessage, false); return; }

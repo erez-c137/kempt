@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Reclaiming disk space: the Flatpak refs nothing installed uses. The listing helper, the size
-# estimate, the stability rule, the reclaim block in state.json and `kempt reclaim` itself.
+# estimate, the reclaim block in state.json and `kempt reclaim` itself.
 source "$(dirname "$0")/lib.sh"; sandbox
 source "$REPO_ROOT/lib/common.sh"
 KEMPT="$REPO_ROOT/bin/kempt"
@@ -14,10 +14,8 @@ assert_eq "$(printf 'Uninstalling\nerror: Failed to uninstall runtime/a/x86_64/1
   "error: Failed to uninstall runtime/a/x86_64/1: busy" "error_line_of prefers flatpak's \"Failed to\" line over its generic last one"
 assert_eq "$(printf 'error: first\nerror: second\nwarning: after\n' | error_line_of)" "error: second" \
   "...else the last error: line"
-# Terminal escapes of every kind go: CSI with private parameters (hide cursor), OSC (window title,
-# hyperlink) and the C1 CSI, as U+009B or a lone byte after ASCII. A 0x9b inside a UTF-8 character stays.
-assert_eq "$(printf '\033[?25l\033]0;flatpak\007error: Failed to \033]8;;http://x\033\\go\033]8;;\033\\ \xc2\x9b1mhere\xc2\x9b0m \x9b1mnow \xc3\x9b\033[?25h\n' | error_line_of)" \
-  "error: Failed to go here now $(printf '\xc3\x9b')" "...with CSI, OSC and C1 CSI sequences removed"
+# A terminal escape loses its ESC, so it can do nothing, and its text stays: the widget shows plain text.
+assert_eq "$(printf 'error: \033[1mbad\033[0m\r\n' | error_line_of)" "error: [1mbad[0m" "...with control characters removed"
 # 200 characters, cut on a character boundary: the result is still valid UTF-8.
 long="$(printf 'error: %s' "$(printf '\xc3\xa9%.0s' {1..300})" | error_line_of)"
 assert_eq "$(printf '%s' "$long" | LC_ALL=C.UTF-8 wc -m)|$(printf '%s' "$long" | iconv -f UTF-8 -t UTF-8 >/dev/null 2>&1 && echo valid)" "200|valid" \
@@ -26,94 +24,63 @@ assert_eq "$(printf '%s' "$long" | LC_ALL=C.UTF-8 wc -m)|$(printf '%s' "$long" |
 # --- the listing helper ---------------------------------------------------------------------------
 # Run against a stand-in for PyGObject (tests/fixtures/fake-gi) that serves the fixture's refs, so
 # this needs python3 and nothing else: no libflatpak, no system installation, no network.
+helper() { PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER" "$@"; }
 if command -v python3 >/dev/null 2>&1; then
   # The fixture's installation moved to a directory with a repo in it, as a real one has.
   HFX="$TESTTMP/helper-fx.json"; mkdir -p "$TESTTMP/inst/repo"
   jq --arg p "$TESTTMP/inst" '.installation = $p' "$UNUSED_FX" > "$HFX"
-  export FAKE_FLATPAK_JSON="$HFX" FAKE_FLATPAK_CALLS="$TESTTMP/fake-calls" FAKE_FLATPAK_METADATA="$FIXTURES/flatpak-metadata.json"
-  hout="$(PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER")" || hout="rc=$?"
-  assert_json_eq "$hout" "$(cat "$HFX")" \
-    "the helper prints the installation, the unused refs with their end-of-life reason, and the rest as used"
-  assert_eq "$(jq -r '.unused[4].eol' <<<"$hout" 2>/dev/null)" \
-    "We strongly recommend moving to the latest stable version of the Platform and SDK" \
-    "...an end-of-life runtime carries flatpak's reason"
-  assert_eq "$(jq -r '.unused[0].eol' <<<"$hout" 2>/dev/null)" "null" "...and a supported one carries null"
-  # Extensions from flatpak's metadata: GL.default 24.08 has its own [ExtensionOf], the Locale is a
-  # point the 24.08 runtime declares, GL.default 24.08extra lies under one (subdirectories).
-  assert_eq "$(jq -c '[.unused[] | .extension]' <<<"$hout" 2>/dev/null)" "[false,true,true,true,false]" \
-    "...and each unused ref says whether it is an extension, from flatpak's metadata"
-  # A theme's id does not start with its runtime's: only the runtime's [Extension org.gtk.Gtk3theme]
-  # says what it is. A ref whose metadata cannot be read carries no answer, for the CLI to fall back.
-  jq '.unused += [{ref: "runtime/org.gtk.Gtk3theme.Adwaita-dark/x86_64/3.22", commit: "c1", deploy_dir: "/d/theme", eol: null},
-                  {ref: "runtime/org.example.Orphan/x86_64/1", commit: "c2", deploy_dir: "/d/orphan", eol: null}]' \
-    "$HFX" > "$TESTTMP/theme-fx.json"
-  jq '. + {"runtime/org.gtk.Gtk3theme.Adwaita-dark/x86_64/3.22": "[Runtime]\nname=org.gtk.Gtk3theme.Adwaita-dark\n"}' \
-    "$FIXTURES/flatpak-metadata.json" > "$TESTTMP/theme-md.json"
-  hout="$(FAKE_FLATPAK_JSON="$TESTTMP/theme-fx.json" FAKE_FLATPAK_METADATA="$TESTTMP/theme-md.json" FAKE_FLATPAK_CALLS="" \
-    PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER")" || hout="rc=$?"
-  assert_eq "$(jq -c '.unused[5:] | map(.extension)' <<<"$hout" 2>/dev/null)" "[true,null]" \
-    "...a Gtk3theme is an extension though its id does not start with its runtime's"
-  assert_eq "$(jq -c '.unused[6] | has("extension")' <<<"$hout" 2>/dev/null)" "false" \
-    "...and a ref with unreadable metadata carries no extension field"
-  # flatpak counts [ExtensionOf] only with its ref key: without it, the ref is not an extension.
-  jq '. + {"runtime/org.example.Orphan/x86_64/1": "[Runtime]\nname=org.example.Orphan\n\n[ExtensionOf]\nprivileged=true\n"}' \
-    "$TESTTMP/theme-md.json" > "$TESTTMP/noref-md.json"
-  hout="$(FAKE_FLATPAK_JSON="$TESTTMP/theme-fx.json" FAKE_FLATPAK_METADATA="$TESTTMP/noref-md.json" FAKE_FLATPAK_CALLS="" \
-    PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER")" || hout="rc=$?"
-  assert_eq "$(jq -c '.unused[6].extension' <<<"$hout" 2>/dev/null)" "false" \
-    "...and an [ExtensionOf] group with no ref key does not make a ref an extension"
+  export FAKE_FLATPAK_JSON="$HFX" FAKE_FLATPAK_CALLS="$TESTTMP/fake-calls"
+  hout="$(helper)" || hout="rc=$?"
+  assert_json_eq "$hout" "$(jq 'del(.installation)' "$HFX")" \
+    "the helper prints the unused refs, and the rest as used"
   # new_user() creates ~/.local/share/flatpak/repo as a side effect, so the helper must never call it.
   assert_eq "$(cat "$TESTTMP/fake-calls")" "new_system" "the helper opens the system installation and nothing else"
-  rc=0; FAKE_FLATPAK_FAIL="boom" PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 \
-    "$HELPER" >"$TESTTMP/hout" 2>"$TESTTMP/herr" || rc=$?
-  assert_eq "$rc" "1" "a library that fails is a non-zero exit"
-  assert_eq "$(wc -c < "$TESTTMP/hout")" "0" "...with nothing on stdout for the CLI to parse"
+  rc=0; FAKE_FLATPAK_FAIL="boom" helper >"$TESTTMP/hout" 2>"$TESTTMP/herr" || rc=$?
+  assert_eq "$rc|$(wc -c < "$TESTTMP/hout")" "1|0" "a library that fails is a non-zero exit with nothing on stdout"
   assert_contains "$(cat "$TESTTMP/herr")" "flatpak did not answer: boom" "...and the reason on stderr"
   rc=0; PYTHONPATH="$TESTTMP/no-such-dir" PYTHONNOUSERSITE=1 PYTHONDONTWRITEBYTECODE=1 python3 -S "$HELPER" \
     >/dev/null 2>"$TESTTMP/herr" || rc=$?
   assert_eq "$rc" "3" "no PyGObject at all is exit 3"
   # flatpak installed, nothing ever installed with it: no repo yet, and nothing to list.
   jq --arg p "$TESTTMP/no-repo" '.installation = $p' "$UNUSED_FX" > "$TESTTMP/norepo-fx.json"
-  rc=0; hout="$(FAKE_FLATPAK_JSON="$TESTTMP/norepo-fx.json" \
-    PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER" 2>/dev/null)" || rc=$?
+  rc=0; hout="$(FAKE_FLATPAK_JSON="$TESTTMP/norepo-fx.json" helper 2>/dev/null)" || rc=$?
   assert_eq "$rc|$(jq -c '[.unused, .used]' <<<"$hout" 2>/dev/null)" "0|[[],[]]" \
     "a system installation with no repository yet lists nothing, and is not a failure"
   assert_exit 2 "the helper takes no arguments" -- env PYTHONPATH="$FIXTURES/fake-gi" "$HELPER" --user
-  unset FAKE_FLATPAK_JSON FAKE_FLATPAK_CALLS FAKE_FLATPAK_METADATA
-else
-  skip "python3 not installed: the listing helper was not run"
-fi
-# Not under lib/ or backends/: the package strips the shebang from every file there, and this one
-# is executed rather than sourced.
-assert_eq "$(head -1 "$HELPER")" "#!/usr/bin/python3 -s" "the helper names its interpreter absolutely, without the user's site-packages"
-# -s keeps a `gi` in ~/.local/lib/python3.*/site-packages from shadowing the system one. Proved with
-# usercustomize, which Python imports from the user site at startup unless -s is given.
-if command -v python3 >/dev/null 2>&1; then
+  # -s keeps a `gi` in the user's site-packages from shadowing the system one. Proved with
+  # usercustomize, which Python imports from the user site at startup unless -s is given.
   export PYTHONUSERBASE="$TESTTMP/userbase"
   usite="$(python3 -c 'import site; print(site.getusersitepackages())')"
   mkdir -p "$usite"
   printf 'open(%s, "w").write("loaded")\n' "'$TESTTMP/usersite-loaded'" > "$usite/usercustomize.py"
-  FAKE_FLATPAK_JSON="$UNUSED_FX" PYTHONPATH="$FIXTURES/fake-gi" PYTHONDONTWRITEBYTECODE=1 "$HELPER" >/dev/null 2>&1 || true
+  helper >/dev/null 2>&1 || true
   assert_eq "$(cat "$TESTTMP/usersite-loaded" 2>/dev/null || echo "not loaded")" "not loaded" \
-    "...so nothing in the user's site-packages is loaded"
-  unset PYTHONUSERBASE
+    "nothing in the user's site-packages is loaded"
+  unset PYTHONUSERBASE FAKE_FLATPAK_JSON FAKE_FLATPAK_CALLS
+else
+  skip "python3 not installed: the listing helper was not run"
 fi
-assert_exit 0 "...and is executable in the tree" -- test -x "$HELPER"
+assert_exit 0 "the helper is executable in the tree" -- test -x "$HELPER"
+
+# --- the removal is by name, and never with related refs ------------------------------------------
+# On a VM `flatpak uninstall --unused` removed a codecs extension another installed GNOME Platform
+# needed. The seam's default is the whole of that protection, so it is read from the real file.
+default_cmd="$(sed -n 's/^KEMPT_FLATPAK_UNINSTALL_CMD="\${KEMPT_FLATPAK_UNINSTALL_CMD:-\(.*\)}"$/\1/p' "$REPO_ROOT/backends/flatpak.sh")"
+assert_eq "$default_cmd" "flatpak uninstall --system --no-related -y" \
+  "the removal is system scope, without related refs, and never --unused"
 
 # --- stubs for everything the CLI runs ------------------------------------------------------------
-# The listing stub serves $LISTING, which a test rewrites to change what is unused; the removal stub
-# logs its arguments and then swaps in $AFTER, the way a real removal changes the next listing.
-# du prints one line per argument in argument order, from a table keyed by path, which is the
-# real command's output shape. A path not in the table makes it fail, like a directory du cannot read.
+# The listing stub serves $LISTING, or $LISTING.<n> for its n-th call when that exists; the removal
+# stub logs each argument on its own line and swaps in $AFTER, the way a real removal changes the
+# next listing. du is the real command's shape, from a table keyed by path.
 STUBS="$TESTTMP/stubs"; mkdir -p "$STUBS"
 LISTING="$TESTTMP/listing.json"; AFTER="$TESTTMP/after.json"; DU_TABLE="$TESTTMP/du-table.tsv"
 export LISTING AFTER DU_TABLE STUBS
 cat > "$STUBS/unused" <<'STUB'
 #!/usr/bin/env bash
-echo run >> "$STUBS/unused.calls"
-[[ -n "${UNUSED_FAIL:-}" || -e "$STUBS/unused.fail" ]] && { echo "flatpak did not answer" >&2; exit 1; }
-[[ -e "$STUBS/unused.fail-once" ]] && { rm -f "$STUBS/unused.fail-once"; echo "flatpak did not answer" >&2; exit 1; }
-cat "$LISTING"
+n=$(( $(cat "$STUBS/unused.n" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$STUBS/unused.n"
+[[ -e "$STUBS/unused.fail.$n" || -e "$STUBS/unused.fail" ]] && { echo "flatpak did not answer" >&2; exit 1; }
+if [[ -e "$LISTING.$n" ]]; then cat "$LISTING.$n"; else cat "$LISTING"; fi
 STUB
 cat > "$STUBS/du" <<'STUB'
 #!/usr/bin/env bash
@@ -128,23 +95,16 @@ done
 STUB
 cat > "$STUBS/uninstall" <<'STUB'
 #!/usr/bin/env bash
-echo "$*" >> "$STUBS/uninstall.calls"
-[[ -n "${UNINSTALL_OUT:-}" ]] && { cat "$UNINSTALL_OUT"; exit "${UNINSTALL_RC:-0}"; }
-[[ -n "${UNINSTALL_RC:-}" && "$UNINSTALL_RC" != 0 ]] && { echo "error: removal failed" >&2; exit "$UNINSTALL_RC"; }
+printf '%s\n' "$@" > "$STUBS/uninstall.args"
 [[ -f "$AFTER" ]] && cp "$AFTER" "$LISTING"
-echo "Uninstalling..."
-STUB
-cat > "$STUBS/pkcheck" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >> "$STUBS/pkcheck.calls"
-[[ -n "${PKCHECK_SWAP:-}" ]] && cp "$PKCHECK_SWAP" "$LISTING"
-[[ -n "${PKCHECK_HANG:-}" ]] && exec sleep 30
-exit "${PKCHECK_RC:-0}"
+[[ -n "${UNINSTALL_SAY:-}" ]] && printf '%s\n' "$UNINSTALL_SAY"
+if [[ -n "${UNINSTALL_WAIT:-}" ]]; then
+  : > "$STUBS/uninstall.started"
+  for _ in {1..300}; do [[ -e "$UNINSTALL_WAIT" ]] && break; sleep 0.1; done
+fi
+exit "${UNINSTALL_RC:-0}"
 STUB
 chmod +x "$STUBS"/*
-cp "$UNUSED_FX" "$LISTING"
-# Sizes in the shape a real removal showed: GL 24.08extra shares most of its files with 24.08, so
-# du credits them to 24.08 and 24.08extra's own line is small.
 {
   jq -r '.used[].deploy_dir | "\(.)\t4000000000"' "$UNUSED_FX"
   jq -r '.unused[] | "\(.deploy_dir)\t\({"runtime/org.freedesktop.Platform/x86_64/24.08": 600000000,
@@ -153,842 +113,207 @@ cp "$UNUSED_FX" "$LISTING"
           "runtime/org.freedesktop.Platform.Locale/x86_64/24.08": 5000000,
           "runtime/org.kde.Platform/x86_64/5.15-23.08": 900000000}[.ref])"' "$UNUSED_FX"
 } > "$DU_TABLE"
-export KEMPT_FLATPAK_UNUSED_CMD="$STUBS/unused" KEMPT_DU_CMD="$STUBS/du" \
-       KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall" KEMPT_PKCHECK="$STUBS/pkcheck"
-# Checks with nothing else pending: dnf answers empty, flatpak's other queries are pinned at `true`.
-cat > "$STUBS/refresh" <<'STUB'
-#!/usr/bin/env bash
-exit 0
-STUB
-chmod +x "$STUBS/refresh"
-export KEMPT_REFRESH_HELPER="$STUBS/refresh" KEMPT_SKIP_REFRESH=1 KEMPT_DNF_CMD=true \
+export KEMPT_FLATPAK_UNUSED_CMD="$STUBS/unused" KEMPT_DU_CMD="$STUBS/du" KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall"
+export KEMPT_REFRESH_HELPER="$STUBS/uninstall.none" KEMPT_SKIP_REFRESH=1 KEMPT_DNF_CMD=true \
        KEMPT_FLATPAK_REMOTE_CMD=true KEMPT_FLATPAK_LIST_CMD=true
 
-check() { "$KEMPT" check 2>/dev/null; }
-state_reclaim() { jq -c '.reclaim' "$KEMPT_STATE_DIR/state.json"; }
-ALL5="$(jq -c '[.unused[].ref]' "$UNUSED_FX")"
-REFS5="$(jq -r '[.unused[].ref] | join(" ")' "$UNUSED_FX")"
-# The same five in the removal's two passes: the runtimes, then their extensions.
-P1="runtime/org.freedesktop.Platform/x86_64/24.08 runtime/org.kde.Platform/x86_64/5.15-23.08"
-P2="runtime/org.freedesktop.Platform.GL.default/x86_64/24.08 runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra runtime/org.freedesktop.Platform.Locale/x86_64/24.08"
+P24=runtime/org.freedesktop.Platform/x86_64/24.08
+KDE=runtime/org.kde.Platform/x86_64/5.15-23.08
+GL=runtime/org.freedesktop.Platform.GL.default/x86_64/24.08
+ALL5="$(jq -r '.unused[].ref' "$UNUSED_FX" | LC_ALL=C sort)"
+# The fixture with every unused ref gone but the ones named.
+only() { jq --args '.unused |= map(select(.ref | IN($ARGS.positional[])))' "$@" <"$UNUSED_FX"; }
+# The fixture with this ref back in use: an app was installed that needs it, so it is on the used side.
+in_use() { jq --arg r "$1" '.used += [.unused[] | select(.ref == $r) | {ref, deploy_dir}] | .unused |= map(select(.ref != $r))' "$UNUSED_FX"; }
+reset() { rm -f "$STUBS"/uninstall.args "$STUBS"/du.calls "$STUBS"/unused.n "$STUBS"/unused.fail* "$LISTING".* "$AFTER"; cp "$UNUSED_FX" "$LISTING"; }
+reclaim() { "$KEMPT" reclaim "$@" </dev/null 2>"$TESTTMP/err" >"$TESTTMP/out"; }
+said_out() { cat "$TESTTMP/out"; }
+said_err() { cat "$TESTTMP/err"; }
+args() { cat "$STUBS/uninstall.args" 2>/dev/null || echo "(no removal)"; }
+reset
 
-# --- the reclaim block: first sighting --------------------------------------------------------------
-out="$(check)"
-assert_eq "$(jq -r '.reclaim.status' <<<"$out")" "ok" "a check publishes the reclaim block by default"
-assert_eq "$(jq -r '.reclaim | has("mode")' <<<"$out")" "false" "...with no mode field"
-assert_eq "$(jq -c '[.reclaim.refs[].ref]' <<<"$out")" "$ALL5" "...listing every unused ref"
-assert_eq "$(jq -c '.reclaim.refs[0] | keys' <<<"$out")" '["commit","eol","ref","since"]' \
-  "...each with its commit, since and end-of-life reason"
-assert_eq "$(jq -r '.reclaim.refs[4].eol' <<<"$out")" \
-  "We strongly recommend moving to the latest stable version of the Platform and SDK" "...the reason carried as flatpak gave it"
-# Seen for the first time, so none has been unused for an hour: nothing is offered yet.
-assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .digest, .status]' <<<"$out")" '[null,"","ok"]' \
-  "refs seen unused for the first time are not offered: no bytes, no digest"
-assert_eq "$([[ -s "$STUBS/du.calls" ]] && echo ran || echo none)" "none" "...and with no offer there is no size to estimate"
-assert_eq "$(jq -r '.reclaim.refs[0].since | test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$")' <<<"$out")" "true" \
-  "...and since is UTC in a form jq and JavaScript both read back"
-first_since="$(jq -r '.reclaim.refs[0].since' <<<"$out")"
-assert_eq "$(state_reclaim | jq -r '.status')" "ok" "the block is in state.json, not only on stdout"
-
-# --- stability: an hour unused with the same commit -------------------------------------------------
-# Age the recorded sightings by rewriting state.json, the file the next check reads them back from.
-age_state() {  # seconds ago [jq ref filter]
-  local t; t="$(date -u -d "@$(( $(date +%s) - $1 ))" +%Y-%m-%dT%H:%M:%SZ)"
-  jq --arg t "$t" "(.reclaim.refs[] | select(${2:-true})).since = \$t" "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/st" \
-    && mv "$TESTTMP/st" "$KEMPT_STATE_DIR/state.json"
-}
-out="$(check)"
-assert_eq "$(jq -r '.reclaim.refs[0].since' <<<"$out")" "$first_since" "a second check keeps the first sighting"
-age_state 3500
-out="$(check)"
-assert_eq "$(jq -r '.reclaim.digest' <<<"$out")" "" "58 minutes unused is not yet offerable"
-age_state 3700
-out="$(check)"
-assert_eq "$(jq -r '.reclaim.offerable_bytes' <<<"$out")" "1975000000" \
-  "past an hour every ref is offerable, and the bytes are du's per-directory figures summed"
-DIGEST5="$(jq -r '.reclaim.digest' <<<"$out")"
-assert_eq "$(grep -cE '^[0-9a-f]{16}$' <<<"$DIGEST5")" "1" "...under a 16-character digest"
-assert_eq "$DIGEST5" "$(jq -r '.unused[] | "\(.ref)\t\(.commit)"' "$UNUSED_FX" | reclaim_digest)" \
-  "...which is the digest of the offerable refs and commits"
-# du ran over the used directories FIRST, so a file shared with a used ref is credited to it.
-first_du="$(head -1 "$STUBS/du.calls")"
-assert_eq "$(awk '{print $3}' <<<"$first_du")" "$(jq -r '.used[0].deploy_dir' "$UNUSED_FX")" \
-  "du is given the used deploy directories before the unused ones"
-assert_eq "$(awk '{print NF - 2}' <<<"$first_du")" "11" "...all eleven of them, in one call"
-assert_eq "$(wc -l < "$STUBS/du.calls")" "1" "the size estimate is cached while the installed set is unchanged"
-
-# A ref whose commit changed starts again, and while any ref is younger than an hour nothing is
-# offered: the removal takes the whole list, so an offer of the older part could only fail.
-jq '(.unused[] | select(.ref | endswith("24.08extra"))).commit = ("e" * 64)' "$UNUSED_FX" > "$LISTING"
-out="$(check)"
-assert_eq "$(jq -r '.reclaim.refs[] | select(.ref | endswith("24.08extra")) | .since' <<<"$out" | cut -c1-10)" \
-  "$(date -u +%Y-%m-%d)" "a ref whose commit changed is a new sighting"
-assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .digest, .status, (.refs | length)]' <<<"$out")" '[null,"","ok",5]' \
-  "...and until it has aged nothing is offered, while every ref is still listed"
-assert_eq "$(wc -l < "$STUBS/du.calls")" "1" "...and no size estimate while there is no offer"
-cp "$UNUSED_FX" "$LISTING"
-check >/dev/null
-age_state 7200
-out="$(check)"
-assert_eq "$(jq -r '.reclaim.digest' <<<"$out")" "$DIGEST5" "the same set back, aged again, is the same digest"
-
-# A since from the future (the clock stepped back) or one that cannot be read starts again.
-jq '.reclaim.refs[0].since = "2999-01-01T00:00:00Z" | .reclaim.refs[1].since = "yesterday"' \
-  "$KEMPT_STATE_DIR/state.json" > "$TESTTMP/st" && mv "$TESTTMP/st" "$KEMPT_STATE_DIR/state.json"
-out="$(check)"
-assert_eq "$(jq -r '[.reclaim.refs[0,1].since[0:10]] | unique | .[]' <<<"$out")" "$(date -u +%Y-%m-%d)" \
-  "a since in the future or unreadable is a new sighting"
-age_state 7200
-
-# --- the size rule against the real GNU du ---------------------------------------------------------
-# The estimate rests on one behaviour of du: a hard-linked file is counted once, for the first
-# argument that reaches it. flatpak deploys hard-link shared files, so a file an unused ref shares
-# with a used one must not be counted as freed. Proved here with the real command on real links.
+# --- the shape check: nothing odd in the list reaches du or flatpak ---------------------------------
+bad_list() { jq "$1" "$UNUSED_FX" > "$LISTING"; flatpak_unused_list >/dev/null 2>&1 && echo accepted || echo rejected; }
 source "$REPO_ROOT/backends/flatpak.sh"
-R="$TESTTMP/realdu"; mkdir -p "$R/used" "$R/a" "$R/b"
-head -c 1000000 /dev/zero > "$R/used/shared-with-used"; ln "$R/used/shared-with-used" "$R/a/shared-with-used"
-head -c 3000 /dev/zero > "$R/a/own"
-head -c 50000 /dev/zero > "$R/a/shared-a-b"; ln "$R/a/shared-a-b" "$R/b/shared-a-b"
-realdu_listing="$(jq -cn --arg r "$R" --arg c "$(printf 'a%.0s' {1..64})" '{installation: "/x",
-  used: [{ref: "app/org.example.App/x86_64/stable", commit: $c, deploy_dir: ($r + "/used")}],
-  unused: [{ref: "runtime/org.example.A/x86_64/1", commit: $c, deploy_dir: ($r + "/a"), eol: null},
-           {ref: "runtime/org.example.B/x86_64/1", commit: $c, deploy_dir: ($r + "/b"), eol: null}]}')"
-rm -f "$RECLAIM_SIZES_FILE"
-realdu_sizes="$(KEMPT_DU_CMD="du" flatpak_unused_sizes "$realdu_listing")" || realdu_sizes="rc=$?"
-a_bytes="$(awk -F'\t' '$1 ~ /example.A/ { print $2 }' <<<"$realdu_sizes")"
-b_bytes="$(awk -F'\t' '$1 ~ /example.B/ { print $2 }' <<<"$realdu_sizes")"
-assert_eq "$([[ "$a_bytes" =~ ^[0-9]+$ ]] && (( a_bytes >= 53000 && a_bytes < 1000000 )) && echo yes || echo "no: $realdu_sizes")" "yes" \
-  "real du: a file an unused ref shares with a used ref is not counted as freed"
-assert_eq "$([[ "$b_bytes" =~ ^[0-9]+$ ]] && (( b_bytes < 50000 )) && echo yes || echo "no: $realdu_sizes")" "yes" \
-  "real du: a file two unused refs share is counted once, for the first"
-rm -f "$RECLAIM_SIZES_FILE"
+assert_eq "$(bad_list '.')" "accepted" "premise: the fixture passes the shape check"
+assert_eq "$(bad_list '.unused[0].ref = "--force-remove"')" "rejected" "a ref that looks like an option rejects the whole list"
+assert_eq "$(bad_list '.used[0].deploy_dir = "relative/dir"')" "rejected" "...and so does a deploy directory that is not absolute"
+assert_eq "$(bad_list '.unused[0].ref = "app/org.example.App/x86_64/stable"')" "rejected" "...and so does an app on the unused side"
+assert_eq "$(bad_list '.used[0].ref = "app/org.example.App/x86_64/stable"')" "accepted" "...while an app on the used side is what used means"
+reset
 
-# --- sizes that cannot be worked out ----------------------------------------------------------------
-rm -f "$RECLAIM_SIZES_FILE"
-grep -v 'org.kde.Platform/x86_64/5.15-23.08' "$DU_TABLE" > "$TESTTMP/du-short"; cp "$DU_TABLE" "$TESTTMP/du-full"
-cp "$TESTTMP/du-short" "$DU_TABLE"
-out="$(check)"
-assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .status]' <<<"$out")" '[null,"unknown_size"]' \
-  "a du that fails is an unknown size, never a smaller one"
-assert_eq "$(jq -r '.reclaim.digest' <<<"$out")" "$DIGEST5" "...and the set is still offered"
-assert_eq "$(jq -r '.status' <<<"$out")" "ok" "...and the check itself is ok"
-cp "$TESTTMP/du-full" "$DU_TABLE"
-out="$(check)"
-assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .status]' <<<"$out")" '[1975000000,"ok"]' "a du that works again restores the figure"
+# --- the size estimate ----------------------------------------------------------------------------
+# One du over the used directories first: GNU du counts a hard-linked file once, for the first
+# argument that reaches it, and flatpak deploys hard-link shared files. The real du, on real links.
+HL="$TESTTMP/hl"; mkdir -p "$HL/used" "$HL/unused"
+head -c 200000 /dev/zero > "$HL/used/shared"; ln "$HL/used/shared" "$HL/unused/shared"
+head -c 3000 /dev/zero > "$HL/unused/own"
+HL_LIST="$(jq -nc --arg u "$HL/used" --arg n "$HL/unused" \
+  '{unused: [{ref: "runtime/x/x86_64/1", deploy_dir: $n}], used: [{ref: "runtime/y/x86_64/1", deploy_dir: $u}]}')"
+hl_bytes="$(KEMPT_DU_CMD=du flatpak_unused_sizes "$HL_LIST" | cut -f2)"
+assert_eq "$(( hl_bytes < 200000 && hl_bytes >= 3000 ))" "1" "a file shared with a used ref is not counted as freed"
+rc=0; KEMPT_DU_CMD=false flatpak_unused_sizes "$HL_LIST" >/dev/null 2>&1 || rc=$?
+assert_eq "$rc" "1" "a du that fails is no estimate"
+rc=0; DU_LIST="$(jq -c '.unused[0].deploy_dir = "/nowhere"' <<<"$HL_LIST")"
+out="$(KEMPT_DU_CMD="printf 1\t$HL/used\n" flatpak_unused_sizes "$DU_LIST" 2>/dev/null)" || rc=$?
+assert_eq "$rc|$out" "1|" "...and so is one that leaves an unused directory out"
 
-# --- a listing that fails ----------------------------------------------------------------------------
-out="$(UNUSED_FAIL=1 check)"
-assert_eq "$(jq -c '.reclaim | [.status, .refs, .digest, .offerable_bytes]' <<<"$out")" '["failed",[],"",null]' \
-  "a listing that fails is status failed with nothing offered"
-assert_eq "$(jq -r '.status' <<<"$out")" "ok" "...and never a failed check"
-printf 'not json' > "$LISTING"
-assert_eq "$(check | jq -r '.reclaim.status')" "failed" "a listing that is not JSON is the same failure"
-jq '.unused[0].deploy_dir = "--files0-from=/etc/shadow"' "$UNUSED_FX" > "$LISTING"
-assert_eq "$(check | jq -r '.reclaim.status')" "failed" \
-  "a deploy directory that is not an absolute path rejects the whole listing before du sees it"
-jq '.unused[0].commit = "HEAD"' "$UNUSED_FX" > "$LISTING"
-assert_eq "$(check | jq -r '.reclaim.status')" "failed" "...and so does a commit that is not one"
-cp "$UNUSED_FX" "$LISTING"
-jq '.unused = []' "$UNUSED_FX" > "$TESTTMP/none.json"
-
-# --- where the block does not appear -----------------------------------------------------------------
-# No listing and no block at all: flatpak off, flatpak absent, reclaim=off, or an elevated process.
-rm -f "$STUBS/unused.calls"
-config_set include_flatpak false
-assert_eq "$(check | jq -c '.reclaim')" "null" "include_flatpak=false: no reclaim block"
-config_set include_flatpak true
-config_set reclaim off
-assert_eq "$(check | jq -c '.reclaim')" "null" "reclaim=off: no reclaim block"
-config_set reclaim ask
-assert_eq "$(KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/no-flatpak uninstall" check | jq -c '.reclaim')" "null" \
-  "no flatpak installed: no reclaim block"
-assert_eq "$(SUDO_UID=1000 check | jq -c '.reclaim')" "null" "under sudo: no reclaim block"
-assert_eq "$(PKEXEC_UID=1000 check | jq -c '.reclaim')" "null" "under pkexec: no reclaim block"
-assert_eq "$([[ -e "$STUBS/unused.calls" ]] && echo listed || echo never)" "never" "...and in none of those was anything listed"
-
-# --- a value that is not off still publishes --------------------------------------------------------
-config_set reclaim automatic
-assert_eq "$(check | jq -r '.reclaim | has("refs")')" "true" "a saved reclaim=automatic publishes the block"
-config_set reclaim nonsense
-assert_eq "$(check | jq -r '.reclaim | has("refs")')" "true" "an unknown value publishes the block"
-config_set reclaim ask
-age_state 7200
-check >/dev/null
-
-# --- a listing too big for one argument ------------------------------------------------------------
-# Linux caps one argument at 128 KiB, which about 460 installed refs pass. 1000 unused refs must
-# still be listed, sized and offered.
-jq -n --arg c "$(printf 'd%.0s' {1..64})" '{installation: "/var/lib/flatpak", used: [],
-  unused: [range(1000) | {ref: "runtime/org.example.Big\(.)/x86_64/1", commit: $c,
-                          deploy_dir: "/var/lib/flatpak/runtime/org.example.Big\(.)/x86_64/1/\($c)", eol: null}]}' > "$LISTING"
-cp "$DU_TABLE" "$TESTTMP/du-before-big"
-jq -r '.unused[].deploy_dir | "\(.)\t1000"' "$LISTING" > "$DU_TABLE"
-rm -f "$RECLAIM_SIZES_FILE"
-assert_eq "$(check | jq -c '.reclaim | [.status, (.refs | length)]')" '["ok",1000]' "a check lists 1000 unused refs"
-age_state 7200
-out="$(check)"
-assert_eq "$(jq -c '.reclaim | [.status, (.refs | length), .offerable_bytes, (.digest | length)]' <<<"$out")" '["ok",1000,1000000,16]' \
-  "...and, once they have aged, sizes and offers all of them"
-assert_eq "$(check | jq -r '.reclaim.offerable_bytes')" "1000000" "...and serves the size from its cache"
-rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
-assert_eq "$rc|$(grep -c 'org.example.Big' <<<"$out")" "0|1000" "kempt reclaim --list shows all 1000"
-cp "$TESTTMP/du-before-big" "$DU_TABLE"; cp "$UNUSED_FX" "$LISTING"; rm -f "$RECLAIM_SIZES_FILE"
-check >/dev/null; age_state 7200; check >/dev/null
-
-# --- a damaged size cache ---------------------------------------------------------------------------
-# The cache is served only when its key matches AND every unused ref has a number in it.
-assert_eq "$(check | jq -r '.reclaim.offerable_bytes')" "1975000000" "setup: the size cache holds all five"
-for damage in '.sizes[.sizes | keys[0]] = "lots"' 'del(.sizes[.sizes | keys[0]])' '.sizes = []'; do
-  jq "$damage" "$RECLAIM_SIZES_FILE" > "$TESTTMP/sz" && mv "$TESTTMP/sz" "$RECLAIM_SIZES_FILE"
-  rm -f "$STUBS/du.calls"
-  assert_eq "$(check | jq -c '.reclaim | [.offerable_bytes, .status]')|$(cat "$STUBS/du.calls" 2>/dev/null | wc -l)" \
-    '[1975000000,"ok"]|1' "a size cache damaged by $damage is measured again, not served as unknown"
+# --- the block in state.json ----------------------------------------------------------------------
+check() { "$KEMPT" check >/dev/null 2>&1 || true; }
+block() { jq -c '.reclaim' "$KEMPT_STATE_DIR/state.json"; }
+check
+assert_eq "$(jq -c '[.refs | length, (.[0] | keys[])], .bytes' <<<"$(block)" | tr '\n' ' ')" '[5,"ref"] 1975000000 ' \
+  "a check lists every unused ref, and their size"
+assert_eq "$(wc -l < "$STUBS/du.calls")" "1" "...from one du"
+assert_eq "$(tr ' ' '\n' < "$STUBS/du.calls" | grep -n -m1 -F "$(jq -r '.unused[0].deploy_dir' "$UNUSED_FX")" | cut -d: -f1)" \
+  "$(( 2 + $(jq '.used | length' "$UNUSED_FX") + 1 ))" "...with the used directories first"
+touch "$STUBS/unused.fail"; check
+assert_eq "$(block)" "null" "a listing that fails leaves no block, so no offer"
+rm "$STUBS/unused.fail"; rc=0; KEMPT_DU_CMD=false "$KEMPT" check >/dev/null 2>&1 || rc=$?
+assert_eq "$rc|$(jq -c '.bytes' <<<"$(block)")" "0|null" "a du that fails never fails the check, and the size is unknown"
+for v in SUDO_UID PKEXEC_UID; do
+  env "$v=1000" "$KEMPT" check >/dev/null 2>&1 || true
+  assert_eq "$(block)" "null" "under $v there is no block: libflatpak would count root's apps, not this person's"
 done
+"$KEMPT" config set include_flatpak false >/dev/null; check
+assert_eq "$(block)" "null" "with Flatpak left out of updates there is no block"
+"$KEMPT" config set include_flatpak true >/dev/null
+reset
 
-# --- time limits inside the check ------------------------------------------------------------------
-# The check holds check.lock, and the widget gives a check 120 s. The listing gets 15 s and du 30 s,
-# so both together stay well inside it. A stand-in `timeout` records the limit it was given, and
-# answers 124 (time is up) for the command named in TIMEOUT_EXPIRE.
-mkdir -p "$TESTTMP/tbin"
-cat > "$TESTTMP/tbin/timeout" <<'STUB'
-#!/usr/bin/env bash
-echo "$1 $(basename "$2")" >> "$STUBS/timeout.calls"
-[[ -n "${TIMEOUT_EXPIRE:-}" && "$(basename "$2")" == "$TIMEOUT_EXPIRE" ]] && exit 124
-shift; exec "$@"
-STUB
-chmod +x "$TESTTMP/tbin/timeout"
-rm -f "$RECLAIM_SIZES_FILE" "$STUBS/timeout.calls"
-PATH="$TESTTMP/tbin:$PATH" check >/dev/null
-assert_contains "$(cat "$STUBS/timeout.calls")" "15 unused" "the listing is given 15 seconds"
-assert_contains "$(cat "$STUBS/timeout.calls")" "30 du" "...and du 30"
-rm -f "$RECLAIM_SIZES_FILE"
-out="$(TIMEOUT_EXPIRE=du PATH="$TESTTMP/tbin:$PATH" check)"
-assert_eq "$(jq -c '.reclaim | [.offerable_bytes, .status]' <<<"$out")" '[null,"unknown_size"]' \
-  "a du that runs out of time is an unknown size"
-check >/dev/null
-
-# --- kempt reclaim with no check on record ---------------------------------------------------------
-# Nothing records when a ref became unused until a check lists it. kempt reclaim runs that check
-# itself, so the hour starts now and a second try an hour later can remove them.
-cp "$KEMPT_STATE_DIR/state.json" "$TESTTMP/state-before-first"
-jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
-rc=0; out="$("$KEMPT" reclaim -y </dev/null 2>&1)" || rc=$?
-assert_eq "$rc" "6" "first use, with no check on record: refused, exit 6"
-assert_contains "$out" "These were first seen just now" "...saying they were first seen now"
-assert_contains "$out" "Try again in an hour." "...and when to try again"
-assert_contains "$out" "(first seen just now)" "...with each ref marked the same way"
-assert_eq "$(state_reclaim | jq -c '[.status, (.refs | length)]')" '["ok",5]' \
-  "...and a check has recorded when each was first seen"
-assert_exit 0 "...and let go of the update lock" -- flock -n "$KEMPT_STATE_DIR/lock" true
-assert_exit 0 "...and of the check lock" -- flock -n "$KEMPT_STATE_DIR/check.lock" true
-age_state 7200
-rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
-assert_eq "$rc" "0" "an hour later the same list is on record"
-assert_not_contains "$out" "first seen just now" "...and no longer called new"
-assert_not_contains "$out" "less than an hour" "...nor too young to remove"
-# --list says the same on first use. With an update holding the lock it lists without the check.
-jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
-rc=0; out="$("$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
-assert_eq "$rc" "0" "reclaim --list on first use exits 0"
-assert_contains "$out" "These were first seen just now. They can be removed in an hour." "...and says when they can go"
-jq 'del(.reclaim)' "$TESTTMP/state-before-first" > "$KEMPT_STATE_DIR/state.json"
-rc=0; out="$(flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim --list </dev/null 2>&1)" || rc=$?
-assert_eq "$rc|$(state_reclaim)" "0|null" "with an update running, --list still lists and runs no check"
-cp "$TESTTMP/state-before-first" "$KEMPT_STATE_DIR/state.json"
-
-# --- kempt reclaim ----------------------------------------------------------------------------------
-# Every ref has been unused for two hours now, so the whole set is on offer under DIGEST5.
-jq '.unused = []' "$UNUSED_FX" > "$AFTER"   # what a removal that took everything leaves behind
-reclaim() { "$KEMPT" reclaim "$@" </dev/null 2>&1; }
-calls() { cat "$STUBS/$1.calls" 2>/dev/null || echo "(none)"; }
-reset_calls() { rm -f "$STUBS"/uninstall.calls "$STUBS"/pkcheck.calls; }
-# Back to all five unused and offerable: the listing restored, one check to record them, aged.
-restore_offer() { cp "$UNUSED_FX" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls; }
-reset_calls
-
-rc=0; out="$(reclaim --list)" || rc=$?
-assert_eq "$rc" "0" "reclaim --list exits 0"
-assert_contains "$out" "No installed app uses these Flatpak runtimes:" "...under a plain heading"
-assert_contains "$out" "  runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra" "...one ref per line"
-assert_contains "$out" "runtime/org.kde.Platform/x86_64/5.15-23.08 (no longer supported)" "...an end-of-life one marked, in the widget's words"
-assert_contains "$out" "Removing them frees about 2.0 GB." "...and the estimate, said as one"
-assert_eq "$(calls uninstall)" "(none)" "...and removes nothing"
-
-rc=0; out="$(reclaim)" || rc=$?
-assert_eq "$rc" "5" "no -y and no terminal to ask on: refused, exit 5"
-assert_contains "$out" "Run kempt reclaim -y" "...saying how to remove without being asked"
-assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
-
-assert_exit 2 "--expect takes a digest and nothing else" -- "$KEMPT" reclaim -y --expect=HEAD
-assert_exit 2 "an unknown option is a usage error" -- "$KEMPT" reclaim --force
-
-rc=0; out="$(reclaim -y --expect=0123456789abcdef)" || rc=$?
-assert_eq "$rc" "6" "a digest that is not the set on offer: exit 6"
-assert_contains "$out" "What Flatpak can remove changed since this was shown. Nothing was removed." "...in the widget's words"
-assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
-assert_eq "$(jq -r '.result' "$RECLAIM_LAST_FILE")" "changed" "...recorded as the last outcome"
-assert_contains "$(tail -n 3 "$EVENTS_FILE")" "Unused runtimes: nothing removed, the list changed" "...and in the event log"
-
-# Every runtime on the offer in use again: the set changed, not "nothing to remove", and the check
-# that follows takes the offer out of state.json so the widget stops showing it.
-jq '.used += .unused | .unused = []' "$UNUSED_FX" > "$LISTING"
-rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "6|(none)" "an offer whose runtimes are all in use again: exit 6, nothing removed"
-assert_contains "$out" "What Flatpak can remove changed since this was shown." "...in the widget's words"
-assert_eq "$(jq -r '.result' "$RECLAIM_LAST_FILE")" "changed" "...recorded as the last outcome"
-assert_contains "$(tail -n 3 "$EVENTS_FILE")" "Unused runtimes: nothing removed, the list changed" "...and in the event log"
-assert_eq "$(state_reclaim | jq -r '.digest')" "" "...and the offer is gone from state.json"
-rc=0; out="$(reclaim -y)" || rc=$?
-assert_eq "$rc" "0" "the same, with no offer named: nothing to remove, exit 0"
-assert_contains "$out" "Nothing to remove." "...said as such"
-# ...where --list only lists, reclaim=off refuses as it always does, and an update holding the lock
-# is busy (exit 3): an exit 6 there would repeat on every press, with no check to clear the offer.
-jq '.used += .unused | .unused = []' "$UNUSED_FX" > "$TESTTMP/all-used.json"
-cp "$TESTTMP/all-used.json" "$LISTING"; rm -f "$RECLAIM_LAST_FILE"
-rc=0; out="$(reclaim --list --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$([[ -e "$RECLAIM_LAST_FILE" ]] && echo recorded || echo none)" "0|none" "...--list with the offer named: lists, exit 0, records nothing"
-config_set reclaim off
-rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
-config_set reclaim ask
-assert_eq "$rc" "5" "...reclaim=off: exit 5"
-rc=0; out="$(flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim -y --expect="$DIGEST5" </dev/null 2>&1)" || rc=$?
-assert_eq "$rc|$out" "3|another kempt update is running" "...an update running: exit 3, as busy"
-restore_offer
-# Every runtime used again between that first look and the look under the lock: the same answer.
-rc=0; out="$(PKCHECK_SWAP="$TESTTMP/all-used.json" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")|$(calls uninstall)" "6|changed|(none)" \
-  "an offer whose runtimes all became used during the removal's own look: exit 6, changed"
-assert_contains "$out" "What Flatpak can remove changed since this was shown." "...never that nothing unused was found"
-restore_offer
-# The permission question's time limit is a seam for the tests; anything but 1 to 10 seconds is 10.
-rm -f "$STUBS/timeout.calls"
-rc=0; out="$(KEMPT_RECLAIM_PKCHECK_TIMEOUT=abc PATH="$TESTTMP/tbin:$PATH" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(grep ' pkcheck$' "$STUBS/timeout.calls" | head -1)" "0|10 pkcheck" \
-  "a pkcheck time limit that is not a number is 10 s, not a refusal"
-restore_offer; rm -f "$STUBS/timeout.calls"
-rc=0; out="$(KEMPT_RECLAIM_PKCHECK_TIMEOUT=999 PATH="$TESTTMP/tbin:$PATH" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(grep ' pkcheck$' "$STUBS/timeout.calls" | head -1)" "0|10 pkcheck" \
-  "...and one past the widget's wait is 10 s too"
-restore_offer
-
-# A set that grew: one more unused ref than was shown means the removal would take it too, unseen.
-jq '.unused += [{"ref":"runtime/org.gnome.Platform/x86_64/46","commit":"'"$(printf 'g%.0s' {1..64} | tr g a)"'",
-     "deploy_dir":"/var/lib/flatpak/runtime/org.gnome.Platform/x86_64/46/aa","eol":null}]' "$UNUSED_FX" > "$LISTING"
-rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc" "6" "one ref more than was shown: exit 6"
-assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
-# The same set without --expect, where the extra ref has only just been seen: too new to remove,
-# and said before any question is asked.
-rc=0; out="$(reclaim -y)" || rc=$?
-assert_eq "$rc" "6" "a ref unused for less than an hour blocks the removal: exit 6"
-assert_contains "$out" "Kempt waits an hour" "...saying why"
-assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
-rc=0; out="$(reclaim)" || rc=$?
-assert_eq "$rc" "6" "...refused before the question, not after it"
-assert_not_contains "$out" "Remove them?" "...so nobody is asked to agree to a removal that cannot happen"
-cp "$UNUSED_FX" "$LISTING"
-
-# Permission: asked of polkit without a dialog, and a no is needs_auth, not a prompt.
-rc=0; out="$(PKCHECK_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc" "5" "polkit would ask for a password: exit 5"
-assert_contains "$out" "Removing these needs an administrator. Nothing was removed." "...in the widget's words"
-assert_eq "$(calls uninstall)" "(none)" "...and nothing removed"
-assert_contains "$(calls pkcheck)" "--action-id org.freedesktop.Flatpak.runtime-uninstall --process " \
-  "the permission asked is flatpak's own removal action, for this process"
-assert_not_contains "$(calls pkcheck)" "--allow-user-interaction" "...never allowed to raise a dialog"
-assert_eq "$(state_reclaim | jq -r '.status')" "needs_auth" "the closing check publishes needs_auth"
-assert_eq "$(state_reclaim | jq -r '.last.result')" "needs_auth" "...with the outcome as last"
-# A polkit that never answers is a no, within the bound, not a removal that waits with the lock.
-rc=0; out="$(PKCHECK_HANG=1 KEMPT_RECLAIM_PKCHECK_TIMEOUT=1 reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "5|(none)" "a pkcheck that hangs: needs an administrator, nothing removed"
-reset_calls
-
-hist_before="$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)"
-rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc" "0" "the set on offer, allowed: removed, exit 0"
-# The stand-in's removal empties the list, so there are no extensions left for a second pass.
-assert_eq "$(calls uninstall)" "$P1" "flatpak is given the refs on offer by name"
-assert_contains "$out" "Uninstalling..." "flatpak's own output is shown"
-assert_contains "$out" "Freed about 2.0 GB." "...then what was freed"
-assert_json_eq "$(jq -c '{via, result, refs, bytes, digest}' "$RECLAIM_LAST_FILE")" \
-  "{\"via\":\"cli\",\"result\":\"removed\",\"refs\":$ALL5,\"bytes\":1975000000,\"digest\":\"$DIGEST5\"}" \
-  "the outcome names the refs that went, their size and the set agreed to"
-assert_contains "$(tail -n 3 "$EVENTS_FILE")" "Removed 5 unused runtimes, 2.0 GB" "...and the event log says it"
-assert_eq "$(state_reclaim | jq -c '[.refs, .digest, .status, .last.result]')" '[[],"","ok","removed"]' \
-  "the closing check publishes that nothing is left to offer"
-assert_eq "$(find "$HIST_DIR" -name '*.json' 2>/dev/null | wc -l)" "$hist_before" \
-  "a removal writes no history entry: the last run is still the last update"
-assert_exit 0 "...and leaves the update lock free" -- flock -n "$KEMPT_STATE_DIR/lock" true
-
-rc=0; out="$(reclaim -y)" || rc=$?
-assert_eq "$rc" "0" "nothing unused: exit 0"
-assert_eq "$out" "Nothing to remove. Every installed Flatpak runtime is in use." "...in plain words"
-
-# There is no way past the permission check: flatpak's --noninteractive transaction never shows a
-# polkit dialog, so a removal polkit would ask about can only fail.
-restore_offer
-rc=0; out="$(PKCHECK_RC=1 reclaim -y --expect="$DIGEST5" --allow-auth)" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "2|(none)" "--allow-auth is not an option: a usage error, nothing removed"
-
-# Only some of the set went: the refs really gone are what counts, and so are only their bytes.
-restore_offer
-jq '.unused = [.unused[] | select(.ref | test("kde"))]' "$UNUSED_FX" > "$AFTER"
-rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$(jq -c '[(.refs | length), .bytes]' "$RECLAIM_LAST_FILE")" '[4,1075000000]' \
-  "a partial removal counts only the refs gone, at their own sizes"
-jq '.unused = []' "$UNUSED_FX" > "$AFTER"
-
-# With no size to give, the count is said instead, and one is said as one.
-restore_offer
-jq '.unused = .unused[1:]' "$UNUSED_FX" > "$AFTER"
-mv "$DU_TABLE" "$DU_TABLE.off"; rm -f "$RECLAIM_SIZES_FILE"
-rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
-mv "$DU_TABLE.off" "$DU_TABLE"
-assert_contains "$out" "Removed 1 runtime." "one runtime removed with no size known is said in the singular"
-jq '.unused = []' "$UNUSED_FX" > "$AFTER"
-
-restore_offer
-rc=0; out="$(UNINSTALL_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc" "1" "a removal flatpak fails: exit 1"
-assert_contains "$out" "Flatpak could not remove them: error: removal failed" "...said plainly, with flatpak's reason"
-assert_eq "$(state_reclaim | jq -c '[.status, .digest]')" "[\"failed\",\"$DIGEST5\"]" \
-  "the closing check publishes failed, for this set only"
-
-# Flatpak's reason is kept: on screen, in the event log and in the last outcome. The last line
-# starting with "error:" wins over any later line, and it is made safe first: one line, no colour
-# codes or control characters, 200 characters at most.
-FP_ERR="error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: No such file or directory"
-printf 'Uninstalling 5 refs\n\033[1m%s\033[0m\r\n\nwarning: something after it\n' "$FP_ERR" > "$TESTTMP/fp-out"
-restore_offer
-rc=0; out="$(UNINSTALL_OUT="$TESTTMP/fp-out" UNINSTALL_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc" "1" "a removal flatpak refuses: exit 1"
-assert_contains "$out" "Flatpak could not remove them: $FP_ERR" "...saying what flatpak said"
-assert_eq "$(jq -r '.error' "$RECLAIM_LAST_FILE")" "$FP_ERR" "...kept as the last outcome's error, cleaned"
-assert_eq "$(jq -c '[.result, .refs, .bytes]' "$RECLAIM_LAST_FILE")" '["failed",[],0]' \
-  "...next to the fields the widget reads, unchanged"
-assert_contains "$(grep 'removal failed' "$EVENTS_FILE" | tail -n 1)" "Unused runtimes: removal failed (exit code 1): $FP_ERR" \
-  "...and in the event log, with the exit code"
-assert_eq "$(state_reclaim | jq -r '.last.error')" "$FP_ERR" "...and in state.json after the closing check"
-# polkit refusing flatpak's system helper after pkcheck said yes is the same answer as the gate's no.
-printf 'error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: Flatpak system operation Uninstall not allowed for user\n' > "$TESTTMP/fp-out"
-restore_offer
-rc=0; out="$(UNINSTALL_OUT="$TESTTMP/fp-out" UNINSTALL_RC=1 reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")" "5|needs_auth" \
-  "flatpak's \"not allowed for user\" is needs_auth: exit 5"
-assert_contains "$out" "Removing these needs an administrator. Nothing was removed." "...in the widget's words"
-# No error line: the last line that says anything. A long one is cut, and a tab is dropped.
-printf 'Uninstalling\n%s\tend\n\n' "$(printf 'x%.0s' {1..300})" > "$TESTTMP/fp-out"
-restore_offer
-rc=0; out="$(UNINSTALL_OUT="$TESTTMP/fp-out" UNINSTALL_RC=2 reclaim -y --expect="$DIGEST5" 2>/dev/null)" || rc=$?
-kept="$(jq -r '.error' "$RECLAIM_LAST_FILE")"
-assert_eq "${#kept}|$(tr -d 'x' <<<"$kept")" "200|" "with no error line, the last non-empty one, cut to 200 characters"
-assert_eq "$(grep -c 'removal failed (exit code 2)' "$EVENTS_FILE")|$(grep 'removal failed (exit code 2)' "$EVENTS_FILE" | tr -d '[:print:]' | wc -c)" "1|1" \
-  "...and the event stays one printable line"
-
-# The removal is given ten minutes: one that hangs must not hold the update lock for ever, and
-# running out of time is a failure like any other.
-restore_offer
-rm -f "$STUBS/timeout.calls"
-rc=0; out="$(TIMEOUT_EXPIRE=uninstall PATH="$TESTTMP/tbin:$PATH" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_contains "$(cat "$STUBS/timeout.calls" 2>/dev/null)" "540 uninstall" \
-  "the removal is given 600 seconds, less the minute its extensions get"
-assert_eq "$rc|$(jq -r '.result' "$RECLAIM_LAST_FILE")" "1|failed" "...and one that runs out of time is a failure: exit 1"
-assert_contains "$(tail -n 3 "$EVENTS_FILE")" "removal failed (exit code 124)" "...logged with its exit code"
-assert_contains "$out" "Flatpak could not remove them (exit code 124). See: kempt log" \
-  "...and with nothing said, the exit code on screen and the log that keeps it"
-assert_eq "$(jq -r 'has("error")' "$RECLAIM_LAST_FILE")" "false" "...where there is no error line to keep"
-
-# The last thing before the removal is the re-list and its comparison. An app that starts needing a
-# runtime while polkit answers must stop the removal, so the permission check comes before that last
-# look.
-jq '.used += [.unused[0]] | .unused = .unused[1:]' "$UNUSED_FX" > "$TESTTMP/now-used.json"
-restore_offer
-rc=0; out="$(PKCHECK_SWAP="$TESTTMP/now-used.json" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "6|(none)" "a runtime that became used while polkit answered is not removed"
-
-# What went is everything installed before minus what is left, so a removal that took more than the
-# list is reported as it happened.
-restore_offer
-jq '.unused = [] | .used = .used[1:]' "$UNUSED_FX" > "$AFTER"
-rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$(jq -c '.refs | length' "$RECLAIM_LAST_FILE")|$(jq -r '.refs | index("app/net.mkiol.SpeechNote/x86_64/stable") != null' "$RECLAIM_LAST_FILE")" \
-  "6|true" "an extra ref that went is named among the refs gone"
-assert_eq "$(jq -r '.bytes' "$RECLAIM_LAST_FILE")" "1975000000" \
-  "...and adds nothing to the space freed, which counts only the refs on offer"
-jq '.unused = []' "$UNUSED_FX" > "$AFTER"
-
-# A runtime an app starts needing between the last look and the removal is only named, never
-# forced: flatpak refuses to remove a runtime an installed app uses, and it stays. Like flatpak, the
-# stand-in removes the refs in flatpak's order (see uninstall-byname) and stops at the first refused.
-cat > "$STUBS/uninstall-used" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >> "$STUBS/uninstall.calls"
-keep="runtime/org.kde.Platform/x86_64/5.15-23.08"
-readarray -t sorted < <(for r in "$@"; do printf '%s\t%s\n' "${r#*/}" "$r"; done | LC_ALL=C sort | cut -f2)
-for r in "${sorted[@]}"; do
-  if [[ "$r" == "$keep" ]]; then
-    jq --arg k "$keep" '.used += [.unused[] | select(.ref == $k)] | .unused |= map(select(.ref != $k))' "$LISTING" \
-      > "$LISTING.new" && mv "$LISTING.new" "$LISTING"
-    echo "error: Failed to uninstall $keep: Can't remove $keep, it is needed for: app/org.example.App/x86_64/stable" >&2
-    exit 1
-  fi
-  jq --arg r "$r" '.unused |= map(select(.ref != $r))' "$LISTING" > "$LISTING.new" && mv "$LISTING.new" "$LISTING"
+# --- refusals: flatpak is never reached --------------------------------------------------------------
+for v in SUDO_UID PKEXEC_UID; do
+  rc=0; env "$v=1000" "$KEMPT" reclaim -y </dev/null >/dev/null 2>"$TESTTMP/err" || rc=$?
+  assert_eq "$rc|$(args)" "5|(no removal)" "under $v nothing is removed"
+  assert_contains "$(said_err)" "as yourself" "...and it says why"
 done
-STUB
-chmod +x "$STUBS/uninstall-used"
-restore_offer
-rc=0; out="$(KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-used" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_not_contains "$(calls uninstall)" "--force-remove" "a removal never forces out a runtime an app uses"
-assert_eq "$(calls uninstall)" "$P1"$'\n'"$P2" "...and the extensions, still unused, go in the second pass"
-assert_eq "$(jq -r '.refs | index("runtime/org.kde.Platform/x86_64/5.15-23.08")' "$RECLAIM_LAST_FILE")|$(jq -r '.refs | length' "$RECLAIM_LAST_FILE")" \
-  "null|4" "...so the runtime that became used in the gap is not among the refs gone"
-# Flatpak failing part-way is reported as it happened: what was freed, flatpak's error, and exit 1.
-assert_eq "$rc" "1" "a removal flatpak stopped part-way: exit 1"
-assert_contains "$out" "Freed about 1.1 GB." "...saying what it freed"
-assert_contains "$out" "Flatpak could not remove all of them: error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08" \
-  "...and flatpak's error"
-assert_eq "$(jq -c '[.result, .partial, .bytes]' "$RECLAIM_LAST_FILE")" '["removed",true,1075000000]' \
-  "...recorded as removed and partial, with the bytes of the refs that went"
-assert_contains "$(grep ' Removed ' "$EVENTS_FILE" | tail -n 1)" "Removed 4 unused runtimes, 1.1 GB, Flatpak exit code 1, not all of them: error: Failed" \
-  "...and in the event log"
+rc=0; KEMPT_FLATPAK_UNINSTALL_CMD="$TESTTMP/no-such-flatpak" reclaim -y || rc=$?
+assert_eq "$rc" "5" "with no flatpak nothing is removed"
+rc=0; reclaim || rc=$?
+assert_eq "$rc|$(args)" "5|(no removal)" "no -y and no terminal to ask at is never a silent yes"
+assert_contains "$(said_out)" "  $KDE" "...the list is still shown"
+assert_contains "$(said_out)" "Up to 2.0 GB can be freed." "...with its size"
+rc=0; reclaim --bogus || rc=$?
+assert_eq "$rc|$(args)" "2|(no removal)" "an unknown option is a usage error"
+rc=0; flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim -y </dev/null >/dev/null 2>"$TESTTMP/err" || rc=$?
+assert_eq "$rc|$(args)" "3|(no removal)" "with an update running nothing is removed"
+touch "$STUBS/unused.fail"; rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(args)" "1|(no removal)" "a listing that fails removes nothing"
+assert_contains "$(said_err)" "Nothing was removed" "...and says so"
+reset; jq '.unused = []' "$UNUSED_FX" > "$LISTING"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(args)|$(said_out)" "0|(no removal)|Nothing to remove." "nothing unused is not a failure"
 
-# Flatpak failed and the list afterwards cannot be read: what went is unknown, never "nothing".
-cat > "$STUBS/uninstall-blind" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >> "$STUBS/uninstall.calls"
-touch "$STUBS/unused.fail"
-echo "error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: interrupted" >&2
-exit 1
-STUB
-chmod +x "$STUBS/uninstall-blind"
-restore_offer
-rc=0; out="$(KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-blind" reclaim -y --expect="$DIGEST5")" || rc=$?
-rm -f "$STUBS/unused.fail"
-assert_eq "$rc" "1" "a failed removal whose outcome cannot be read: exit 1"
-assert_contains "$out" "the removal may be partial. Check again with: kempt reclaim --list" "...saying it may be partial"
-assert_not_contains "$out" "Nothing was removed" "...and never that nothing was removed"
-assert_eq "$(jq -c '[.result, .refs, .bytes, .partial]' "$RECLAIM_LAST_FILE")" '["failed",null,null,true]' \
-  "...recorded with refs null and partial, so no reader counts it as nothing"
-assert_contains "$(grep 'removal failed' "$EVENTS_FILE" | tail -n 1)" "what was removed is unknown" "...and the event log says so"
-
-# flatpak's output is copied to a file in Kempt's own state dir, never the shared /tmp, and the
-# file goes with kempt: at the end of a removal, and from the EXIT trap when kempt is killed.
-cat > "$STUBS/uninstall-peek" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >> "$STUBS/uninstall.calls"
-ls "$KEMPT_STATE_DIR"/reclaim-out.* 2>/dev/null | wc -l > "$STUBS/peek"
-ls "$TMPDIR" | wc -l >> "$STUBS/peek"
-# kempt is timeout's parent. Read from /proc, not ps: the package build has no procps.
-[[ -n "${PEEK_KILL:-}" ]] && { kill -TERM "$(sed 's/.*) //' "/proc/$PPID/stat" | cut -d' ' -f2)"; sleep 1; exit 1; }
-[[ -f "$AFTER" ]] && cp "$AFTER" "$LISTING"
-STUB
-chmod +x "$STUBS/uninstall-peek"
-mkdir -p "$TESTTMP/tmpdir"
-restore_offer
-rc=0; out="$(TMPDIR="$TESTTMP/tmpdir" KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-peek" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(tr '\n' ' ' < "$STUBS/peek")" "0|1 0 " "the removal keeps flatpak's output in Kempt's state dir, not in TMPDIR"
-assert_eq "$(ls "$KEMPT_STATE_DIR"/reclaim-out.* 2>/dev/null | wc -l)" "0" "...and removes it afterwards"
-restore_offer
-rc=0; out="$(PEEK_KILL=1 KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-peek" reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(head -1 "$STUBS/peek")" "143|1" "premise: kempt was killed while the file existed"
-assert_eq "$(ls "$KEMPT_STATE_DIR"/reclaim-out.* 2>/dev/null | wc -l)" "0" "...and its EXIT trap removed the file"
-assert_exit 0 "...and still released the update lock" -- flock -n "$KEMPT_STATE_DIR/lock" true
-# A kill no trap sees leaves the file for the next run's sweep, once it is an hour old.
-touch -d '2 hours ago' "$KEMPT_STATE_DIR/reclaim-out.stale"
-restore_offer; reclaim --list >/dev/null 2>&1 || true
-assert_eq "$([[ -e "$KEMPT_STATE_DIR/reclaim-out.stale" ]] && echo left || echo swept)" "swept" \
-  "a copy left by a kempt killed outright is swept after an hour"
-
-# A long list of refs passes through jq as files, not arguments: Linux caps one argument at 128 KiB,
-# and past it the gone set and its size would silently read as nothing. reclaim_remove alone, with
-# the listing, the gate and the record stubbed.
-BIG="$TESTTMP/big"; mkdir -p "$BIG"
-jq -cn '{installation: "/var/lib/flatpak", used: [],
-  unused: [range(1000) | {ref: ("runtime/org.example.Platform.Extension.With.A.Long.Name.Number\(.)/x86_64/"
-    + ("x" * 60)), commit: "c", deploy_dir: "/d", eol: null}]}' > "$BIG/before.json"
-jq -r '.unused[].ref + "\t1000000"' "$BIG/before.json" > "$BIG/sizes.tsv"
-assert_eq "$(( $(jq -c '[.unused[].ref]' "$BIG/before.json" | wc -c) > 131072 ))" "1" \
-  "premise: the synthetic gone set is past the 128 KiB argument limit"
-big_out="$(
-  trap - EXIT  # the sandbox's cleanup is the parent's: this subshell must not run it on exit
-  export KEMPT_STATE_DIR="$BIG" KEMPT_FLATPAK_UNINSTALL_CMD=true
-  eval "$(sed -n '/^reclaim_remove() {/,/^}/p; /^reclaim_extensions_in() {/,/^}/p; /^reclaim_uninstall() {/,/^}/p; /^reclaim_in_use_of() {/,/^}/p; /^reclaim_in_use_new() {/,/^}/p' "$KEMPT")"
-  flatpak_unused_list() {
-    local n; n=$(( $(cat "$BIG/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$BIG/calls"
-    if (( n <= 2 )); then cat "$BIG/before.json"; else jq -c '.unused = []' "$BIG/before.json"; fi
-  }
-  flatpak_unused_sizes() { cat "$BIG/sizes.tsv"; }
-  reclaim_compare() { RECLAIM_DIGEST=d; return 0; }
-  reclaim_authorized() { return 0; }
-  reclaim_record() { :; }
-  reclaim_remove cli d >/dev/null
-  printf '%s|%s|%s' "$RECLAIM_RESULT" "$(jq length <<<"$RECLAIM_GONE")" "$RECLAIM_BYTES"
-)"
-assert_eq "$big_out" "removed|1000|1000000000" "a removal of 1000 refs records all of them and their size"
-
-# The removal command as shipped, through a stand-in flatpak. Without --no-related, flatpak also
-# removes the related refs of what it removes, even one another installed runtime still uses.
-restore_offer
-mkdir -p "$TESTTMP/fpbin"
-cat > "$TESTTMP/fpbin/flatpak" <<'STUB'
-#!/usr/bin/env bash
-[[ "$1" == uninstall ]] || exit 0
-echo "$*" >> "$STUBS/uninstall.calls"
-[[ -f "$AFTER" ]] && cp "$AFTER" "$LISTING"
-exit 0
-STUB
-chmod +x "$TESTTMP/fpbin/flatpak"
-rc=0; out="$(env -u KEMPT_FLATPAK_UNINSTALL_CMD PATH="$TESTTMP/fpbin:$PATH" \
-  "$KEMPT" reclaim -y --expect="$DIGEST5" </dev/null 2>&1)" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "0|uninstall --system --no-related --noninteractive $P1" \
-  "the removal names the refs on offer and passes --no-related, so it takes those refs and no related ref besides"
-restore_offer
-
-# --- two passes: the extensions after the runtimes -------------------------------------------------
-# flatpak refuses to remove a runtime an installed app needs, but only asks "Really remove?" for an
-# extension one uses, and --noninteractive answers yes. So the runtimes go first, the list is taken
-# again, and only the agreed extensions still unused go after them: an app installed in the
-# meantime makes its runtime used, and that runtime's extensions drop off the list.
-# The stand-in removes the refs it is named, from unused and used alike. HOOK_<n> is sourced on the
-# n-th call first: it may change the listing, print, and name refs in `refuse`. Like flatpak, it
-# removes the refs in its own order, not the order named: refs with no dependency between them run
-# sorted by the ref without its kind, byte by byte (sort_ops, common/flatpak-transaction.c). It
-# stops at the first refused one, which stays with every ref after it, and fails with its "needed
-# for" error (--noninteractive's app/flatpak-quiet-transaction.c ends at the first fatal error).
-cat > "$STUBS/uninstall-byname" <<'STUB'
-#!/usr/bin/env bash
-echo "$*" >> "$STUBS/uninstall.calls"
-echo "${LANGUAGE-unset}|${LC_MESSAGES-unset}|${LC_ALL-unset}" > "$STUBS/uninstall.locale"
-n="$(wc -l < "$STUBS/uninstall.calls")"; refuse=""; rc=0
-hook="HOOK_$n"; [[ -n "${!hook:-}" ]] && source "${!hook}"
-gone=() stop=""
-readarray -t sorted < <(for r in "$@"; do printf '%s\t%s\n' "${r#*/}" "$r"; done | LC_ALL=C sort | cut -f2)
-for r in "${sorted[@]}"; do [[ " $refuse " == *" $r "* ]] && { stop="$r"; break; }; gone+=("$r"); done
-jq --args '$ARGS.positional as $g | (.unused, .used) |= map(select(.ref as $r | $g | index($r) | not))' \
-  "${gone[@]}" < "$LISTING" > "$LISTING.new" && mv "$LISTING.new" "$LISTING"
-echo "Uninstalling..."
-[[ -z "$stop" ]] || { echo "error: Failed to uninstall $stop: Can't remove $stop, it is needed for: app/org.example.App/x86_64/stable"; rc=1; }
-exit $rc
-STUB
-chmod +x "$STUBS/uninstall-byname"
-byname() { KEMPT_FLATPAK_UNINSTALL_CMD="$STUBS/uninstall-byname" reclaim "$@"; }
-
-# Which refs are extensions: the helper's `extension` field, from flatpak's metadata. Without it
-# (an older helper), an unused ref whose id is another installed ref's id and a dot more.
-cls="$(
-  trap - EXIT
-  eval "$(sed -n '/^reclaim_extensions_in() {/,/^}/p' "$KEMPT")"
-  reclaim_extensions_in "$(jq -cn '{installation: "/x", used: [{ref: "runtime/org.kde.Platform/x86_64/5.15-24.08"}],
-    unused: [{ref: "runtime/org.gtk.Gtk3theme.Breeze/x86_64/3.22", extension: true},
-             {ref: "runtime/org.kde.Platform.Locale/x86_64/5.15-24.08", extension: false},
-             {ref: "runtime/org.kde.KStyle.Adwaita/x86_64/5.15-24.08"}]}')" 2>/dev/null | tr '\n' ' '
-)" || true
-assert_eq "$cls" "runtime/org.gtk.Gtk3theme.Breeze/x86_64/3.22 " \
-  "an extension is what the helper's metadata says, even a theme whose id does not start with its runtime's"
-
-restore_offer
-rc=0; out="$(byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "0|$P1"$'\n'"$P2" "the runtimes are removed first, then their extensions, in two calls"
-assert_json_eq "$(jq -c '{result, refs, bytes}' "$RECLAIM_LAST_FILE")" \
-  "{\"result\":\"removed\",\"refs\":$ALL5,\"bytes\":1975000000}" "...and the outcome counts both"
-assert_eq "$(jq -r 'has("partial"), has("in_use")' "$RECLAIM_LAST_FILE" | tr '\n' ' ')" "false false " "...as one whole removal"
-# LC_ALL=C.UTF-8 already keeps flatpak in English. LANGUAGE=C and LC_MESSAGES=C are extra.
-assert_eq "$(cat "$STUBS/uninstall.locale")" "C|C|C.UTF-8" "flatpak runs with its messages in English, in UTF-8"
-
-# Both passes share the removal's ten minutes: the first leaves a minute for the second, and the
-# second gets what the first did not use.
-restore_offer; rm -f "$STUBS/timeout.calls"
-rc=0; out="$(PATH="$TESTTMP/tbin:$PATH" byname -y --expect="$DIGEST5")" || rc=$?
-t1="$(grep ' uninstall-byname$' "$STUBS/timeout.calls" | sed -n 1p | cut -d' ' -f1)"
-t2="$(grep ' uninstall-byname$' "$STUBS/timeout.calls" | sed -n 2p | cut -d' ' -f1)"
-assert_eq "$rc|$t1|$(( t2 >= 590 && t2 <= 600 ))" "0|540|1" "the runtimes get 540 s and the extensions what is left of 600"
-restore_offer; rm -f "$STUBS/timeout.calls"
-rc=0; out="$(TIMEOUT_EXPIRE=uninstall-byname PATH="$TESTTMP/tbin:$PATH" byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(grep -c ' uninstall-byname$' "$STUBS/timeout.calls")|$(jq -r '.result' "$RECLAIM_LAST_FILE")" "1|1|failed" \
-  "the runtimes running out of time stops the removal: no second pass"
-
-# An app installed just before the removal: flatpak refuses its runtime, the first named, and stops
-# there. Its extensions, now used, are not removed after it.
-cat > "$TESTTMP/hook-app" <<'HOOK'
-jq '.used += [.unused[] | select(.ref | test("freedesktop"))] | .unused |= map(select(.ref | test("freedesktop") | not))
-    | .used += [{ref: "app/org.example.App/x86_64/stable", commit: .used[0].commit, deploy_dir: "/var/lib/flatpak/app/org.example.App"}]' \
-  "$LISTING" > "$LISTING.h" && mv "$LISTING.h" "$LISTING"
-refuse="runtime/org.freedesktop.Platform/x86_64/24.08"
-HOOK
-restore_offer
-rc=0; out="$(HOOK_1="$TESTTMP/hook-app" byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "1|$P1" "an app that starts using a runtime and its extensions: only the runtimes are tried"
-assert_eq "$(jq -c '[.result, .partial, .refs, .bytes]' "$RECLAIM_LAST_FILE")" \
-  '["failed",null,[],0]' "...so nothing went: flatpak stopped at the refusal, and the extensions stay"
-assert_contains "$out" "Flatpak could not remove them: error: Failed to uninstall runtime/org.freedesktop.Platform/x86_64/24.08" \
-  "...with flatpak's refusal as the reason"
-
-# flatpak refusing one runtime does not stop the extensions nothing uses.
-cat > "$TESTTMP/hook-kde" <<'HOOK'
-jq '.used += [.unused[] | select(.ref | test("kde"))] | .unused |= map(select(.ref | test("kde") | not))' \
-  "$LISTING" > "$LISTING.h" && mv "$LISTING.h" "$LISTING"
-refuse="runtime/org.kde.Platform/x86_64/5.15-23.08"
-HOOK
-restore_offer
-rc=0; out="$(HOOK_1="$TESTTMP/hook-kde" byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "1|$P1"$'\n'"$P2" "a refused runtime: the extensions still unused go after it"
-assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes, .error]' "$RECLAIM_LAST_FILE")" \
-  '["removed",true,4,1075000000,"error: Failed to uninstall runtime/org.kde.Platform/x86_64/5.15-23.08: Can'"'"'t remove runtime/org.kde.Platform/x86_64/5.15-23.08, it is needed for: app/org.example.App/x86_64/stable"]' \
-  "...partial, with the first pass's error kept"
-assert_eq "$(jq -r 'has("skipped")' "$RECLAIM_LAST_FILE")" "false" "...and no second pass skipped"
-
-# flatpak's order, not Kempt's: named after the refused runtime, a runtime that sorts before it
-# still goes. Here the listing, and so the call, names the KDE runtime first.
-jq '.unused |= reverse' "$UNUSED_FX" > "$TESTTMP/reversed.json"
-cp "$TESTTMP/reversed.json" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls
-rc=0; out="$(HOOK_1="$TESTTMP/hook-kde" byname -y)" || rc=$?
-assert_eq "$rc|$(calls uninstall | head -n 1)" "1|runtime/org.kde.Platform/x86_64/5.15-23.08 runtime/org.freedesktop.Platform/x86_64/24.08" \
-  "premise: the refused runtime is named first"
-assert_eq "$(jq -c '[.result, .partial, (.refs | index("runtime/org.freedesktop.Platform/x86_64/24.08") != null), (.refs | length)]' "$RECLAIM_LAST_FILE")" \
-  '["removed",true,true,4]' "...and the runtime named after it, which flatpak takes first, is counted as gone"
-
-# The list between the passes cannot be read: no second pass, and what went is still counted.
-printf 'touch "$STUBS/unused.fail-once"\n' > "$TESTTMP/hook-blind-once"
-restore_offer
-rc=0; out="$(HOOK_1="$TESTTMP/hook-blind-once" byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "1|$P1" "a list that fails between the passes: no second pass"
-assert_eq "$(jq -c '[.result, .partial, (.refs | length), .bytes, .skipped]' "$RECLAIM_LAST_FILE")" '["removed",true,2,1500000000,true]' \
-  "...the runtimes that went counted, the removal partial, the second pass recorded as skipped"
-assert_contains "$out" "Some extensions were left in place because Flatpak did not answer when asked what is unused. Run kempt reclaim again." \
-  "...said as extensions left in place, not as a refusal"
-assert_not_contains "$out" "could not remove" "...never as Flatpak refusing"
-printf 'touch "$STUBS/unused.fail"\n' > "$TESTTMP/hook-blind"
-restore_offer
-rc=0; out="$(HOOK_1="$TESTTMP/hook-blind" byname -y --expect="$DIGEST5")" || rc=$?
-rm -f "$STUBS/unused.fail"
-assert_eq "$rc|$(calls uninstall)|$(jq -c '[.result, .partial, .refs]' "$RECLAIM_LAST_FILE")" \
-  "1|$P1|[\"removed\",true,[\"runtime/org.freedesktop.Platform/x86_64/24.08\",\"runtime/org.kde.Platform/x86_64/5.15-23.08\"]]" \
-  "...and when no list can be read after it either, flatpak's word for the first pass"
-# A first pass flatpak refused, then a list between the passes that fails: that is a refusal, never
-# extensions left in place. Also when flatpak printed no error line to keep.
-cat > "$TESTTMP/hook-refuse-blind" <<'HOOK'
-touch "$STUBS/unused.fail-once"
-refuse="runtime/org.kde.Platform/x86_64/5.15-23.08"
-HOOK
-cat > "$TESTTMP/hook-quiet-blind" <<'HOOK'
-touch "$STUBS/unused.fail-once"
-jq '.unused |= map(select(.ref != "runtime/org.freedesktop.Platform/x86_64/24.08"))' "$LISTING" > "$LISTING.h" \
-  && mv "$LISTING.h" "$LISTING"
-exit 1
-HOOK
-for h in refuse-blind quiet-blind; do
-  restore_offer
-  rc=0; out="$(HOOK_1="$TESTTMP/hook-$h" byname -y --expect="$DIGEST5")" || rc=$?
-  assert_eq "$rc|$(calls uninstall)|$(jq -c '[.result, .partial, .refs, has("skipped")]' "$RECLAIM_LAST_FILE")" \
-    "1|$P1|[\"removed\",true,[\"runtime/org.freedesktop.Platform/x86_64/24.08\"],false]" \
-    "a refused first pass and a failed list between the passes ($h): no skipped flag"
-  assert_not_contains "$out" "left in place" "...and no sentence about extensions left in place ($h)"
-  assert_contains "$out" "Flatpak could not remove all of them" "...but flatpak's refusal ($h)"
+# --- what reaches flatpak: by name, after --, and only what is on both lists -------------------------
+reset; only > "$AFTER"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(args)" "0|$(printf -- '--\n%s' "$ALL5")" "every ref on the list goes by name, after --"
+assert_exit 0 "...the update lock is free again" -- flock -n "$KEMPT_STATE_DIR/lock" true
+# Killed mid-removal, kempt leaves the update lock with the flatpak that inherited it: no update
+# starts until flatpak has finished.
+for sig in TERM HUP; do
+  reset; only > "$AFTER"; rm -f "$STUBS/uninstall.started" "$STUBS/go"
+  UNINSTALL_WAIT="$STUBS/go" "$KEMPT" reclaim -y </dev/null >/dev/null 2>&1 & p=$!
+  for _ in {1..100}; do [[ -e "$STUBS/uninstall.started" ]] && break; sleep 0.1; done
+  kill -"$sig" "$p"; wait "$p" 2>/dev/null || true
+  assert_exit 1 "after SIG$sig the update lock stays held while flatpak runs" -- flock -n "$KEMPT_STATE_DIR/lock" true
+  touch "$STUBS/go"
+  assert_exit 0 "...and is free once flatpak has ended" -- flock -w 30 "$KEMPT_STATE_DIR/lock" true
 done
+# Listing 1 is the one shown, listing 2 the one read just before the removal.
+reset
+only "$P24" "$KDE" > "$LISTING.1"; only "$KDE" "$GL" > "$LISTING.2"; only "$GL" > "$LISTING"
+rc=0; reclaim -y || rc=$?
+assert_eq "$(args)" "$(printf -- '--\n%s' "$KDE")" \
+  "a ref that came back into use and one that newly went unused both stay: only refs on both lists go"
+# Back in use between the two reads: installed still, and on the second list's used side.
+reset; in_use "$KDE" > "$LISTING.2"; in_use "$KDE" | jq '.unused = []' > "$AFTER"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(args)" "0|$(printf -- '--\n%s' "$(grep -vF "$KDE" <<<"$ALL5")")" \
+  "a ref back in use by the second read does not reach flatpak"
+reset; only "$P24" > "$LISTING.1"; only "$KDE" > "$LISTING.2"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(args)|$(said_out | tail -1)" "0|(no removal)|Nothing to remove." "two lists with nothing in common remove nothing"
+reset; touch "$STUBS/unused.fail.2"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(args)" "1|(no removal)" "a second list that fails removes nothing"
+# What the widget does: it names what it showed. A name not on the list never reaches flatpak.
+reset
+rc=0; reclaim -y -- "$KDE" "--force-remove" "runtime/org.example.NotListed/x86_64/1" "$KDE" || rc=$?
+assert_eq "$(args)" "$(printf -- '--\n%s' "$KDE")" "named refs narrow the removal, and a name off the list goes nowhere"
+assert_eq "$(said_out | grep -c '^  ')" "1" "...the list shown is the narrowed one"
+reset; only "$P24" > "$LISTING"
+rc=0; reclaim -y -- "$KDE" || rc=$?
+assert_eq "$rc|$(args)|$(said_out)" "0|(no removal)|Nothing to remove." "a named ref no longer unused removes nothing"
 
-# The race that is left: an app installed in the moment before the second pass. flatpak says so in
-# an Info line and removes the extension anyway. Kempt records it and says how to put it back. One
-# flatpak never removed (refused, the last named) is not counted, nor a runtime.
-cat > "$TESTTMP/hook-info" <<'HOOK'
-printf 'Info: applications using the extension \033[1morg.freedesktop.Platform.Locale\033[22m branch \033[1m24.08\033[22m:\n   org.example.App\n'
-printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   org.example.App\n'
-printf 'Info: applications using the runtime org.freedesktop.Platform.GL.default branch 24.08:\n   org.example.App\n'
-refuse="runtime/org.freedesktop.Platform.Locale/x86_64/24.08"
-HOOK
-restore_offer
-rc=0; out="$(HOOK_2="$TESTTMP/hook-info" byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08extra"]' \
-  "an extension flatpak says an app uses, and removed, is recorded as in use"
-assert_contains "$out" "Flatpak also removed an extension that an app installed during the removal uses. Run flatpak update to put it back." "...and said"
-assert_contains "$(grep ' Removed ' "$EVENTS_FILE" | tail -n 1)" "including extensions an app uses: org.freedesktop.Platform.GL.default//24.08extra" "...and logged"
-HOOK2="$TESTTMP/hook-info2"; grep -v '^refuse=' "$TESTTMP/hook-info" > "$HOOK2"
-restore_offer
-rc=0; out="$(HOOK_2="$HOOK2" byname -y --expect="$DIGEST5")" || rc=$?
-assert_contains "$out" "Flatpak also removed 2 extensions that apps installed during the removal use. Run flatpak update to put them back." "...two in the plural"
-# flatpak names every installed app whose extension points match, also for an extension it lists
-# as unused because it is pruned (an old GL driver). An app already installed at the listing taken
-# before the pass is no race: the extension is not in use by anything new.
-cat > "$TESTTMP/hook-pruned" <<'HOOK'
-printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   net.mkiol.SpeechNote\n'
-HOOK
-restore_offer
-rc=0; out="$(HOOK_2="$TESTTMP/hook-pruned" byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc|$(jq -r 'has("in_use")' "$RECLAIM_LAST_FILE")" "0|false" \
-  "an extension whose named apps were all installed before the pass is not recorded as in use"
-assert_not_contains "$out" "Flatpak also removed" "...nor said"
-# Any one new app among those named is the race. The list may run over more than one line.
-cat > "$TESTTMP/hook-mixed" <<'HOOK'
-printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   net.mkiol.SpeechNote,\n   org.example.App\n'
-HOOK
-restore_offer
-rc=0; out="$(HOOK_2="$TESTTMP/hook-mixed" byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08extra"]' \
-  "...but one new app among them makes it in use, also on a wrapped line"
-# The first pass's lines are read against the listing before it, not the one between the passes:
-# an app installed during the first pass is new to it.
-cat > "$TESTTMP/hook-p1" <<'HOOK'
-jq '.used += [{ref: "app/org.example.App/x86_64/stable", commit: .used[0].commit, deploy_dir: "/var/lib/flatpak/app/org.example.App"}]' \
-  "$LISTING" > "$LISTING.h" && mv "$LISTING.h" "$LISTING"
-printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08:\n   org.example.App\n'
-HOOK
-restore_offer
-rc=0; out="$(HOOK_1="$TESTTMP/hook-p1" byname -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$(jq -c '.in_use' "$RECLAIM_LAST_FILE")" '["org.freedesktop.Platform.GL.default//24.08"]' \
-  "an Info line in the first pass counts an app installed during it as new"
-# A listing jq cannot read names no app as installed before it, so the warning is said: every
-# extension an Info line names counts, even for an app that was already there.
-in_use_new() (
-  trap - EXIT  # the sandbox's cleanup is the parent's: this subshell must not run it on exit
-  eval "$(sed -n '/^reclaim_in_use_of() {/,/^}/p; /^reclaim_in_use_new() {/,/^}/p' "$KEMPT")"
-  printf 'Info: applications using the extension org.freedesktop.Platform.GL.default branch 24.08extra:\n   net.mkiol.SpeechNote\n' \
-    | reclaim_in_use_new "$1"
-)
-assert_eq "$(in_use_new "$(cat "$UNUSED_FX")")" "" "premise: with the listing read, an app already there is no race"
-assert_eq "$(in_use_new '{"unused": [')" "org.freedesktop.Platform.GL.default//24.08extra" \
-  "a listing jq cannot read keeps every extension an Info line names as in use"
-assert_eq "$(in_use_new '')" "org.freedesktop.Platform.GL.default//24.08extra" "...and so does no listing at all"
-
-# A theme left behind by a runtime that goes: flatpak's metadata marks it an extension, so it waits
-# for the second pass though its id does not start with the runtime's.
-THEME="runtime/org.gtk.Gtk3theme.Adwaita-dark/x86_64/3.22"
-jq --arg t "$THEME" '.unused += [{ref: $t, commit: "7777777777777777777777777777777777777777777777777777777777777777",
-    deploy_dir: "/var/lib/flatpak/runtime/org.gtk.Gtk3theme.Adwaita-dark", eol: null, extension: true}]' \
-  "$UNUSED_FX" > "$TESTTMP/theme.json"
-printf '/var/lib/flatpak/runtime/org.gtk.Gtk3theme.Adwaita-dark\t1000000\n' >> "$DU_TABLE"
-cp "$TESTTMP/theme.json" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls
-rc=0; out="$(byname -y)" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "0|$P1"$'\n'"$P2 $THEME" "a Gtk3theme leftover goes in the second pass, with the extensions"
-
-# A set of extensions only, and one with none: one call each.
-jq '.unused |= map(select(.ref | test("[.](GL[.]default|Locale)/")))' "$UNUSED_FX" > "$TESTTMP/ext-only.json"
-cp "$TESTTMP/ext-only.json" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls
-rc=0; out="$(byname -y)" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "0|$P2" "a set of extensions only is one call"
-jq '.unused |= map(select(.ref | test("kde")))' "$UNUSED_FX" > "$TESTTMP/no-ext.json"
-cp "$TESTTMP/no-ext.json" "$LISTING"; check >/dev/null; age_state 7200; check >/dev/null; reset_calls
-rc=0; out="$(byname -y)" || rc=$?
-assert_eq "$rc|$(calls uninstall)" "0|runtime/org.kde.Platform/x86_64/5.15-23.08" "a set with no extension is one call"
-restore_offer
-
-# Refusals that come before anything is listed.
-reset_calls
-rc=0; out="$(SUDO_UID=1000 reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc" "5" "under sudo: refused, exit 5"
-assert_contains "$out" "not as root" "...saying why"
-rc=0; PKEXEC_UID=1000 reclaim -y >/dev/null || rc=$?
-assert_eq "$rc" "5" "under pkexec: the same"
-config_set reclaim off
-rc=0; out="$(reclaim -y --expect="$DIGEST5")" || rc=$?
-assert_eq "$rc" "5" "reclaim=off: removal refused, exit 5"
-assert_exit 0 "...while --list still shows what could go" -- "$KEMPT" reclaim --list
-config_set reclaim ask
-config_set include_flatpak false
-assert_exit 5 "include_flatpak=false: refused" -- "$KEMPT" reclaim -y
-config_set include_flatpak true
-assert_exit 3 "an update holding the lock: exit 3, without waiting" -- \
-  flock "$KEMPT_STATE_DIR/lock" "$KEMPT" reclaim -y --expect="$DIGEST5"
-assert_eq "$(calls uninstall)" "(none)" "and none of those removed anything"
-rc=0; out="$(UNUSED_FAIL=1 reclaim -y)" || rc=$?
-assert_eq "$rc" "1" "a listing that fails: exit 1, nothing removed"
+# --- the result comes from the list read afterwards -----------------------------------------------
+reset; only > "$AFTER"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(said_out | tail -1)|$(said_err)" "0|Removed 5 runtimes.|" "all gone is a count, on stdout, with exit 0"
+assert_contains "$(cat "$KEMPT_STATE_DIR/events.log")" "Unused runtimes: Removed 5 runtimes. Gone: $(tr '\n' ' ' <<<"$ALL5" | sed 's/ $//')." "...and an event line that names them"
+assert_eq "$(block)" '{"refs":[],"bytes":0}' "...and the closing check takes the offer away"
+assert_eq "$(ls "$KEMPT_STATE_DIR/history" 2>/dev/null | wc -l)" "0" "...and a removal writes no history entry"
+# Flatpak failed and nothing went: its reason, and no word of success.
+reset; ERR='error: Failed to uninstall runtime/x: busy'
+rc=0; UNINSTALL_RC=1 UNINSTALL_SAY="$(printf 'Uninstalling\n%s\nerror: There were one or more errors' "$ERR")" reclaim -y || rc=$?
+assert_eq "$rc" "1" "flatpak failing is exit 1"
+assert_eq "$(said_err)" "Flatpak stopped with exit code 1: $ERR. Nothing was removed. Still installed: $(tr '\n' ' ' <<<"$ALL5" | sed 's/ $//')." \
+  "...its reason first, then that nothing went, then what remained"
+assert_not_contains "$(said_out)$(said_err)" "Removed" "...and never that anything went"
+assert_eq "$(said_err | wc -l)" "1" "...in one line, the one the widget shows"
+# The removal ran out of time: timeout's exit status, said in words.
+reset; rc=0; UNINSTALL_RC=124 UNINSTALL_SAY="error: late" reclaim -y || rc=$?
+assert_eq "$rc" "1" "a removal that ran out of time is exit 1"
+assert_contains "$(said_err)" "Flatpak took too long, so Kempt stopped it. Nothing was removed." "...and says it waited too long"
+assert_not_contains "$(said_err)" "124" "...not an exit code"
+# Flatpak said yes and nothing went: the command running is no success.
+reset
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc" "1" "flatpak saying yes with nothing gone is not a success"
+assert_contains "$(said_err)" "Nothing was removed." "...it says so"
+assert_not_contains "$(said_out)" "Removed" "...and claims nothing"
+# Part went: flatpak stopped with some gone.
+reset; only "$KDE" > "$AFTER"
+rc=0; UNINSTALL_RC=1 reclaim -y || rc=$?
+assert_eq "$rc" "1" "part gone and flatpak failing is exit 1"
+assert_contains "$(said_err)" "Flatpak stopped with exit code 1. Removed 4 runtimes. Still installed: $KDE." \
+  "...with what went, counted from the refs really gone, and what remained"
+assert_not_contains "$(tail -1 "$KEMPT_STATE_DIR/events.log" | sed 's/.* Gone: //')" "$KDE" "...and the event line names only what went"
+# Flatpak said yes and left one.
+reset; only "$KDE" > "$AFTER"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc" "1" "flatpak saying yes with one left is not a success either"
+assert_contains "$(said_err)" "Still installed: $KDE." "...and says which"
+# Another tool removes something during ours: not counted as ours.
+reset; only "$P24" > "$AFTER"
+rc=0; reclaim -y -- "$KDE" || rc=$?
+assert_eq "$rc|$(said_out | tail -1)" "0|Removed 1 runtime." "what another tool removed meanwhile is not counted"
+# Back in use by the time of the list afterwards: not removed, and still installed.
+reset; in_use "$KDE" | jq '.unused = []' > "$AFTER"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc" "1" "a ref flatpak was given that is now on the used side is not a success"
+assert_contains "$(said_err)" "Still installed: $KDE." "...it is still installed"
+assert_contains "$(said_err)" "Removed 4 runtimes." "...and it is not counted as gone"
+# All gone, though flatpak failed: the removal is real, and so is the failure.
+reset; only > "$AFTER"
+rc=0; UNINSTALL_RC=1 reclaim -y || rc=$?
+assert_eq "$rc" "1" "all gone with flatpak failing is still exit 1"
+assert_contains "$(said_err)" "Flatpak stopped with exit code 1. Removed 5 runtimes." "...and says both"
+# The list afterwards cannot be read: Kempt does not know, flatpak's exit status or not.
+for frc in 0 1; do
+  reset; only > "$AFTER"; touch "$STUBS/unused.fail.3"
+  rc=0; UNINSTALL_RC=$frc reclaim -y || rc=$?
+  assert_eq "$rc" "1" "with the list afterwards unreadable (flatpak exit $frc) it is exit 1"
+  assert_contains "$(said_err)" "cannot say what was removed" "...and it cannot say what went"
+  assert_not_contains "$(said_out)" "Removed" "...and claims nothing"
+done
+# No size: the removal does not need one, and no size is claimed.
+reset; only > "$AFTER"; cp "$DU_TABLE" "$DU_TABLE.bak"; : > "$DU_TABLE"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(said_out | tail -1)" "0|Removed 5 runtimes." "a size that cannot be worked out stops nothing"
+assert_not_contains "$(said_out)" "can be freed" "...and is not claimed"
+reset; only "$KDE" "$P24" "$GL" "runtime/org.freedesktop.Platform.Locale/x86_64/24.08" > "$AFTER"
+rc=0; reclaim -y -- runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra || rc=$?
+assert_eq "$rc|$(said_out | tail -1)" "0|Removed 1 runtime." "...one of them in the singular"
+cp "$DU_TABLE.bak" "$DU_TABLE"
 
 finish

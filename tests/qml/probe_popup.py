@@ -85,7 +85,7 @@ open(UNSTAGEOUT, "w").write("Discarded the updates waiting for the next restart.
 open(UNSTAGEERR, "w").write("")
 # `kempt reclaim`, which Free Up Space runs: status, both streams, and the state the CLI leaves
 # behind (a path, copied over state.json with @NOW@ stamped as `date -Iseconds`, or empty to leave
-# state.json alone). The real command rewrites state.json before it exits, with reclaim.last.
+# state.json alone). The real command rewrites state.json before it exits.
 RECLAIMRC = os.path.join(p.sandbox, "reclaimrc")
 RECLAIMOUT = os.path.join(p.sandbox, "reclaimout")
 RECLAIMERR = os.path.join(p.sandbox, "reclaimerr")
@@ -1709,15 +1709,14 @@ ev('root.actionMessage = ""')
 ev('root.actionDone = ""')
 
 # --- Free Up Space: the reclaim offer's button ------------------------------------------------
-# `kempt reclaim -y --expect=<digest>`: the digest is the consent (the CLI removes
-# nothing unless the set on offer is still the one shown), and what the popup says is the CLI's own line.
+# `kempt reclaim -y -- <refs>`: the refs are the ones shown, and what the widget says is the CLI's
+# own line.
 def reclaim_from(source, name, offer=True):
     doc = json.load(open(source))
-    block = {"status": "ok", "refs": [], "offerable_bytes": None, "digest": ""}
+    block = {"refs": [], "bytes": 0}
     if offer:
-        block.update(offerable_bytes=1530000000, digest="0123456789abcdef", refs=[
-            {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08", "commit": "a" * 64,
-             "since": "2026-09-28T10:00:00+03:00", "eol": "no longer supported"}])
+        block = {"bytes": 1530000000, "refs": [
+            {"ref": "runtime/org.kde.Platform/x86_64/5.15-23.08"}]}
     doc["reclaim"] = block
     path = os.path.join(p.sandbox, name)
     open(path, "w").write(json.dumps(doc))
@@ -1727,7 +1726,7 @@ def reclaim_from(source, name, offer=True):
 RC_OFFER = reclaim_from(UPTODATE, "state-reclaim.json")
 RC_GONE = reclaim_from(UPTODATE, "state-reclaim-gone.json", offer=False)
 state(RC_OFFER)
-ev('root.reclaimDismissed = ""; root.actionMessage = ""; root.actionDone = ""')
+ev('root.reclaimDismissed = false; root.actionMessage = ""; root.actionDone = ""')
 p.pump(100)
 p.check("the offer is on screen with its two actions",
         [lev("reclaimMessage.visible"), lev("reclaimMessage.actions[0].text"),
@@ -1740,7 +1739,7 @@ p.check("...and the button says what it does, for the eye and for a screen reade
 open(CHECKSRC, "w").write(RC_GONE)
 open(RECLAIMST, "w").write(RC_GONE)
 open(RECLAIMOUT, "w").write("No installed app uses these Flatpak runtimes:\n  org.kde.Platform 5.15\n"
-                            "Removing them frees about 1.5 GB.\nFreed about 1.5 GB.\n")
+                            "Up to 1.5 GB can be freed.\nRemoved 1 runtime.\n")
 p.clear_calls()
 lev("reclaimMessage.actions[0].trigger()")
 p.check("a press is pending until the CLI answers, and the button is disabled meanwhile",
@@ -1753,41 +1752,30 @@ settle()
 p.check("...presses while it is pending start nothing: exactly one reclaim",
         [p.call_count("reclaim"), p.call_count("unstage") + p.call_count("run")], [1, 0])
 p.check("...which removes only the set shown",
-        p.argv("reclaim"), ["reclaim", "-y", "--expect=0123456789abcdef"])
+        p.argv("reclaim"), ["reclaim", "-y", "--", "runtime/org.kde.Platform/x86_64/5.15-23.08"])
 p.check("...and says how much it freed, in the CLI's words", ev("root.actionDone"),
-        "Freed about 1.5 GB.")
+        "Removed 1 runtime.")
 p.check("...as the thing that just happened, not as a failure",
         [ev("root.reportFailed"), lev("reportMessage.visible")], [False, True])
 p.check("...and the offer is gone after the re-check", lev("reclaimMessage.visible"), False)
 
-# The set changed after it was shown: exit 6, in the CLI's words, and the offer stays for the new
-# set the CLI's own re-check publishes.
+# Flatpak failed: exit 1, in the CLI's words, and the offer stays for what is still there.
 state(RC_OFFER)
-open(RECLAIMST, "w").write("")
-open(RECLAIMRC, "w").write("6")
-open(RECLAIMOUT, "w").write("")
-open(RECLAIMERR, "w").write(
-    "What Flatpak can remove changed since this was shown. Nothing was removed.\n")
-ev('root.actionMessage = ""; root.actionDone = ""')
-lev("reclaimMessage.actions[0].trigger()")
-p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
-settle()
-p.check("a set that changed since it was shown removes nothing, and says so",
-        ev("root.actionMessage"),
-        "What Flatpak can remove changed since this was shown. Nothing was removed.")
-p.check("...in red, because what was asked for did not happen", ev("root.reportFailed"), True)
-
-# polkit would ask for a password: the CLI never lets it, so this is exit 5 in the CLI's words.
 open(CHECKSRC, "w").write(RC_OFFER)
 open(RECLAIMST, "w").write("")
-open(RECLAIMRC, "w").write("5")
-open(RECLAIMERR, "w").write("Removing these needs an administrator. Nothing was removed.\n")
+open(RECLAIMRC, "w").write("1")
+open(RECLAIMOUT, "w").write("")
+_said = ("Nothing was removed. Still installed: runtime/org.kde.Platform/x86_64/5.15-23.08. "
+         "Flatpak stopped with exit code 1: not allowed for user")
+open(RECLAIMERR, "w").write(_said + "\n")
 ev('root.actionMessage = ""; root.actionDone = ""')
 lev("reclaimMessage.actions[0].trigger()")
 p.wait_for(ev, 'String(root.actionMessage) !== ""', True, timeout_ms=8000)
 settle()
-p.check("a removal that needs an administrator says so, and that nothing was removed",
-        ev("root.actionMessage"), "Removing these needs an administrator. Nothing was removed.")
+p.check("Flatpak failing says what remained and why, and never that anything was freed",
+        ev("root.actionMessage"), _said)
+p.check("...in red, because what was asked for did not happen", ev("root.reportFailed"), True)
+p.check("...and the offer is still there", lev("reclaimMessage.visible"), True)
 
 # An update holding the lock.
 open(CHECKSRC, "w").write(RC_OFFER)
@@ -2612,7 +2600,7 @@ p.check("...with the footer quiet about it again",
 # again once hidden, so toggling the root would measure Qt rather than the popup.
 RC_BOTH = reclaim_from(UPTODATE_REBOOT, "state-reclaim-reboot.json")
 state(RC_BOTH)
-ev('root.restartDismissed = false; root.reclaimDismissed = ""; root.postRunLine = ""; root.actionMessage = ""; root.actionDone = ""')
+ev('root.restartDismissed = false; root.reclaimDismissed = false; root.postRunLine = ""; root.actionMessage = ""; root.actionDone = ""')
 p.pump(50)
 p.check("premise: restart and reclaim are both in the stack",
         ev("JSON.stringify(root.vm.messageSlots)"), '["restart","reclaim"]')
@@ -2638,16 +2626,16 @@ p.check("a popup can be built and then moved into a hidden container",
         _hev("make(probeRoot, probeRoot.vm, true)"), True)
 p.pump(80)
 p.check("...and that dismisses neither message",
-        [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+        [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, False])
 _hev("made.destroy()")
 p.pump(30)
-ev('root.restartDismissed = false; root.reclaimDismissed = ""')
+ev('root.restartDismissed = false; root.reclaimDismissed = false')
 p.pump(30)
 p.check("a popup can be built inside a hidden container, as Plasma builds it",
         _hev("make(probeRoot, probeRoot.vm, false)"), True)
 p.pump(80)
 p.check("...and building it hidden dismisses neither message",
-        [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+        [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, False])
 _hev("host.visible = true")
 p.pump(80)
 p.check("...so both show once the container does",
@@ -2663,12 +2651,12 @@ p.pump(50)
 _hev("host.visible = true")
 p.pump(50)
 p.check("hiding the container and showing it again (closing and opening the popup) dismisses "
-        "neither", [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, ""])
+        "neither", [ev("root.restartDismissed"), ev("root.reclaimDismissed")], [False, False])
 p.check("...so both are still wanted, and on screen",
         [ev("JSON.stringify(root.vm.messageSlots)"), _hev(_shown)], ['["restart","reclaim"]', 2])
 _hev("made.destroy()")
 p.pump(30)
-ev('root.restartDismissed = false; root.reclaimDismissed = ""')
+ev('root.restartDismissed = false; root.reclaimDismissed = false')
 p.pump(30)
 
 # A prompt that could not be opened is said HERE, where the user pressed. Silence is the worst

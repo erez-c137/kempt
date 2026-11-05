@@ -185,9 +185,7 @@ done < <(find "$REPO_ROOT" \
 assert_eq "${addressed% }" "" \
   "no email address outside the spec changelog, SECURITY.md and CODE_OF_CONDUCT.md"
 
-# kempt reclaim has no --allow-auth: every removal asks polkit without a dialog. No doc may offer it.
-USAGE_RECLAIM="$(awk '/^  reclaim \[/ { print; getline; print }' "$REPO_ROOT/bin/kempt")"
-assert_contains "$USAGE_RECLAIM" "--expect=DIGEST" "premise: kempt usage has the reclaim line"
+# kempt reclaim has no --allow-auth: every removal runs without a dialog. No doc may offer it.
 assert_eq "$(grep -rlF -e '--allow-auth' -e 'allow\-auth' "$REPO_ROOT/bin" "$REPO_ROOT/docs" "$REPO_ROOT/plasmoid" \
   "$REPO_ROOT/README.md" 2>/dev/null | sed "s|$REPO_ROOT/||" | tr '\n' ' ')" "" \
   "no command line, doc or widget passes or documents reclaim --allow-auth"

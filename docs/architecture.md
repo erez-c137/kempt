@@ -116,7 +116,7 @@ Every file Kempt writes, with its mode and retention, is listed in
 
 - **Readers take no lock.** `atomic_write` renames a temp file into place, so a reader sees the
   whole old file or the whole new one. The temp sits next to its destination.
-- **`kempt_init_dirs` sweeps leftovers** after 60 minutes: temps and `reclaim-out.*` copies.
+- **`kempt_init_dirs` sweeps leftovers** after 60 minutes: temps.
 - **`log_event` never fails a command.** It always returns 0 and waits at most 5 seconds for its lock. Its `via` column is
   `widget` when `KEMPT_VIA=widget`, which the widget sets on every command, and `cli` otherwise.
 - **An update applied on a restart gets a log Kempt writes itself**, from dnf5's history. Kempt
@@ -294,31 +294,15 @@ Kempt refuses to stage, and a reader should stop offering it.
 
 ### `reclaim`
 
-Present only when Flatpak is installed and enabled, `reclaim` is not `off`, and the check did not
-run as root.
+Present only when Flatpak is installed and enabled, the check did not run as root, and Flatpak
+answered.
 
 | Key | Meaning |
 | --- | --- |
-| `refs[]` | Every unused ref: `ref`, `commit`, `since` (UTC, when first seen unused with this commit) and `eol` (flatpak's end-of-life reason, or `null`). |
-| `offerable_bytes` | The estimated size of the offered list. `null` when unknown or nothing is offered yet. |
-| `digest` | Names the offered set, and is what `kempt reclaim --expect` takes. `""` when nothing is offered. |
-| `status` | `ok`, `unknown_size`, `needs_auth` or `failed`. |
-| `last` | The last removal, from `reclaim-last.json`. |
+| `refs[]` | Every unused ref: `ref`. |
+| `bytes` | The most they would free, from one `du` over the used and unused folders. `null` when unknown. |
 
-The list is offered whole, and only once every ref on it has been unused for an hour. Until then
-`offerable_bytes` is `null` and `digest` is `""`. `failed` with an empty `refs` means this check
-could not list the unused runtimes. Otherwise `needs_auth` and `failed` are carried from the last
-removal while the same set is on offer.
-
-| `last` key | Meaning |
-| --- | --- |
-| `at`, `via`, `bytes`, `digest` | When, from where, how much, and which set. |
-| `result` | `removed`, `nothing`, `changed`, `needs_auth` or `failed`. |
-| `refs` | With `removed`, what did go. With `failed`, `null`: anything from none to all of the set may be gone. |
-| `error` | When a removal failed: Flatpak's error line, at most 200 characters, or `Flatpak did not answer when asked what is unused`. |
-| `partial` | `true` when Flatpak failed after the removal began. `error` says why the rest stayed. |
-| `skipped` | `true` when the extensions were never tried: the first pass succeeded and Flatpak refused nothing, but the list between the passes could not be read. They keep their `since`, so no new hour's wait. The widget says so with `reclaimSkipped` in `logic.js`. |
-| `in_use` | Only when non-empty: as `id//branch`, the extensions Flatpak removed although it printed that an app uses them. It counts only apps installed after the list taken just before that pass. |
+The widget offers the list from 1 GB and names those refs to `kempt reclaim`. The CLI keeps no copy.
 
 ### The Discover offer
 

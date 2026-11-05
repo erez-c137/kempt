@@ -421,8 +421,8 @@ assert_eq "$(sed -n '/Recent events/,$p' <<<"$out" | grep -c '^  2[0-9][0-9][0-9
   "...and the last five when there are more"
 assert_eq "$(grep -c '^  .* Setting surface changed to d8 (was d7)$' <<<"$out")" "1" \
   "...ending on the newest one"
-assert_eq "$(grep -c '^FAIL' <<<"$out")" "0" "...and the section cannot be mistaken for a report line"
-# On failure, the count alone cannot say WHICH report line doctor produced - show it.
-[[ "$(grep -c '^FAIL' <<<"$out")" -eq 0 ]] || grep '^FAIL' <<<"$out" | sed 's/^/    /'
+# Only the section: the report lines above it depend on what is installed on this machine.
+assert_eq "$(awk '/Recent events/ { f = 1; next } f && !NF { exit } f && !/^  / { n++ } END { print n + 0 }' <<<"$out")" "0" \
+  "...and the section cannot be mistaken for a report line: all of it is indented"
 
 finish

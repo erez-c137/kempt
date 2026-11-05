@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 15:01+0200\n"
+"POT-Creation-Date: 2026-11-05 18:37+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -357,31 +357,6 @@ msgid "Flatpak is not installed."
 msgstr ""
 
 #: plasmoid/contents/ui/configGeneral.qml
-msgid "Unused Flatpak runtimes:"
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Ask me first"
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Never"
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgctxt "@info:whatsthis a radio button's setting, then its option"
-msgid "%1 %2"
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Only applies when Flatpak apps are included in updates."
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
-msgid "Only applies when Flatpak is installed."
-msgstr ""
-
-#: plasmoid/contents/ui/configGeneral.qml
 msgid "Run updates in:"
 msgstr ""
 
@@ -391,6 +366,11 @@ msgstr ""
 
 #: plasmoid/contents/ui/configGeneral.qml
 msgid "On the next restart"
+msgstr ""
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgctxt "@info:whatsthis a radio button's setting, then its option"
+msgid "%1 %2"
 msgstr ""
 
 #: plasmoid/contents/ui/configGeneral.qml
@@ -657,11 +637,7 @@ msgid "Kempt could not read the startup list."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js
-msgid "%1 can be freed. No installed app uses these Flatpak runtimes."
-msgstr ""
-
-#: plasmoid/contents/ui/logic.js
-msgid "%1 (no longer supported)"
+msgid "Up to %1 can be freed. No installed app uses these Flatpak runtimes."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js
@@ -880,7 +856,7 @@ msgid "Could not free the space (exit %1)."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js
-msgid "Nothing to remove. Every installed Flatpak runtime is in use."
+msgid "Nothing to remove."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js

@@ -549,8 +549,9 @@ had nothing unused, so the refs are the ones a removed app typically leaves behi
 (`org.freedesktop.Platform` 24.08), the GL extension on both branches (`24.08` and `24.08extra`, which
 share most of their files), the runtime's `Locale` extension, and an end-of-life runtime
 (`org.kde.Platform` 5.15-23.08) carrying flatpak's own reason string. The used refs are what is
-still installed: an app, the newer runtimes it uses and their extensions. Commits are the sha256 of
-each ref and deploy directories follow flatpak's `<kind>/<id>/<arch>/<branch>/<commit>` layout.
+still installed: an app, the newer runtimes it uses and their extensions. Deploy directories follow
+flatpak's `<kind>/<id>/<arch>/<branch>/<commit>` layout, with the sha256 of each ref as its commit.
+`installation` is what the stand-in below answers `get_path()` with; the helper does not print it.
 
 ## tests/fixtures/fake-gi/
 **Hand-written stand-in for PyGObject.** It serves the refs in `$FAKE_FLATPAK_JSON` through the

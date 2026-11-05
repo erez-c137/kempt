@@ -52,7 +52,7 @@ Most commands use these codes. Each command's section lists its own cases.
 | 2 | Usage error: unknown command, option or argument. |
 | 3 | Cannot start: `jq` is missing, or another `kempt update` is running. |
 | 5 | Stopped before changing anything. |
-| 6 | `reclaim` and `startup`: what you were shown changed. |
+| 6 | `startup`: what you were shown changed. |
 | 7 | `update` only: another program held the package lock. |
 | 8 | Run as root. Run Kempt as your own user, and it asks for a password when it needs one. |
 
@@ -380,7 +380,7 @@ record of the stage only once dnf5 confirms the transaction is gone.
 ## reclaim
 
 ```
-kempt reclaim [--list] [-y] [--expect=DIGEST]
+kempt reclaim [-y] [REF...]
 ```
 
 Removes the Flatpak runtimes no installed app uses. They pile up as apps move to newer runtimes, and
@@ -391,43 +391,42 @@ only.
 No installed app uses these Flatpak runtimes:
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08
   runtime/org.freedesktop.Platform.GL.default/x86_64/24.08extra
-  runtime/org.kde.Platform/x86_64/5.15-23.08 (no longer supported)
-Removing them frees about 1.5 GB.
+  runtime/org.kde.Platform/x86_64/5.15-23.08
+Up to 1.5 GB can be freed.
 Remove them? [y/N]
 ```
 
 | Option | Effect |
 | --- | --- |
-| `--list` | Shows the list and stops. It works with `reclaim=off` too. |
 | `-y`, `--yes` | Removes without asking. |
-| `--expect=DIGEST` | Removes only if the list is still the set with this digest, the `reclaim.digest` from `kempt check` (16 lowercase hex characters). |
+| `REF...` | Removes only these, of the runtimes on the list. Put them after `--`. |
 
 What it removes:
 
 - **Only what Flatpak calls unused.** An extension another installed runtime still uses stays. The
-  size is an estimate.
-- **Only after an hour** unused, counted from the first check that lists it, so one another tool is
-  installing is left alone. If no check has run yet, `kempt reclaim` runs one and says to try again
-  in an hour.
-- **Runtimes first, then their extensions**, such as translations (`.Locale`) and graphics drivers
-  (`.GL`). Kempt lists again between the two, so an app you install meanwhile keeps both. If
-  Flatpak removes one of its extensions anyway, Kempt says so, and `flatpak update` puts it back.
+  size is an upper limit: on compressed btrfs, Fedora's default, less comes back.
+- **Only by name.** Kempt reads the list again just before removing and passes only the runtimes on
+  both lists, so Flatpak adds nothing of its own.
+- **An extension of a just installed app can go.** Flatpak refuses to remove a runtime an installed
+  app needs, but an extension is not protected if the app arrived after the list was read.
+  `flatpak update` puts it back.
 - **Never a pinned runtime.** To keep one Kempt lists, pin it:
   `flatpak pin runtime/org.kde.Platform/x86_64/5.15-23.08`.
 
 It never asks for a password. Removing needs an administrator (on Fedora, a member of the `wheel`
-group) logged in at the desktop, so over the network nothing is removed.
+group) logged in at the desktop. Otherwise Flatpak refuses, and Kempt shows its reason.
 
-A removal writes an event line and no history entry.
+The result comes from the list read afterwards: Flatpak's reason if it failed, how many runtimes
+went, and what is still installed. A removal writes an event line naming what went, so you can look
+up what to reinstall, and no history entry.
 
 | Exit | When |
 | --- | --- |
 | 0 | Removed, nothing to remove, or you answered no. |
-| 1 | Flatpak could not list or remove the runtimes. If it stopped part-way, Kempt says how much it freed, or, when the list afterwards could not be read, that the removal may be partial: run `kempt reclaim --list`. |
-| 2 | Unknown option, or a digest that is not 16 lowercase hex characters. |
+| 1 | Flatpak could not list the runtimes, it failed, or a runtime it was given is still installed. Kempt says why, what went and what remained. If the list afterwards could not be read, it says it cannot tell. |
+| 2 | Unknown option. |
 | 3 | Another update is running. |
-| 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set or under sudo or pkexec, Flatpak is off or missing, `reclaim=off`, removing needs an administrator (or polkit refused Flatpak's helper), or there is no `-y` and no terminal to ask at. |
-| 6 | Nothing removed: the list is not the set you were shown, or part of it became unused less than an hour ago. On first use, with no check on record, every runtime is new. |
+| 5 | Nothing removed: run as root with `KEMPT_ALLOW_ROOT=1` set or under sudo or pkexec, Flatpak is missing, or there is no `-y` and no terminal to ask at. |
 
 ## startup
 

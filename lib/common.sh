@@ -88,13 +88,6 @@ STATE_LOCK_FILE="$KEMPT_STATE_DIR/state.lock"
 unset _KEMPT_STATE_LOCK_HELD; _KEMPT_STATE_LOCK_HELD=""
 EVENTS_LOCK_FILE="$KEMPT_STATE_DIR/events.lock"
 EVENTS_FILE="$KEMPT_STATE_DIR/events.log"
-# Reclaiming disk space. The size cache saves a du over every installed Flatpak runtime on each
-# check; it is keyed on the installed set, so any install, update or removal invalidates it. The
-# outcome file is what the last removal did, carried into state.json by the next check, because
-# write_state is the only door into state.json and a removal is not a check.
-# shellcheck disable=SC2034  # read by backends/flatpak.sh, kept here with the other state files
-RECLAIM_SIZES_FILE="$KEMPT_STATE_DIR/reclaim-sizes.json"
-RECLAIM_LAST_FILE="$KEMPT_STATE_DIR/reclaim-last.json"
 # What a check may add to its own queries, in seconds: the advisory query and each of the two
 # waits for the writers' lock. Kept small, because the widget's CHECK_BODY_MS counts them and the
 # notification bound below (a test there reads these three lines).
@@ -177,10 +170,6 @@ KEMPT_ANACRON_SPOOL="${KEMPT_ANACRON_SPOOL:-/var/spool/anacron}"
 KEMPT_LINGER_DIR="${KEMPT_LINGER_DIR:-/var/lib/systemd/linger}"
 # Where an enabled template unit's file is looked for: `show` refuses a template name.
 KEMPT_SYSTEM_UNIT_DIRS="${KEMPT_SYSTEM_UNIT_DIRS:-/etc/systemd/system /usr/lib/systemd/system}"
-# Asks polkit whether this process may remove Flatpak runtimes WITHOUT asking anyone, before an
-# unattended removal starts (reclaim_remove). No --allow-user-interaction, so it can never raise a
-# dialog itself.
-KEMPT_PKCHECK="${KEMPT_PKCHECK:-pkcheck}"
 
 kempt_init_dirs() {
   mkdir -p "$KEMPT_CONFIG_DIR" "$HIST_DIR" "$LOG_DIR" "$SNAP_DIR"
@@ -194,9 +183,6 @@ kempt_init_dirs() {
   # The config dir collects them too: `hold`, `unhold` and `config set` write through atomic_write
   # there. maxdepth 1, because Kempt writes nothing below it. Created by the mkdir above.
   find "$KEMPT_CONFIG_DIR" -maxdepth 1 -name '.atomic.*' -mmin +60 -delete 2>/dev/null || true
-  # ...and a removal's copy of flatpak's output (reclaim_remove), left by a kempt killed outright.
-  # The removal is given ten minutes, so an hour is past any that is still running.
-  find "$KEMPT_STATE_DIR" -maxdepth 1 -name 'reclaim-out.*' -mmin +60 -delete 2>/dev/null || true
   # Retention: nothing else ever deletes these, and the widget triggers a run on a timer - one
   # history entry plus one log per run, forever, on a box nobody tidies by hand. Keep the newest 50
   # entries and drop logs after 60 days (the logs are the failure evidence; the entry that names
@@ -319,15 +305,14 @@ collapse_versions() {  # stdin: TSV from sort_name_version (names may repeat) �
 # kempt_default because the two are twins: a key with a default belongs here, and a key here must
 # have a default there, or `config get` answers with an empty string for a setting Kempt claims to
 # know. Adding a backend or a widget setting means adding it in both places.
-KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min risky_regex reclaim notify_startup"
+KEMPT_CONFIG_KEYS="include_flatpak auto_accept surface refresh_interval_min risky_regex notify_startup"
 
-# The values a key with a FIXED set accepts: `surface` and `reclaim`. The booleans take anything and
+# The values a key with a FIXED set accepts: `surface`. The booleans take anything and
 # read it as false, which configuration.md documents in as many words ("auto_accept on" is its own
 # worked example). A table, so a second enum is one line rather than a new branch.
 config_enum_values() {  # key → accepted values, space separated, or nothing
   case "$1" in
     surface) printf '%s\n' "popup offline" ;;
-    reclaim) printf '%s\n' "ask off" ;;
   esac
 }
 
@@ -378,9 +363,6 @@ kempt_default() {  # key → default ("" if unknown)
     # session-critical families: a LIVE upgrade of these can break the running desktop
     # mid-transaction, so Kempt recommends the offline path first.
     risky_regex) echo '^(kernel|systemd|glibc|dbus|mesa|qt6|kf6|plasma-workspace|kwin)' ;;
-    # What happens to the Flatpak runtimes no installed app uses: ask|off. See
-    # reclaim_mode for how a value is read.
-    reclaim) echo ask ;;
     # A notification when a service that started before an update no longer starts after it. On:
     # a check asks systemd only for the failed units (and, while something is announced or muted,
     # whether those run), and Kempt only looks.
@@ -804,16 +786,6 @@ discover_notifier_status() {  # [--json]
   if [[ $unattended == true ]]; then echo "automatic updates: on in Discover's settings"; fi
 }
 
-# The reclaim setting as the code acts on it. Anything that is not exactly `off` reads as `ask`,
-# including a saved `automatic`: a typo must not silently hide space the person could free. Case-folded like is_true, because the file is
-# edited by hand.
-reclaim_mode() {  # → ask | off
-  local v
-  v="$(config_get reclaim 2>/dev/null)" || v=""
-  v="${v,,}"
-  if [[ "$v" == off ]]; then echo off; else echo ask; fi
-}
-
 # The desktop user, and only the desktop user, may list or remove unused runtimes. For the system
 # installation libflatpak counts the CALLING user's own apps as users, so under sudo or pkexec it
 # counts root's instead, and a system runtime that one of this person's --user apps needs would
@@ -832,10 +804,6 @@ set_digest() {  # stdin: one member per line → digest, or nothing
   printf '%s\n' "$lines" | sha256sum | cut -c1-16
 }
 
-# A set of runtimes, by ref and commit: a runtime that updated between the check and the click is a
-# different set.
-reclaim_digest() { awk -F'\t' 'NF >= 2 { print $1 " " $2 }' | set_digest; }  # stdin: ref<TAB>commit lines
-
 # Bytes as a person reads them, SI decimal like flatpak and Discover: "850 MB", "1.5 GB". Used for
 # estimates only, so one decimal is all the precision there is.
 human_bytes() {  # bytes → text
@@ -849,17 +817,12 @@ human_bytes() {  # bytes → text
 # The line of a command's output that says what went wrong: the last line starting with
 # "error: Failed to" (flatpak's per-ref reason, which its closing "error: There were one or more
 # errors" would hide), else the last starting with "error:", else the last non-empty one. One line,
-# with terminal escapes (CSI, OSC, the C1 CSI) and control characters removed, and at most 200
-# characters, cut on a character boundary, so it is safe in an event line, a JSON field or a sentence.
-# The C1 CSI is taken as U+009B (bytes c2 9b), or as a lone 0x9b byte after ASCII: elsewhere 0x9b
-# is part of a UTF-8 character.
+# with control characters removed and at most 200 characters, cut on a character boundary, so it is
+# safe in an event line, a JSON field or a sentence. Removing ESC disarms a terminal escape and
+# leaves its text, and the widget shows this as plain text.
 error_line_of() {  # stdin: output → one line, empty when there was none
   local line
-  line="$(LC_ALL=C sed -e 's/\x1b\][^\x07\x1b]*\(\x07\|\x1b\\\)\{0,1\}//g' \
-                       -e 's/\x1b\[[0-?]*[ -/]*[@-~]//g' \
-                       -e 's/\xc2\x9b[0-?]*[ -/]*[@-~]//g' \
-                       -e 's/\(^\|[\x01-\x7f]\)\x9b[0-?]*[ -/]*[@-~]/\1/g' \
-          | LC_ALL=C tr -d '\r' \
+  line="$(LC_ALL=C tr -d '\r' \
           | LC_ALL=C awk '{ sub(/[[:space:]]+$/, "") }
                           tolower($0) ~ /^error: failed to/ { f = $0 }
                           tolower($0) ~ /^error:/ { e = $0 }
@@ -870,35 +833,6 @@ error_line_of() {  # stdin: output → one line, empty when there was none
   printf '%s\n' "${line:0:200}"
 }
 
-# The last removal's outcome: {at, via, result, refs, bytes, digest}, plus error (flatpak's error
-# line, from error_line_of) when there is one, and partial: true when flatpak failed after the
-# removal began (refs is then what went, or null when that is unknown), skipped: true when the
-# extensions were never tried because the list between the passes failed, and in_use (["id//branch"])
-# when flatpak removed extensions it said an app installed since the last listing uses; or {} when
-# there is none or the file is damaged. result is removed | nothing | changed | needs_auth | failed.
-reclaim_last_read() {  # → one JSON object
-  local out
-  out="$(jq -c -n '[inputs][0] | select(type == "object")' "$RECLAIM_LAST_FILE" 2>/dev/null)" || out=""
-  [[ -n "$out" ]] || out='{}'
-  printf '%s\n' "$out"
-}
-
-# Best-effort, like every write after a system change: a lost outcome costs a sentence in the
-# popup, never the removal's own exit status.
-reclaim_last_write() {  # via result refs-json-or-null bytes-or-empty digest [error-line] [partial(1|"")] [in-use-json] [skipped(1|"")]
-  kempt_init_dirs 2>/dev/null || return 0
-  jq -cn --arg at "$(now_iso)" --arg via "$1" --arg result "$2" --slurpfile refs <(printf '%s\n' "$3") \
-         --arg bytes "$4" --arg digest "$5" --arg error "${6:-}" --arg partial "${7:-}" --arg in_use "${8:-}" \
-         --arg skipped "${9:-}" \
-    '{at:$at, via:$via, result:$result, refs:$refs[0],
-      bytes:(if $bytes == "" then null else ($bytes | tonumber) end), digest:$digest}
-     + (if $error == "" then {} else {error: $error} end)
-     + (if $partial == "" then {} else {partial: true} end)
-     + (if $skipped == "" then {} else {skipped: true} end)
-     + (if $in_use == "" then {} else {in_use: ($in_use | fromjson)} end)' 2>/dev/null \
-    | atomic_write "$RECLAIM_LAST_FILE" 2>/dev/null || true
-  return 0
-}
 is_true() { local v="${1,,}"; [[ "$v" == true || "$v" == 1 || "$v" == yes ]]; }
 
 # ONE version string for the whole project, and VERSION is it: the git tag, the RPM `Version:`, the

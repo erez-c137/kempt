@@ -68,21 +68,21 @@ an active local session, with no password. Two cases can still ask for authentic
 [Accepted limitations](#accepted-limitations). Apps installed with `flatpak install --user` live in
 your home, so `flatpak update --user` needs no polkit at all. Kempt runs it after the system one.
 
-**Removing unused Flatpak runtimes runs as you too.** `kempt reclaim` runs `flatpak uninstall --system --no-related --noninteractive`
-with the refs you were shown, by name. `--no-related` stops Flatpak adding related refs.
+**Removing unused Flatpak runtimes runs as you too.** `kempt reclaim` runs `flatpak uninstall --system --no-related -y`
+with the refs you were shown, by name, after `--`. `--no-related` stops Flatpak adding related refs.
+`--unused` is never passed: on a test machine it removed a codecs extension another installed
+Platform needed.
 
-Kempt lists the runtimes again just before, and removes nothing unless the list is still that set.
-Flatpak refuses to remove a runtime an installed app uses, and Kempt never passes
-`--force-remove`. Flatpak does remove an extension an app uses. So Kempt removes extensions in a
-second pass, after listing again, and only those still unused.
+Kempt lists the runtimes again just before, and passes only the refs on both lists. Flatpak refuses
+to remove a runtime an installed app uses, and Kempt never passes `--force-remove`. Flatpak does
+remove an extension an app uses, so an app installed between that list and the removal can lose
+one. `flatpak update` puts it back.
 
 Flatpak does the removal through its own system helper, which asks polkit for
 `org.freedesktop.Flatpak.runtime-uninstall`. This gives you nothing you did not already have.
 Fedora's Flatpak rule allows that action without a password for a member of `wheel` in an active
-local session, and anyone can run the same `flatpak uninstall` by hand. Before the removal, Kempt
-asks polkit with `pkcheck` and no dialog. If the answer is anything but yes, nothing is removed and
-Kempt says removing needs an administrator. With `--noninteractive`, Flatpak never shows a polkit
-dialog either. If polkit still refuses Flatpak's helper, the answer is the same.
+local session, and anyone can run the same `flatpak uninstall` by hand. With `-y`, Flatpak never
+shows a polkit dialog. If polkit refuses, nothing is removed and Kempt shows Flatpak's reason.
 
 Kempt refuses to remove as root, under `sudo` or under `pkexec`. Flatpak counts the calling user's
 own apps as users of a system runtime. As root it would see root's apps instead of yours, and
