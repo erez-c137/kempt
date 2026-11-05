@@ -159,7 +159,7 @@ KEMPT_DNF_OFFLINE_PKG_DIR="${KEMPT_DNF_OFFLINE_PKG_DIR:-/var/lib/dnf/offline}"
 # below this folder instead. For tests, whose folders sit in one the test user owns.
 KEMPT_DNF_PARENTS_TOP="${KEMPT_DNF_PARENTS_TOP:-}"
 # What doctor reads to tell which mount each dnf folder sits on, whether this process shares PID 1's
-# mount namespace, and the find it checks folders with. The root helper reads the same three.
+# mount namespace, and the find it checks folders with.
 KEMPT_MOUNTINFO="${KEMPT_MOUNTINFO:-/proc/self/mountinfo}"
 KEMPT_MNT_NS_INIT="${KEMPT_MNT_NS_INIT:-/proc/1/ns/mnt}"
 KEMPT_FIND="${KEMPT_FIND:-find}"

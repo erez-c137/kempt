@@ -1789,7 +1789,7 @@ cmd_update() {
       dnf_status="ok"
     else
       dnf_status="failed"; status="failed"
-      # The helper refuses a live upgrade over dnf5's folders and the mount namespace. Nothing ran.
+      # The helper refuses a live upgrade over dnf5's folders. Nothing ran.
       if [[ $live_rc -eq $KEMPT_APPLY_REFUSED ]]; then
         reason_override="$(refusal_words "$log" "nothing was installed" "$(apply_unsafe_words "dnf's folders")")"
         log_event "live update refused by the root helper"
@@ -4097,7 +4097,7 @@ clean_left_words() {  # run log → KEMPT_CLEAN_LEFT, in the helper's words when
   if why="$(log_folder_refusal "$1")"; then printf 'These updates were left in place. %s\n' "$why"
   else printf '%s\n' "$KEMPT_CLEAN_LEFT"; fi
 }
-# The helper's own sentence for a refusal over the folders or the mount namespace. It alone knows
+# The helper's own sentence for a refusal over the folders. It alone knows
 # which: a user's reading cannot see what root was denied, and what is stored may be a second problem
 # the helper never reached. Its line is the last thing it prints.
 helper_folder_refusal() {  # the helper's output → the sentence; rc 1 when the last line is about something else
@@ -4443,7 +4443,7 @@ doctor_dnf_parents_row() {
   list="$(printf '%s, ' "${DOCTOR_PARENT_SHOWN[@]}")"; list="${list%, }"
   doctor_fail "dnf folders' parents: other users can change $list. They could put a folder of their own in place of dnf's state, staged updates or cache, and the dnf checks would then look at theirs. Fix it with: ${fix# && }.$DOCTOR_PARENT_NOTE Then run kempt doctor again. $KEMPT_FOLDERS_HOLD"
 }
-# The root helpers start dnf5 where they are, so a namespace of its own is where dnf5 would run. A
+# PID 1 starts dnf5, so in a namespace of its own this process would read folders dnf5 does not use. A
 # user cannot read /proc/1/ns/mnt. PID 1's mount table is readable, and a different namespace shows a
 # different one.
 doctor_mount_ns_read() {  # → 0 when this process and PID 1 look like one namespace, or nobody can tell
@@ -4461,7 +4461,7 @@ doctor_mount_ns_row() {
   [[ -d "${KEMPT_SYSTEMD_BOOTED:-/run/systemd/system}" ]] || return 0
   # Twice, for the second table: a mount made between the two reads is not a namespace.
   doctor_mount_ns_read || doctor_mount_ns_read && return 0
-  doctor_fail "mount namespace: Kempt is running in a different mount namespace from the system (as in a toolbox, or a sandboxed terminal), and dnf5 would run in it too. Run Kempt from a terminal or session on the host."
+  doctor_fail "mount namespace: Kempt is running in a different mount namespace from the system (as in a toolbox, or a sandboxed terminal), so what it checks is not what dnf5 uses. Run Kempt from a terminal or session on the host."
 }
 
 doctor_config_row() {

@@ -75,7 +75,7 @@ doctor_in_ns 'rm -rf usr/lib/sysimage/libdnf5; ln -s libdnf5 usr/lib/sysimage/li
 assert_contains "$OUT" "Too many levels of symbolic links" "doctor says a link loop on the way is too many links"
 doctor_in_ns 'ln -s "mnt:[1]" ns1' KEMPT_MNT_NS_INIT="$R/ns1"
 assert_contains "$OUT" "FAIL  mount namespace: Kempt is running in a different mount namespace from the system" "doctor reports another mount namespace"
-assert_contains "$OUT" "dnf5 would run in it too" "...and says what that means"
+assert_contains "$OUT" "what it checks is not what dnf5 uses" "...and says what that means"
 assert_not_contains "$OUT" "$HOLD" "...and does not promise a refusal Kempt does not make"
 
 # --- which trees doctor fails, and that the CLI refuses exactly those --------------------------------------
