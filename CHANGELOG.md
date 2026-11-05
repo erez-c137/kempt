@@ -19,6 +19,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Show Log appears only after a run that failed**, on the report and on the Last update row.
 - **An armed Fedora release upgrade stays on screen beside a folder problem.** The message says the next restart installs the upgrade and that other updates are paused for the folder.
 - **Check Installation under an upgrade message says how to finish or remove the upgrade**, in the words of its report, instead of only finding no problems. The message now reads "A Fedora 45 upgrade installs on the next restart, so other updates cannot wait for that restart." or "A Fedora 45 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how."
+- **Update Now no longer asks about a risky update while updates are paused**, because no answer could start a run.
 
 ### Removed
 

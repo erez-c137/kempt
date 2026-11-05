@@ -2734,7 +2734,8 @@ function viewModel(state, updating, cliError, opts) {
     var riskyMessage = (staged || noOfflineRoute) ? "" : riskyMessageOf(riskyPending);
     // Whether Update Now asks before it runs: a risky set, a route to the next restart, and a run
     // that would install it live with nobody asked. The offline surface already is the next restart.
-    var updateAsksFirst = riskyMessage !== "" && runSurface === "popup";
+    // Not while Kempt is blocked: no answer could start a run.
+    var updateAsksFirst = riskyMessage !== "" && runSurface === "popup" && blockedMessage === "";
     var riskyChoice = opts.riskyChoiceOpen === true && updateAsksFirst && !updating;
     // Nothing of Kempt's staged behind that restart: the banner stands by itself. Not beside what
     // the release-upgrade and image-based messages already say about the same restart.

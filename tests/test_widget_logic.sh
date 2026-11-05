@@ -707,6 +707,8 @@ assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedMessage")" \
 assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").messageSlots.indexOf(\"blocked\") >= 0")" "true" "...in its slot"
 assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedWarns")" "true" "...as a warning"
 assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").blockedOffersDoctor")" "true" "...with Check Installation, which names the folder"
+assert_eq "$(js "($FP)(\"/var/cache/libdnf5\").updateAsksFirst")" "false" "...and Update Now asks no question that could not start a run"
+assert_eq "$(js "($FP)().updateAsksFirst")" "true" "...which it does ask on an ordinary box"
 assert_eq "$(js "($FP)().blockedMessage")" "" "...and an ordinary box says nothing"
 # One cause at a time, worst first.
 BOTH='function (ib) { var s = S("risky-heavy"); s.image_based = ib; s.unsafe_folder = "/x"; s.release_upgrade = {from:"44",to:"45",state:"armed"}; return L.viewModel(s, false, "", {}); }'
