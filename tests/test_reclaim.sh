@@ -121,6 +121,8 @@ GL=runtime/org.freedesktop.Platform.GL.default/x86_64/24.08
 ALL5="$(jq -r '.unused[].ref' "$UNUSED_FX" | LC_ALL=C sort)"
 # The fixture with every unused ref gone but the ones named.
 only() { jq --args '.unused |= map(select(.ref | IN($ARGS.positional[])))' "$@" <"$UNUSED_FX"; }
+# The fixture with this ref back in use: an app was installed that needs it, so it is on the used side.
+in_use() { jq --arg r "$1" '.used += [.unused[] | select(.ref == $r) | {ref, deploy_dir}] | .unused |= map(select(.ref != $r))' "$UNUSED_FX"; }
 reset() { rm -f "$STUBS"/uninstall.args "$STUBS"/du.calls "$STUBS"/unused.n "$STUBS"/unused.fail* "$LISTING".* "$AFTER"; cp "$UNUSED_FX" "$LISTING"; }
 reclaim() { "$KEMPT" reclaim "$@" </dev/null 2>"$TESTTMP/err" >"$TESTTMP/out"; }
 said_out() { cat "$TESTTMP/out"; }
@@ -214,6 +216,11 @@ only "$P24" "$KDE" > "$LISTING.1"; only "$KDE" "$GL" > "$LISTING.2"; only "$GL" 
 rc=0; reclaim -y || rc=$?
 assert_eq "$(args)" "$(printf -- '--\n%s' "$KDE")" \
   "a ref that came back into use and one that newly went unused both stay: only refs on both lists go"
+# Back in use between the two reads: installed still, and on the second list's used side.
+reset; in_use "$KDE" > "$LISTING.2"; in_use "$KDE" | jq '.unused = []' > "$AFTER"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc|$(args)" "0|$(printf -- '--\n%s' "$(grep -vF "$KDE" <<<"$ALL5")")" \
+  "a ref back in use by the second read does not reach flatpak"
 reset; only "$P24" > "$LISTING.1"; only "$KDE" > "$LISTING.2"
 rc=0; reclaim -y || rc=$?
 assert_eq "$rc|$(args)|$(said_out | tail -1)" "0|(no removal)|Nothing to remove." "two lists with nothing in common remove nothing"
@@ -262,6 +269,12 @@ reset; only "$KDE" > "$AFTER"
 rc=0; reclaim -y || rc=$?
 assert_eq "$rc" "1" "flatpak saying yes with one left is not a success either"
 assert_contains "$(said_err)" "Still installed: $KDE." "...and says which"
+# Back in use by the time of the list afterwards: not removed, and still installed.
+reset; in_use "$KDE" | jq '.unused = []' > "$AFTER"
+rc=0; reclaim -y || rc=$?
+assert_eq "$rc" "1" "a ref flatpak was given that is now on the used side is not a success"
+assert_contains "$(said_err)" "Still installed: $KDE." "...it is still installed"
+assert_contains "$(said_err)" "Freed about 1.1 GB." "...and it is not counted as gone"
 # All gone, though flatpak failed: the freed space is real, and so is the failure.
 reset; only > "$AFTER"
 rc=0; UNINSTALL_RC=1 reclaim -y || rc=$?
