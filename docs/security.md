@@ -1,29 +1,27 @@
 # Security model
 
 Kempt updates your system, so some of it runs as root. This page lists what runs as root, what it
-accepts and refuses, and what passwordless mode grants.
+accepts and refuses, and who can start an update without a password.
 
 To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
+A fact about another program is marked **[run]** when it was seen on a real Fedora 44 with SELinux
+enforcing, dnf5 5.4.6, polkit 127 and systemd 259, or **[source]** when it was read in that
+program's code or manual.
+
 ## What runs as root
 
-Two helpers, reached through Kempt's own polkit actions:
+Two helpers, reached through Kempt's own polkit actions, and nothing else:
 
 - `kempt-refresh`: package metadata only.
 - `kempt-apply`: the dnf upgrade verbs.
 
-Two more commands run as root, only when you run them. Each raises its own `pkexec` prompt through
-pkexec's generic authentication, outside Kempt's actions. `kempt enable-passwordless` runs
-`install(1)` to write one polkit rule, and `kempt disable-passwordless` runs `rm -f` on that file.
-Both are fixed to `/etc/polkit-1/rules.d/49-kempt.rules` (see
-[Passwordless mode](#passwordless-mode)).
-
 The helpers are `/usr/libexec/kempt-{refresh,apply}`. Each polkit action's `exec.path` pins the
-path, and `kempt doctor` prints it. pkexec matches an action by that path alone.
+path, and `kempt doctor` prints it. pkexec matches an action by that path alone. So they stay two
+files: the one that runs with no dialog has no upgrade verb to reach.
 
-`libexec/kempt-apply` honours a test setting (a `KEMPT_*` variable) only when not root, or as root
-when its uid map is not the full identity and its own path is not one a polkit action binds to.
-pkexec only ever runs those paths, so a real root run reads none of them.
+A helper reads a test setting, `KEMPT_HELPER_ROOT` or `KEMPT_DNF5_VERSION`, only when it is not
+root. pkexec always runs it as root, so a real run reads neither.
 
 Both helpers are `root:root` 0755 and owned by the package. The CLI, its library and the backends
 run as you, from a tree under `/usr/share/kempt` that is root-owned.
@@ -37,23 +35,28 @@ the whole cache window. So there are two, each bound by `exec.path` to one helpe
 | Action | Helper | Verbs | Policy for an active local session |
 | --- | --- | --- | --- |
 | `io.github.erez_c137.kempt.refresh` | `kempt-refresh` | `check`, `refresh` | `yes`: no dialog |
-| `io.github.erez_c137.kempt.apply` | `kempt-apply` | `dnf-upgrade`, `dnf-offline-stage`, `dnf-offline-arm`, `dnf-offline-clean` | `auth_admin_keep`: one dialog per run |
+| `io.github.erez_c137.kempt.apply` | `kempt-apply` | `dnf-upgrade`, `dnf-offline-stage`, `dnf-offline-arm`, `dnf-offline-clean` | `auth_admin_keep`: one dialog per run. [The fixed rule](#no-password-at-the-desk) answers yes for a `wheel` user |
 
 Both actions set `allow_any=no` and `allow_inactive=no`, so polkit refuses a remote or inactive
-session without a dialog. A check from an SSH session or a switched-away
-session fails with `not authorized: the password was refused, or this session cannot authorize
-(over SSH or switched away)`.
+session without a dialog. A check from an SSH session fails with `not authorized: the password was
+refused, or this session cannot authorize (over SSH or switched away)` [run]. A switched-away session
+fails the same way, unless another session of the same account is active. A program with
+[no session of its own](#a-program-with-no-session-of-its-own) is judged by the account too, and that
+section shows each case.
 
 The no-dialog refresh lets the check read the **root** metadata cache that the update will use.
 It can run only `dnf5 --cacheonly check-update --quiet` (with `--json` added on dnf5 5.4.0 and
 later) and `dnf5 makecache --refresh`.
 
-Refresh calls time out after 120 seconds, because nobody is there to answer a dialog during a
+The CLI gives a check or refresh 120 seconds, because nobody is there to answer a dialog during a
 background check. That limit runs as you, so it cannot stop dnf5 once it runs as root. For that,
-`kempt-refresh` has systemd send `dnf5 makecache --refresh` SIGTERM after 120 seconds, and SIGKILL
-10 seconds later. The numbers are fixed in the helper and never come from the caller. A refresh
-stopped this way counts as failed, and the check goes on with the cached metadata. Apply calls
-have no timeout.
+`kempt-refresh` starts dnf5 in a scope with `RuntimeMaxSec=120`, and systemd sends SIGTERM after 120
+seconds and SIGKILL 10 seconds later. The numbers are fixed in the helper and never come from the
+caller. A plain process under that property ended at its limit with exit 143 [run]. Against a
+repository that stopped answering, a refresh ended at 120 seconds with exit 0 and "Metadata cache
+created", so a stuck fetch is not always reported as a failure [run]. A refresh that does fail goes
+no further than a warning, and the check goes on with the cached metadata. Apply calls have no
+timeout.
 
 **The Flatpak metadata refresh runs as you**, with no `pkexec`, polkit action or root helper. It
 fills your own `~/.cache/flatpak/system-cache/summaries/`, which is what the check reads. Kempt
@@ -116,40 +119,58 @@ dnf5 would reboot the moment the transaction is armed.
 `dnf-offline-clean` runs `dnf5 offline clean -y`, which discards a staged transaction. At worst it
 throws away updates that were still waiting to install.
 
-Neither helper runs dnf5 itself. After validating, each starts `systemd-run`, which starts dnf5 as
-a new service with `UMask=0022` and no core files. pkexec passes on the caller's umask, limits,
-ignored signals, working directory and cgroup, and a refresh needs no password. The service
-inherits none of them, so no other account can make root write files others can change. Without
-systemd as PID 1, or without `systemd-run`, a helper exits 4 and runs nothing. Without a terminal,
-`systemd-run` gets `/dev/null` and the helper's pipes, never the caller's files, which SELinux
-keeps PID 1 from writing.
+### How dnf5 starts
 
-Each verb runs as a service with a fixed name from a table, such as
-`kempt-apply-dnf-upgrade.service`. No argument or environment variable reaches the name or any
-`-p` property. If that service is still running, the helper exits 5. The refresh helper also exits
-5 while a `kempt-apply` service runs. Otherwise it clears the service's last failure and starts it.
+A helper validates its arguments and then replaces itself: `exec systemd-run --scope`, which runs
+`env -i`, which runs dnf5. No process stays behind to wait, so dnf5's output is live and its exit
+status is the helper's own, a failed `%pre` included [run].
 
-`systemd-run` can lose track of the service when PID 1 restarts during a package's setup step.
-So the helper polls the service, each second until it sees it running (up to 10 seconds), then
-every 5 seconds. A poll with no invocation ID is ignored. Once the service has ended for 10
-seconds, the helper stops its own `systemd-run` and output copiers, kills that `systemd-run` if it
-lingers 5 seconds more, and exits with dnf5's status as systemd recorded it. It never signals the service, and never interrupts a long one.
+The scope moves dnf5 out of your session and into `system.slice`, and HUP is ignored. So dnf5
+finished its work when the terminal closed during the download and during the transaction, and when
+`loginctl terminate-user` ended the session, from the session itself and from a user scope, as the
+widget runs [run]. Once the caller is gone, nothing reports the result except dnf5's own history.
+
+pkexec passes on the caller's umask, limits, working directory, signal settings and cgroup, and a
+refresh needs no password, so another account could set them. Before dnf5 starts, a helper resets
+the umask to 0022, the directory to `/`, the environment to `PATH`, `LC_ALL` and `HOME`, every
+ignored signal to its default, and the limits: core files off, stack 8 MB, 4096 open files, and no
+ceiling on file size, CPU time or memory [run]. So no caller can make root write files others can
+change.
+
+Some things it cannot reset, and a caller's choice reaches dnf5: the nice value, CPU affinity and OOM
+score [run]. The blocked-signal mask read the same with and without one set by the caller, so it was
+not seen to pass through [run]. A process running as you can start an update that is slow, or that
+the kernel kills first under memory pressure. Failing that way leaves what any interrupted dnf5
+leaves. dnf5 also runs in the caller's mount namespace, so `kempt doctor` and `kempt update` stop
+outside PID 1's. A process with no extra rights cannot change its own namespace and keep pkexec:
+pkexec refuses from a user namespace [run].
+
+dnf5 runs as `unconfined_t`, as it does when typed under `sudo`, and not as `rpm_t` as it did when
+PID 1 started it. No SELinux denial appeared in a full run [run].
+
+### The folders dnf5 installs from
 
 Up to 0.1.7 the helpers kept the caller's umask. `kempt doctor` checks dnf's cache, state and
 staged packages for files another user could change. A changed staged package installs as root
 without a second signature check, so the state and staged rows are failures.
 
-`kempt update` reads the same rules first and stops with exit 5, before any password prompt, when it can see the problem. Root can see more, so the helper still decides.
+`kempt update` looks first and stops with exit 5, before any password prompt. It walks every folder
+above them too, and looks for ACL entries that grant write and FUSE mounts another user made. It also
+stops on atomic Fedora and outside PID 1's mount namespace. `kempt doctor` gives each fix, which
+deletes a file with a second hard link, since that file may belong to someone else. There is no
+override.
 
-So the helper exits 3 while another user could change those folders, the cache for upgrade and
-stage (rpm checks only a digest after dnf5's signature check), or any folder above them. Every name
-on the way must be root's, with no group or other write, sticky or not, no ACL entry that grants
-write, and no FUSE mount another user made. A link's target is walked too. A name that vanished
-under a checked parent is safe, and any other error refuses in its own words. `dnf-offline-clean`
-is checked only for the folders above and the state's `offline` folder, because the fix discards the stage. It refuses too on atomic
-Fedora, and outside PID 1's mount namespace. `kempt doctor` gives each fix, which deletes a file
-with a second hard link, since that file may belong to someone else. There is no override. Once
-only root can change a name, that stays true, so the check needs no handle held across dnf5's start.
+A program that calls the helper directly skips all of that, so the helper makes one short check of
+its own. `kempt-apply` exits 3 while anything under dnf's state, staged packages or cache is not
+root's, or is writable by anyone other than root and its group. rpm checks only a digest after
+dnf5's signature check, which is why the cache counts. A link is judged by its owner and never
+followed. The helper does not check the folders above, ACL entries or FUSE mounts, which need root
+to set up. `dnf-offline-clean` skips this check, because discarding the stage is the fix, and it
+installs nothing.
+
+`kempt-refresh` checks the cache the same way for both `check` and `refresh`, because root's dnf5
+parses what is in it. That narrows the hole and does not close it: Fedora's own `dnf-makecache.timer`
+has no such check [run], and any active local user can ask PackageKit for a refresh [run].
 
 The offline verbs share the apply action because they are one operation. `auth_admin_keep` lets
 one dialog cover a stage and the arm that follows seconds later.
@@ -184,9 +205,8 @@ Going ahead could arm or delete a download of several gigabytes.
 
 The CLI refuses the offline surface in pre-flight first. The helper's check covers callers that
 skip the CLI, such as another process running as you inside the
-[retention window](#the-retention-window). The helper parses the file itself, without sourcing
-Kempt's library. When it runs as root, the path is fixed: the `KEMPT_OFFLINE_TOML` test setting is
-honoured only for an unprivileged caller.
+[retention window](#the-retention-window). The helper parses the file itself, and as root the path
+is fixed.
 
 A live upgrade is not refused. `dnf-upgrade` skips this check, and `kempt update` also lets a live
 run go ahead while a release upgrade is stored, so ordinary updates keep working while one waits.
@@ -204,10 +224,14 @@ up.
 `dnf-offline-clean` also exits 3 while `/system-update` exists and is not a link to dnf5's
 offline directory. That path then belongs to another updater, such as PackageKit for Discover,
 and its update installs on the next restart. `dnf5 offline clean` would delete the link and cancel
-that install. `dnf-offline-arm` is not refused, because dnf5 creates the link only when the path
-is absent and so cannot replace it. The helper reads the link once and judges the text it read. Only
-root can write to `/`, so no user can change the answer. As root the path is fixed, as for the
-state file.
+that install [run]. `dnf-offline-stage` and `dnf-offline-arm` are not refused, because neither touches
+the link: with another updater's link in place both exit 0 and it stays [run]. `kempt update` itself
+stops before them [run]. A link that goes nowhere is refused too [run]. Only root can write to `/`, so
+no user can change the answer. As root the path is fixed, as for the state file.
+
+PackageKit deletes this link too. An audit watch caught `packagekitd` removing the link dnf5 had just
+made, 0.32 seconds later [run]. So a stage can lose its link with nothing from Kempt involved, and a
+clean that runs after that finds nothing to refuse.
 
 ## The retention window
 
@@ -216,8 +240,8 @@ action and subject returns yes. polkit's documentation says "e.g. five minutes".
 choose or shorten that window.
 
 For those minutes after you authenticate an update, **any process running as your user can invoke
-`kempt-apply` again, with no prompt.** That includes processes you did not start. Passwordless mode
-makes this permanent, which is why it is opt-in and scoped to one action id.
+`kempt-apply` again, with no prompt.** That includes processes you did not start. For a `wheel` user
+[the fixed rule](#no-password-at-the-desk) makes this permanent, for that one action id.
 
 polkit's manual says the retained authorization ignores what was passed:
 
@@ -239,11 +263,12 @@ and pkexec's manual draws the conclusion:
 So the helpers' argument validation is the **only** thing between the retention window and a root
 command line. Neither polkit nor pkexec checks arguments.
 
-What remains is the four verbs. Inside the window, or under passwordless mode, a process running
-as you can do these without asking you:
+What remains is the four verbs. Inside the window, or at any time for a `wheel` user at the desk, a
+process running as you can do these without asking you:
 
 - upgrade the system from its configured repositories,
-- stage an ordinary offline update,
+- leave chosen packages out of that upgrade, with `--exclude=<name>`,
+- stage an ordinary offline update, with the same choice,
 - arm a staged update so the next restart installs it,
 - discard a staged update.
 
@@ -253,6 +278,12 @@ upgrade out of date (see
 [above](#the-helper-refuses-to-touch-a-stored-fedora-release-upgrade)). It cannot install a
 package of its choosing, pass an arbitrary flag or run an arbitrary command. That bound is
 smaller than sudo, but it is more than nothing.
+
+`--exclude` is how your holds reach dnf5, and the helper cannot tell a caller who typed a password
+from one who did not, so it cannot refuse the flag to one of them. Used this way, it can keep a
+security fix off the machine for as long as the process keeps doing it. A process running as you can
+do the same by editing your holds. dnf5's history shows the excluded names in its command line, and
+an account outside `wheel` read them there [run].
 
 Updating Flatpak apps is outside that bound, because the helper has no Flatpak verb. Flatpak's own
 policy grants it to an active local session with no password, with or without Kempt.
@@ -264,7 +295,7 @@ The retention rewrite goes through `atomic_write`, whose temporary file is also 
 survives every rewrite.
 
 It records the names you hold or unhold, config keys with **their values**, each check's counts,
-run outcomes, and the exit status of each `enable-passwordless` or `disable-passwordless` run.
+and run outcomes.
 
 It holds no password, token, polkit cookie or other credential. Kempt handles none: polkit does
 all authentication, and the CLI sees only an exit status. It copies no command output either. A
@@ -304,7 +335,7 @@ command output stable.
 
 ## Pinned PATH
 
-Both helpers `export PATH=/usr/sbin:/usr/bin:/sbin:/bin` and set it on dnf5's service, so that
+Both helpers `export PATH=/usr/sbin:/usr/bin:/sbin:/bin` and hand it to dnf5, so that
 order also covers programs dnf5 starts; rpm sets its own PATH for scriptlets. This is an extra
 layer: pkexec already sanitises the environment.
 
@@ -320,98 +351,76 @@ out as `kempt hold <backend>:<name>`. Every value from outside is wrapped in POS
 without exception. Only shell expressions the widget wrote itself are unquoted, and they contain no
 external data.
 
-Two buttons on its settings page run `kempt enable-passwordless` and `kempt disable-passwordless`,
-with the same `pkexec` dialog and checked rule. The widget has no other path into `/etc/polkit-1`.
-
 ## What pkexec sanitises
 
 pkexec resets the environment to a minimal, sanitised set. A hostile `PATH`, `LD_PRELOAD` or `IFS`
-cannot reach the privileged process. So the `KEMPT_APPLY_ECHO` and `KEMPT_REFRESH_ECHO` test
-settings in the helpers cannot be triggered through pkexec. All they do is print a command line in
-place of running it.
+cannot reach the privileged process [run].
 
 The helpers also protect themselves. Both start with `#!/usr/bin/bash -p`. In privileged mode, bash
 skips `BASH_ENV` and `ENV`, and ignores `SHELLOPTS`, `BASHOPTS`, `CDPATH`, `GLOBIGNORE` and
 exported functions. A helper started another way, such as `sudo -E`, still runs none of the
-caller's code before its first line. The settings that could change a decision,
-`KEMPT_OFFLINE_TOML` and the `KEMPT_SYSTEMD_*` ones, are ignored whenever a helper runs as
-root.
+caller's code before its first line. The one setting that could change a decision,
+`KEMPT_HELPER_ROOT`, is ignored whenever a helper runs as root.
 
-## Passwordless mode
+## No password at the desk
 
-`kempt enable-passwordless` installs one polkit rule at
-`/etc/polkit-1/rules.d/49-kempt.rules`:
+The package installs one polkit rule, `/usr/share/polkit-1/rules.d/49-kempt.rules`. There is no
+setting. To be asked for a password, take your account out of `wheel`.
 
 ```javascript
 polkit.addRule(function(action, subject) {
     if (action.id == "io.github.erez_c137.kempt.apply" &&
-        subject.user == "you" && subject.active && subject.local) {
+        subject.active && subject.local && subject.isInGroup("wheel")) {
         return polkit.Result.YES;
     }
 });
 ```
 
-It grants **one action id, to one user, only in a session that is both active and local.** An SSH
-session, a switched-away session and any other user get nothing. The refresh action needs no
-password, so the rule leaves it out. The apply action is still limited to the helper's verbs and
-argument checks. The rule skips the dialog and keeps every check.
+The rule grants one action id. The refresh action needs no password, so it leaves that out. The
+apply action is still limited to the helper's verbs and argument checks.
 
-What it changes is duration. It makes the retention window permanent: any process running as you,
-in your active local session, can apply updates while the rule is installed. That is the trade,
-and why the command is separate, opt-in and one line to undo.
+| Who | In a session at the computer, in front | Over SSH |
+| --- | --- | --- |
+| `wheel` | No password [run] | Refused, no prompt [run] |
+| Not `wheel` | An administrator's password. A wrong one is refused [run] | Refused, no prompt [run] |
 
-Rendering the rule is hardened against a template substitution that breaks it:
+What it changes is duration. It makes the retention window permanent for a `wheel` user. That is the
+trade: any process running as you can do what [the bound](#the-retention-window) lists, whenever
+polkit counts it as active and local. Discover offers the same through PackageKit, whose
+`system-update` action any active local user gets with no password [run].
 
-- The username comes from `id -un`. `$USER` is ignored, so a crafted `USER` variable cannot change
-  it.
-- The name must match `^[a-z_][a-z0-9._-]*$`, which also keeps substitution metacharacters out.
-  Any other name aborts, with an instruction to install the file by hand.
-- Substitution uses `awk -v`, which treats the value as plain text.
-- **The rendered rule must be plain ASCII.** Any byte other than printable ASCII, tab and newline
-  writes nothing and exits 2. The comparison below splits lines only at newlines, but polkit's
-  JavaScript parser also ends a line at a carriage return and at the Unicode line and paragraph
-  separators. Code after one of those inside a comment would be a comment to the check and live
-  code to polkit.
-- **The rendered rule must equal the one rule this command may install.** Comment lines are
-  stripped and the rest is collapsed to one whitespace-normalised line. That line is compared with
-  a single string in `lib/common.sh`. Anything else, one token different or one clause more, writes
-  nothing and exits 2.
+Upgrading from 0.2.0 removes the rule its `kempt enable-passwordless` wrote in
+`/etc/polkit-1/rules.d`, in the package's `%post`, so an account outside `wheel` that had turned it on
+is asked again [run]. Removing the package removes the rule [run].
 
-  Equality catches additions. A rule with every required clause plus an unconditional
-  `if (subject.user == "you") return polkit.Result.YES;` would grant passwordless root for every
-  polkit action, from any session. This is the only file Kempt can write that grants root.
-  Re-indenting the template is fine; changing what it says means changing the string in
-  `lib/common.sh` too.
-- **Root installs the bytes that were checked.** The rule is rendered and checked in memory, then
-  piped to `pkexec /usr/bin/install -m 0644 -o root -g root /dev/stdin`. No rendered file exists
-  on disk for a process running as you to rewrite while the dialog waits. pkexec asks for the
-  password through its agent or the terminal, separate from stdin.
-- **Root commands are named by full path.** pkexec finds a bare command name through your `PATH`,
-  where `~/.local/bin` comes first. Kempt hands it `/usr/bin/install`, `/usr/bin/rm` and
-  `/usr/bin/bash`.
-- **The destination is fixed**, because it is handed to a root `install(1)` and a root `rm`.
-  polkit reads **four** rules directories, in this order (polkit(8)):
+### A program with no session of its own
 
-  ```
-  /etc/polkit-1/rules.d
-  /run/polkit-1/rules.d
-  /usr/local/share/polkit-1/rules.d
-  /usr/share/polkit-1/rules.d
-  ```
+"Over SSH, refused" is true for a program in the SSH session. It is not true for a program that asks
+your user manager to start it, which has no login session. polkit judges that process by your session
+at the computer, so it reports `local=true` with no session at all. So this, typed over SSH, ran a real
+update with no password [run]:
 
-  Kempt uses one file in the administrator's directory: `/etc/polkit-1/rules.d/49-kempt.rules`.
-  Every directory on that path is root-owned, so nothing running as you can swap one for a symlink
-  between a check and the write. An allow-list of directories would fall short, because a check on
-  a path you can write to can be defeated after it passes.
+```bash
+systemd-run --user --wait --pipe pkexec /usr/libexec/kempt-apply dnf-upgrade -y
+```
 
-  The `KEMPT_RULES_DST` test setting changes the destination only when there is no pkexec wrapper
-  and Kempt runs unprivileged. Then the install and removal run as you, and can write only what you
-  could already write. In any other run the setting is refused with exit 2.
+polkit's "active" follows the account and not one session. While any session of yours is active, an
+SSH login included, a program in your session at the computer reads as active even when that session is
+switched away. This is what `io.github.erez_c137.kempt.apply` answered for a `wheel` user [run]:
 
-`kempt disable-passwordless` removes the file. It reports "not enabled" only when it can search
-the directory. The real `/etc/polkit-1/rules.d` is 0750 `root:polkitd`, where an unprivileged
-test reports a present file as absent. There it runs the removal anyway, so a live grant is never
-left in place.
+| In front at the computer | Your SSH login open | Program in your session at the computer | Program with no session |
+| --- | --- | --- | --- |
+| Your session | No | Allowed | Allowed |
+| Your session | Yes | Allowed | Allowed |
+| Another user's session | No | Refused | Refused |
+| Another user's session | Yes | Allowed | Allowed |
+
+An account with no session at the computer gets nothing this way [run]. PackageKit's `system-update`
+action needs no password in the same rows and asks for an administrator's password in the refused
+ones, for any user at the computer [run].
+
+So anyone who can run commands as you over SSH, while you are logged in at the computer, can reach
+the same verbs. They can also already change your files and your holds.
 
 ## Accepted limitations
 
@@ -426,16 +435,19 @@ left in place.
   `libpolkit-agent-1` and registers its own text listener
   (`flatpak_polkit_agent_text_listener_new`), as `pkexec` does. Without a terminal, such as a cron
   job or a headless runner, the call is refused. Neither case is tested.
-- **The `*_ECHO` settings live in root-owned code.** They are unreachable through pkexec and they
-  only print, but they are there. So are `KEMPT_OFFLINE_TOML` and the dnf folder settings in
-  `kempt-apply`, which the helper ignores whenever it runs as root.
-- **The rules destination has a test setting.** `KEMPT_RULES_DST` redirects `enable-passwordless`
-  and `disable-passwordless`, only in an unprivileged run with no pkexec wrapper. There both
-  commands run as you, so the setting cannot reach a root write.
-- **The checkout is load-bearing.** Anyone who can write to your Kempt checkout controls what your
-  user runs. That includes the passwordless rules template, which `enable-passwordless` renders
-  before handing the result to root. Keep the checkout in your own home or workspace, and out of
-  anywhere group- or world-writable. Root-owned files are unaffected.
+- **The tests' setting lives in root-owned code.** `KEMPT_HELPER_ROOT` is read only when a helper is
+  not root. It is there, and a test fails if that condition goes.
+- **The checkout is load-bearing for a developer.** Anyone who can write to your Kempt checkout
+  controls what your user runs from it. Keep it in your own home or workspace. Root-owned files are
+  unaffected.
+- **Anyone at the computer can keep the package lists busy.** The no-dialog refresh is open to any
+  active local user, as PackageKit's is [run]. Each check or refresh runs one at a time and ends
+  within two minutes. A second one stops at once, and a refresh does not block an update, even with
+  another process refreshing in a loop [run].
+- **Two accounts' updates are kept apart by dnf5, not by Kempt.** A second update waits for the
+  running transaction, and a check waits too. A check that runs out behind another account's long
+  update says the check failed, and the update is unharmed [run]. An update or a clean started
+  beside a download makes the later step fail with nothing installed [run].
 - **Removing unused runtimes is system scope only.** Runtimes installed for you only are updated,
   and never removed.
 - **Holds apply to Kempt only.** A manual `sudo dnf5 upgrade` ignores them.

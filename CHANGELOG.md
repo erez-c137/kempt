@@ -69,7 +69,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - **The no-dialog helper now refuses a package cache another user can change.** A check and a refresh both exit 3, as an update already did. `dnf-makecache.timer` is Fedora's and has no such check, so this narrows the hole and does not close it.
 - **A second check or refresh started while one runs now stops at once**, and each one ends after two minutes, so a loop of them cannot keep the package lists locked. A refresh does not block an update.
-- **[security.md](docs/security.md) now says what is true about SSH and a program with no session.** A program running as you with no session, started through `systemd-run --user` over SSH, counts as active and local if your account has a session at the computer, even one switched away. PackageKit has the same behaviour. It also adds `--exclude` to what such a program can do: it can leave chosen packages out of an update.
+- **[security.md](docs/security.md) now says what is true about SSH and a program with no session.** A program running as you with no session, started through `systemd-run --user` over SSH, counts as active and local if your account has a session at the computer and that session or another of yours, the SSH login included, is active. PackageKit has the same behaviour. It also adds `--exclude` to what such a program can do: it can leave chosen packages out of an update.
 - **Kempt now stops updating when another user could change dnf's folders or a folder above them.**
   The root helper checks owners, write access, ACL entries and user FUSE mounts on the way to dnf's
   state, staged packages and cache, and refuses to install, stage, set to install or discard while
