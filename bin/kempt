@@ -85,6 +85,7 @@ state_merge() {  # jq args...
   [[ -z "$m" ]] || state="$m"
 }
 
+# shellcheck disable=SC2016  # state_merge's arguments are jq programs: each $name in them is jq's
 cmd_check() {
   # NOTE: `if x="$(fn)"` disables errexit inside fn's whole body - backends must therefore
   # return status EXPLICITLY (they do) and never rely on set -e for error propagation.
@@ -2028,7 +2029,7 @@ stage_tell_problem() {  # history-answered(true|false) had-memory(true|false)
   update_running_elsewhere && return 0
   if [[ "$word" == failed ]]; then
     if [[ "$2" != true ]] && (( $(date +%s) - $(stat -c %Y "$KEMPT_OFFLINE_TOML" 2>/dev/null || echo 0) > KEMPT_STAGE_FRESH_SECS )); then
-      stage_shown_set entry "$fp" && stage_shown_set told "$fp" || true
+      if stage_shown_set entry "$fp"; then stage_shown_set told "$fp" || true; fi
       return 0
     fi
     # dnf5 said a restart failed and its history has no row to report: still a failed restart.
@@ -2317,7 +2318,7 @@ cmd_reclaim() {
   fi
   [[ -n "$shown" ]] || { echo "Nothing to remove."; return 0; }
   echo "No installed app uses these Flatpak runtimes:"
-  sed 's/^/  /' <<<"$shown"
+  printf '  %s\n' "${shown//$'\n'/$'\n'  }"
   if sizes="$(flatpak_unused_sizes "$listing" 2>/dev/null)"; then bytes="$(reclaim_bytes_of "$sizes" "$shown")"; fi
   [[ "$bytes" == 0 ]] || echo "Up to $(human_bytes "$bytes") can be freed."
   if [[ -z "$yes" ]]; then
@@ -3068,7 +3069,7 @@ doctor_mount_ns_row() {
 doctor_config_row() {
   # The config file is read with `grep "^key="`, so a line that is not key=value is ignored and the
   # setting the user believes they wrote never applies. Validated exactly as config_set validates.
-  local line n=0 bad=0 keys=0 k
+  local line n=0 bad=0 nkeys=0 k
   if [[ ! -e "$CONFIG_FILE" ]]; then
     doctor_ok "config file: none yet, built-in defaults apply ($CONFIG_FILE)"
   elif [[ ! -r "$CONFIG_FILE" ]]; then
@@ -3083,15 +3084,15 @@ doctor_config_row() {
         doctor_fail "config file line $n is not key=value: $line ($CONFIG_FILE)"
         bad=$(( bad + 1 ))
       else
-        keys=$(( keys + 1 ))
+        nkeys=$(( nkeys + 1 ))
       fi
     done < "$CONFIG_FILE"
     # The `if` form, not `[[ ... ]] && x=y`: a false test as a branch's last command returns 1 and
     # errexit would kill the checkup halfway through.
     if [[ $bad -eq 0 ]]; then
       local sword=settings
-      if [[ $keys -eq 1 ]]; then sword=setting; fi
-      doctor_ok "config file: $CONFIG_FILE ($keys $sword)"
+      if [[ $nkeys -eq 1 ]]; then sword=setting; fi
+      doctor_ok "config file: $CONFIG_FILE ($nkeys $sword)"
     fi
   fi
 }
@@ -3136,7 +3137,7 @@ doctor_fix_unless_held() {  # holder, the advice → " advice", or nothing
 doctor_offline_rows() {
   # The stored transaction, one row for what stage_read says it is. Silent when nothing is stored,
   # which is most boxes.
-  local dr_word dr_toml dr_link dr_holder dr_names dr_count=""
+  local dr_word dr_toml dr_link dr_holder dr_count=""
   dr_word="$(stage_read)"
   dr_toml="$(offline_system_status)"
   dr_holder="$(restart_holder)"
