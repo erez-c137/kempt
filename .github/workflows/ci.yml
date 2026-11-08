@@ -121,6 +121,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Ubuntu 23.10 and later can have AppArmor take every capability from a process inside an
+      # unprivileged user namespace, and the 26.04 image ships with that on: `unshare -r` fails and
+      # every case below skips. The runner is a throwaway VM with passwordless sudo, so turn it off
+      # here. https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces
+      # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+      - name: Allow unprivileged user namespaces
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -r true && echo "unshare -r works"
+
       - name: The files that need a user namespace
         shell: bash
         run: |
