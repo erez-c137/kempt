@@ -16,6 +16,7 @@ jobs:
   shellcheck:
     name: shellcheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -27,8 +28,8 @@ jobs:
           sudo apt-get install -y shellcheck
           shellcheck --version
 
-      # TRIAGED AND CLEAN, but never yet run here. shellcheck is not installed on the dev box, so
-      # this exact command was executed instead in a throwaway podman container against the
+      # Green on every push since the public flip. Before that, with shellcheck not installed on the
+      # dev box, this exact command was run in a throwaway podman container against the
       # koalaman/shellcheck images for v0.9.0, v0.10.0 and stable (0.11.0): all three exit 0.
       # Three versions rather than one because the runner's apt shellcheck is whatever
       # ubuntu-latest happens to carry that month, and the versions disagree - 0.9.0 and 0.10.0
@@ -46,27 +47,38 @@ jobs:
             --source-path="$GITHUB_WORKSPACE/backends" \
             bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply tools/*.sh
 
-  tests:
-    name: test suite
+  # The whole suite, once, on the platform Kempt ships to. It used to run three times: here on
+  # Ubuntu without the widget's tools, in the package build's check stage without node, PySide6 or
+  # any locale, and in part in a widget job. Each copy skipped something the others covered.
+  # This one has everything the suite can use, and fails if the widget or locale halves skip.
+  suite:
+    name: test suite (Fedora, widget included)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container: registry.fedoraproject.org/fedora:44
     steps:
+      # Before the checkout: without git 2.18 or later on PATH, actions/checkout downloads a
+      # tarball instead of cloning. git is also what test_version.sh needs for its hand-build
+      # names. plasma-workspace is the heavy one and it is not optional: probe_state.py imports
+      # org.kde.plasma.plasmoid, which is where that module lives. The three language packs are
+      # the locales test_summary.sh sorts and prints under; util-linux brings su and setpriv.
+      - name: Install what the suite can use
+        run: |
+          dnf5 -y -q install git-core jq util-linux diffutils python3 gettext rpmdevtools /usr/bin/xmllint \
+            nodejs python3-pyside6 kf6-kirigami plasma-workspace \
+            glibc-langpack-en glibc-langpack-he glibc-langpack-tr
+          node --version
+          python3 -c 'import PySide6; print("PySide6", PySide6.__version__)'
+
       - uses: actions/checkout@v7
 
-      # The suite needs bash 4+, jq, util-linux flock, GNU coreutils and python3, and nothing else:
-      # every impure command reaches the system through an environment seam that tests/lib.sh stubs, so
-      # dnf5, flatpak, rpm, pkexec and notify-send are never invoked and need not exist. Verified
-      # on the dev box by running the whole suite under a stripped PATH containing only
-      # bash/jq/flock/coreutils/sed/gawk/grep/findutils (diffutils only for the tests' own file
-      # comparisons; the shipped code compares with coreutils alone), with dnf, dnf5, flatpak, rpm,
-      # pkexec, notify-send, systemctl, apt, python3 and perl all unreachable: ALL PASS. The one
-      # exception is the prose check in tests/test_docs.sh, which needs python3.
-      - name: Check the runner has what the suite needs
+      - name: Check the container has what the suite needs
         run: |
-          for t in bash jq flock date sort join comm paste awk sed grep cmp find python3; do
+          for t in bash jq flock date sort join comm paste awk sed grep cmp find python3 node git su; do
             command -v "$t" >/dev/null || { echo "missing prerequisite: $t" >&2; exit 1; }
           done
           bash --version | head -1
-          jq --version
+          locale -a | grep -i '^en_US.utf-\?8$'
 
       # Same command CONTRIBUTING.md asks for before a commit.
       - name: Syntax check
@@ -74,71 +86,74 @@ jobs:
           bash -n bin/kempt lib/common.sh backends/*.sh libexec/kempt-refresh libexec/kempt-apply
           python3 -c 'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' libexec/kempt-flatpak-unused
 
-      # run_tests.sh exits non-zero on any failing file, and fails outright if it matches no test
-      # files at all, so a suite that silently stopped existing cannot pass as green.
+      # As an ordinary user, from a copy that user owns. A container runs steps as root, and as
+      # root test_helpers.sh skips whole and the cases about what an unprivileged caller cannot do
+      # skip too. Two files at a time: a CI run is one heavy job on a shared machine.
+      #
+      # run_tests.sh fails on any failing file. The test files SKIP rather than fail when node,
+      # PySide6 or a locale is missing, which is right on a contributor's laptop and wrong here, so
+      # those skips fail the job by name. Not every skip: test_widget_logic.sh also skips a case
+      # that needs another Plasma tray applet installed, and a container legitimately has none.
       - name: Run the suite
-        run: tests/run_tests.sh
+        shell: bash
+        run: |
+          useradd -m tester
+          cp -a "$GITHUB_WORKSPACE" /home/tester/kempt
+          chown -R tester: /home/tester/kempt
+          su - tester -c 'cd ~/kempt && KEMPT_TEST_JOBS=2 tests/run_tests.sh' 2>&1 | tee /tmp/suite.log
+          deps='node is (not installed|absent)|no node here|PySide6 is absent'
+          deps+='|premise - en_US.UTF-8 is not installed|python3 not installed'
+          if grep -E "^skip: ($deps)" /tmp/suite.log; then
+            echo "::error::a dependency this job installs was missing, so the suite skipped what it exists to run"
+            exit 1
+          fi
 
-  # The widget's own halves, which the job above CANNOT run: logic.js needs node, and the QML
-  # probes need PySide6 plus the Plasma and Kirigami QML modules the widget imports. Neither was
-  # installed on the runner, so both skipped - and a skip printed with the same "ok:" prefix as a
-  # pass. Every green badge on this repo until now covered the CLI and nothing of the panel, while
-  # CONTRIBUTING.md told contributors those two files carry more than half the suite's assertions.
-  #
-  # In a Fedora container because that is where the Plasma QML modules are a dnf install away, and
-  # because it is the platform Kempt ships to. Verified against fedora:44: all eight probes green,
-  # nothing left resident.
-  widget:
-    name: widget (node + QML)
+  # The three files with cases that need only an unprivileged user namespace. On the last runs
+  # the Ubuntu host gave one and the Fedora container (as a non-root user) did not: the package
+  # build's check stage logged "no unprivileged user namespaces". Until the job above shows those
+  # cases running, they run here too. Remove this job once the suite job's skip list no longer
+  # names a user namespace. Cases that need a second user inside the namespace (all of
+  # test_helpers.sh's, some of test_doctor.sh's) skip on both runners: neither has subordinate ids.
+  userns:
+    name: user-namespace cases (Ubuntu host)
     runs-on: ubuntu-latest
-    container: registry.fedoraproject.org/fedora:44
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
 
-      # plasma-workspace is the heavy one and it is not optional: probe_state.py imports
-      # org.kde.plasma.plasmoid, which is where that module lives.
-      - name: Install the widget's test dependencies
+      # Ubuntu 23.10 and later can have AppArmor take every capability from a process inside an
+      # unprivileged user namespace, and the 26.04 image ships with that on: `unshare -r` fails and
+      # every case below skips. The runner is a throwaway VM with passwordless sudo, so turn it off
+      # here. https://ubuntu.com/blog/ubuntu-23-10-restricted-unprivileged-user-namespaces
+      # https://docs.github.com/en/actions/reference/runners/github-hosted-runners
+      - name: Allow unprivileged user namespaces
         run: |
-          dnf -y install jq util-linux-core nodejs python3-pyside6 kf6-kirigami plasma-workspace
-          node --version
-          python3 -c 'import PySide6; print("PySide6", PySide6.__version__)'
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          unshare -r true && echo "unshare -r works"
 
-      # Both files SKIP loudly rather than fail when a dependency is missing, which is right on a
-      # contributor's laptop and wrong here: this job exists to run them, and without this check it
-      # would go green having done nothing at all. Matched on the TWO dependency skips by name, not
-      # on any skip: test_widget_logic.sh also skips one case that compares Kempt's metadata
-      # against another Plasma tray applet installed on the box, and a container legitimately has
-      # none - failing on that would be failing on the environment rather than on coverage.
-      # `bash <file>`, never `./<file>`: the test files are mode 0644 by house convention and
-      # run_tests.sh invokes them the same way.
-      - name: The derivation layer (logic.js under node) and the .qml compile check
+      - name: The files that need a user namespace
         shell: bash
         run: |
-          set -o pipefail   # without it `tee` hands back its own status and a failing suite goes green
-          bash tests/test_widget_logic.sh 2>&1 | tee /tmp/logic.log
-          grep -qE '^skip: (node is not installed|PySide6 is absent)' /tmp/logic.log \
-            && { echo "::error::node or PySide6 was missing, so this job skipped what it exists to run"; exit 1; } || true
-          # kempt status against the same logic.js: its parity half needs node too.
-          bash tests/test_status.sh 2>&1 | tee /tmp/status.log
-          grep -qE '^skip: node is absent, so status was NOT compared' /tmp/status.log \
-            && { echo "::error::node was missing, so status was not compared with the widget"; exit 1; } || true
+          rc=0
+          for f in test_doctor.sh test_doctor_folders.sh test_version.sh; do
+            echo "== $f"
+            bash "tests/$f" 2>&1 | tee -a /tmp/ns.log || rc=1
+          done
+          if grep -E '^skip: no (unprivileged )?user namespace' /tmp/ns.log; then
+            echo "::error::no user namespace on this runner, so this job did not run what it exists to run"
+            exit 1
+          fi
+          exit "$rc"
 
-      - name: The QML probes, against the real Qt 6 engine
-        shell: bash
-        run: |
-          set -o pipefail
-          bash tests/test_widget_qml.sh 2>&1 | tee /tmp/qml.log
-          grep -qE '^skip: PySide6 is absent' /tmp/qml.log \
-            && { echo "::error::PySide6 was missing, so this job skipped what it exists to run"; exit 1; } || true
-
-  # The package, built the way Fedora builds it. The spec's check stage runs the whole suite in a
-  # MINIMAL build root, which has less in it than either job above: no node, no Python, no locale
-  # beyond C.UTF-8, only what the spec declares. A test that quietly needs something the spec does
-  # not declare passes on a runner and on a workstation and fails here, and until this job existed
-  # the first place that could happen was a release build.
+  # The package, built the way Fedora builds it, without its check stage: the job above already ran
+  # the suite. The check stage still runs in the release check (tests/release/release-check.sh) and
+  # in the COPR build, so a test that quietly needs something the spec does not declare is still
+  # caught before a release, but no longer on every push.
   package:
-    name: RPM build (check stage included)
+    name: RPM build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     container: registry.fedoraproject.org/fedora:44
     steps:
       - uses: actions/checkout@v7
@@ -168,11 +183,8 @@ jobs:
           cp kempt.spec /home/builder/rpmbuild/SPECS/
           chown -R builder: /home/builder/rpmbuild
 
-      # As an ordinary user, never as root: several tests exercise what an unprivileged caller
-      # cannot do (an unreadable file, a write that must fail), and as root they skip.
-      - name: Build, which runs the suite in the check stage
-        run: su - builder -c 'rpmbuild -ba ~/rpmbuild/SPECS/kempt.spec'
-
+      - name: Build
+        run: su - builder -c 'rpmbuild -ba --nocheck ~/rpmbuild/SPECS/kempt.spec'
       # Warnings are expected and described in docs/RELEASING.md; an error is not.
       - name: rpmlint reports no errors
         shell: bash
