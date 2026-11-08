@@ -327,6 +327,35 @@ printf '%s\n' ">>> Running %post scriptlet: demo-1.0" ">>> Remote peer disconnec
 assert_eq "$(bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log")" \
   "Complete!" "...and \"Remote peer disconnected\" never does"
 
+# A download that failed names the package. The lines are dnf5's on Fedora 44, from a run where one
+# third-party server answered 504. The rpm's file name is not name-version-release, so the name comes
+# from the transaction table, and the longest name the file starts with wins, in whichever section.
+dl_log() {  # file-name-in-librepo-line
+  printf '%s\n' "== System (dnf) ==" \
+    "Package                                      Arch   Version                 Repository                            Size" \
+    "Upgrading:" \
+    " claude-desktop-unofficial                   x86_64 0:4.23118.0-3.3.15.fc42 claude-desktop                   657.8 MiB" \
+    "   replacing claude-desktop-unofficial       x86_64 0:4.16336.0-3.3.15.fc42 claude-desktop                   652.6 MiB" \
+    " createrepo_c-libs                           x86_64 0:1.2.6-1.fc44          updates                          285.6 KiB" \
+    "Installing dependencies:" \
+    " createrepo_c                                x86_64 0:1.2.6-1.fc44          updates                          194.4 KiB" \
+    ">>> No more mirrors to try - All mirrors were already tried without success" \
+    ">>> Not finished - interrupted by error: Cannot download $1: All mirrors were tried" \
+    "Failed to download packages" \
+    " Librepo error: Cannot download $1: All mirrors were tried" "" "== Apps (flatpak) ==" "Nothing to update."
+}
+dl_reason() { bash -c 'source "$1/lib/common.sh"; run_failure_reason "$2"' _ "$REPO_ROOT" "$TESTTMP/reason.log"; }
+dl_log "claude-desktop-unofficial-4.23118.0-3.3.15-1.x86_64.rpm" > "$TESTTMP/reason.log"
+assert_eq "$(dl_reason)" "Could not download claude-desktop-unofficial from its server. Try again later." \
+  "a failed download names the package, by its name in the transaction table"
+dl_log "createrepo_c-libs-1.2.6-1.fc44.x86_64.rpm" > "$TESTTMP/reason.log"
+assert_eq "$(dl_reason)" "Could not download createrepo_c-libs from its server. Try again later." \
+  "...the longest name the file starts with"
+dl_log "unknown-pkg-1.0-1.x86_64.rpm" > "$TESTTMP/reason.log"
+assert_eq "$(dl_reason)" "Failed to download packages" "...and a file no listed package matches keeps dnf5's words"
+dl_log "createrepo_c-1.2.6-1.fc44.x86_64.rpm" | grep -v 'Librepo error' > "$TESTTMP/reason.log"
+assert_eq "$(dl_reason)" "Failed to download packages" "...as does a log with no librepo line"
+
 # A transaction PackageKit ran has no command line, and dnf5 lists it with command_line null. That
 # is another command, not a history of another shape: one such entry must not blind either reader.
 jq '[.[0] | .id = 9 | .command_line = null] + .' "$FIXTURES/dnf-history-list.json" > "$TESTTMP/list-pk.json"

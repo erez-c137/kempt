@@ -933,8 +933,27 @@ run_failure_reason() {  # log-file → one line, possibly empty
                               | grep -m1 -iE 'error|failed' || true)"
   [[ -n "$line" ]] || line="$(grep -vE '^[[:space:]]*$|^== .* ==$|^[[:space:]]*>>> ' "$1" | tail -1 || true)"
   line="${line#"${line%%[![:space:]]*}"}"
+  [[ "$line" == "Failed to download packages" ]] && line="$(download_failure_reason "$1" "$line")"
   line="$(friendly_error "$line" | redact_error_text)"
   printf '%s\n' "${line:0:120}"
+}
+# dnf5's "Failed to download packages" names no package, but librepo's line under it names the file:
+# "Librepo error: Cannot download <file>.rpm: All mirrors were tried". The file name is the
+# repository's, and need not be name-version-release (claude-desktop-unofficial ships
+# claude-desktop-unofficial-4.23118.0-3.3.15-1.x86_64.rpm for release 3.3.15.fc42), so splitting it
+# from the right gives a wrong name. The package is the longest name in dnf5's transaction table,
+# earlier in the same log, that the file name starts with. No such line or name → the line as given.
+download_failure_reason() {  # log-file line → one line
+  local file name
+  file="$(grep -m1 -oE '^[[:space:]]*Librepo error: Cannot download [^[:space:]/]+\.rpm: All mirrors were tried$' "$1" || true)"
+  file="${file#*Cannot download }"
+  name="$(awk -v f="$file" 'NF >= 5 && $3 ~ /-/ && index(f, $1 "-") == 1 && length($1) > length(b) { b = $1 }
+                            END { print b }' "$1" 2>/dev/null || true)"
+  if [[ -n "$file" && -n "$name" ]]; then
+    printf 'Could not download %s from its server. Try again later.\n' "$name"
+  else
+    printf '%s\n' "$2"
+  fi
 }
 # Plasma reads a notification's body as markup, and Kempt's notes carry outside text (unit
 # descriptions, package names), so & < > are escaped for every caller.

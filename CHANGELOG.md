@@ -92,6 +92,9 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- **An update that failed because one package would not download names that package.** The
+  notification, the history and the widget read "Could not download <package> from its server. Try
+  again later." instead of only "Failed to download packages".
 - **A failed check no longer says "Up to date".** With nothing waiting, the widget and `kempt status`
   now say "Last check failed". The footer and the tooltip say how long ago the last good check was.
 - **A failed update still reads as failed after the widget is reopened.** The Last update row now
