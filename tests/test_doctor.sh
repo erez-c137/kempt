@@ -804,7 +804,7 @@ assert_contains "$(doctor_with_autostart)" "$NOTIFIER" \
   "...and the row names the file, so it can be found"
 assert_contains "$(doctor_with_autostart | grep '^info  Discover')" "kempt discover-notifier off" \
   "...and the command that turns it off"
-assert_contains "$(doctor_with_autostart | grep '^info  Discover')" "Turn Off Discover's Notifier" \
+assert_contains "$(doctor_with_autostart | grep '^info  Discover')" "Turn Off Discover's Update Checks" \
   "...and the widget's button for the same"
 assert_contains "$(doctor_with_autostart | grep '^info  Discover')" \
   "so its number can differ from Kempt's. Its background work can make a Kempt run wait. To turn it off, run" \
