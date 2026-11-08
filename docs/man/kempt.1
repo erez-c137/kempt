@@ -119,7 +119,7 @@ the error is recorded and the previous items are kept. Without
 .BR \-\-strict ,
 that still exits 0.
 .B "Empty output with exit 0 means no data, never zero updates."
-A check also records a staged update once the restart has installed it.
+A check also records the result of a restart that installed a staged update.
 .TP
 .BR update " [" \-\-no\-flatpak "] [" \-\-surface= \c
 .IR surface "] [" \c
@@ -168,7 +168,9 @@ runs this.
 .B \-\-print\-command
 prints the launch command and starts nothing.
 .B \-\-risky\-ok
-is passed on to an update outside the terminal. A terminal run still asks.
+is passed on to the update that
+.B run
+starts.
 Exit 0 means the update started. The state file and
 .B kempt history
 have the result.

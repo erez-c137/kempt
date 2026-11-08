@@ -445,7 +445,8 @@ polkit counts it as active and local. Discover offers the same through PackageKi
 
 Upgrading from 0.2.0 or earlier removes the rule `kempt enable-passwordless` wrote in
 `/etc/polkit-1/rules.d`, once, if it is word for word what that command wrote. An account outside
-`wheel` that had turned it on is asked again [run]. Removing the package removes the rule [run].
+`wheel` that had turned it on is asked again [run]. Removing the package removes the packaged rule in
+`/usr/share/polkit-1/rules.d` [run].
 
 ### A program with no session of its own
 

@@ -389,7 +389,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Turn Off Discover's Update Checks**, **Turn On Discover's Update Checks**, closing the mild message | `kempt discover-notifier off`, `on`, `keep` |
 | **Copy Command** for a service, on the Startup report | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |
-| Opening the widget while it says a service runs again | `kempt startup ack --expect=<digest>` |
+| Opening the widget after a failed service has started again | `kempt startup ack --expect=<digest>` |
 | **Startup Report** in the menu and on the failed-service message, and the arrow on the Startup report | `kempt startup --all` |
 | Every setting | `kempt config set` |
 

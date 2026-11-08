@@ -290,7 +290,7 @@ exit 0
 - A wheel user at the computer updates with no password, from one fixed
   polkit rule. Nobody can update over SSH. kempt enable-passwordless is gone,
   and the upgrade removes the rule it wrote.
-- The root helpers went from 1,078 lines to 170. dnf5 runs as a system
+- The root helpers went from 760 lines to 170. dnf5 runs as a system
   service, and Kempt reads restarts from dnf5 and rpm with no record of its
   own.
 - The widget says ready instead of staged, and System and Apps instead of

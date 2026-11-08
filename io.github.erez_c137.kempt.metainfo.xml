@@ -74,7 +74,7 @@
           the computer updates with no password. The terminal window, security notifications and
           automatic runtime removal are gone, and the widget has fewer, shorter messages. It says
           ready instead of staged, and a failed download names the package. The programs that run
-          as root went from 1,078 lines to 170.
+          as root went from 760 lines to 170.
         </p>
       </description>
     </release>

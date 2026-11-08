@@ -19,7 +19,7 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
   its own.
 - **0.3.0:** a smaller Kempt. The terminal and background ways to update, `install.sh`, security
   notifications, automatic reclaim, four settings and eight of the widget's 18 messages are gone.
-  A `wheel` user at the computer updates with no password, and the root helpers went from 1,078
+  A `wheel` user at the computer updates with no password, and the root helpers went from 760
   lines to 170.
 
 ## Now
