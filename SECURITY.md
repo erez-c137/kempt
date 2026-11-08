@@ -30,7 +30,7 @@ Fixes ship as a patch release and a COPR rebuild, so they arrive through `dnf up
 
 | Version | Supported |
 | --- | --- |
-| 0.2.x | Yes (the newest 0.2.z) |
+| 0.3.x | Yes (the newest 0.3.z) |
 | Anything older | No |
 
 ## What runs as root

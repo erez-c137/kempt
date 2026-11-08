@@ -1,5 +1,5 @@
 Name:           kempt
-Version:        0.2.0
+Version:        0.3.0
 # A hand build passes --define "kempt_local <stamp>" so two builds of DIFFERENT CONTENT cannot both
 # call themselves 0.1.4-1: without it `rpm -q` cannot tell them apart and the only way to know which
 # one is installed is to hash the files, which is how a pre-fix build sat on a machine looking
@@ -283,6 +283,20 @@ exit 0
 %{_metainfodir}/io.github.erez_c137.kempt.metainfo.xml
 
 %changelog
+* Sun Nov 08 2026 Erez <erez.c137@protonmail.com> - 0.3.0-1
+- A smaller Kempt. Updating in a terminal window or in the background,
+  install.sh, Put It Back, security notifications, automatic reclaim and
+  four settings are gone, and the widget has fewer messages.
+- A wheel user at the computer updates with no password, from one fixed
+  polkit rule. Nobody can update over SSH. kempt enable-passwordless is gone,
+  and the upgrade removes the rule it wrote.
+- The root helpers went from 1,078 lines to 170. dnf5 runs as a system
+  service, and Kempt reads restarts from dnf5 and rpm with no record of its
+  own.
+- The widget says ready instead of staged, and System and Apps instead of
+  dnf and flatpak. kempt log prints plain sentences. A failed download names
+  the package.
+
 * Mon Nov 02 2026 Erez <erez.c137@protonmail.com> - 0.2.0-1
 - Kempt says when a service stops starting after an update, in a notification
   and in the widget. kempt startup and the widget's Startup Report list what

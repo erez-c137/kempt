@@ -7,6 +7,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-08
+
 ### Changed
 
 - **Kempt reads what will happen on a restart from the machine, and keeps no record of its own.** The toml, `/system-update`, `dnf5 history` and rpm answer everything, without root. This ends the reports that came from Kempt's record disagreeing with dnf5. When PackageKit cancels prepared updates, which Discover's notifier can do at any refresh, you are told once, and preparing them again downloads nothing. Deleting the state folder costs at most one repeat notification, and an armed stage stays on screen. A stored update in a format this build does not know reads as "cannot tell", never as ready.
@@ -228,5 +230,6 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Releases before 0.2.0 are in the changelog at [the v0.2.0 tag](https://github.com/erez-c137/kempt/blob/v0.2.0/CHANGELOG.md).
 
-[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/erez-c137/kempt/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/erez-c137/kempt/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/erez-c137/kempt/compare/v0.1.9...v0.2.0

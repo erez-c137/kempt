@@ -49,15 +49,15 @@
     <!-- width and height must be the image's real size: the validator compares them. -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the widget open on the pending updates</caption>
-      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.2.0/docs/images/kempt-tray-popup.png</image>
+      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.3.0/docs/images/kempt-tray-popup.png</image>
     </screenshot>
     <screenshot>
       <caption>Updates ready for the next restart, with the choice to discard them</caption>
-      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.2.0/docs/images/kempt-staged.png</image>
+      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.3.0/docs/images/kempt-staged.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: where updates run and how often Kempt checks</caption>
-      <image type="source" width="845" height="986">https://raw.githubusercontent.com/erez-c137/kempt/v0.2.0/docs/images/kempt-settings.png</image>
+      <image type="source" width="845" height="986">https://raw.githubusercontent.com/erez-c137/kempt/v0.3.0/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>
@@ -66,6 +66,18 @@
   </provides>
   <!-- Must match VERSION, plasmoid/metadata.json and kempt.spec; tests/test_version.sh checks. -->
   <releases>
+    <release version="0.3.0" date="2026-11-08" type="stable">
+      <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.3.0</url>
+      <description>
+        <p>
+          A smaller Kempt. Updates run in the widget or on the next restart, and a wheel user at
+          the computer updates with no password. The terminal window, security notifications and
+          automatic runtime removal are gone, and the widget has fewer, shorter messages. It says
+          ready instead of staged, and a failed download names the package. The programs that run
+          as root went from 1,078 lines to 170.
+        </p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-11-02" type="stable">
       <url type="details">https://github.com/erez-c137/kempt/releases/tag/v0.2.0</url>
       <description>

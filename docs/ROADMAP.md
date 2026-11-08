@@ -17,6 +17,10 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **0.1.8:** updates run in the widget, with no terminal needed.
 - **0.2.0:** Kempt says when a service stops starting after an update, and shows what starts on
   its own.
+- **0.3.0:** a smaller Kempt. The terminal and background ways to update, `install.sh`, security
+  notifications, automatic reclaim, four settings and eight of the widget's 18 messages are gone.
+  A `wheel` user at the computer updates with no password, and the root helpers went from 1,078
+  lines to 170.
 
 ## Now
 
@@ -25,24 +29,6 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
   supported Fedora prints `check-update` and `needs-restarting` as JSON, which Kempt already reads.
 - **Fedora's official repos.** The package passes the review tools. The next step, after 0.3.0, is
   a review request, which needs a sponsor.
-
-## Next: 0.3.0, a smaller Kempt
-
-0.3.0 takes things away. [CHANGELOG.md](../CHANGELOG.md) says what replaces each one.
-
-- **Updating in a terminal window, and updating in the background.** Updates run in the widget or
-  on the next restart.
-- **Put It Back and Rebuild Staged Update.** When another program cancels a staged update, often
-  Discover's notifier, Kempt tells you and you stage it again. The packages are still downloaded,
-  so that costs no new download.
-- **`install.sh`.** Kempt installs as a package.
-- **Security notifications and automatic reclaim.** Kempt no longer removes unused Flatpak runtimes
-  by itself.
-- **The panel icon size, restart reminder and "without confirmation" settings.**
-- **A message per failed service.** One message opens the Startup Report, which has the failed
-  services on top and the text of `kempt startup --all` below them.
-- **Startup time, with its comparison to earlier starts.**
-- **Eight of the widget's 18 messages.** Some merged and some moved into the report.
 
 ## Then: updates that take care of themselves
 
