@@ -16,8 +16,9 @@ mk fp-update-stub 'exit 0'
 mk refresh-stub "[[ \"\$1\" == check ]] && { cat \"$FIXTURES/dnf-check-update.txt\"; exit 100; }; exit 0"
 mk notify-stub "printf 'NOTIFY %s\n' \"\$*\" >> \"$WORLD/notifications\""
 mk dnf-no-reboot 'exit 0'
-# The root helper's stand-in: says which session it is in, then waits to be let go.
-mk apply-stub "ps -o sid= -p \$\$ | tr -d ' ' > \"$WORLD/update-session\"
+# The root helper's stand-in: says which session it is in, then waits to be let go. The session is
+# the fourth field after the command name in /proc/PID/stat: a build root or container has no ps.
+mk apply-stub "sed 's/.*) //' /proc/\$\$/stat | cut -d' ' -f4 > \"$WORLD/update-session\"
 for _ in {1..200}; do [[ -e \"$WORLD/release\" ]] && break; sleep 0.1; done
 touch \"$WORLD/finished\"
 exit 0"
