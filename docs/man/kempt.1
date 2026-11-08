@@ -27,7 +27,6 @@ kempt \- tidy dnf and Flatpak updates for Fedora, from the terminal or the Plasm
 .B kempt unstage
 .br
 .B kempt reclaim
-.RB [ \-\-list ]
 .RB [ \-y ]
 .RI [ ref ...]
 .br
@@ -143,7 +142,7 @@ leaves that notification out. The widget passes it after
 .BR "Install Now" .
 .IP
 .B \-\-surface=offline
-downloads the update and sets it to install on the next restart, with one password prompt. Any
+downloads the update and sets it to install on the next restart, in one step. Any
 restart then installs it. Kempt never restarts the machine itself. If the update cannot be set up
 for the restart, the run fails and Kempt discards it. A later live update that changes any system
 package discards the stage.
@@ -175,8 +174,8 @@ Exit 0 means the update started. The state file and
 have the result.
 .TP
 .B unstage
-Discard the update staged for the next restart. It asks for your password once, unless nothing is
-staged. Kempt keeps its record until dnf5 confirms the transaction is gone. Exit 1: the root helper
+Discard the update staged for the next restart. With nothing staged, it says so and asks nothing.
+It succeeds only once dnf5 confirms the transaction is gone. Exit 1: the root helper
 failed, or dnf5 still has the transaction. Exit 3: another update is running. Exit 5: a Fedora
 release upgrade is stored, another updater has prepared the next restart, or the root helper
 refused.
@@ -197,7 +196,7 @@ Flatpak refuses, and Kempt shows its reason. The result comes from the list read
 nothing removed, because it ran as root with
 .B KEMPT_ALLOW_ROOT=1
 set or under sudo or pkexec,
-Flatpak is off or missing, or there is no
+Flatpak is missing, or there is no
 .B \-y
 and no terminal to ask at. Exit 1: Flatpak failed or a runtime is still installed. Kempt says what
 went and what remained.
@@ -361,8 +360,7 @@ The full reference is
 .TP
 .I /usr/bin/kempt
 The command, a symlink into
-.I /usr/share/kempt
-or the checkout.
+.IR /usr/share/kempt .
 .TP
 .IR /usr/share/kempt/VERSION " or " <checkout>/VERSION
 The version that
@@ -389,11 +387,12 @@ The raw output of each run, deleted after 60 days.
 .I ~/.local/state/kempt/events.log
 The event log, mode 0600. Past 2500 lines it is cut to the last 2000.
 .TP
-.IR /usr/libexec/kempt-refresh " or " /usr/local/libexec/kempt-refresh
+.I /usr/libexec/kempt-refresh
 Root helper: refreshes package metadata, with no password prompt.
 .TP
-.IR /usr/libexec/kempt-apply " or " /usr/local/libexec/kempt-apply
-Root helper: runs the dnf upgrade, with one password prompt per run.
+.I /usr/libexec/kempt-apply
+Root helper: runs the dnf upgrade. Who is asked for a password is under
+.IR 49-kempt.rules .
 .TP
 .I /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
 The two polkit actions. Each names one helper path, and

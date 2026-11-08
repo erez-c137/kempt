@@ -32,11 +32,8 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **One message when services fail, and a Startup Report you can read from the keyboard.** The main view says "Bluetooth failed to start after the update." or "3 services failed to start after the update, including Bluetooth and plasma-foo.service." with one **Startup Report** button. The report lists each failed service with **Copy Command** and **Mute Until It Starts**, over the text of `kempt startup --all`.
 - **Failures and notifications about updates waiting for the next restart say downloaded, prepared or ready**, not staged, and the widget draws them without "See: kempt doctor" beside its **Check Installation** button. `kempt summary` and other terminal text keep the word for now.
 - Shorter widget sentences. The count goes in the header and the sentence under it says when: "They install the next time you restart." The header no longer says "available". The kernel recommendation reads "The next restart is the safest time to install a new kernel.", it names only parts with a plain name, and a failed check no longer says "just now" or repeats "last check failed" in the footer.
-- One word for each thing in the widget. The other updater's stage is always "prepared", the footer says "update info 3 days old", the buttons are **Check Anyway** and **Discard Updates**, and tooltips no longer name dnf or flatpak. A failed check's tooltip says which half failed in the popup's words rather than quoting the tool's error.
-- The widget page describes the messages as they now read, with the list numbered in order.
-
+- One word for each thing in the widget. The other updater's stage is always "prepared", the footer says "update info 3 days old", the buttons are **Check Anyway** and **Discard Updates**, and tooltips no longer name dnf or flatpak. A failed check's tooltip says which half failed in the widget's words rather than quoting the tool's error.
 - **The widget's words can be translated.** Every sentence is whole in one `i18n()` call, with counts in `i18np`, so a translator can reorder it. `Messages.sh` writes the template in `po/`, and the package compiles any `po/<lang>.po` into the widget. No language is translated yet.
-- **The settings picture says it is from 0.2.0.** It still shows settings that have since gone.
 - **Free Up Space says how many runtimes went, not how much space.** The offer now says "Up to", because the measured size overstates what comes back on compressed btrfs, Fedora's default.
 
 ### Removed
@@ -54,10 +51,10 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **Put It Back and `kempt restore-stage`.** When another program cancels a staged update, Kempt now
   tells you and the updates stay in the list. Stage them again with **Install on Next Restart** or
   `kempt update --surface=offline`. The packages are still downloaded, so this costs no new download.
-- **Rebuild Staged Update.** To apply new holds to a staged update, press **Discard Staged Update**
+- **Rebuild Staged Update.** To apply new holds to a staged update, press **Discard Updates**
   and stage again. That deletes the download, so staging again downloads the packages again. In a
   terminal, `kempt update --surface=offline` still replaces the stage and reuses the download.
-- **The widget's offer to update inside it, and keeping `terminal` on upgrade.** An install from before 0.1.8 whose config file names no `surface` now updates in the widget, with no offer first. To keep a terminal window, run `kempt config set surface terminal`.
+- **The widget's offer to update inside it, and keeping `terminal` on upgrade.** An install from before 0.1.8 whose config file names no `surface` now updates in the widget, with no offer first.
 - **`kempt discover-notifier off` no longer copies or moves your startup file.** It writes one short file with `Hidden=true` and Kempt's mark. If a file of your own is there, it changes nothing and names that file, with what to do. `on` deletes only a marked file, including what 0.2.0 wrote, and an edit made inside it goes with it. A `.before-kempt` copy from 0.2.0 comes back on `on`, and a `.kempt-edited` copy stays where it is. `discover-entry-written` is no longer read.
 - **Reading more than your own Discover settings.** The warning about automatic updates reads `~/.config/PlasmaDiscoverUpdates`. A default set only under `/etc/xdg` or locked with `[$i]` is not read. In your own file, a line with spaces before the key, Windows line endings or `[$i]` also reads as off. A startup file limited by `OnlyShowIn` or `NotShowIn` counts as starting, and only `Hidden=true` counts as off.
 - **Recognizing the Discover startup file that `install.sh` wrote before 0.1.8.** `kempt discover-notifier on` now treats that file as your own and leaves it. To turn the notifier back on, delete it from `~/.config/autostart`.
@@ -103,8 +100,6 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - **A stored offline state that cannot be read is said plainly.** Kempt used to treat it as gone, which
   could claim that a restart had installed updates. The widget, `kempt status` and `kempt doctor` now
   say Kempt cannot tell what the next restart will do, and `kempt unstage` works when root can read it.
-- **A restart that installed none of a staged update is now a failed run.** It gets a history entry,
-  and `kempt status` stops saying the update is staged.
 - **Discover's automatic updates get a plainer warning, higher up.** It sits right after the staged
   update message: "Discover is set to install updates by itself, so it can take over your next
   restart and stop Kempt's updates."

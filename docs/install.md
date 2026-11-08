@@ -14,7 +14,7 @@ Verified on Fedora 44: dnf5 5.4.3, flatpak 1.18.1, KDE Plasma 6.7.4, bash 5.3, j
 | bash 4+, coreutils, GNU awk/grep/sed/join/sort, `flock` | The CLI is bash and the parsers are GNU text tools. All are in a base Fedora install. |
 | `flatpak` | Only for Flatpak apps. Without it, Kempt checks and updates system packages only. |
 | `notify-send` (libnotify) | Desktop notifications from runs outside a terminal. If it is missing, notifications are skipped. |
-| KDE Plasma 6 with `kpackagetool6` | Only for the panel widget. If it is missing, the installer says so and installs everything else. |
+| KDE Plasma 6 | Only for the panel widget. `kempt-plasmoid` requires it, and `kempt` installs without it. |
 
 Installing on the next restart also needs a dnf5 that supports staged transactions. Check with:
 
@@ -35,7 +35,7 @@ That installs two packages, because `kempt-plasmoid` requires `kempt`:
 
 | Package | What it is | Requires |
 | --- | --- | --- |
-| `kempt` | The CLI, the two root helpers, the polkit actions, the man page and this documentation. It needs no desktop, but polkit refuses both Kempt actions over SSH. Without the widget, nothing checks on a schedule. | `dnf5`, `jq`, `polkit`, `util-linux-core`, `dnf5-command(needs-restarting)`, and `python3-gobject-base` and `flatpak-libs` when Flatpak is installed |
+| `kempt` | The CLI, the two root helpers, the polkit actions, the man page and this documentation. It needs no desktop, but polkit refuses both Kempt actions over SSH. Without the widget, nothing checks on a schedule. | `dnf5`, `jq`, `polkit`, `systemd-run`, `util-linux-core`, `findutils`, `dnf5-command(needs-restarting)`, and `python3-gobject-base` and `flatpak-libs` when Flatpak is installed |
 | `kempt-plasmoid` | The panel widget and its icons. | `kempt` of the same version, `plasma-workspace`, `hicolor-icon-theme` |
 
 The CLI is a separate package so that it does not pull in a desktop. `kempt-plasmoid` also
@@ -80,7 +80,7 @@ Kempt icons. Both places, and how to turn either off, are in
 When Discover's update notifier is installed, the widget offers once to turn it off. Discover
 itself keeps working. If Discover installs updates on restart by itself, its update replaces one
 Kempt staged. To turn the notifier back on, use the **Discover** row in the widget's
-settings, or run `kempt discover-notifier on`. [The opt-out](#the-discover-notifier-opt-out) says
+settings, or run `kempt discover-notifier on`. [Turning it off](#turning-off-discovers-notifier) says
 what it changes.
 
 ### Verify it
@@ -93,7 +93,7 @@ On a packaged machine that has not run anything yet, expect something like this.
 depend on what else is installed.
 
 ```
-info  kempt 0.1.x (/usr/share/kempt)
+info  kempt 0.3.x (/usr/share/kempt)
 ok    root helper (refresh): /usr/libexec/kempt-refresh (root:root 0755)
 ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
@@ -103,7 +103,7 @@ ok    flatpak: /usr/bin/flatpak
 info  package lists: no dnf refresh recorded yet. Fetch them now with: kempt check --refresh, on mains power and an unmetered connection. If this row stays after that, dnf cannot refresh its package lists, and sudo dnf5 makecache --refresh shows why
 ok    config file: none yet, built-in defaults apply (/home/you/.config/kempt/config)
 ok    state dir writable: /home/you/.local/state/kempt (created on first use)
-info  install: packaged, so the package manager keeps these files in step
+info  startup: no Kempt update compared yet
 ok    widget engine: /usr/share/kempt/bin/kempt
 
 Recent events (kempt log):
@@ -176,30 +176,23 @@ packaged copy takes its place when the shell reloads.
 
 If you install the package first, none of this applies.
 
-### The Discover-notifier opt-out
+### Turning off Discover's notifier
 
 Fedora's `plasma-discover-notifier` counts updates from PackageKit's own cache, so its number can
 differ from Kempt's. Its background PackageKit work can also hold the dnf5 lock, which makes a Kempt
-run wait, or stop with exit 7. When the notifier is installed, the installer asks:
+run wait, or stop with exit 7.
 
-```
-Turn off Discover's update notifier for this user? [Y/n]
-```
-
-Yes runs `kempt discover-notifier off`. It writes a short user-level autostart file at
-`~/.config/autostart/org.kde.discover.notifier.desktop` with `Hidden=true`, and stops any running
-`DiscoverNotifier`. If your own file is there, Kempt leaves it alone and tells you what to do.
-Nothing system-wide changes. To undo it:
+**Turn Off Discover's Update Checks** in the widget, or `kempt discover-notifier off`, writes a short
+user-level autostart file at `~/.config/autostart/org.kde.discover.notifier.desktop` with
+`Hidden=true`, and stops any running `DiscoverNotifier`. If your own file is there, Kempt leaves it
+alone and tells you what to do. Nothing system-wide changes. To undo it:
 
 ```bash
 kempt discover-notifier on
 ```
 
-That removes Kempt's file and starts the notifier again.
-
-`n` or `no` leaves the notifier on, and so does a run with no terminal to answer in. Either way,
-`kempt discover-notifier off` turns it off later.
-See [usage.md](usage.md#discover-notifier).
+That removes Kempt's file and starts the notifier again. See
+[usage.md](usage.md#discover-notifier).
 
 ## Verify the install
 

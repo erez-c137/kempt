@@ -64,29 +64,6 @@ tools/build-local.sh
 This runs the suite, builds the packages from your checkout under a preview version name, installs
 them and reloads the widget. The real release upgrades over them by itself. `--no-test` skips the
 suite and `--no-install` only builds. The full list is at the top of the script.
-Installing the widget does not put it on a panel: right-click the panel > **Add Widgets…** >
-search for **Kempt**.
-
-The icon goes into `~/.local/share/icons/hicolor/` because Add Widgets looks it up by name
-through the icon theme. Each size directory gets a drawing made for that size. The installer then
-sends this signal so a running Plasma rescans its icon directories:
-
-```
-dbus-send --session --type=signal /KIconLoader org.kde.KIconLoader.iconChanged int32:0
-```
-
-If Add Widgets still shows a placeholder icon, log out and back in.
-
-If `kpackagetool6` is missing, the widget is skipped with a note and everything else installs.
-
-Nothing else is written at install time.
-
-If `kempt` is not found afterwards, `~/.local/bin` is missing from your `PATH`. Fedora's default
-shell profile adds it when the directory exists, so a fresh login usually fixes it:
-
-```bash
-command -v kempt    # expect: /home/<you>/.local/bin/kempt
-```
 
 ## Tests come first, and they have to bind
 
@@ -170,20 +147,9 @@ Plasma keeps the old copy until `plasmashell --replace` or a new login.
 - **Translations are `po/<lang>.po` files.** The package build compiles them to
   `contents/locale/<lang>/LC_MESSAGES/` with `./Messages.sh install`.
 
-The probes need `python3-pyside6` and the Plasma and Kirigami QML modules, which a Plasma 6
-desktop already has. Run one through its supervisor:
-
-```bash
-python3 tests/qml/safe_probe.py 120 python3 tests/qml/probe_popup.py
-```
-
-The supervisor adds the timeout, the process group and the offscreen platform, and a probe refuses
-to run without it. `tests/test_widget_qml.sh` runs the probes one at a time and checks that none is
-left running. If that check fails, stop and fix it before running anything else: stuck Qt
-processes pile up fast.
-
-Inside a probe, call `p.clear_calls()` before an action whose calls you count. Label an assertion
-that only sets up the next one with `premise:`, so its failure reads as "the setup failed".
+Run the probes with `tests/test_widget_qml.sh`, as [above](#the-qml-probes). It runs them one at
+a time and checks that none is left running. If that check fails, stop and fix it before running
+anything else: stuck Qt processes pile up fast.
 
 ## Shell conventions
 
