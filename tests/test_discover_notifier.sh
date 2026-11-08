@@ -100,7 +100,9 @@ reset; system_entry
 stub lingers ": > $TESTTMP/running; ls -l /proc/\$\$/fd > $TESTTMP/lingers.fds; echo \$\$ > $TESTTMP/lingers.pid; exec sleep 60"
 KEMPT_DISCOVER_START="$TESTTMP/lingers" "$KEMPT" discover-notifier on >/dev/null
 for _ in 1 2 3 4 5 6 7 8 9 10; do [[ -s "$TESTTMP/lingers.pid" ]] && break; sleep 0.1; done
-assert_eq "$(grep -c 'lock' "$TESTTMP/lingers.fds" || true)" "0" "the started notifier holds no lock file open"
+# Kempt's locks all live in its state folder. Any other lock is the caller's: rpmbuild's check stage
+# hands every test an open /usr/lib/sysimage/rpm/.rpm.lock.
+assert_eq "$(grep -cF "$KEMPT_STATE_DIR/" "$TESTTMP/lingers.fds" || true)" "0" "the started notifier holds no lock file open"
 rc=0; timeout 10 "$KEMPT" config set auto_accept true >/dev/null 2>&1 || rc=$?
 assert_eq "$rc" "0" "config set right after on does not wait for the notifier's lock"
 kill "$(cat "$TESTTMP/lingers.pid")" 2>/dev/null || true
