@@ -9,7 +9,7 @@ On <https://github.com/erez-c137/kempt>, open the **Security** tab and choose
 
 Include:
 
-- the `version:` line from `kempt doctor`, which also names the commit on a checkout;
+- the first line of `kempt doctor`, which names the version;
 - the exact command and arguments;
 - whether your account is in the `wheel` group, because that decides who gets a password dialog;
 - what you expected, and what happened.
@@ -30,7 +30,7 @@ Fixes ship as a patch release and a COPR rebuild, so they arrive through `dnf up
 
 | Version | Supported |
 | --- | --- |
-| 0.2.x | Yes (the newest 0.2.z) |
+| 0.3.x | Yes (the newest 0.3.z) |
 | Anything older | No |
 
 ## What runs as root
@@ -54,7 +54,7 @@ Where to look, most important first:
 In scope:
 
 - running an unintended command as root;
-- widening the polkit grant beyond `io.github.erez_c137.kempt.apply` for an active local session;
+- widening the polkit grant beyond `io.github.erez_c137.kempt.apply` for a `wheel` user in an active local session;
 - passing an unexpected argument to a root helper;
 - getting an unquoted value into a command the widget runs.
 

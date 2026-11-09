@@ -143,7 +143,8 @@ list wait. If that hides the restart message, the footer says `restart pending` 
    restart."** It shows while Discover's notifier starts with your session.
    **Turn Off Discover's Update Checks** turns it off for you. Closing the message changes nothing.
    Either answer hides the message for good. When Discover is set to install updates by itself, the
-   same message says so as a warning, one time, right under what is waiting for the restart. An
+   same message says so as a warning, right under what is waiting for the restart. It shows once,
+   and again only after that setting is turned off and on, or after `kempt discover-notifier on`. An
    image-based Fedora, which is told to use Discover, gets neither. The **Discover** row in settings
    turns the checks back on.
 9. **"Up to ~1.5 GB can be freed. No installed app uses these Flatpak runtimes."** It shows when there
@@ -231,10 +232,6 @@ when Kempt is set to install on the next restart. With system updates waiting it
 
 Flatpak apps alone do not ask. Nor does Update Now while updates are paused, because the run would
 be refused.
-
-If Discover is set to install updates by itself, a warning says it can take over your next restart
-and stop Kempt's updates, with **Turn Off**. It shows once, whatever Kempt's mode, and comes back only
-after the setting was turned off and on again, or after `kempt discover-notifier on`.
 
 ### The list
 
@@ -392,7 +389,7 @@ Each button runs a command described in [usage.md](usage.md).
 | **Turn Off Discover's Update Checks**, **Turn On Discover's Update Checks**, closing the mild message | `kempt discover-notifier off`, `on`, `keep` |
 | **Copy Command** for a service, on the Startup report | Runs nothing. Copies `systemctl status <unit>`, with `--user` for a service in your session |
 | **Mute Until It Starts**, **Stop Muting**, **Undo** | `kempt startup mute <unit>`, `kempt startup unmute <unit>`, `kempt startup mute <unit>` |
-| Opening the widget while it says a service runs again | `kempt startup ack --expect=<digest>` |
+| Opening the widget after a failed service has started again | `kempt startup ack --expect=<digest>` |
 | **Startup Report** in the menu and on the failed-service message, and the arrow on the Startup report | `kempt startup --all` |
 | Every setting | `kempt config set` |
 

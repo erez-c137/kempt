@@ -66,8 +66,8 @@ shows up in its own list like any other update.
    - the widget lands where Plasma looks, and the installed QML runs;
    - `doctor`, `holds`, `config` and an unknown command give a new user sensible answers;
    - the package has the man page and user guides, and no maintainer documents;
-   - an upgrade from the last release keeps the widget, and keeps an install that used the
-     terminal on it;
+   - an upgrade from the last release keeps the widget and your files, and an older install
+     with no saved choice updates in the widget;
    - `dnf remove` leaves nothing behind except the user's settings.
 
    It reads `VERSION`, so nothing needs editing per release. It runs only inside its container.

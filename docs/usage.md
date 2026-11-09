@@ -99,8 +99,7 @@ that cannot reports `stale` until a refresh succeeds. Old metadata shows in the 
 `kempt doctor`, and in the event log, which records a skipped refresh once a day. To fetch anyway,
 run `kempt check --anyway` or press **Check Anyway** in the widget.
 
-A check also records a staged update once the restart has installed it, and clears Kempt's record
-of a stage that has gone.
+A check also records the result of a restart that installed a staged update.
 
 Fields worth knowing:
 
@@ -211,8 +210,8 @@ as a whole image, so every run exits 5 and says to use Discover or `rpm-ostree u
 **Update Now**.
 
 **Shutdown waits while packages install.** Fedora blocks shutdown and sleep during the install
-step, and KDE's logout screen does not say why. Stopping during the download is safe. `kempt
-doctor` checks it.
+step, and KDE's logout screen does not say why. Stopping during the download is safe. The package
+recommends `rpm-plugin-systemd-inhibit`, which does the blocking.
 
 | Exit | When |
 | --- | --- |
@@ -227,7 +226,7 @@ doctor` checks it.
 
 `--surface=offline`, the widget's **Install on Next Restart**, downloads the whole update, stores it
 and tells the system to install it during the next restart. Nothing is installed while you work.
-Both steps share one password prompt, so **any** restart installs it: the widget's **Restart…**, the
+Both steps run as one, so **any** restart installs it: the widget's **Restart…**, the
 K menu, or `reboot` days later. Kempt never restarts the machine itself.
 
 A check runs just before staging, and its count is the one the widget and the event log report. If
@@ -236,21 +235,21 @@ staging run still updates Flatpak apps live. Until the restart, the staged packa
 pending, and the widget stops offering to stage them again. The CLI says:
 
 ```
-61 updates are staged and install on the next restart
+Staged: 61 updates install on the next restart
 ```
 
-The widget puts the count in its header and says `They install when you restart.`
+The widget puts the count in its header and says `They install the next time you restart.`
 
 **When staging fails.** If the update was stored but could not be set up for the restart, Kempt
 discards it. The run fails with `the updates were downloaded, but could not be set to install on the
 next restart`. Staging again replaces the previous staged update. If that fails:
 
-- Before anything was replaced, the previous one still installs. The run fails with
-  `could not replace the prepared updates. The previous one is unchanged and still installs on the
+- Before anything was replaced, the earlier updates still install. The run fails with
+  `could not replace the prepared updates. The earlier ones are unchanged and still install on the
   next restart`.
-- After the previous one was gone, the run fails with `the previous staged update was discarded
-  and could not be rebuilt`, and Kempt cleans up so the restart installs nothing. If that cleanup
-  fails too, the notification says to run `sudo dnf5 offline clean`.
+- After the earlier updates were gone, the run fails with `the earlier updates were removed and
+  could not be prepared again`, and Kempt cleans up so the restart installs nothing. If that cleanup
+  fails too, the message adds `or cleaned up. See: kempt doctor`.
 
 **When a Fedora release upgrade is stored, `--surface=offline` stops** with exit 5, because dnf5
 keeps one stored transaction and staging would cancel the upgrade. The message names the way out:
@@ -366,13 +365,13 @@ Undoes `kempt update --surface=offline`, so the next restart installs nothing.
 Discarded the updates waiting for the next restart. That restart installs nothing.
 ```
 
-It asks for your password once, or, with nothing staged, says so without asking. Kempt clears its
-record of the stage only once dnf5 confirms the transaction is gone.
+It asks for your password once, unless the fixed rule lets you in without one. With nothing staged,
+it says so and asks nothing. It succeeds only once dnf5 confirms the transaction is gone.
 
 | Exit | When |
 | --- | --- |
 | 0 | Discarded, or nothing was staged. |
-| 1 | The root helper failed, or dnf5 still has the transaction. Kempt keeps its record. |
+| 1 | The root helper failed, or dnf5 still has the transaction. |
 | 2 | Any argument. |
 | 3 | Another update is running. |
 | 5 | Nothing changes: a Fedora release upgrade is stored and discarding would cancel it, another updater has prepared the next restart and discarding would cancel that too, or the root helper refused. |
@@ -668,7 +667,7 @@ count never changes.
 A healthy report:
 
 ```
-info  kempt 0.1.x (/usr/share/kempt)
+info  kempt 0.3.0 (/usr/share/kempt)
 ok    root helper (refresh): /usr/libexec/kempt-refresh (root:root 0755)
 ok    root helper (apply): /usr/libexec/kempt-apply (root:root 0755)
 ok    polkit action: /usr/share/polkit-1/actions/io.github.erez_c137.kempt.policy
@@ -679,11 +678,8 @@ ok    Discover's update notifier: turned off for this user (/home/you/.config/au
 ok    package lists: refreshed 2026-08-26T20:58:03+03:00
 ok    config file: /home/you/.config/kempt/config (2 settings)
 ok    state dir writable: /home/you/.local/state/kempt
-info  version: kempt 0.1.x (checkout a1b2c3d clean)
-ok    helpers: match checkout
-ok    policy: match checkout
-ok    widget: match checkout
-ok    widget engine: /home/you/src/kempt/bin/kempt
+ok    startup: no service has stopped starting since a Kempt update
+ok    widget engine: /usr/share/kempt/bin/kempt
 
 Recent events (kempt log):
   2026-08-26T21:14:40+03:00 widget Update finished: 7 updated, restart needed
@@ -717,7 +713,7 @@ What a `FAIL` means:
 The **Discover's update notifier** row appears only when the notifier is installed. It is `ok`
 when off for you, and `info` when it starts with your session, naming
 [`kempt discover-notifier off`](#discover-notifier) and the widget's
-**Turn Off Discover's Notifier**. A second row says when Discover
+**Turn Off Discover's Update Checks**. A second row says when Discover
 installs updates on restart by itself. Its update then replaces yours, so the row is `WARN` when
 Kempt installs on the next restart.
 
@@ -757,13 +753,9 @@ stores nothing.
 
 ### The install lines
 
-`version:` names the release, plus, in a git checkout, the commit and `clean` or `dirty`. Quote it
-in bug reports.
-
-A packaged install prints `install: packaged` in place of `helpers:`, `policy:` and `widget:`, and
-no commit on `version:`, because the package manager keeps those files in step. Its sample is in
-[install.md](install.md#verify-it), and [RELEASING.md](RELEASING.md) has the details. It fails if a
-widget copy in your home directory shadows the packaged one.
+The first line names the release and where Kempt runs from. Quote it in bug reports. Doctor fails
+if a widget copy in your home directory shadows the packaged one, and says when the widget package
+is not installed.
 
 ## hold, unhold, holds
 
@@ -860,8 +852,6 @@ newer widget can use keys this version does not know:
 warning: 'bogus' is not a value surface accepts. Accepted: widget, offline
 ```
 
-Setting `surface` also answers the widget's one-time offer to run updates in the widget.
-
 | Exit | When |
 | --- | --- |
 | 0 | Read or written, including a warning about an unknown key or value. |
@@ -871,7 +861,7 @@ Setting `surface` also answers the widget's one-time offer to run updates in the
 ## --version
 
 ```bash
-kempt --version        # kempt 0.1.x
+kempt --version        # kempt 0.3.0
 kempt version          # the same
 kempt -V               # the same
 ```

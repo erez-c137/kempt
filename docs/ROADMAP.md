@@ -17,32 +17,18 @@ on the KDE Store. [CHANGELOG.md](../CHANGELOG.md) has the details.
 - **0.1.8:** updates run in the widget, with no terminal needed.
 - **0.2.0:** Kempt says when a service stops starting after an update, and shows what starts on
   its own.
+- **0.3.0:** a smaller Kempt. The terminal and background ways to update, `install.sh`, security
+  notifications, automatic reclaim, four settings and eight of the widget's 18 messages are gone.
+  A `wheel` user at the computer updates with no password, and the root helpers went from 760
+  lines to 170.
 
 ## Now
 
 - **The first outside users.** Their reports come before everything below.
 - **Removing the dnf5 text parsers when Fedora 43 reaches end of life.** From then on every
   supported Fedora prints `check-update` and `needs-restarting` as JSON, which Kempt already reads.
-- **Fedora's official repos.** The package passes the review tools. The next step, after 0.2.1, is
+- **Fedora's official repos.** The package passes the review tools. The next step, after 0.3.0, is
   a review request, which needs a sponsor.
-
-## Next: 0.3.0, a smaller Kempt
-
-0.3.0 takes things away. [CHANGELOG.md](../CHANGELOG.md) says what replaces each one.
-
-- **Updating in a terminal window, and updating in the background.** Updates run in the widget or
-  on the next restart.
-- **Put It Back and Rebuild Staged Update.** When another program cancels a staged update, often
-  Discover's notifier, Kempt tells you and you stage it again. The packages are still downloaded,
-  so that costs no new download.
-- **`install.sh`.** Kempt installs as a package.
-- **Security notifications and automatic reclaim.** Kempt no longer removes unused Flatpak runtimes
-  by itself.
-- **The panel icon size, restart reminder and "without confirmation" settings.**
-- **A message per failed service.** One message opens the Startup Report, which has the failed
-  services on top and the text of `kempt startup --all` below them.
-- **Startup time, with its comparison to earlier starts.**
-- **Eight of the widget's 18 messages.** Some merged and some moved into the report.
 
 ## Then: updates that take care of themselves
 
@@ -84,8 +70,8 @@ safely. It also shows more about what an update changes.
 
 These wait for real requests.
 
-- **Which updates are security fixes.** Kempt will show how many system updates fix security problems,
-  where Fedora publishes that. Each package can link to its advisory and its changelog.
+- **Links to security advisories.** Kempt already marks the system updates that fix security
+  problems. Each package can link to its advisory and its changelog.
 - **What changed since the last boot.** Kempt keeps a record of every run. It will use it to show
   what changed since you last started the computer.
 - **More control from the command line.**
@@ -136,7 +122,7 @@ package stays ready for review at every release.
 - **A choice of panel icon:** the icon theme's own update icons, the Kempt comb, or any icon name.
 - **Update later.** "Tonight" or "only on Wi-Fi". Automatic staging may make it unnecessary.
 - **A restart reminder that stays dismissed.** Closing it hides it until Plasma restarts. Kempt
-  would store the dismissal against the boot ID, as offline staging does.
+  would store the dismissal against the boot ID.
 - **Fedora's official repos, after COPR.** Then `dnf install kempt` works with no COPR step. The
   widget could then offer a real install button through PackageKit, which installs only from
   enabled repos. Until then, the widget offers **Copy Commands**.
@@ -167,7 +153,7 @@ package stays ready for review at every release.
   distribution backends are proven.
 - **dnf5daemon as an optional backend**, for live progress in the widget. Fedora KDE does not
   install it by default. It cannot say whether a restart is needed or which packages are held. Its
-  permissions are also broader than the one-user rule Kempt installs. This moves up if people ask
+  permissions are also broader than the rule Kempt installs. This moves up if people ask
   for progress, or if Fedora installs dnf5daemon by default.
 - Replacing the deprecated `Plasma5Support.DataSource` when KDE ships its successor. One QML file
   uses it.

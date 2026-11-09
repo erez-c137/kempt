@@ -443,9 +443,10 @@ trade: any process running as you can do what [the bound](#the-retention-window)
 polkit counts it as active and local. Discover offers the same through PackageKit, whose
 `system-update` action any active local user gets with no password [run].
 
-Upgrading from 0.2.0 removes the rule its `kempt enable-passwordless` wrote in
-`/etc/polkit-1/rules.d`, in the package's `%post`, so an account outside `wheel` that had turned it on
-is asked again [run]. Removing the package removes the rule [run].
+Upgrading from 0.2.0 or earlier removes the rule `kempt enable-passwordless` wrote in
+`/etc/polkit-1/rules.d`, once, if it is word for word what that command wrote. An account outside
+`wheel` that had turned it on is asked again [run]. Removing the package removes the packaged rule in
+`/usr/share/polkit-1/rules.d` [run].
 
 ### A program with no session of its own
 

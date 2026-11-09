@@ -8,10 +8,10 @@ distributions come later.
 [![KDE Store](https://img.shields.io/badge/KDE%20Store-Kempt-54a3d8)](https://store.kde.org/p/2370353/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![Kempt in the system tray, with the widget open: 55 updates available, and a note that the safest way to install a kernel update is on the next restart](docs/images/kempt-tray-popup.png)
+![Kempt in the system tray, with the widget open on 30 updates listed under System, each with its version change and a lock to hold it, and an Update Now button](docs/images/kempt-widget.png)
 
-*55 updates, with a kernel among them, so Kempt suggests installing on the next restart. The
-padlock on each row holds a package back, and the footer shows the download size.*
+*The widget lists each update with its old and new version. The padlock on each row holds a
+package back, and the footer shows the download size.*
 
 ## Install
 
@@ -60,36 +60,29 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
   each one with the version you have and the version you would get.
 - **Flatpak runtimes too.** Updating an app can also update the runtime it runs on. Kempt lists
   runtimes in their own section, so the count matches what changes.
-- **Space back from old runtimes.** Old Flatpak runtimes stay on disk after apps move on. Kempt
-  shows how much space the unused ones take and removes them when you agree.
+- **Space back from old runtimes.** Old Flatpak runtimes stay on disk after apps move on. When the
+  unused ones take 1 GB or more, Kempt offers to remove them. `kempt reclaim` does it any time.
 - **Holds.** A held package stays out of updates but stays in the list, so you do not forget it.
   Click its padlock, or run `kempt hold dnf:kernel-core`.
-- **Two ways to update.** Now, in the widget, or staged to install on the next restart. `kempt update`
-  in a terminal shows live output. When the kernel, systemd, Qt or graphics
-  drivers have updates, Kempt suggests the restart option. `kempt unstage` or the widget takes a
-  staged update back.
+- **Two ways to update.** Now, in the widget, or on the next restart. `kempt update` in a terminal
+  shows live output. When the kernel, systemd, Qt or graphics drivers have updates, Kempt suggests
+  the restart. **Discard Updates** or `kempt unstage` takes back updates waiting for it.
 - **The download size up front.** The widget's footer shows it before you start, from data already on
   disk.
 - **A summary of every run.** Each package with its old and new version, plus the full log.
   Updates installed during a restart get a summary too.
 - **A log of what Kempt did.** `kempt log` has one line per action.
 - **Limited root access.** Two small helper scripts do the work that needs root, through polkit.
-  You can allow updates without a password, for the active local session only.
+  A `wheel` user at the computer updates with no password, and nobody can update over SSH.
 - **You choose when to restart.** When an update needs one, Kempt opens KDE's restart prompt, which
   you can cancel.
 - **A self-check.** `kempt doctor` checks the install one line at a time.
 - **One count.** Kempt can turn off Discover's update checks, so you see one number.
 
-![The widget after staging: 55 updates install on the next restart, with buttons to restart now or discard the staged update](docs/images/kempt-staged.png)
-
-*After staging, the widget says what installs on the next restart. Restart when you are ready, or
-discard the staged update and keep working.*
-
-![Kempt's settings page in 0.2.0: updates, unused Flatpak runtimes, where updates run, check interval, holds, Discover and password prompts](docs/images/kempt-settings.png)
+![Kempt's settings page: include Flatpak apps, run updates in this widget or on the next restart, check every 60 minutes, tell me when a service stops starting, held and muted lists, and a button to turn Discover's update checks back on](docs/images/kempt-settings.png)
 
 *The settings page edits the same config file the command line reads.
-[docs/configuration.md](docs/configuration.md) lists every setting. The picture is from Kempt
-0.2.0, so it also shows settings that have since gone.*
+[docs/configuration.md](docs/configuration.md) lists every setting.*
 
 ## From a checkout
 
@@ -111,7 +104,7 @@ them. The [contributing guide](CONTRIBUTING.md#installing-from-a-checkout) cover
 | [docs/man/kempt.1](docs/man/kempt.1) | Man page: `man kempt` once installed |
 | [CHANGELOG.md](CHANGELOG.md) | What each release shipped |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Setting up, testing, and the code and writing conventions |
-| [AGENTS.md](AGENTS.md) | A two-minute orientation for new contributors: the map, and four rules that catch people out |
+| [AGENTS.md](AGENTS.md) | A two-minute orientation for new contributors: the map, and six rules that catch people out |
 | [SECURITY.md](SECURITY.md) | How to report a vulnerability privately |
 | [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) | Be respectful, stay on topic, and how to report a problem |
 

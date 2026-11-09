@@ -137,8 +137,8 @@ Five files in the state directory are `flock` targets:
 ## State JSON schema v1
 
 `~/.local/state/kempt/state.json` is a **public interface**. The widget parses it, and so can
-anything else. It is frozen: fields may be added, but a field that changes meaning or type needs a
-new `schema` number.
+anything else. Fields may be added, and a minor release may remove one. A field that changes
+meaning or type needs a new `schema` number.
 
 ```json
 {
@@ -175,8 +175,9 @@ new `schema` number.
 }
 ```
 
-Every key marked "additive" may be absent from a file written by an older build, and readers must
-cope with that.
+Readers must ignore a key they do not know and treat a missing key as absent. A key marked
+"additive" may be missing from a file an older build wrote, and any optional key may be missing
+from a newer one.
 
 | Field | Type | Meaning |
 | --- | --- | --- |

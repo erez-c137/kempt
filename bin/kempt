@@ -2844,7 +2844,7 @@ doctor_other_updater_row() {
     fi
   fi
   if discover_entry_starts "$entry"; then
-    doctor_info "Discover's update notifier also starts with your session ($entry). It counts updates on its own schedule, so its number can differ from Kempt's. Its background work can make a Kempt run wait. To turn it off, run kempt discover-notifier off or use Turn Off Discover's Notifier in the widget"
+    doctor_info "Discover's update notifier also starts with your session ($entry). It counts updates on its own schedule, so its number can differ from Kempt's. Its background work can make a Kempt run wait. To turn it off, run kempt discover-notifier off or use Turn Off Discover's Update Checks in the widget"
     return 0
   fi
   doctor_ok "Discover's update notifier: turned off for this user ($entry)"
@@ -3395,7 +3395,6 @@ EOF
     ;;
     holds) cat <<'EOF'
   holds                 list holds
-                        arguments, on one line, to reuse by hand
 EOF
     ;;
     unstage) cat <<'EOF'
@@ -3407,8 +3406,8 @@ EOF
 EOF
     ;;
     startup) cat <<'EOF'
-  startup [--json]      services that stopped starting after an update, and how to see why
-                        (read only)
+  startup [--all] [--json]  services that stopped starting after an update, and how to see why
+                        (read only). --all prints the full Startup Report
   startup mute|unmute <unit> [--user]
                         hide one until it starts again, or show it again
 EOF
@@ -3474,7 +3473,7 @@ if [[ $# -ge 2 && ( "$2" == --help || "$2" == -h ) ]]; then
 fi
 
 # Kempt is a per-user tool: as root it would read and write root's config and state, and the
-# polkit rule it renders would name root. Help, the version and the read-only notifier status
+# polkit rule would name root. Help, the version and the read-only notifier status
 # stay open, since they change nothing.
 if [[ $EUID -eq 0 && "${KEMPT_ALLOW_ROOT:-}" != 1 ]]; then
   case "${1:-help} ${2:-}" in
