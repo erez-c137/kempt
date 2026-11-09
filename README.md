@@ -8,7 +8,7 @@ distributions come later.
 [![KDE Store](https://img.shields.io/badge/KDE%20Store-Kempt-54a3d8)](https://store.kde.org/p/2370353/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-![Kempt in the system tray, with the widget open on the pending updates, grouped under System and Apps](docs/images/kempt-tray-popup.png)
+![Kempt in the system tray, with the widget open on 30 updates listed under System, each with its version change and a lock to hold it, and an Update Now button](docs/images/kempt-widget.png)
 
 *The widget lists each update with its old and new version. The padlock on each row holds a
 package back, and the footer shows the download size.*
@@ -79,11 +79,7 @@ so. For servers and unattended machines, Fedora's `dnf5-automatic` is the better
 - **A self-check.** `kempt doctor` checks the install one line at a time.
 - **One count.** Kempt can turn off Discover's update checks, so you see one number.
 
-![The widget with updates ready for the next restart, with buttons to restart now or discard the updates](docs/images/kempt-staged.png)
-
-*Updates ready for the next restart. Restart when you are ready, or discard them and keep working.*
-
-![Kempt's settings page: Flatpak apps, where updates run, check interval, services, holds, muted services and Discover](docs/images/kempt-settings.png)
+![Kempt's settings page: include Flatpak apps, run updates in this widget or on the next restart, check every 60 minutes, tell me when a service stops starting, held and muted lists, and a button to turn Discover's update checks back on](docs/images/kempt-settings.png)
 
 *The settings page edits the same config file the command line reads.
 [docs/configuration.md](docs/configuration.md) lists every setting.*

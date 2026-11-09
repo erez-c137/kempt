@@ -49,15 +49,11 @@
     <!-- width and height must be the image's real size: the validator compares them. -->
     <screenshot type="default">
       <caption>Kempt in the system tray, with the widget open on the pending updates</caption>
-      <image type="source" width="1024" height="576">https://raw.githubusercontent.com/erez-c137/kempt/v0.3.0/docs/images/kempt-tray-popup.png</image>
-    </screenshot>
-    <screenshot>
-      <caption>Updates ready for the next restart, with the choice to discard them</caption>
-      <image type="source" width="1000" height="562">https://raw.githubusercontent.com/erez-c137/kempt/v0.3.0/docs/images/kempt-staged.png</image>
+      <image type="source" width="488" height="523">https://raw.githubusercontent.com/erez-c137/kempt/v0.3.0/docs/images/kempt-widget.png</image>
     </screenshot>
     <screenshot>
       <caption>The settings page: where updates run and how often Kempt checks</caption>
-      <image type="source" width="845" height="986">https://raw.githubusercontent.com/erez-c137/kempt/v0.3.0/docs/images/kempt-settings.png</image>
+      <image type="source" width="827" height="914">https://raw.githubusercontent.com/erez-c137/kempt/v0.3.0/docs/images/kempt-settings.png</image>
     </screenshot>
   </screenshots>
   <content_rating type="oars-1.1"/>

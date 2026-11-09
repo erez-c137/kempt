@@ -1,6 +1,6 @@
 # Configuring Kempt
 
-![The widget's settings page: Flatpak apps, where updates run, check interval, services, holds, muted services and Discover](images/kempt-settings.png)
+![The widget's settings page: include Flatpak apps, run updates in this widget or on the next restart, check every 60 minutes, tell me when a service stops starting, held and muted lists, and a button to turn Discover's update checks back on](images/kempt-settings.png)
 
 *Most controls on the widget's settings page set one of the keys below. **Held**, **Muted** and
 **Discover** run commands instead. A change made in either place shows up in the other.*
