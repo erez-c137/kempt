@@ -1,0 +1,1184 @@
+# The words of the Kempt widget.
+# This file is distributed under the same license as the kempt package.
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: kempt\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-11-05 18:37+0200\n"
+"PO-Revision-Date: 2026-11-09 16:09+0800\n"
+"Last-Translator: KairikiFedora <13278297951@sina.cn>\n"
+"Language-Team: Chinese (simplified)\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+#: plasmoid/contents/config/config.qml
+msgid "General"
+msgstr "常规"
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "System updates install during the next restart. Apps update now."
+msgstr "系统更新将在下次重启时安装。应用程序现在更新。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "System updates install during the next restart."
+msgstr "系统更新将在下次重启时安装。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Holding %1"
+msgstr "正在保留 %1"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "No longer holding %1"
+msgstr "不再保留 %1"
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/main.qml
+msgid "Check for Updates"
+msgstr "检查更新"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Checks for updates now, instead of waiting for the timer."
+msgstr "立即检查更新,而不是等待计时器。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Configure Kempt…"
+msgstr "配置 Kempt…"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Check interval, where updates run, and the packages you hold."
+msgstr "检查间隔、更新运行位置以及您保留的软件包。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Check Installation"
+msgstr "检查安装"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Restart to finish updating."
+msgstr "重启以完成更新。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Restart…"
+msgstr "重启…"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Discard Updates"
+msgstr "放弃更新"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Removes the updates waiting for the next restart, so the restart installs nothing. May ask for your password. It deletes the packages it downloaded, so installing again downloads them again."
+msgstr "移除等待下次重启的更新,使重启时不安装任何内容。可能会询问您的密码。它会删除已下载的软件包,因此再次安装时会重新下载。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Turn Off Discover's Update Checks"
+msgstr "关闭 Discover 的更新检查"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Turning off Discover's update checks should stop that."
+msgstr "关闭 Discover 的更新检查应该可以阻止这种情况。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Nothing is installed yet. %1"
+msgstr "尚未安装任何内容。%1"
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+#: plasmoid/contents/ui/main.qml
+msgid "Install on Next Restart"
+msgstr "下次重启时安装"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Install Now"
+msgstr "立即安装"
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "Update Now"
+msgstr "立即更新"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Installs the update now, while your desktop is running."
+msgstr "在桌面运行时立即安装更新。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Show Log"
+msgstr "显示日志"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Check Anyway"
+msgstr "仍然检查"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Checks online now over this metered connection."
+msgstr "立即通过此按流量计费的连接在线检查。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Checks online now on battery power."
+msgstr "立即在电池供电下在线检查。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Checking Kempt's installation…"
+msgstr "正在检查 Kempt 的安装…"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Show Full Report"
+msgstr "显示完整报告"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+#: plasmoid/contents/ui/StartupPage.qml plasmoid/contents/ui/logic.js
+msgid "Copy Command"
+msgstr "复制命令"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Full report"
+msgstr "完整报告"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+#: plasmoid/contents/ui/StartupPage.qml plasmoid/contents/ui/main.qml
+msgid "Startup Report"
+msgstr "启动报告"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Shows what failed, and the command to see why."
+msgstr "显示失败的内容以及查看原因的命令。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Freeing Up Space…"
+msgstr "正在释放空间…"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Free Up Space"
+msgstr "释放空间"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Removes the Flatpak runtimes listed under Show Runtimes."
+msgstr "移除“显示运行时”下列出的 Flatpak 运行时。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Show Runtimes"
+msgstr "显示运行时"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Kempt skips these. Other updaters still see them."
+msgstr "Kempt 跳过这些。其他更新程序仍然会看到它们。"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Hide details of the last update"
+msgstr "隐藏上次更新的详细信息"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Show details of the last update"
+msgstr "显示上次更新的详细信息"
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "Preparing updates for the next restart…"
+msgstr "正在为下次重启准备更新…"
+
+#: plasmoid/contents/ui/FullRepresentation.qml plasmoid/contents/ui/logic.js
+msgid "Updating…"
+msgstr "正在更新…"
+
+#: plasmoid/contents/ui/FullRepresentation.qml
+msgid "Not Updating? Check Again"
+msgstr "没有更新?再次检查"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Back"
+msgstr "返回"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Returns to the list of updates."
+msgstr "返回到更新列表。"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Refresh"
+msgstr "刷新"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Reads the startup list again."
+msgstr "重新读取启动列表。"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgctxt "@action:button a service's name follows"
+msgid "Copy Command: %1"
+msgstr "复制命令:%1"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Mute Until It Starts"
+msgstr "静音直到启动"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Muting…"
+msgstr "正在静音…"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgctxt "@action:button a service's name follows"
+msgid "Muting…: %1"
+msgstr "正在静音…:%1"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgctxt "@action:button a service's name follows"
+msgid "Mute Until It Starts: %1"
+msgstr "静音直到启动:%1"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Kempt stops mentioning it until it starts cleanly again."
+msgstr "Kempt 停止提及它,直到它再次正常启动。"
+
+#: plasmoid/contents/ui/StartupPage.qml
+msgid "Reading what starts with the computer…"
+msgstr "正在读取随计算机启动的内容…"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "%1 %2"
+msgstr "%1 %2"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml plasmoid/contents/ui/logic.js
+msgid "new"
+msgstr "新"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Security update."
+msgstr "安全更新。"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "For you only."
+msgstr "仅限您。"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Installs version %1."
+msgstr "安装版本 %1。"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgctxt "@info:accessible a version, said as a sentence"
+msgid "%1."
+msgstr "%1。"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Updates from %1 to %2."
+msgstr "从 %1 更新到 %2。"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml plasmoid/contents/ui/logic.js
+msgid "Held"
+msgstr "已保留"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "For you only"
+msgstr "仅限您"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Security"
+msgstr "安全"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "from %1 to %2"
+msgstr "从 %1 到 %2"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Skip installing %1"
+msgstr "跳过安装 %1"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Stop skipping %1"
+msgstr "停止跳过 %1"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Stop holding %1"
+msgstr "停止保留 %1"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Hold %1 at %2"
+msgstr "将 %1 保留在 %2"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Kempt offers the update again for both copies, the system one and the one for you only."
+msgstr "Kempt 再次为两个副本(系统副本和仅限您的副本)提供更新。"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Kempt skips both copies, the system one and the one for you only, until you stop holding it."
+msgstr "在您停止保留之前,Kempt 会跳过两个副本(系统副本和仅限您的副本)。"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt offers its update again."
+msgstr "Kempt 再次提供其更新。"
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Kempt skips it on every update until you stop holding it."
+msgstr "在您停止保留之前,Kempt 在每次更新时都会跳过它。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt did not answer in time. The setting may not have changed. Try again."
+msgstr "Kempt 未及时响应。设置可能未更改。请重试。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not save %1."
+msgstr "无法保存 %1。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not read the Kempt settings."
+msgstr "无法读取 Kempt 设置。"
+
+#: plasmoid/contents/ui/configGeneral.qml plasmoid/contents/ui/main.qml
+msgid "%1 is running again, so there is nothing to mute."
+msgstr "%1 再次运行,因此没有需要静音的内容。"
+
+#: plasmoid/contents/ui/configGeneral.qml plasmoid/contents/ui/main.qml
+msgid "Could not mute %1."
+msgstr "无法将 %1 静音。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not stop muting %1."
+msgstr "无法停止将 %1 静音。"
+
+#: plasmoid/contents/ui/configGeneral.qml plasmoid/contents/ui/main.qml
+msgid "Kempt did not answer in time. The hold may not have changed. Try again."
+msgstr "Kempt 未及时响应。保留可能未更改。请重试。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Could not remove the hold on %1."
+msgstr "无法移除对 %1 的保留。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Reading your settings…"
+msgstr "正在读取您的设置…"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Updates:"
+msgstr "更新:"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Include Flatpak apps"
+msgstr "包括 Flatpak 应用"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Flatpak is not installed."
+msgstr "未安装 Flatpak。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Run updates in:"
+msgstr "更新运行位置:"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "In this widget"
+msgstr "在此小部件中"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "On the next restart"
+msgstr "在下次重启时"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgctxt "@info:whatsthis a radio button's setting, then its option"
+msgid "%1 %2"
+msgstr "%1 %2"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Check every:"
+msgstr "检查间隔:"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Check every"
+msgstr "检查间隔"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "%1 minute"
+msgid_plural "%1 minutes"
+msgstr[0] "%1 分钟"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Services:"
+msgstr "服务:"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Tell me when something stops starting after an update"
+msgstr "当某项在更新后停止启动时告诉我"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt only looks. It never turns anything on or off, and the update count never includes this."
+msgstr "Kempt 仅查看。它从不打开或关闭任何内容,更新计数也从不包括此项。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Held:"
+msgstr "已保留:"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Loading…"
+msgstr "正在加载…"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Nothing is being held."
+msgstr "没有保留任何内容。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Muted:"
+msgstr "已静音:"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Nothing is muted."
+msgstr "没有静音任何内容。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Stop Muting %1"
+msgstr "停止将 %1 静音"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Kempt mentions it again if it still does not start."
+msgstr "如果它仍未启动,Kempt 会再次提及它。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Stopped muting %1."
+msgstr "已停止将 %1 静音。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Undo"
+msgstr "撤销"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Mutes %1 again."
+msgstr "再次将 %1 静音。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover:"
+msgstr "Discover:"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover also checks for updates, with its own count."
+msgstr "Discover 也会检查更新,并有自己的计数。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover's update checks are off."
+msgstr "Discover 的更新检查已关闭。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover's update checks are turned off by a startup file: %1. Delete that file to turn them back on."
+msgstr "Discover 的更新检查被启动文件 %1 关闭。删除该文件可重新打开。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Discover's update checks are turned off by a startup file. Delete that file to turn them back on."
+msgstr "Discover 的更新检查被启动文件关闭。删除该文件可重新打开。"
+
+#: plasmoid/contents/ui/configGeneral.qml
+msgid "Turn On Discover's Update Checks"
+msgstr "打开 Discover 的更新检查"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Apps"
+msgstr "应用程序"
+
+#: plasmoid/contents/ui/logic.js
+msgid "System"
+msgstr "系统"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Flatpak runtimes"
+msgstr "Flatpak 运行时"
+
+#: plasmoid/contents/ui/logic.js
+msgid "< 1 MB"
+msgstr "< 1 MB"
+
+#: plasmoid/contents/ui/logic.js
+msgid "~%1 MB"
+msgstr "约 %1 MB"
+
+#: plasmoid/contents/ui/logic.js
+msgid "~%1 GB"
+msgstr "约 %1 GB"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 (new build)"
+msgstr "%1(新构建)"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the Linux kernel"
+msgstr "Linux 内核"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the service manager"
+msgstr "服务管理器"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the core system library"
+msgstr "核心系统库"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the system message bus"
+msgstr "系统消息总线"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "graphics drivers"
+msgstr "图形驱动程序"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the desktop toolkit"
+msgstr "桌面工具包"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "KDE framework libraries"
+msgstr "KDE 框架库"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the Plasma desktop"
+msgstr "Plasma 桌面"
+
+#. TRANSLATORS: A name in a comma list, in brackets inside a longer sentence.
+#: plasmoid/contents/ui/logic.js
+msgid "the window manager"
+msgstr "窗口管理器"
+
+#. TRANSLATORS: A list of package names goes into a longer sentence as this. %2 is the names and %1 how many more.
+#: plasmoid/contents/ui/logic.js
+msgid "%2 and %1 more"
+msgid_plural "%2 and %1 more"
+msgstr[0] "%2 以及其他 %1 个"
+
+#. TRANSLATORS: A list of package names goes into a longer sentence as this.
+#: plasmoid/contents/ui/logic.js
+msgid "%1 and %2"
+msgstr "%1 和 %2"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The next restart is the safest time to change parts your desktop is using (%1)."
+msgstr "下次重启是更改桌面正在使用的部件(%1)的最安全时间。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The next restart is the safest time to install a new kernel and NVIDIA driver."
+msgstr "下次重启是安装新内核和 NVIDIA 驱动程序的最安全时间。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The next restart is the safest time to install a new kernel."
+msgstr "下次重启是安装新内核的最安全时间。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 update, including a new kernel"
+msgid_plural "%1 updates, including a new kernel"
+msgstr[0] "%1 个更新,包括一个新内核"
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 update, including parts your desktop is using"
+msgid_plural "%1 updates, including parts your desktop is using"
+msgstr[0] "%1 个更新,包括桌面正在使用的部件"
+
+#: plasmoid/contents/ui/logic.js
+msgid "They install the next time you restart."
+msgstr "它们将在您下次重启时安装。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "It installs the next time you restart."
+msgstr "它将在您下次重启时安装。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 failed to start after the update."
+msgstr "%1 在更新后未能启动。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 failed to start after the last restart."
+msgstr "%1 在上次重启后未能启动。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 and %2 failed to start after the update."
+msgstr "%1 和 %2 在更新后未能启动。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 and %2 failed to start after the last restart."
+msgstr "%1 和 %2 在上次重启后未能启动。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 services failed to start after the update, including %2 and %3."
+msgstr "%1 个服务在更新后未能启动,包括 %2 和 %3。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 services failed to start after the last restart, including %2 and %3."
+msgstr "%1 个服务在上次重启后未能启动,包括 %2 和 %3。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Session service: %1."
+msgstr "会话服务:%1。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "System service: %1."
+msgstr "系统服务:%1。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Already failing before the update: %1."
+msgstr "更新前已经失败:%1。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Already failing before the last restart: %1."
+msgstr "上次重启前已经失败:%1。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt did not answer in time. Press Refresh to try again."
+msgstr "Kempt 未及时响应。按“刷新”重试。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not gather the startup list: %1"
+msgstr "Kempt 无法收集启动列表:%1"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not gather the startup list (exit %1)."
+msgstr "Kempt 无法收集启动列表(退出码 %1)。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not read the startup list."
+msgstr "Kempt 无法读取启动列表。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Up to %1 can be freed. No installed app uses these Flatpak runtimes."
+msgstr "最多可释放 %1。没有已安装的应用使用这些 Flatpak 运行时。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updates ready for the next restart"
+msgstr "已为下次重启准备好更新"
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 update ready for the next restart"
+msgid_plural "%1 updates ready for the next restart"
+msgstr[0] "%1 个更新已为下次重启准备好"
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 other update waits until after that."
+msgid_plural "%1 other updates wait until after that."
+msgstr[0] "其他 %1 个更新将等到那之后。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "You held %1 after these updates were prepared, so it still installs. Discard them and install again to skip it."
+msgstr "您在这些更新准备完成后保留了 %1,因此它仍会安装。放弃它们并重新安装以跳过它。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "You held %2 and 1 more after these updates were prepared, so they still install. Discard them and install again to skip them."
+msgid_plural "You held %2 and %1 more after these updates were prepared, so they still install. Discard them and install again to skip them."
+msgstr[0] "您在这些更新准备完成后保留了 %2 以及其他 %1 个,因此它们仍会安装。放弃它们并重新安装以跳过它们。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "You added holds after these updates were prepared, so held packages may still install. Discard them and install again to apply your holds."
+msgstr "您在这些更新准备完成后添加了保留,因此保留的软件包可能仍会安装。放弃它们并重新安装以应用您的保留。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "never"
+msgstr "从未"
+
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
+#: plasmoid/contents/ui/logic.js
+msgid "just now"
+msgstr "刚刚"
+
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
+#: plasmoid/contents/ui/logic.js
+msgid "1 min ago"
+msgid_plural "%1 min ago"
+msgstr[0] "%1 分钟前"
+
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
+#: plasmoid/contents/ui/logic.js
+msgid "1 hour ago"
+msgid_plural "%1 hours ago"
+msgstr[0] "%1 小时前"
+
+#. TRANSLATORS: A time that goes after "Last update", "Checked" and similar as %1.
+#: plasmoid/contents/ui/logic.js
+msgid "1 day ago"
+msgid_plural "%1 days ago"
+msgstr[0] "%1 天前"
+
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
+#: plasmoid/contents/ui/logic.js
+msgid "update info 1 day old"
+msgid_plural "update info %1 days old"
+msgstr[0] "更新信息已过时 %1 天"
+
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
+#: plasmoid/contents/ui/logic.js
+msgid "update info 1 hour old"
+msgid_plural "update info %1 hours old"
+msgstr[0] "更新信息已过时 %1 小时"
+
+#. TRANSLATORS: Shown after a dot in the footer, and also as its own sentence with its first letter capitalized by the widget.
+#: plasmoid/contents/ui/logic.js
+msgid "update info 1 min old"
+msgid_plural "update info %1 min old"
+msgstr[0] "更新信息已过时 %1 分钟"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt skips the online check on battery, so this may be out of date."
+msgstr "Kempt 在电池供电时跳过在线检查,因此这可能已过时。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt skips the online check on a metered connection, so this may be out of date."
+msgstr "Kempt 在按流量计费的连接上跳过在线检查,因此这可能已过时。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not reach the update servers, so this may be out of date."
+msgstr "Kempt 无法连接到更新服务器,因此这可能已过时。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt did not download fresh update info, so this may be out of date."
+msgstr "Kempt 未下载最新的更新信息,因此这可能已过时。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed, so this may be out of date."
+msgstr "检查失败,因此这可能已过时。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt did not download fresh update info, so this is from %1."
+msgstr "Kempt 未下载最新的更新信息,因此这来自 %1。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed, so this is from %1."
+msgstr "检查失败,因此这来自 %1。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "A system folder has unsafe permissions, so Kempt has paused updates. Check Installation shows how to fix it."
+msgstr "系统文件夹权限不安全,因此 Kempt 已暂停更新。“检查安装”显示了如何修复。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The update failed."
+msgstr "更新失败。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The update failed: %1"
+msgstr "更新失败:%1"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The update failed: %1."
+msgstr "更新失败:%1。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Every waiting update is held, so the next restart has nothing to install."
+msgstr "每个等待的更新都被保留,因此下次重启没有任何内容可安装。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "No updates are waiting, so the next restart has nothing to install."
+msgstr "没有等待的更新,因此下次重启没有任何内容可安装。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updates are ready and install on the next restart."
+msgstr "更新已准备好,将在下次重启时安装。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "No packages changed."
+msgstr "没有软件包更改。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updated 1 package in %2 s."
+msgid_plural "Updated %1 packages in %2 s."
+msgstr[0] "已在 %2 秒内更新 %1 个软件包。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updated 1 package."
+msgid_plural "Updated %1 packages."
+msgstr[0] "已更新 %1 个软件包。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "An update is already running."
+msgstr "更新已在运行。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Could not start the update (exit %1)."
+msgstr "无法启动更新(退出码 %1)。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "These updates are gone. The next restart installs nothing."
+msgstr "这些更新已消失。下次重启不安装任何内容。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Nothing was discarded. Press Check Installation to find out why."
+msgstr "没有放弃任何内容。按“检查安装”以了解原因。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "An update is running, so nothing was discarded. Try again when it has finished."
+msgstr "更新正在运行,因此没有放弃任何内容。完成后请重试。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "These updates could not be discarded (exit %1). Press Check Installation to find out why."
+msgstr "无法放弃这些更新(退出码 %1)。按“检查安装”以了解原因。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt did not answer in time, so your answer may not be saved. Try again."
+msgstr "Kempt 未及时响应,因此您的回答可能未保存。请重试。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt cannot tell what the next restart will do. Check Installation shows why."
+msgstr "Kempt 无法判断下次重启将执行什么操作。“检查安装”显示了原因。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt found a problem with its installation: %2"
+msgid_plural "Kempt found %1 problems with its installation. The first: %2"
+msgstr[0] "Kempt 发现其安装存在 %1 个问题。第一个:%2"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt checked its installation and found no problems."
+msgstr "Kempt 已检查其安装,未发现问题。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt stopped waiting for the installation check. Try again in a minute."
+msgstr "Kempt 停止等待安装检查。请在一分钟后重试。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not check its installation. The full report has the error."
+msgstr "Kempt 无法检查其安装。完整报告包含错误信息。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not check its installation (exit %1)."
+msgstr "Kempt 无法检查其安装(退出码 %1)。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt stopped waiting. The removal may still finish. Press Check for Updates in a few minutes."
+msgstr "Kempt 停止等待。移除可能仍会完成。请在几分钟后按“检查更新”。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Could not free the space (exit %1)."
+msgstr "无法释放空间(退出码 %1)。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Nothing to remove."
+msgstr "没有可移除的内容。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %1 · the next restart has nothing to install"
+msgstr "上次更新 %1 · 下次重启没有任何内容可安装"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %1 · another updater has prepared the next restart"
+msgstr "上次更新 %1 · 另一个更新程序已准备好下次重启"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %1 · ready for the next restart"
+msgstr "上次更新 %1 · 已为下次重启准备好"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update failed %1 · no package changes"
+msgstr "上次更新失败 %1 · 没有软件包更改"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %1 · no package changes"
+msgstr "上次更新 %1 · 没有软件包更改"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update failed %2 · 1 package"
+msgid_plural "Last update failed %2 · %1 packages"
+msgstr[0] "上次更新失败 %2 · %1 个软件包"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last update %2 · 1 package"
+msgid_plural "Last update %2 · %1 packages"
+msgstr[0] "上次更新 %2 · %1 个软件包"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check did not finish in time."
+msgstr "检查未能及时完成。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Check Installation can find out why."
+msgstr "“检查安装”可以找出原因。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed"
+msgstr "检查失败"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt could not reach the update servers"
+msgstr "Kempt 无法连接到更新服务器"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Check your network connection."
+msgstr "检查您的网络连接。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The package lists have not been downloaded yet"
+msgstr "软件包列表尚未下载"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Plug in, then press Check for Updates."
+msgstr "插入电源,然后按“检查更新”。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Switch to an unmetered connection, then press Check for Updates."
+msgstr "切换到非按流量计费的连接,然后按“检查更新”。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The download failed. The error is below."
+msgstr "下载失败。错误如下所示。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Fetching package lists is turned off."
+msgstr "获取软件包列表已关闭。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Press Check for Updates to download them."
+msgstr "按“检查更新”以下载它们。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check did not finish. The counts shown are from the last check."
+msgstr "检查未完成。显示的计数来自上次检查。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed. The counts shown are from the last check."
+msgstr "检查失败。显示的计数来自上次检查。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "No successful check yet."
+msgstr "尚未有成功的检查。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "a moment ago"
+msgstr "片刻前"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The counts are from %1."
+msgstr "计数来自 %1。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed for System and Apps."
+msgstr "系统和应用程序检查失败。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed for System."
+msgstr "系统检查失败。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed for Apps."
+msgstr "应用程序检查失败。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The check failed."
+msgstr "检查失败。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 update"
+msgid_plural "%1 updates"
+msgstr[0] "%1 个更新"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last check failed · %1 held"
+msgid_plural "Last check failed · %1 held"
+msgstr[0] "上次检查失败 · %1 个已保留"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Up to date · %1 held"
+msgid_plural "Up to date · %1 held"
+msgstr[0] "最新 · %1 个已保留"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last check failed · apps for you only not checked"
+msgstr "上次检查失败 · 仅限您的应用程序未检查"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Up to date · apps for you only not checked"
+msgstr "最新 · 仅限您的应用程序未检查"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last check failed"
+msgstr "上次检查失败"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Up to date"
+msgstr "最新"
+
+#: plasmoid/contents/ui/logic.js
+msgid "This computer installs updates through Discover, not Kempt."
+msgstr "此计算机通过 Discover 而非 Kempt 安装更新。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "A Fedora %1 upgrade installs on the next restart, and Kempt has paused other updates because a system folder has unsafe permissions. Check Installation shows how to fix it."
+msgstr "Fedora %1 升级将在下次重启时安装,并且由于系统文件夹权限不安全,Kempt 已暂停其他更新。“检查安装”显示了如何修复。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "A Fedora %1 upgrade installs on the next restart, so other updates cannot wait for that restart."
+msgstr "Fedora %1 升级将在下次重启时安装,因此其他更新无法等待该次重启。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "A Fedora %1 upgrade waits for you to finish or remove it, so updates cannot wait for the next restart. Check Installation says how."
+msgstr "Fedora %1 升级等待您完成或移除它,因此更新无法等待下次重启。“检查安装”说明了如何操作。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "No restart will install your prepared updates now. Use Install on Next Restart to prepare them again."
+msgstr "现在没有任何重启会安装您准备好的更新。使用“下次重启时安装”重新准备它们。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "A restart began installing your prepared updates and was interrupted, so they will not install on the next restart. Use Install on Next Restart to prepare them again."
+msgstr "一次重启开始安装您准备好的更新但被中断,因此它们不会在下次重启时安装。使用“下次重启时安装”重新准备它们。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt's engine is not installed"
+msgstr "Kempt 的引擎未安装"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt's engine will not run"
+msgstr "Kempt 的引擎无法运行"
+
+#: plasmoid/contents/ui/logic.js
+msgid "No update data yet"
+msgstr "尚无更新数据"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Cannot check for updates"
+msgstr "无法检查更新"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Cannot read the update state"
+msgstr "无法读取更新状态"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Kempt cannot check for updates"
+msgstr "Kempt 无法检查更新"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Could not read the update state"
+msgstr "无法读取更新状态"
+
+#: plasmoid/contents/ui/logic.js
+msgid "the last check failed"
+msgstr "上次检查失败"
+
+#: plasmoid/contents/ui/logic.js
+msgid "the update state could not be read"
+msgstr "无法读取更新状态"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Nothing can check for updates yet."
+msgstr "尚无任何内容可以检查更新。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "To install the engine on Fedora, run:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\nFor other ways to install it, see github.com/erez-c137/kempt."
+msgstr "要在 Fedora 上安装引擎,请运行:\nsudo dnf copr enable erez-c137/kempt\nsudo dnf install kempt-plasmoid\n其他安装方式请参见 github.com/erez-c137/kempt。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Copy Commands"
+msgstr "复制命令"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Press Check Installation to find the problem."
+msgstr "按“检查安装”以查找问题。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The engine is installed but cannot start, so nothing can check for updates."
+msgstr "引擎已安装但无法启动,因此没有任何内容可以检查更新。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "no data until the first check finishes"
+msgstr "首次检查完成前没有数据"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Could not reach the update servers"
+msgstr "无法连接到更新服务器"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Open Kempt to see why"
+msgstr "打开 Kempt 以查看原因"
+
+#: plasmoid/contents/ui/logic.js
+msgid "1 security update"
+msgid_plural "%1 security updates"
+msgstr[0] "%1 个安全更新"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 held"
+msgid_plural "%1 held"
+msgstr[0] "%1 个已保留"
+
+#: plasmoid/contents/ui/logic.js
+msgid "%1 to download"
+msgstr "待下载 %1"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last successful check %1"
+msgstr "上次成功检查 %1"
+
+#: plasmoid/contents/ui/logic.js
+msgid "No successful check yet"
+msgstr "尚未有成功的检查"
+
+#: plasmoid/contents/ui/logic.js
+msgid "apps for you only not checked"
+msgstr "仅限您的应用程序未检查"
+
+#: plasmoid/contents/ui/logic.js
+msgid "restart pending"
+msgstr "重启待处理"
+
+#: plasmoid/contents/ui/logic.js
+msgid "The first check has not finished."
+msgstr "首次检查尚未完成。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "No updates found the last time Kempt could check."
+msgstr "Kempt 上次能够检查时未发现更新。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Apps installed for you only could not be checked."
+msgstr "无法检查仅限您安装的应用程序。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Everything is up to date"
+msgstr "一切均为最新"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Checked %1"
+msgstr "已检查 %1"
+
+#: plasmoid/contents/ui/logic.js
+msgid "last check failed"
+msgstr "上次检查失败"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Updating now may stop another updater's prepared update from installing."
+msgstr "立即更新可能会阻止另一个更新程序准备好的更新安装。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Another updater has prepared your next restart, so these updates will not install then. Try again after that restart."
+msgstr "另一个更新程序已准备好您的下次重启,因此这些更新届时不会安装。请在该次重启后重试。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Another updater has prepared your next restart, so restart when you are ready."
+msgstr "另一个更新程序已准备好您的下次重启,因此请在准备好后重启。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Discover also checks for updates, and that can cancel updates waiting for your next restart."
+msgstr "Discover 也会检查更新,这可能会取消等待下次重启的更新。"
+
+#: plasmoid/contents/ui/logic.js
+msgid "Discover is set to install updates by itself, so it can take over your next restart and stop Kempt's updates."
+msgstr "Discover 被设置为自行安装更新,因此它可以接管您的下次重启并停止 Kempt 的更新。"
+
+#: plasmoid/contents/ui/main.qml
+msgid "Another check was running. Press Check Anyway again."
+msgstr "另一个检查正在运行。再次按“仍然检查”。"
+
+#: plasmoid/contents/ui/main.qml
+msgid "These updates changed since this was offered. Nothing was discarded."
+msgstr "这些更新自提供以来已更改。没有放弃任何内容。"
+
+#: plasmoid/contents/ui/main.qml
+msgid "Could not change the hold on %1."
+msgstr "无法更改对 %1 的保留。"
+
+#: plasmoid/contents/ui/main.qml
+msgid "Could not open the restart prompt."
+msgstr "无法打开重启提示。"
+
+#: plasmoid/contents/ui/main.qml
+msgid "That run did not record a log file."
+msgstr "该次运行未记录日志文件。"
+
+#: plasmoid/contents/ui/main.qml
+msgid "Could not open %1: %2"
+msgstr "无法打开 %1:%2"
+
+#: plasmoid/contents/ui/main.qml
+msgid "Could not open %1."
+msgstr "无法打开 %1。"
+
+#: plasmoid/contents/ui/main.qml
+msgid "Kempt stopped waiting for the update to report back. It may still be running, so keep the computer on."
+msgstr "Kempt 停止等待更新报告。它可能仍在运行,因此请保持计算机开机。"
