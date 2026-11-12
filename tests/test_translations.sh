@@ -2,12 +2,13 @@
 # Translation plumbing: the template matches the source, a .po compiles to the path Plasma reads,
 # and the widget's words stay whole sentences in i18n() calls where they are used.
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+sandbox
 
 UI="$REPO_ROOT/plasmoid/contents/ui"
 DOMAIN=plasma_applet_io.github.erez_c137.kempt
 POT="po/$DOMAIN.pot"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+WORK="$TESTTMP/work"
+mkdir -p "$WORK"
 
 assert_eq "$(jq -r .KPlugin.Id "$REPO_ROOT/plasmoid/metadata.json")" "${DOMAIN#plasma_applet_}" \
   "the domain is the widget's id, which is how Plasma finds its catalog"
@@ -43,7 +44,7 @@ PO
   MO="$WORK/out/contents/locale/xx/LC_MESSAGES/$DOMAIN.mo"
   assert_eq "$(msgunfmt "$MO" 2>/dev/null | grep -c 'Now Update')" "1" "po/xx.po compiles to contents/locale/xx/LC_MESSAGES/<domain>.mo"
 else
-  echo "ok: SKIPPED - gettext tools absent, so the template was not compared"
+  skip "gettext tools absent, so the template was not compared"
 fi
 
 # The rest needs no gettext.
