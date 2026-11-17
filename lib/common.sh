@@ -1779,6 +1779,17 @@ mark_held() {  # backend; stdin: JSON [{name,from,to}] → adds held:bool
   jq -c --argjson holds "$holds_json" '[.[] | .name as $n | . + {held: (($holds | index($n)) != null)}]'
 }
 
+# Marks the items an upgrade would skip for broken dependencies (dnf_blocked_names) with
+# `blocked: true`, after mark_held. A held item is never marked: it is skipped on purpose, and
+# counting it twice would make the two counts disagree with the list. The key is written only when
+# true, so an item from a check that could not ask has no key, and no key is what it always had.
+# The names come through a FILE: unlike the holds, the set grows with what is pending.
+mark_blocked() {  # $1 = file, one name per line; stdin: items JSON → items, some with blocked:true
+  jq -c --rawfile b "$1" '
+    ($b | split("\n") | map(select(length > 0) | {key: ., value: true}) | from_entries) as $set
+    | [.[] | if .held != true and $set[.name | tostring] == true then . + {blocked: true} else . end]'
+}
+
 # stdin: items JSON (AFTER mark_held) → one session-critical name per line.
 # Held packages are excluded on purpose: the user already declined that one, so recommending a
 # whole different update strategy because of it would be nagging about a decision already made.
@@ -1815,7 +1826,7 @@ family_label() {
 
 risky_names() {
   local re="${KEMPT_RISKY_RE:-$(config_get risky_regex)}"
-  jq -r '.[] | select(.held|not) | .name' \
+  jq -r '.[] | select((.held or .blocked) | not) | .name' \
     | grep -E "$re" \
     | grep -vE -- '-(devel|headers|static|tools|doc)($|-)|-macros' || true
 }
@@ -1888,7 +1899,7 @@ attach_sizes() {  # $1 = sizes TSV; stdin: items JSON (after mark_held) → item
 # excluded because Kempt passes --exclude= for them and their bytes are never fetched; zero
 # non-held items is honestly 0.
 backend_download_bytes() {  # stdin: items JSON → bytes, or "" when coverage is incomplete
-  jq -r '[.[] | select(.held | not)] as $a
+  jq -r '[.[] | select((.held or .blocked) | not)] as $a
          | [$a[] | select(has("size_bytes"))] as $k
          | if ($a | length) == ($k | length) then ($k | map(.size_bytes) | add // 0) else "" end'
 }
@@ -1919,8 +1930,9 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
     # b is the backend total as a STRING, "" meaning not known. Empty adds no key at all, which is
     # what a schema-1 reader that predates this feature is guaranteed to keep seeing.
     def wrap(e; b): {enabled: e,
-                  actionable: ([.[] | select(.held|not)] | length),
+                  actionable: ([.[] | select((.held or .blocked) | not)] | length),
                   held:       ([.[] | select(.held)] | length),
+                  blocked:    ([.[] | select(.blocked == true and (.held | not))] | length),
                   items: .}
                  + (if b == "" then {} else {download_bytes: (b | tonumber)} end);
     # The top-level figure exists only when every ENABLED backend produced one. A backend switched
@@ -1951,8 +1963,11 @@ assemble_state() {  # $1 dnf items, $2 fp items, $3 status, $4 error, $5 fp_enab
      last_success: (if $status == "ok" then $now elif $pls == "" then null else $pls end),
      status: $status, error: $error,
      backends: {dnf: ($dnf | wrap(true; $dnfb)), flatpak: ($fp | wrap($fpe; $fpb))},
-     actionable: (($dnf + $fp) | [.[] | select(.held|not)] | length),
+     actionable: (($dnf + $fp) | [.[] | select((.held or .blocked) | not)] | length),
      held_total: (($dnf + $fp) | [.[] | select(.held)] | length),
+     # Pending, not held, and an upgrade would skip them for broken dependencies (mark_blocked).
+     # Not in `actionable`: no run can install them, so they raise no badge and no button.
+     blocked_total: (($dnf + $fp) | [.[] | select(.blocked == true and (.held | not))] | length),
      risky_pending: $risky,
      reboot_needed: $reboot}
     + total + staged + relupgrade + imagebased + metadata' > "$_out_f" || rc=$?
@@ -3129,6 +3144,12 @@ KEMPT_JQ_COUNTS='
       (if a > 0 then "+" + (a|tostring) + " installed" else empty end),
       (if r > 0 then "-" + (r|tostring) + " removed"   else empty end) ]
     | if length == 0 then "no package changes" else join(", ") end;
+  # The packages dnf5 skipped in the run for broken dependencies (skipped_blocked), as a phrase, or
+  # nothing. Said beside the counts so a run that installed nothing is not a plain success.
+  def blocked_n: [.backends[]? | .skipped_blocked? // [] | .[]] | length;
+  def blocked_phrase: blocked_n
+    | if . == 0 then empty elif . == 1 then "1 update could not install yet"
+      else (tostring) + " updates could not install yet" end;
   # A staging run changes no package until the restart, so "no package changes" is true and
   # misleading. Keyed on the dnf half, not the run: a failed Flatpak half fails the run but leaves
   # the stage armed. Entries from older builds have no staged count or dnf status, and the phrase
@@ -3164,7 +3185,7 @@ KEMPT_JQ_COUNTS='
 run_counts_phrase() {  # history-json-file → "N updated, +N installed, -N removed" | "no package changes"
   jq -r "$KEMPT_JQ_COUNTS"'
     def tot(k): [.backends[] | .[k] | length] | add // 0;
-    counts_phrase(tot("updated"); tot("added"); tot("removed"); false)' "$1"
+    [counts_phrase(tot("updated"); tot("added"); tot("removed"); false), blocked_phrase] | join(", ")' "$1"
 }
 
 # The `kempt history` row's phrase. A staging run reads as what it staged, plus what Flatpak
@@ -3174,10 +3195,17 @@ history_phrase() {  # history-json-file → one phrase
     def tot(k): [.backends[] | .[k] | length] | add // 0;
     def fp(k): .backends.flatpak[k]? // [] | length;
     [stage_phrase] as $st
-    | if ($st | length) == 0 then counts_phrase(tot("updated"); tot("added"); tot("removed"); false)
-      else $st[0] + (if fp("updated") + fp("added") + fp("removed") > 0
-                     then ", Flatpak: " + counts_phrase(fp("updated"); fp("added"); fp("removed"); false)
-                     else "" end) end' "$1"
+    | [ (if ($st | length) == 0 then counts_phrase(tot("updated"); tot("added"); tot("removed"); false)
+         else $st[0] + (if fp("updated") + fp("added") + fp("removed") > 0
+                        then ", Flatpak: " + counts_phrase(fp("updated"); fp("added"); fp("removed"); false)
+                        else "" end) end),
+        blocked_phrase ] | join(", ")' "$1"
+}
+
+# The same phrase for the shell side (notifications), so the words cannot drift from the jq ones.
+blocked_count_phrase() {  # count → "1 update could not install yet" | "N updates could not install yet"
+  if [[ "$1" == 1 ]]; then printf '1 update could not install yet\n'
+  else printf '%s updates could not install yet\n' "$1"; fi
 }
 
 # What the next restart will install, in one line, or nothing. Deliberately NOT part of
@@ -3284,6 +3312,9 @@ render_summary() {  # history-json-file → human text
     (if (.backends.flatpak.removed|length) > 0 then rmlines(.backends.flatpak) else empty end),
     heldline,
     shortfall,
+    # ...and the updates dnf5 skipped because they need something no repository provides yet.
+    ([.backends[]? | .skipped_blocked? // [] | .[]] as $bn
+     | first(blocked_phrase) // empty | . + ": " + ($bn | join(", "))),
     # ONLY when a restart is owed. `false` here does not mean "no restart needed" - it also means
     # the check could not work the answer out, which it reports the same way, and the state
     # schema says in as many words that no affirmative line may be rendered from it. "Reboot: not
@@ -3363,6 +3394,7 @@ KEMPT_JQ_STATUS='
   def status_copy: {
     upToDate: "Up to date",
     held: "held",
+    waiting: "waiting",
     userAppsUncheckedShort: "apps for you only not checked",
     stagedHeaderOne: "1 update ready for the next restart",
     stagedHeaderTail: "updates ready for the next restart",
@@ -3408,7 +3440,8 @@ KEMPT_JQ_STATUS='
                 | if ($p | length) > 1 then (($p[0:-1] | join("/")) + " " + $p[-1]) else . end;
   def ordered_unique: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
   # logic.js collectItems: the enabled backends in their order, each one pending section for
-  # items with no kind and one per kind after it, and the held items apart.
+  # items with no kind and one per kind after it, and the held items apart. A blocked item stays in
+  # its section and is listed again under `blocked`, which the counts take out.
   def collect:
     (if (.backends | type) == "object" then .backends else {} end) as $b
     | [("dnf", "flatpak") | select(. as $k | $b[$k] | truthy)] as $first
@@ -3423,7 +3456,8 @@ KEMPT_JQ_STATUS='
               ( $e.pending | map(kind_of) | map(select(. != "")) | ordered_unique | .[] as $kd
                | {title: ((kind_titles[$e.key] // {})[$kd] // ($e.key + " " + $kd)),
                   items: [$e.pending[] | select(kind_of == $kd)]} ) ) ],
-        held: [$bs[].held[]] };
+        held: [$bs[].held[]],
+        blocked: [$bs[].pending[] | select(.blocked == true)] };
   # The rows `kempt status --list` prints, as logic.js collectItems and rowsOf build them: S for a
   # section (title, US, count), then I for each row (name, US, versions, US, marks). The version
   # rules are the widget ones (newestOf, fromTextOf, versionTextOf), so a row reads the same in
@@ -3441,6 +3475,7 @@ KEMPT_JQ_STATUS='
         def row:
           (if .name == null then "" else (.name | tostring) end) as $n
           | ([ (if .held | truthy then "held" else empty end),
+               (if (.held | truthy | not) and .blocked == true then "cannot install yet" else empty end),
                (if ._backend == "dnf" and .name != null and ($n as $x | $sec | any(.[]; . == $x)) then "security" else empty end),
                (if .scope == "user" then "for you only" else empty end) ] | join(", ")) as $tags
           | "I\u001f" + ($n + (if .branch == null or .branch == "" then "" else " " + (.branch | tostring) end) | clean)
@@ -3458,7 +3493,9 @@ KEMPT_JQ_STATUS='
       . as $s
       | collect as $c
       | (($c.sections | length) > 0 or ($c.held | length) > 0) as $walked
-      | ([$c.sections[].items | length] | add // 0) as $counted
+      | (([$c.sections[].items | length] | add // 0) - ($c.blocked | length)) as $counted
+      | (if $walked then ($c.blocked | length) elif ($s.blocked_total | type) == "number" then $s.blocked_total
+         else 0 end) as $blocked_total
       | (if $walked then $counted elif ($s.actionable | type) == "number" then $s.actionable else $counted end) as $actionable
       | (if $walked then ($c.held | length) elif ($s.held_total | type) == "number" then $s.held_total
          else ($c.held | length) end) as $held_total
@@ -3482,6 +3519,7 @@ KEMPT_JQ_STATUS='
          elif $actionable == 0 then
            (if $stale then status_copy.lastCheckFailedHeader else status_copy.upToDate end) as $nothing_waiting
            | (if $held_total > 0 then $nothing_waiting + dot + ($held_total | tostring) + " " + status_copy.held
+              elif $blocked_total > 0 then $nothing_waiting + dot + ($blocked_total | tostring) + " " + status_copy.waiting
               elif $user_unchecked then $nothing_waiting + dot + status_copy.userAppsUncheckedShort
               else $nothing_waiting end)
          elif $actionable == 1 then "1 update"
@@ -3497,6 +3535,10 @@ KEMPT_JQ_STATUS='
         (if $held_total > 0 then
            "L\u001f" + ($held_total | tostring),
            ($c.held[] | select(.name != null and .name != "") | "M\u001f" + (.name | dispname | clean))
+         else empty end),
+        (if $blocked_total > 0 then
+           "B\u001f" + ($blocked_total | tostring),
+           ($c.blocked[] | select(.name != null and .name != "") | "V\u001f" + (.name | dispname | clean))
          else empty end),
         ( ($s.security | if type == "object" and (.count | type) == "number" and .count >= 1
                          then "C\u001f" + (.count | floor | tostring) else empty end) ),

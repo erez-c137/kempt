@@ -14,6 +14,10 @@ KEMPT_DNF_SIZES_CMD="${KEMPT_DNF_SIZES_CMD:-}"
 # reason the size query has one: the files that point KEMPT_DNF_CMD at a needs-restarting stub must
 # not have that stub answer an advisory question too.
 KEMPT_DNF_ADVISORY_CMD="${KEMPT_DNF_ADVISORY_CMD:-}"
+# The dry run that finds updates dnf5 would skip (dnf_blocked_names). Unset means KEMPT_DNF_CMD.
+# Its own seam for the reason the advisory query has one.
+KEMPT_DNF_DRYRUN_CMD="${KEMPT_DNF_DRYRUN_CMD:-}"
+BLOCKED_QUERY_TIMEOUT="${BLOCKED_QUERY_TIMEOUT:-60}"
 
 dnf_installed_lookup() {  # → sorted TSV, ONE row per name, EVRs comma-joined ASCENDING (installonly pkgs - kernel*, gpg-pubkey - install multiple versions; without collapse_versions, join cross-products them into phantom updates)
   # Both branches share the SAME sort tail: a stub's rows must reach collapse_versions in the
@@ -138,17 +142,17 @@ dnf_security_query() {  # → dnf5's advisory list JSON; rc≠0 when dnf5 did no
     advisory list --security --updates --json </dev/null 2>/dev/null
 }
 
-# The advisory rows, read against the pending dnf items (after mark_held). By content, never by
-# position: the top level must be a list and every row an object with a string `name` and `nevra`,
-# or the whole answer is refused (rc≠0), because a partly read answer would under-report. Ids that
-# do not look like an advisory id are dropped. The package name is the NEVRA without its `.arch`
-# and its `-[epoch:]version-release`. Output: the pending, non-held packages with an advisory, as the
-# pending items name them and in their order. The names come from the items, never from the NEVRA,
+# The advisory rows, read against the pending dnf items (after mark_held and mark_blocked). By
+# content, never by position: the top level must be a list and every row an object with a string
+# `name` and `nevra`, or the whole answer is refused (rc≠0), because a partly read answer would
+# under-report. Ids that do not look like an advisory id are dropped. The package name is the NEVRA
+# without its `.arch` and its `-[epoch:]version-release`. Output: the pending packages that are
+# neither held nor blocked and have an advisory, as the pending items name them and in their order. The names come from the items, never from the NEVRA,
 # so they are the names the widget lists and have already passed KEMPT_NAME_RE.
 dnf_security_parse() {  # $1=file holding the dnf items JSON; stdin=advisory JSON → JSON list
   jq -c --slurpfile items "$1" '
     def pkgname: sub("\\.[^.]*$"; "") | sub("-[^-]*-[^-]*$"; "");
-    (reduce ($items[0] // [])[] as $i ({}; .[$i.name | tostring] = ($i.held == true))) as $pend
+    (reduce ($items[0] // [])[] as $i ({}; .[$i.name | tostring] = ($i.held == true or $i.blocked == true))) as $pend
     | if type != "array" then error("not a list") else . end
     | map(if type == "object" and (.name | type) == "string" and (.nevra | type) == "string"
           then {id: .name, pkg: (.nevra | pkgname)} else error("a row without a name and nevra") end)
@@ -156,10 +160,71 @@ dnf_security_parse() {  # $1=file holding the dnf items JSON; stdin=advisory JSO
     | unique
     | [.[] | select($pend[.pkg] == false)] as $open
     | ($open | map(.pkg) | unique) as $pkgs
-    | [($items[0] // [])[] | select(.held != true) | .name | tostring
+    | [($items[0] // [])[] | select(.held != true and .blocked != true) | .name | tostring
        | select(. as $n | $pkgs | index([$n]) != null)]'
 }
 
+# Updates that check-update lists and no upgrade can install. check-update does no depsolve, so a
+# package that needs something no repository provides is counted as pending, while every upgrade
+# skips it and prints, on stdout, after the table heading:
+#   Skipping packages with broken dependencies:
+#    <name>  <arch> <evr> <repo> <size> <unit>
+# one indented row per package and arch, ended by a blank line, "Nothing to do." or the next
+# section. Captured from dnf5 5.4.8 on Fedora 44 (tests/fixtures/dnf-upgrade-broken-deps.txt). Only
+# that section is read, and only rows shaped like a package row. A multilib pair is one name.
+dnf_blocked_parse() {  # stdin=dnf5 upgrade output → names, one per line, sorted, unique
+  awk 'sect && (/^[[:space:]]*$/ || /^[^[:space:]]/) { sect = 0 }
+       sect && NF >= 4 && $3 ~ /-/ { print $1; next }
+       /^Skipping packages with broken dependencies:[[:space:]]*$/ { sect = 1 }' \
+    | while IFS= read -r n; do if [[ "$n" =~ $KEMPT_NAME_RE ]]; then printf '%s\n' "$n"; fi; done \
+    | sort -u
+}
+
+# The same question asked of a dry run: `dnf5 upgrade --assumeno`, as the user, cache-only, against
+# the system cache the check was answered from, and excluding the holds exactly as a real update
+# does. Under a second on Fedora 44, no root and no network. It answers only with names dnf5 itself
+# printed in that section, so every failure (no readable cache, a timeout, an exit code other than
+# the 0 of "Nothing to do." or the 1 of a refused transaction, output in another shape) is an empty
+# answer, and an empty answer marks nothing: the check then counts exactly what it always did.
+dnf_blocked_names() {  # → names, one per line. EMPTY on any failure. rc 0.
+  [[ -r "$KEMPT_DNF_CACHE_DIR" ]] || return 0
+  local excl=() h out rc=0
+  while IFS= read -r h; do [[ -n "$h" ]] && excl+=("--exclude=$h"); done < <(holds_for dnf)
+  # Unquoted on purpose: a seam holds a command with arguments (see dnf_sizes).
+  # shellcheck disable=SC2086
+  out="$(LC_ALL=C timeout "$BLOCKED_QUERY_TIMEOUT" ${KEMPT_DNF_DRYRUN_CMD:-$KEMPT_DNF_CMD} \
+           --setopt=cachedir="$KEMPT_DNF_CACHE_DIR" -C upgrade --assumeno ${excl[@]+"${excl[@]}"} \
+           </dev/null 2>/dev/null)" || rc=$?
+  [[ $rc -eq 0 || $rc -eq 1 ]] || return 0
+  dnf_blocked_parse <<<"$out" || true
+  return 0
+}
+
+# The same section, read from a run's own log: what dnf5 skipped in THIS run, from the byte offset
+# where the run's dnf output began. The root helper runs dnf5 under LC_ALL=C.UTF-8, so the heading
+# is the English one dnf_blocked_parse reads.
+dnf_blocked_from_log() {  # log file, byte offset → JSON list of names; [] on any failure
+  local out
+  out="$(tail -c +"$(( ${2:-0} + 1 ))" "$1" 2>/dev/null | dnf_blocked_parse | jq -cRn '[inputs]' 2>/dev/null)" \
+    || out=""
+  [[ "$out" == \[* ]] || out='[]'
+  printf '%s\n' "$out"
+}
+
+# The items with the dry run's answer on them (mark_blocked). A filter that cannot fail: any failure
+# hands the items on unchanged, which is the check as it was before this question was asked.
+dnf_mark_blocked() {  # stdin: dnf items JSON (after mark_held) → the same items
+  local in bf out
+  in="$(cat)"
+  if bf="$(mktemp 2>/dev/null)"; then
+    dnf_blocked_names > "$bf" 2>/dev/null || : > "$bf"
+    if [[ -s "$bf" ]] && out="$(mark_blocked "$bf" <<<"$in" 2>/dev/null)" && [[ "$out" == \[* ]]; then
+      in="$out"
+    fi
+    rm -f "$bf"
+  fi
+  printf '%s\n' "$in"
+}
 
 # Is the installed dnf5 at least this version? KEMPT_DNF5_VERSION stands in for rpm in tests.
 dnf5_at_least() {  # version → rc 0 when the installed dnf5 is that version or newer

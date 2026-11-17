@@ -207,11 +207,18 @@ cmd_check() {
   # already name a runtime (it was writable long before runtimes were counted), and mark_held keys
   # on the bare name, so without this a stale line would start holding a runtime today.
   fp_items="$(mark_held flatpak <<<"$fp_items" | flatpak_runtimes_never_held)"
+  # Which pending packages no upgrade can install (broken dependencies), asked of a dry run under
+  # the same three conditions as the advisory query below, and before it, so neither the advisory
+  # count nor anything after it counts them. A failed dry run marks nothing.
+  if [[ "$dnf_priced" == true ]] && ! on_ostree \
+     && jq -e 'any(.[]; .held != true)' <<<"$dnf_items" >/dev/null 2>&1; then
+    dnf_items="$(dnf_mark_blocked <<<"$dnf_items")"
+  fi
   # Which pending packages fix a security advisory. Asked only when dnf answered and something not
   # held is pending, so an idle check costs nothing, and never on an image-based system, which dnf
   # does not update. A failure publishes nothing.
   if [[ "$dnf_priced" == true ]] && ! on_ostree \
-     && jq -e 'any(.[]; .held != true)' <<<"$dnf_items" >/dev/null 2>&1; then
+     && jq -e 'any(.[]; .held != true and .blocked != true)' <<<"$dnf_items" >/dev/null 2>&1; then
     sec_raw="$(dnf_security_query)" || sec_raw=""
   fi
   if [[ -n "$sec_raw" ]]; then
@@ -252,15 +259,15 @@ cmd_check() {
   # the whole check. Nothing reaches it today - it is a boundary on the backend contract.
   [[ "$reboot" == "true" || "$reboot" == "false" ]] || reboot=false
   # The pending names go along only when dnf ANSWERED (dnf_priced): the previous state's items are
-  # not news about what arrived after the stage. Held packages are left out, since the stage skips
-  # them on purpose.
+  # not news about what arrived after the stage. Held and blocked packages are left out, since the
+  # stage skips them.
   # Read here and not at the start of the check: a stage may land during a slow fetch. Local, so
   # whatever runs after an internal check reads the machine again.
   local STAGE_WORD_NOW=""
   STAGE_WORD_NOW="$(stage_read)"
   local staged_state pend_f=""
   if [[ "$dnf_priced" == true ]] && pend_f="$(mktemp 2>/dev/null)"; then
-    jq -r '.[] | select(.held != true) | .name' <<<"$dnf_items" > "$pend_f" 2>/dev/null \
+    jq -r '.[] | select(.held != true and .blocked != true) | .name' <<<"$dnf_items" > "$pend_f" 2>/dev/null \
       || { rm -f "$pend_f"; pend_f=""; }
   fi
   staged_state="$(offline_staged_state "$pend_f")"
@@ -368,7 +375,8 @@ cmd_check() {
   if [[ "$status" == "ok" ]]; then
     local said
     said="$(jq -r '"Checked: \(.actionable) update\(if .actionable == 1 then "" else "s" end) to install"
-                   + (if .held_total > 0 then ", \(.held_total) held" else "" end)' <<<"$state" 2>/dev/null)" \
+                   + (if .held_total > 0 then ", \(.held_total) held" else "" end)
+                   + (if (.blocked_total // 0) > 0 then ", \(.blocked_total) cannot install yet" else "" end)' <<<"$state" 2>/dev/null)" \
       || said="Checked"
     log_event "$said"
     # --strict: the apps for you only that could not be listed are not a current answer either,
@@ -571,8 +579,11 @@ refusal_words() {  # log what fallback-reason → sentence
   fi
 }
 
-log_nothing_to_stage() {  # held dnf names, or nothing
-  if [[ -n "$1" ]]; then log_event "Nothing to stage (every pending update is held)"
+log_nothing_to_stage() {  # held dnf names or nothing, then how many updates dnf5 skipped as blocked
+  # Blocked first: with any of them waiting, "every pending update is held" is not the reason.
+  if [[ "${2:-0}" == 1 ]]; then log_event "Nothing to stage (1 waiting update cannot install yet)"
+  elif [[ "${2:-0}" =~ ^[1-9][0-9]*$ ]]; then log_event "Nothing to stage ($2 waiting updates cannot install yet)"
+  elif [[ -n "$1" ]]; then log_event "Nothing to stage (every pending update is held)"
   else log_event "Nothing to stage"; fi
 }
 
@@ -992,6 +1003,10 @@ cmd_update() {
 
   # dnf
   run_heading "$log" "System (dnf)"
+  # Where this run's dnf output starts in the log, so the packages dnf5 skipped for broken
+  # dependencies are read from this run's own words and nobody else's (dnf_blocked_parse).
+  local dnf_log_from=0
+  [[ -f "$log" ]] && dnf_log_from="$(stat -c %s "$log" 2>/dev/null || echo 0)"
   # unknown until a branch below says ok or failed. One that says neither is failed (after the block).
   local yflag=() excl=() dnf_status="unknown"
   # WHICH dnf5 transaction a live run was, when dnf5's history can say (live_history_attribution).
@@ -1023,11 +1038,12 @@ cmd_update() {
     # packages drop out here exactly as they do from the transaction - the --exclude list above is
     # built from the same holds. A check that cannot answer must not stop the stage: the count
     # degrades to the stale one with a warning.
+    # Blocked packages drop out too: the stage skips them as every upgrade does (dnf_mark_blocked).
     local cerr cjson; cerr="$(mktemp)"; cjson="$(mktemp)"
-    if dnf_check 2>"$cerr" | mark_held dnf > "$cjson"; then
+    if dnf_check 2>"$cerr" | mark_held dnf | dnf_mark_blocked > "$cjson"; then
       # Guarded: inside an `if` body errexit is live again, and a jq that died would take down a
       # stage over a nicety.
-      staged_fresh="$(jq '[.[] | select(.held | not)] | length' "$cjson")" || staged_fresh=""
+      staged_fresh="$(jq '[.[] | select((.held or .blocked) | not)] | length' "$cjson")" || staged_fresh=""
     else
       staged_fresh=""
       # same rewrite as cmd_check: a missing root helper must not be announced as a timeout here either
@@ -1077,7 +1093,7 @@ cmd_update() {
       # stale by the time the stage runs, and dnf5's own answer cannot.
       if [[ "$(offline_system_status)" == absent ]]; then
         staged_nothing=true; dnf_status="ok"
-        log_nothing_to_stage "$held_dnf"
+        log_nothing_to_stage "$held_dnf" "$(dnf_blocked_from_log "$log" "$dnf_log_from" | jq length)"
       elif [[ -n "$pre_stage_fp" && "$(offline_stored_fingerprint)" == "$pre_stage_fp" ]] \
            && grep -qE '^[[:space:]]*Nothing to do\.?[[:space:]]*$' < <(tail -c +$(( stage_log_sz + 1 )) "$log" 2>/dev/null); then
         # The same empty stage, over a transaction that was ALREADY stored: dnf5 says "Nothing to
@@ -1098,11 +1114,11 @@ cmd_update() {
         fi
         if [[ "$nothing_foreign" == true ]]; then
           staged_nothing=true; dnf_status="ok"
-          log_nothing_to_stage "$held_dnf"
+          log_nothing_to_stage "$held_dnf" "$(dnf_blocked_from_log "$log" "$dnf_log_from" | jq length)"
           log_event "Staged update left in place (another updater has prepared the next restart)"
         elif [[ $clean_rc -eq 0 ]]; then
           staged_nothing=true; stage_discarded=true; dnf_status="ok"
-          log_nothing_to_stage "$held_dnf"
+          log_nothing_to_stage "$held_dnf" "$(dnf_blocked_from_log "$log" "$dnf_log_from" | jq length)"
           log_event "Staged update discarded (the stored one would have installed what is now held)"
         elif [[ $clean_rc -eq $KEMPT_APPLY_REFUSED ]]; then
           dnf_status="failed"; status="failed"
@@ -1243,6 +1259,11 @@ cmd_update() {
   if [[ "$dnf_status" != ok && "$dnf_status" != failed ]]; then
     dnf_status="failed"; status="failed"; run_failed_otherwise=1
   fi
+  # The packages dnf5 skipped in this run because they need something no repository provides, as
+  # a JSON list. dnf5 prints "Nothing to do." and exits 0 over them, so without this a run that
+  # installed nothing reads as a plain success.
+  local dnf_blocked_json
+  dnf_blocked_json="$(dnf_blocked_from_log "$log" "$dnf_log_from")"
 
   # flatpak (live even when dnf staged offline - flatpak has no offline mechanism)
   # Runtimes are counted, itemized and updated alongside the apps: `flatpak update` with no ref
@@ -1401,7 +1422,8 @@ cmd_update() {
   fi
   local staged_nothing_why=""
   if [[ "$surface" == "offline" && "$status" == "ok" && "$staged_nothing" == true ]]; then
-    if [[ -n "$held_dnf" ]]; then staged_nothing_why=held; else staged_nothing_why=nothing_pending; fi
+    if [[ "$dnf_blocked_json" != "[]" ]]; then staged_nothing_why=blocked
+    elif [[ -n "$held_dnf" ]]; then staged_nothing_why=held; else staged_nothing_why=nothing_pending; fi
   fi
   # `transaction_id` is additive and top-level, exactly as the restart report writes it: the id
   # `dnf5 history info` takes, present only when dnf5's history named the transaction.
@@ -1411,6 +1433,7 @@ cmd_update() {
         --arg log "$log" --argjson dur "$run_dur" --arg txid "$live_txid" \
         --argjson reboot "$reboot" --arg error "$reason" \
         --slurpfile dnfa "$dnf_rep_f" --arg dnf_status "$dnf_status" --argjson dnf_held "$held_dnf_json" \
+        --argjson dnf_blocked "$dnf_blocked_json" \
         --slurpfile fpa "$fp_rep_f" --arg fp_status "$fp_status" --argjson fp_held "$held_fp_json" \
         --argjson fp_scopes "$fp_scopes" \
         --arg fb "$startup_base" '
@@ -1418,7 +1441,8 @@ cmd_update() {
     {timestamp:$ts, surface:$surface, status:$status, duration_sec:$dur,
      reboot_needed:$reboot, log:$log, error:$error,
      backends: {
-       dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}),
+       dnf:     ($dnf | . + {status:$dnf_status, skipped_held:$dnf_held}
+                      + (if ($dnf_blocked | length) == 0 then {} else {skipped_blocked: $dnf_blocked} end)),
        flatpak: ($fp  | . + {status:$fp_status,  skipped_held:$fp_held}
                       + (if $fp_scopes == null then {} else {scopes: $fp_scopes} end)) }}
     + (if $txid == "" then {} else {transaction_id: ($txid | tonumber)} end)
@@ -1500,7 +1524,9 @@ cmd_update() {
       # asked": the first reads as a fault.
       local discarded_tail=""
       [[ "$stage_discarded" == true ]] && discarded_tail=". The updates prepared earlier were removed"
-      if [[ -n "$held_dnf" ]]; then
+      if [[ "$staged_nothing_why" == blocked ]]; then
+        notify "Kempt" "$(blocked_count_phrase "$(jq length <<<"$dnf_blocked_json")"), so the next restart has nothing to install$discarded_tail"
+      elif [[ -n "$held_dnf" ]]; then
         notify "Kempt" "Every waiting update is held, so the next restart has nothing to install$discarded_tail"
       else
         notify "Kempt" "No updates are waiting, so the next restart has nothing to install$discarded_tail"
@@ -1798,7 +1824,8 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
                [inputs][0] | status_records($now)' <<<"${doc:-null}")" \
     || { echo "kempt: could not read the update state" >&2; exit 1; }
   local tag a b header="" detail="" footer="" restart="" holder="" staged=false security="" held="" rc=1
-  local -a sections=() held_names=() names=()
+  local blocked=""
+  local -a sections=() held_names=() blocked_names=() names=()
   local title="" count=""
   status_flush_section() {
     [[ -n "$title" ]] || return 0
@@ -1816,6 +1843,8 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
       N) names+=("$a") ;;
       L) held="$a" ;;
       M) held_names+=("$a") ;;
+      B) blocked="$a" ;;
+      V) blocked_names+=("$a") ;;
       C) security="$a" ;;
       G) staged=true ;;
       R) restart="$a" ;;
@@ -1851,6 +1880,13 @@ cmd_status() {  # [--json] [--list]: what the last check found, in words; reads 
     local held_phrase
     held_phrase="$(printf '%s\n' ${held_names[@]+"${held_names[@]}"} | names_phrase)"
     body+=("Held: $held${held_phrase:+ ($held_phrase)}")
+  fi
+  # Listed in their sections too, as the widget lists them: this line says which of those rows no
+  # update can install, because a part they need is not released yet.
+  if [[ -n "$blocked" && "$list" != true && "$staged" != true ]]; then
+    local blocked_phrase
+    blocked_phrase="$(printf '%s\n' ${blocked_names[@]+"${blocked_names[@]}"} | names_phrase)"
+    body+=("Cannot install yet: $blocked${blocked_phrase:+ ($blocked_phrase)}")
   fi
   if [[ -n "$security" && "$staged" != true ]]; then
     if [[ "$security" == 1 ]]; then body+=("Security: 1 update"); else body+=("Security: $security updates"); fi
