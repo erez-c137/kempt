@@ -53,6 +53,9 @@ RowLayout {
     property bool bothScopes: false
     // A system package whose pending update fixes a security advisory.
     property bool security: false
+    // A pending update no update can install yet: dnf5 skips it for broken dependencies. Not
+    // required, for the reason the four above are not.
+    property bool blocked: false
 
     // What the name line draws. One property, read by the label and by the pin's spellings, so the
     // row cannot name the same thing two ways.
@@ -104,6 +107,7 @@ RowLayout {
     // line, from the same Logic.versionTextOf, in words instead of an arrow.
     readonly property string spokenFacts: {
         const parts = [];
+        if (row.blocked) parts.push(i18n("Can't install yet: it needs a part that is not released yet."));
         if (row.security) parts.push(i18n("Security update."));
         if (row.forYouOnly) parts.push(i18n("For you only."));
         if (row.from === Logic.VERSION_UNKNOWN && row.to === Logic.VERSION_UNKNOWN) {
@@ -124,6 +128,9 @@ RowLayout {
     ColumnLayout {
         Layout.fillWidth: true
         spacing: 0
+        // Dimmed, unlike a held row: nothing about this row is the person's choice, and nothing
+        // they press installs it. The reason line below says why in words.
+        opacity: row.blocked ? 0.6 : 1
 
         PlasmaComponents.Label {
             Layout.fillWidth: true
@@ -208,6 +215,16 @@ RowLayout {
                 Accessible.name: row.from === row.to ? text
                                                      : i18n("from %1 to %2", row.fromText, row.to)
             }
+        }
+
+        // Why a blocked row is not counted, in the row itself.
+        PlasmaComponents.Label {
+            objectName: "blockedReason"
+            Layout.fillWidth: true
+            visible: row.blocked
+            text: i18n("Can't install yet: it needs a part that is not released yet.")
+            wrapMode: Text.Wrap
+            font: Kirigami.Theme.smallFont
         }
 
         // A failed hold, in the row it failed on rather than in the message stack up to 300 px

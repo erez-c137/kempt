@@ -144,13 +144,13 @@ function stageTooltipOf(flatpakPending) {
 }
 
 // backendActionable(state, key) -> the actionable count of one backend: 0 when it is disabled or
-// absent, its own count when it publishes one, else its items that are not held.
+// absent, its own count when it publishes one, else its items that are neither held nor blocked.
 function backendActionable(state, key) {
     var b = (state && state.backends && typeof state.backends === "object") ? state.backends[key] : null;
     if (!b || typeof b !== "object" || b.enabled === false) return 0;
     if (typeof b.actionable === "number") return b.actionable;
     var items = (b.items && typeof b.items.length === "number") ? b.items : [], n = 0;
-    for (var i = 0; i < items.length; i++) if (items[i] && !items[i].held) n++;
+    for (var i = 0; i < items.length; i++) if (items[i] && !items[i].held && items[i].blocked !== true) n++;
     return n;
 }
 
@@ -547,7 +547,8 @@ function pendingNamesOf(sections, riskyNames) {
         items = sections[i].items || [];
         for (j = 0; j < items.length; j++) {
             name = items[j].name;
-            if (!name) continue;
+            // A blocked row is listed but is not news about what an update would install.
+            if (!name || items[j].blocked === true) continue;
             (Object.prototype.hasOwnProperty.call(riskySet, name) ? risky : rest).push(name);
         }
     }
@@ -1179,8 +1180,10 @@ function securityOf(state) {
 // Walk the backends once, producing the popup's pending sections and the flat Held list.
 // A backend with enabled:false contributes NOTHING - no section, no held rows, no counts - so
 // "include_flatpak=false" renders as an absent Apps section rather than an empty one.
+// A blocked item (the CLI's mark_blocked: no update can install it yet) stays in its section, so
+// the list shows everything that is waiting, and counts in blockedTotal instead of actionable.
 function collectItems(state) {
-    var sections = [], heldItems = [], actionable = 0, heldTotal = 0;
+    var sections = [], heldItems = [], actionable = 0, heldTotal = 0, blockedTotal = 0;
     var securityNames = securityOf(state).names;
     var backends = (state && state.backends && typeof state.backends === "object") ? state.backends : {};
     var keys = backendKeys(backends), i, j;
@@ -1211,6 +1214,8 @@ function collectItems(state) {
                 from: newestOf(item.from),
                 to: newestOf(item.to),
                 held: !!item.held,
+                // Held wins: a held item is skipped on purpose, and is never counted twice.
+                blocked: !item.held && item.blocked === true,
                 backend: key,  // half of the `kempt hold <backend>:<name>` argument
                 // A runtime's identity is its id AND its branch: the same runtime is routinely
                 // installed on two branches, and two rows reading the same name with no branch
@@ -1237,7 +1242,8 @@ function collectItems(state) {
                     if (!byKind[itemKind]) { byKind[itemKind] = []; kindOrder.push(itemKind); }
                     byKind[itemKind].push(row);
                 }
-                actionable++;
+                if (row.blocked) blockedTotal++;
+                else actionable++;
             }
         }
         if (pending.length > 0) {
@@ -1252,7 +1258,8 @@ function collectItems(state) {
                             backend: key, kind: kd, items: byKind[kd] });
         }
     }
-    return { sections: sections, heldItems: heldItems, actionable: actionable, heldTotal: heldTotal };
+    return { sections: sections, heldItems: heldItems, actionable: actionable, heldTotal: heldTotal,
+             blockedTotal: blockedTotal };
 }
 
 // rowsOf(sections, heldItems) -> ONE flat list for the popup's ListView, as
@@ -1281,6 +1288,7 @@ function rowsOf(sections, heldItems) {
 function rowOf(item, kind) {
     return { kind: kind, title: "", name: item.name, from: item.from, to: item.to,
              held: item.held, backend: item.backend,
+             blocked: item.blocked === true,
              branch: item.branch || "",
              // Absent means holdable, so a row built by an older caller keeps its padlock.
              holdable: item.holdable !== false,
@@ -1313,7 +1321,7 @@ function lastRunOf(text) {
 
     var backends = (entry.backends && typeof entry.backends === "object") ? entry.backends : {};
     var keys = backendKeys(backends);
-    var items = [], updated = 0, added = 0, removed = 0, i, j, backend, up, item;
+    var items = [], updated = 0, added = 0, removed = 0, blocked = 0, i, j, backend, up, item;
     for (i = 0; i < keys.length; i++) {
         backend = backends[keys[i]];
         if (!backend || typeof backend !== "object") continue;
@@ -1329,6 +1337,7 @@ function lastRunOf(text) {
         updated += up.length;
         added += arrayOf(backend.added).length;
         removed += arrayOf(backend.removed).length;
+        blocked += arrayOf(backend.skipped_blocked).length;
     }
 
     var status = typeof entry.status === "string" ? entry.status : "";
@@ -1352,6 +1361,9 @@ function lastRunOf(text) {
         // them (run_counts_phrase). Counting only upgrades announces "No package changes" after a
         // transaction that added two.
         changedCount: updated + added + removed,
+        // The updates dnf5 skipped in this run because a part they need is not released yet. 0 for
+        // an entry written before the CLI recorded them.
+        blockedCount: blocked,
         items: items,
         logPath: typeof entry.log === "string" ? entry.log : "",
         // Strictly the boolean. This entry's reboot_needed is a fact about THAT RUN, not about now
@@ -1360,9 +1372,10 @@ function lastRunOf(text) {
         // Why a staging run staged nothing, or null when it staged something - AND null for an
         // entry written before the CLI recorded this, which is the same answer for a different
         // reason and deliberately so: those two cannot be told apart, and guessing would report a
-        // real stage as nothing. Only the two words the CLI writes are accepted; anything else is
+        // real stage as nothing. Only the three words the CLI writes are accepted; anything else is
         // a build this one does not understand, and "I do not know" is the honest reading of it.
-        stagedNothing: (entry.staged_nothing === "held" || entry.staged_nothing === "nothing_pending")
+        stagedNothing: (entry.staged_nothing === "held" || entry.staged_nothing === "nothing_pending"
+                        || entry.staged_nothing === "blocked")
             ? entry.staged_nothing : null,
     };
 }
@@ -1386,20 +1399,28 @@ function postRunLine(run) {
     // writes "offline (applied on reboot)" and its counts are real changes.
     // ...unless the run staged nothing, which is a successful `offline` run too and was described
     // in the same words as one that staged sixty packages.
+    // What dnf5 skipped because a part is not released yet, said in place of a plain success:
+    // "No packages changed." over updates that are still listed reads as a run that worked.
+    var blocked = typeof run.blockedCount === "number" ? run.blockedCount : 0;
+    var blockedLine = blocked > 0
+        ? i18np("1 update could not install yet.", "%1 updates could not install yet.", blocked) : "";
     if (run.surface === "offline" && run.stagedNothing !== null) {
+        if (blockedLine !== "") return blockedLine;
         return run.stagedNothing === "held" ? i18n("Every waiting update is held, so the next restart has nothing to install.") : i18n("No updates are waiting, so the next restart has nothing to install.");
     }
-    if (run.surface === "offline") return i18n("Updates are ready and install on the next restart.");
+    // Two whole sentences joined by a space, as the check answer joins its own.
+    var tail = blockedLine !== "" ? " " + blockedLine : "";
+    if (run.surface === "offline") return i18n("Updates are ready and install on the next restart.") + tail;
     var n = typeof run.changedCount === "number" ? run.changedCount : 0;
-    if (n === 0) return i18n("No packages changed.");
+    if (n === 0) return blockedLine !== "" ? blockedLine : i18n("No packages changed.");
     // The duration is a CLAUSE, not a field with a default: a run whose entry does not say how
     // long it took is described without it rather than described as instantaneous. A negative
     // duration is the clock stepping backwards during the run, not a measurement, so it is left
     // out the same way.
     var secs = run.durationSec;
-    return typeof secs === "number" && isFinite(secs) && secs >= 0
+    return (typeof secs === "number" && isFinite(secs) && secs >= 0
         ? i18np("Updated 1 package in %2 s.", "Updated %1 packages in %2 s.", n, secs)
-        : i18np("Updated 1 package.", "Updated %1 packages.", n);
+        : i18np("Updated 1 package.", "Updated %1 packages.", n)) + tail;
 }
 
 // reportRepeatsStaged(run) -> does the post-run line only say what the staged message says?
@@ -1410,7 +1431,7 @@ function postRunLine(run) {
 function reportRepeatsStaged(run) {
     // A stamp the row cannot render would leave the Last update row with no title in its place.
     return !!run && !run.failed && run.surface === "offline" && run.stagedNothing === null
-        && isRenderableStamp(run.when);
+        && !(run.blockedCount > 0) && isRenderableStamp(run.when);
 }
 
 // runFinishedSince(run, sinceMs) -> is this entry the run we just watched finish?
@@ -1636,10 +1657,10 @@ function lastRunText(run, nowMs, restartHeld, armed) {
                       : i18np("Last update %2 · 1 package", "Last update %2 · %1 packages", n, when);
 }
 
-// lastRunSubtitle(run) -> the Last update row's second line, or "": why a failed run failed, as
-// postRunLine says it.
+// lastRunSubtitle(run) -> the Last update row's second line, or "": why a failed run failed, or
+// that some updates could not install yet, as postRunLine says it.
 function lastRunSubtitle(run) {
-    return run && run.failed ? postRunLine(run) : "";
+    return run && (run.failed || run.blockedCount > 0) ? postRunLine(run) : "";
 }
 
 // isExecutorTimeout(rc, stderr) -> did Executor.qml's kill timer end this call? It reports that as
@@ -1829,6 +1850,14 @@ function viewModel(state, updating, cliError, opts) {
         ? (walked ? counted.heldTotal
                   : (typeof state.held_total === "number" ? state.held_total : counted.heldTotal))
         : null;
+    var blockedTotal = usable
+        ? (walked ? counted.blockedTotal
+                  : (typeof state.blocked_total === "number" ? state.blocked_total : counted.blockedTotal))
+        : 0;
+    // The waiting updates no update can install yet, as the count beside "Up to date", the
+    // tooltip and the footer say it. No badge, no button: those are about what a press installs.
+    // TRANSLATORS: Shown after a dot, as in "Up to date · 3 waiting", in the header and the footer. The updates are ones that cannot install yet.
+    var waitingText = blockedTotal > 0 ? i18np("%1 waiting", "%1 waiting", blockedTotal) : "";
 
     var noState = (state === null || state === undefined);
     var everSucceeded = usable && typeof state.last_success === "string" && state.last_success.trim() !== "";
@@ -1886,6 +1915,8 @@ function viewModel(state, updating, cliError, opts) {
             : heldTotal > 0
                 ? (stale ? i18np("Last check failed · %1 held", "Last check failed · %1 held", heldTotal)
                          : i18np("Up to date · %1 held", "Up to date · %1 held", heldTotal))
+            : blockedTotal > 0
+                ? (stale ? i18n("Last check failed") : i18n("Up to date")) + DOT + waitingText
             : userUnchecked
                 ? (stale ? i18n("Last check failed · apps for you only not checked")
                          : i18n("Up to date · apps for you only not checked"))
@@ -2150,6 +2181,8 @@ function viewModel(state, updating, cliError, opts) {
         // tooltip is where it still says the held ones exist.
         // Not when the tooltip title already says it ("Up to date · 10 held").
         if (heldTotal > 0 && (actionable > 0 || tooltipMain !== countPhrase)) subParts.push(i18np("%1 held", "%1 held", heldTotal));
+        // ...and the same for the blocked ones, unless the title already ends with it.
+        if (waitingText !== "" && tooltipMain.indexOf(waitingText) < 0) subParts.push(waitingText);
         // Only with something to download AND something to press. On an up-to-date box the number
         // is zero or absent; next to a held-only list it would describe bytes no run will fetch.
         if (actionable > 0 && downloadText !== "") subParts.push(i18n("%1 to download", downloadText));
@@ -2292,6 +2325,7 @@ function viewModel(state, updating, cliError, opts) {
     // not know). It may well record a successful check; we cannot tell, and the header already
     // says the state could not be read.
     if (heldTotal > 0) footerParts.push(i18np("%1 held", "%1 held", heldTotal));
+    if (waitingText !== "") footerParts.push(waitingText);
     // Beside Update Now, which is the question it answers: pressing this costs about this much.
     // Same two conditions as the tooltip, and the same silence when either fails.
     if (actionable > 0 && downloadText !== "") footerParts.push(downloadText);

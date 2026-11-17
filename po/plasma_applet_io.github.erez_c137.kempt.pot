@@ -6,7 +6,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: kempt\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-11-05 18:37+0200\n"
+"POT-Creation-Date: 2026-11-17 21:19+0200\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Language: \n"
 "MIME-Version: 1.0\n"
@@ -235,6 +235,10 @@ msgstr ""
 
 #: plasmoid/contents/ui/UpdateItemDelegate.qml plasmoid/contents/ui/logic.js
 msgid "new"
+msgstr ""
+
+#: plasmoid/contents/ui/UpdateItemDelegate.qml
+msgid "Can't install yet: it needs a part that is not released yet."
 msgstr ""
 
 #: plasmoid/contents/ui/UpdateItemDelegate.qml
@@ -766,6 +770,12 @@ msgid "The update failed: %1."
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js
+msgid "1 update could not install yet."
+msgid_plural "%1 updates could not install yet."
+msgstr[0] ""
+msgstr[1] ""
+
+#: plasmoid/contents/ui/logic.js
 msgid "Every waiting update is held, so the next restart has nothing to install."
 msgstr ""
 
@@ -971,6 +981,13 @@ msgstr ""
 msgid "The check failed."
 msgstr ""
 
+#. TRANSLATORS: Shown after a dot, as in "Up to date · 3 waiting", in the header and the footer. The updates are ones that cannot install yet.
+#: plasmoid/contents/ui/logic.js
+msgid "%1 waiting"
+msgid_plural "%1 waiting"
+msgstr[0] ""
+msgstr[1] ""
+
 #: plasmoid/contents/ui/logic.js
 msgid "1 update"
 msgid_plural "%1 updates"
@@ -990,19 +1007,19 @@ msgstr[0] ""
 msgstr[1] ""
 
 #: plasmoid/contents/ui/logic.js
-msgid "Last check failed · apps for you only not checked"
-msgstr ""
-
-#: plasmoid/contents/ui/logic.js
-msgid "Up to date · apps for you only not checked"
-msgstr ""
-
-#: plasmoid/contents/ui/logic.js
 msgid "Last check failed"
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js
 msgid "Up to date"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Last check failed · apps for you only not checked"
+msgstr ""
+
+#: plasmoid/contents/ui/logic.js
+msgid "Up to date · apps for you only not checked"
 msgstr ""
 
 #: plasmoid/contents/ui/logic.js

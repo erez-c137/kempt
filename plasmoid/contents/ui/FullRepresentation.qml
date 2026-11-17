@@ -1050,6 +1050,9 @@ PlasmaExtras.Representation {
             readonly property bool aboutFetch: popup.vm.reportFetchMessage.length > 0
             type: aboutFetch ? Kirigami.MessageType.Information
                 : popup.plasmoidItem.reportFailed ? Kirigami.MessageType.Error
+                // A run that left updates it could not install is not an unmixed success.
+                : (popup.plasmoidItem.reportLatest === "run" && popup.plasmoidItem.lastRun !== null
+                   && popup.plasmoidItem.lastRun.blockedCount > 0) ? Kirigami.MessageType.Information
                 : Kirigami.MessageType.Positive
             text: aboutFetch ? popup.vm.reportFetchMessage : Logic.withoutDoctorPointer(popup.plasmoidItem.reportText)
             visible: popup.shows("report")
@@ -1345,6 +1348,7 @@ PlasmaExtras.Representation {
                                 forYouOnly: modelData.forYouOnly === true
                                 bothScopes: modelData.bothScopes === true
                                 security: modelData.security === true
+                                blocked: modelData.blocked === true
                                 // Which row is pending, never "a hold is running". The pressed row
                                 // keeps its button live and focused; the others stand down.
                                 pending: popup.plasmoidItem.pendingHold !== null
