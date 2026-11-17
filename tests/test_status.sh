@@ -297,6 +297,12 @@ jq '.status = "stale" | .last_success = "  "' "$FIXTURES/state-never.json" > "$P
 jq '.backends.dnf.items = [{name: "bash", from: "1", to: "2", held: true}] | .backends.flatpak.items = []
     | .actionable = 0 | .backends.flatpak.scopes = {user: "failed"}' "$L" > "$PAR/x-held-user-unchecked.json"
 jq '.offline_staged = {count: 0}' "$L" > "$PAR/x-staged-zero.json"
+# Updates no upgrade can install (blocked): some, all, all with one held, and only the totals.
+jq '.backends.dnf.items[0].blocked = true | .backends.dnf.items[1].blocked = true' "$L" > "$PAR/x-some-blocked.json"
+jq '.backends.dnf.items |= map(. + {blocked: true}) | .backends.flatpak.items = [] | .actionable = 0' "$L" > "$PAR/x-all-blocked.json"
+jq '.backends.dnf.items |= map(. + {blocked: true}) | .backends.dnf.items[0].held = true
+    | .backends.flatpak.items = [] | .actionable = 0' "$L" > "$PAR/x-blocked-held.json"
+jq '.backends.dnf.items = [] | .backends.flatpak.items = [] | .actionable = 0 | .blocked_total = 3' "$L" > "$PAR/x-blocked-totals.json"
 jq '.offline_staged = {count: "12"}' "$L" > "$PAR/x-staged-strcount.json"
 
 # A failed check with nothing waiting: never Up to date, in words the widget also uses.

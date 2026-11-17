@@ -463,4 +463,36 @@ ev("root.doCheck()")
 settle()
 p.check("the next check clears the row's error", ev("root.holdError"), None)
 
+# --- a row no upgrade can install (blocked) ------------------------------------------------------
+# Still listed, dimmed, with the reason under it; it does not count toward the Update button.
+BLOCKED_DOC = json.loads(open(PENDING).read())
+for it in BLOCKED_DOC["backends"]["dnf"]["items"]:
+    if it["name"] == TARGET:
+        it["blocked"] = True
+BLOCKED_DOC["actionable"] -= 1
+BLOCKED_DOC["backends"]["dnf"]["actionable"] -= 1
+BLOCKED_DOC["blocked_total"] = 1
+BLOCKED = os.path.join(p.sandbox, "state-blocked.json")
+open(BLOCKED, "w").write(json.dumps(BLOCKED_DOC))
+state(BLOCKED)
+b_idx = next((i for i, r in enumerate(rows_now())
+              if r.get("kind") == "item" and r.get("name") == TARGET and r.get("blocked") is True), -1)
+p.check("the blocked row is still in the list, marked", b_idx >= 0, True)
+FIND_REASON = ("(function (o) { var out = null;"
+               " (function walk(x) { if (out !== null) return;"
+               "    if (x.objectName === 'blockedReason') { out = x; return; }"
+               "    for (var i = 0; i < x.children.length; i++) walk(x.children[i]); })(o);"
+               " return out; })(rowsView.itemAtIndex(%d).item)")
+p.check("...with the reason line showing, in its own words",
+        json.loads(str(lev("JSON.stringify((function (l) { return l === null ? 'NO LABEL'"
+                           " : [l.visible, String(l.text)]; })(%s))" % (FIND_REASON % b_idx)))),
+        [True, "Can't install yet: it needs a part that is not released yet."])
+p.check("...and dimmed", lev("(function (l) { return l === null ? -1 : l.parent.opacity; })(%s)"
+                             % (FIND_REASON % b_idx)) < 1, True)
+o_idx = row_index(OTHER, False)
+p.check("a row that installs shows no reason line",
+        lev("(function (l) { return l === null ? 'NO LABEL' : l.visible; })(%s)" % (FIND_REASON % o_idx)),
+        False)
+p.check("the count leaves the blocked row out", ev("root.vm.actionable"), BLOCKED_DOC["actionable"])
+
 sys.exit(p.done())

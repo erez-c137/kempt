@@ -1,0 +1,19 @@
+Updating and loading repositories:
+Last metadata expiration check: 0:25:44 ago on 2026-11-17 18:23:53.
+Repositories loaded.
+Problem 1: cannot install the best update candidate for package ffmpeg-libs-8.1.3-1.fc44.x86_64
+  - nothing provides liboapv.so.11()(64bit) needed by ffmpeg-libs-8.1.3-2.fc44.x86_64 from rpmfusion-free-updates
+Problem 2: package libavdevice-8.1.3-2.fc44.x86_64 from rpmfusion-free-updates requires ffmpeg-libs(x86-64) = 8.1.3-2.fc44, but none of the providers can be installed
+  - cannot install the best update candidate for package libavdevice-8.1.3-1.fc44.x86_64
+  - nothing provides liboapv.so.11()(64bit) needed by ffmpeg-libs-8.1.3-2.fc44.x86_64 from rpmfusion-free-updates
+Problem 3: package ffmpeg-8.1.3-2.fc44.x86_64 from rpmfusion-free-updates requires ffmpeg-libs(x86-64) = 8.1.3-2.fc44, but none of the providers can be installed
+  - cannot install the best update candidate for package ffmpeg-8.1.3-1.fc44.x86_64
+  - nothing provides liboapv.so.11()(64bit) needed by ffmpeg-libs-8.1.3-2.fc44.x86_64 from rpmfusion-free-updates
+
+Package      Arch   Version      Repository                  Size
+Skipping packages with broken dependencies:
+ ffmpeg      x86_64 8.1.3-2.fc44 rpmfusion-free-updates   2.6 MiB
+ ffmpeg-libs x86_64 8.1.3-2.fc44 rpmfusion-free-updates  23.3 MiB
+ libavdevice x86_64 8.1.3-2.fc44 rpmfusion-free-updates 133.8 KiB
+
+Nothing to do.

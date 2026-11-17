@@ -557,3 +557,14 @@ flatpak's `<kind>/<id>/<arch>/<branch>/<commit>` layout, with the sha256 of each
 **Hand-written stand-in for PyGObject.** It serves the refs in `$FAKE_FLATPAK_JSON` through the
 calls the listing helper makes, and records which `Installation` constructor was called, so
 `tests/test_reclaim.sh` can run the helper without libflatpak.
+
+## tests/fixtures/dnf-upgrade-broken-deps.txt
+**Captured** 2026-11-17 on Fedora 44 with dnf5 5.4.8, byte for byte: stdout and stderr together of
+`LC_ALL=C dnf5 upgrade --assumeno --setopt=cachedir=/var/cache/libdnf5 -C`, run as the user. An
+RPM Fusion update of `ffmpeg-libs` needed a library no repository provided, so check-update listed
+three updates (`ffmpeg`, `ffmpeg-libs`, `libavdevice`) that every upgrade skipped. The problem lines
+go to stderr; the table heading, the `Skipping packages with broken dependencies:` section with one
+row per package (indented by one space) and `Nothing to do.` go to stdout, and the exit code is 0.
+A real update run's log held the same text under its `== System (dnf) ==` heading, because the root
+helper runs dnf5 under `LC_ALL=C.UTF-8`. The section is the only thing `dnf_blocked_parse` reads:
+the package names in the problem lines above it carry versions and arches and are never counted.

@@ -70,6 +70,9 @@ sandbox() {  # fresh dirs per test file; call first
   # of the box running the suite. A path that does not exist is "dnf did
   # not answer", which publishes nothing and is the safe default.
   export KEMPT_DNF_ADVISORY_CMD="$TESTTMP/UNSTUBBED-dnf-advisory"
+  # The dry run that finds updates no upgrade can install, poisoned for the same reason. A path that
+  # does not exist is "the dry run failed", which marks nothing.
+  export KEMPT_DNF_DRYRUN_CMD="$TESTTMP/UNSTUBBED-dnf-dryrun"
   # Poisoned too: unset, every check the suite drives would ask the REAL dnf5 history of the box
   # running it what the last restart did, and the answer would depend on that box's past. A path that
   # does not exist is "the history did not answer".

@@ -244,6 +244,25 @@ assert_eq "$(js 'L.collectItems(S("live")).heldItems.length')" "0" "nothing held
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:2,backends:{}},false).headerText')" \
   "Up to date · 2 held" \
   "the header stays up to date when only held items are pending, and says how many they are"
+# --- blocked: pending, listed, but no upgrade can install them, so they are not counted -----------
+BLK='const s = S("live"); s.backends.dnf.items.forEach((i) => { i.blocked = true; }); s.backends.flatpak.items = []; s.actionable = 0;'
+assert_eq "$(js "$BLK L.viewModel(s, false).badgeVisible")" "false" "all blocked: no badge"
+assert_eq "$(js "$BLK L.viewModel(s, false).iconState")" "uptodate" "all blocked: the up-to-date icon"
+assert_eq "$(js "$BLK L.viewModel(s, false).actionable")" "0" "all blocked: nothing to act on, so no Update button"
+assert_eq "$(js "$BLK const n = s.backends.dnf.items.length; L.viewModel(s, false).headerText === 'Up to date · ' + n + ' waiting'")" "true" \
+  "all blocked: the header says up to date and how many are waiting"
+assert_eq "$(js "$BLK L.collectItems(s).blockedTotal === s.backends.dnf.items.length")" "true" "...counted once each"
+assert_eq "$(js "$BLK L.collectItems(s).sections.flatMap((x) => x.items).every((r) => r.blocked === true)")" "true" \
+  "...and every row is still listed, marked blocked for the dimmed look"
+SOME='const s = S("live"); s.backends.dnf.items[0].blocked = true; s.backends.dnf.items[1].blocked = true; s.backends.dnf.items[1].held = true;'
+assert_eq "$(js "$SOME L.collectItems(s).blockedTotal")" "1" "a held item marked blocked counts as held only"
+assert_eq "$(js "$SOME L.collectItems(s).actionable === S('live').backends.dnf.items.length + S('live').backends.flatpak.items.length - 2")" "true" \
+  "partial: the blocked and the held item are both out of the count"
+assert_contains "$(js "$SOME L.viewModel(s, false).footerText")" "1 waiting" "partial: the footer says one is waiting"
+assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,blocked_total:3,backends:{}},false).headerText')" \
+  "Up to date · 3 waiting" "only the totals: blocked_total is read"
+assert_eq "$(js 'L.backendActionable({backends:{dnf:{enabled:true,items:[{name:"a",held:false,blocked:true},{name:"b",held:false}]}}}, "dnf")')" "1" \
+  "the per-backend fallback leaves a blocked item out"
 
 # --- stale: last known counts stay on the badge, the staleness goes in the tooltip ---
 # Expected values are derived from the fixture, so a re-capture cannot silently drift the test;
@@ -1611,6 +1630,19 @@ assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"off
   "Updates are ready and install on the next restart." "a reason this build does not know reads as an ordinary stage, not a guess"
 assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"failed\",\"surface\":\"offline\",\"error\":\"authentication cancelled\",\"staged_nothing\":\"held\"}"))')" \
   "The update failed: authentication cancelled." "...and a FAILED run is still reported as failed, whatever else the entry carries"
+# Updates dnf5 skipped for broken dependencies (skipped_blocked): the run says so, whatever else it did.
+BR='{\"status\":\"ok\",\"surface\":\"widget\",\"duration_sec\":3,\"backends\":{\"dnf\":{\"updated\":[],\"skipped_blocked\":[\"ffmpeg\",\"ffmpeg-libs\",\"libavdevice\"]}}}'
+assert_eq "$(js "L.lastRunOf(\"$BR\").blockedCount")" "3" "a run's skipped_blocked names are counted"
+assert_eq "$(js "L.postRunLine(L.lastRunOf(\"$BR\"))")" "3 updates could not install yet." \
+  "a run that changed nothing because of them says so, not 'No packages changed.'"
+assert_eq "$(js "L.lastRunSubtitle(L.lastRunOf(\"$BR\"))")" "3 updates could not install yet." "...and so does the last-update row"
+BR1='{\"status\":\"ok\",\"surface\":\"widget\",\"duration_sec\":3,\"backends\":{\"dnf\":{\"updated\":[{\"name\":\"bash\",\"from\":\"1\",\"to\":\"2\"}],\"skipped_blocked\":[\"ffmpeg\"]}}}'
+assert_contains "$(js "L.postRunLine(L.lastRunOf(\"$BR1\"))")" "1 update could not install yet." \
+  "a run that updated something still names the one it could not install"
+assert_eq "$(js 'L.postRunLine(L.lastRunOf("{\"status\":\"ok\",\"surface\":\"offline\",\"duration_sec\":3,\"staged_nothing\":\"blocked\",\"backends\":{\"dnf\":{\"skipped_blocked\":[\"a\",\"b\"]}}}"))')" \
+  "2 updates could not install yet." "a stage with nothing to stage because of them blames them, not the holds"
+assert_eq "$(js 'L.lastRunOf("{\"status\":\"ok\",\"surface\":\"widget\",\"backends\":{\"dnf\":{\"updated\":[]}}}").blockedCount')" "0" \
+  "an entry without the key counts none"
 
 # --- runFinishedSince: is this entry the run we just watched? -----------------------------------
 # The belt-and-braces half of the same fix `kempt summary --json` carries on the CLI side. The
