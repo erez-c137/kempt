@@ -1769,6 +1769,8 @@ status_list_rows() {  # state-json → the lines
   while IFS=$'\x1f' read -r tag a b c; do
     case "$tag" in
       S) if [[ "$a" == Held ]]; then printf 'Held: %s\n' "$b"
+         elif [[ "$b" == 0 && "${c:-0}" != 0 ]]; then printf '%s: %s cannot install yet\n' "$a" "$c"
+         elif [[ "${c:-0}" != 0 ]]; then printf '%s: %s %s, %s cannot install yet\n' "$a" "$b" "$([[ "$b" == 1 ]] && echo update || echo updates)" "$c"
          elif [[ "$b" == 1 ]]; then printf '%s: 1 update\n' "$a"
          else printf '%s: %s updates\n' "$a" "$b"; fi ;;
       I) line="  $a"

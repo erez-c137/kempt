@@ -253,12 +253,16 @@ assert_eq "$(js "$BLK const n = s.backends.dnf.items.length; L.viewModel(s, fals
   "all blocked: the header says up to date and how many are waiting"
 assert_eq "$(js "$BLK L.collectItems(s).blockedTotal === s.backends.dnf.items.length")" "true" "...counted once each"
 assert_eq "$(js "$BLK L.collectItems(s).sections.flatMap((x) => x.items).every((r) => r.blocked === true)")" "true" \
-  "...and every row is still listed, marked blocked for the dimmed look"
+  "...and every row is still listed, marked blocked for its reason line"
+assert_eq "$(js "$BLK L.collectItems(s).sections.every((x) => x.count === 0)")" "true" \
+  "all blocked: each section counts none, so none says more than the header"
 SOME='const s = S("live"); s.backends.dnf.items[0].blocked = true; s.backends.dnf.items[1].blocked = true; s.backends.dnf.items[1].held = true;'
 assert_eq "$(js "$SOME L.collectItems(s).blockedTotal")" "1" "a held item marked blocked counts as held only"
 assert_eq "$(js "$SOME L.collectItems(s).actionable === S('live').backends.dnf.items.length + S('live').backends.flatpak.items.length - 2")" "true" \
   "partial: the blocked and the held item are both out of the count"
 assert_contains "$(js "$SOME L.viewModel(s, false).footerText")" "1 waiting" "partial: the footer says one is waiting"
+assert_eq "$(js "$SOME const d = L.collectItems(s).sections.find((x) => x.backend === 'dnf'); d.count === d.items.length - 1")" "true" \
+  "partial: the System section counts all but its blocked row, which it still lists"
 assert_eq "$(js 'L.viewModel({schema:1,status:"ok",actionable:0,held_total:0,blocked_total:3,backends:{}},false).headerText')" \
   "Up to date · 3 waiting" "only the totals: blocked_total is read"
 assert_eq "$(js 'L.backendActionable({backends:{dnf:{enabled:true,items:[{name:"a",held:false,blocked:true},{name:"b",held:false}]}}}, "dnf")')" "1" \

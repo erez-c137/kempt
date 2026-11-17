@@ -9,7 +9,7 @@ project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- **An update that cannot install yet no longer shows as waiting to install.** dnf5 lists an update that needs a part no repository has, then skips it at every run. The widget used to show "0 updated" over the same updates and an Update button. Now each check asks dnf5, without changing anything, which updates it would skip. Those rows stay in the list, dimmed, with "Can't install yet: it needs a part that is not released yet." They leave the badge, the notification and the Update button, and the header reads "Up to date · 3 waiting". `kempt status` lists them, and the state carries `blocked` per item and `blocked_total`. A run where dnf5 skipped some says "3 updates could not install yet", and so does a restart stage that had nothing else to prepare. When the question fails, nothing is marked.
+- **An update that cannot install yet no longer shows as waiting to install.** dnf5 lists an update that needs a part no repository has, then skips it at every run. The widget used to show "0 updated" over the same updates and an Update button. Now each check asks dnf5, without changing anything, which updates it would skip. Those rows stay in the list with "Can't install yet: it needs a part that is not released yet." Each section counts only what can install. They leave the badge, the notification and the Update button, and the header reads "Up to date · 3 waiting". `kempt status` lists them, and the state carries `blocked` per item and `blocked_total`. A run where dnf5 skipped some says "3 updates could not install yet", and so does a restart stage that had nothing else to prepare. When the question fails, nothing is marked.
 
 ## [0.3.0] - 2026-11-08
 

@@ -128,9 +128,6 @@ RowLayout {
     ColumnLayout {
         Layout.fillWidth: true
         spacing: 0
-        // Dimmed, unlike a held row: nothing about this row is the person's choice, and nothing
-        // they press installs it. The reason line below says why in words.
-        opacity: row.blocked ? 0.6 : 1
 
         PlasmaComponents.Label {
             Layout.fillWidth: true

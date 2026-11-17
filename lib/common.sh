@@ -3481,7 +3481,11 @@ KEMPT_JQ_STATUS='
           | "I\u001f" + ($n + (if .branch == null or .branch == "" then "" else " " + (.branch | tostring) end) | clean)
             + "\u001f" + (vtext | clean) + "\u001f" + $tags;
         collect as $c
-        | ($c.sections[] | "S\u001f" + (.title | clean) + "\u001f" + (.items | length | tostring), (.items[] | row)),
+        # The count is what installs; the blocked rows are still listed, with their count after it.
+        | ($c.sections[]
+           | "S\u001f" + (.title | clean) + "\u001f" + ([.items[] | select(.blocked != true)] | length | tostring)
+             + "\u001f" + ([.items[] | select(.blocked == true)] | length | tostring),
+             (.items[] | row)),
           (if ($c.held | length) > 0 then "S\u001fHeld\u001f" + ($c.held | length | tostring), ($c.held[] | row) else empty end)
     end;
   def status_records($now):
@@ -3527,7 +3531,11 @@ KEMPT_JQ_STATUS='
       | (if (($s.risky_pending | type) == "array") then [$s.risky_pending[] | tostring] else [] end) as $risky
       | "H\u001f" + ($header | clean),
         (if $never_answered then ($s | check_problem | select(. != "") | "P\u001f" + (. | clean)) else empty end),
+        # A section counts and names only what installs, so no section says more than the header.
+        # One whose every item is blocked is left out; the blocked line below names those.
         ( $c.sections[]
+          | .items |= map(select(.blocked != true))
+          | select((.items | length) > 0)
           | "S\u001f" + (.title | clean) + "\u001f" + (.items | length | tostring),
             ( [.items[] | select(.name != null and .name != "") | .name | tostring]
               | (map(select(. as $n | $risky | any(.[]; . == $n))) + map(select(. as $n | $risky | any(.[]; . == $n) | not)))

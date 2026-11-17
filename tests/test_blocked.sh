@@ -133,8 +133,10 @@ assert_contains "$(tail -n 1 "$KEMPT_STATE_DIR/events.log")" "Checked: 2 updates
 out="$("$KEMPT" status 2>&1 || true)"
 assert_eq "$(head -n 1 <<<"$out")" "2 updates" "status: the header counts what installs"
 assert_contains "$out" "Cannot install yet: 3 (ffmpeg, ffmpeg-libs and libavdevice)" "status: the blocked line names them"
+assert_contains "$out" "System (dnf): 2 updates for bash and curl" "status: the section counts and names only what installs"
 out="$("$KEMPT" status --list 2>&1 || true)"
-assert_eq "$(grep -c 'cannot install yet$' <<<"$out" || true)" "3" "status --list: each blocked row is marked"
+assert_eq "$(grep -c '^  .*cannot install yet$' <<<"$out" || true)" "3" "status --list: each blocked row is marked"
+assert_contains "$out" "System (dnf): 2 updates, 3 cannot install yet" "status --list: the section heading counts both, apart"
 assert_eq "$("$KEMPT" status --json | jq -r '.blocked_total')" "3" "status --json carries blocked_total"
 
 # Held wins, and nothing is counted twice: hold one of the three.
@@ -151,6 +153,9 @@ assert_eq "$(jq -r '[.actionable, .blocked_total] | join(" ")' <<<"$state")" "0 
 assert_eq "$(jq -r '.backends.dnf.download_bytes // "none"' <<<"$state")" "0" "all blocked: nothing to download"
 out="$("$KEMPT" status 2>&1 || true)"
 assert_eq "$(head -n 1 <<<"$out")" "Up to date · 3 waiting" "all blocked: status says up to date, with the waiting count"
+assert_not_contains "$out" "System (dnf)" "all blocked: no section line, the blocked line says it"
+assert_contains "$("$KEMPT" status --list 2>&1 || true)" "System (dnf): 3 cannot install yet" \
+  "all blocked: --list still lists the rows under a heading that installs nothing"
 if command -v node >/dev/null 2>&1; then
   vm="$(node -e '
     const fs = require("fs"); const L = require(process.argv[1]);

@@ -336,7 +336,8 @@ node_facts() {  # state file → the same, from logic.js
     // names of the tools whose output it shows, and says the risk under the question.
     const cli = (t) => ({ System: "System (dnf)", Apps: "Apps (flatpak)" }[t] || t);
     console.log(JSON.stringify({ header: vm.headerText.replace(/, including (a new kernel|parts your desktop is using)$/, ""),
-      sections: usable ? L.collectItems(st).sections.map((s) => [cli(s.title), s.items.length]) : [],
+      // A section counts what installs; one with only blocked rows has nothing to count.
+      sections: usable ? L.collectItems(st).sections.filter((s) => s.count > 0).map((s) => [cli(s.title), s.count]) : [],
       held: Number((/(\d+) held/.exec(vm.footerText) || [0, 0])[1]),
       security: Number((/(\d+) security update/.exec(vm.tooltipSub) || [0, 0])[1]) }));
   ' "$LOGIC" "$1" "$NOW"

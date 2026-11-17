@@ -1177,6 +1177,14 @@ function securityOf(state) {
     return { count: Math.floor(s.count), names: names };
 }
 
+// The rows of a section that an update can install: its count, so no section says more than the
+// header. The blocked rows stay in `items`.
+function installable(items) {
+    var n = 0;
+    for (var i = 0; i < items.length; i++) if (!items[i].blocked) n++;
+    return n;
+}
+
 // Walk the backends once, producing the popup's pending sections and the flat Held list.
 // A backend with enabled:false contributes NOTHING - no section, no held rows, no counts - so
 // "include_flatpak=false" renders as an absent Apps section rather than an empty one.
@@ -1247,7 +1255,8 @@ function collectItems(state) {
             }
         }
         if (pending.length > 0) {
-            sections.push({ title: sectionTitleOf(key), backend: key, items: pending });
+            sections.push({ title: sectionTitleOf(key), backend: key, items: pending,
+                            count: installable(pending) });
         }
         // A kind this build has never heard of still gets a section, under a title built from its
         // own two words - the same rule backendKeys follows for an unknown backend. Dropping it
@@ -1255,7 +1264,7 @@ function collectItems(state) {
         for (k = 0; k < kindOrder.length; k++) {
             var kd = kindOrder[k];
             sections.push({ title: kindTitleOf(key, kd),
-                            backend: key, kind: kd, items: byKind[kd] });
+                            backend: key, kind: kd, items: byKind[kd], count: installable(byKind[kd]) });
         }
     }
     return { sections: sections, heldItems: heldItems, actionable: actionable, heldTotal: heldTotal,

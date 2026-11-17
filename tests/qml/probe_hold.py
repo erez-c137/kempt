@@ -464,7 +464,7 @@ settle()
 p.check("the next check clears the row's error", ev("root.holdError"), None)
 
 # --- a row no upgrade can install (blocked) ------------------------------------------------------
-# Still listed, dimmed, with the reason under it; it does not count toward the Update button.
+# Still listed, with the reason under it; it does not count toward the Update button.
 BLOCKED_DOC = json.loads(open(PENDING).read())
 for it in BLOCKED_DOC["backends"]["dnf"]["items"]:
     if it["name"] == TARGET:
@@ -487,8 +487,9 @@ p.check("...with the reason line showing, in its own words",
         json.loads(str(lev("JSON.stringify((function (l) { return l === null ? 'NO LABEL'"
                            " : [l.visible, String(l.text)]; })(%s))" % (FIND_REASON % b_idx)))),
         [True, "Can't install yet: it needs a part that is not released yet."])
-p.check("...and dimmed", lev("(function (l) { return l === null ? -1 : l.parent.opacity; })(%s)"
-                             % (FIND_REASON % b_idx)) < 1, True)
+# No dimming: the reason line carries it, and a shade would cut contrast the way the held rows avoid.
+p.check("...and not dimmed", lev("(function (l) { return l === null ? -1 : l.parent.opacity; })(%s)"
+                                 % (FIND_REASON % b_idx)), 1)
 o_idx = row_index(OTHER, False)
 p.check("a row that installs shows no reason line",
         lev("(function (l) { return l === null ? 'NO LABEL' : l.visible; })(%s)" % (FIND_REASON % o_idx)),
