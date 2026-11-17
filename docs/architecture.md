@@ -189,7 +189,9 @@ from a newer one.
 | `backends.<name>.enabled` | boolean | False when the backend is switched off in config (`include_flatpak=false`), or where `flatpak` is not installed (`flatpak_included`). |
 | `backends.<name>.actionable` | integer | Pending, not held, in this backend. |
 | `backends.<name>.held` | integer | Pending and held, in this backend. |
+| `backends.<name>.blocked` | integer | Pending, not held, and no upgrade can install them yet. Only `dnf` counts any. Additive. |
 | `backends.<name>.items[]` | array | `name`, `from` (installed version, `?` when not installed), `to` (pending version), `held` (boolean). Several versions of one package are comma-joined in **ascending** order. Readers that show one version take the last. |
+| `backends.<name>.items[].blocked` | `true`, optional | Only `dnf` writes it, never on a held item: a dry run of the upgrade skipped this package for broken dependencies, so no update can install it yet. It stays listed and is not counted in `actionable`. Absent when the dry run failed or was not asked. Additive. |
 | `backends.<name>.items[].kind` | string, optional | Only `flatpak` writes it, and only as `"runtime"`. Absent means an app or a dnf package. Additive. |
 | `backends.<name>.items[].scope` | string, optional | Only `flatpak` writes it, and only as `"user"`: the per-user installation. Absent means the system one. Two items can share a `name` and differ here. Holds apply by id, to both. Additive. |
 | `backends.<name>.items[].branch` | string, optional | The Flatpak branch, on every runtime. **A runtime's identity is its `name` and `branch` together.** Anything that keys items by name must key on the pair where this is present. Additive. |
@@ -197,8 +199,9 @@ from a newer one.
 | `backends.flatpak.scopes` | object, optional | Only when a per-user installation exists: `{system, user}`, each `"ok"` or `"failed"`. See [below](#flatpak-scopes). Additive. |
 | `backends.dnf.refresh_error` | string, optional | Present while the latest dnf metadata refresh that ran failed: one line of its error, at most 200 bytes. URL credentials, queries, fragments and token-shaped path parts are removed, and your home directory is written as `~`. When dnf printed nothing it says how the refresh ended, such as `dnf makecache timed out`. Absent once a refresh works. Additive. |
 | `backends.<name>.download_bytes` | integer, optional | Bytes this backend would download. Written **only when every non-held item has a `size_bytes`**. Additive. |
-| `actionable` | integer | The badge number: non-held pending items across all backends. |
+| `actionable` | integer | The badge number: pending items across all backends that are neither held nor blocked. |
 | `held_total` | integer | Held pending items across all backends. |
+| `blocked_total` | integer | Pending items across all backends that are not held and that no upgrade can install yet. Additive. |
 | `risky_pending` | array of strings | dnf names matching `risky_regex`, except held ones and build or documentation packages (`-devel`, `-doc` and similar). Additive. |
 | `download_bytes` | integer, optional | The sum of the per-backend keys. Omitted if any **enabled** backend omitted its own. Additive. |
 | `reboot_needed` | boolean | Whether a restart is owed **now**, asked on every check. `false` means **nothing to say**, because a check that could not tell also answers `false`. Render no "no restart needed" line from it. Additive. |
