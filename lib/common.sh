@@ -2062,6 +2062,9 @@ dnf_cache_usable() {
   return 1
 }
 
+# Set only by closing_check in bin/kempt, and never exported. The person is waiting for that check's
+# result, and a fetch can take minutes, so the next check fetches instead.
+_KEMPT_CLOSING_CHECK=""
 maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmetered; never blocks check on failure
   # Why this check fetched nothing: battery or metered when a fetch was due, off when refreshing
   # is turned off, else empty. cmd_check publishes it as refresh_skipped, so the widget can tell a
@@ -2076,6 +2079,7 @@ maybe_refresh_metadata() {  # [force] [anyway] - ≤ every 3h, AC power, unmeter
       || echo "warning: nothing was downloaded; KEMPT_SKIP_REFRESH turns fetching off" >&2
     return 0
   fi
+  [[ -z "$_KEMPT_CLOSING_CHECK" ]] || return 0
   local last=0 now; now="$(date +%s)"
   # `|| echo 0` covers the TOCTOU gap: the file can vanish between the -f test and the stat
   # (state dir cleanup, another process), and a bare failing stat escapes errexit here.

@@ -697,7 +697,8 @@ PlasmoidItem {
             // The end of a run is NOT checked here. The CLI checks on its way out of every run, so a
             // check from here ran the same check again, and on a real box it queued behind the
             // CLI's and then set off another: four checks for one update. The write that ends the
-            // run is often the one just before that check (publish_staged_state), so the widget
+            // run is that check's own, unless another check held the lock (publish_staged_state,
+            // with the closing check still to come), so the widget
             // waits for it, with the quiet window opened as if a check had just landed, and
             // postRunCheck as the fallback for a run whose closing check never writes.
             if (endedRun && !delta.config) {

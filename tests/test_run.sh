@@ -100,7 +100,8 @@ exec 7>&-
 
 # The line that says what the pause is prints only to a terminal, so it is read from the source: it
 # must come before the update's closing check, not after it.
-assert_eq "$(grep -A1 -F "&& printf" "$REPO_ROOT/bin/kempt" | grep -A1 -F "left to update" | tail -1 | tr -d ' ')" \
-  "cmd_check>/dev/null2>&1||true" "the update says it is checking, right before it checks"
+assert_eq "$(sed -n '/^closing_check() {/,/^}/p' "$REPO_ROOT/bin/kempt" | grep -E 'left to update|cmd_check' \
+             | sed -E 's/.*(left to update).*/\1/' | tr -d ' ')" \
+  "$(printf 'lefttoupdate\ncmd_check>/dev/null2>&1||true')" "the update says it is checking, right before it checks"
 
 finish

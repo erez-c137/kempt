@@ -388,6 +388,20 @@ cmd_check() {
   fi
 }
 
+# The check that closes a run. It takes seconds and prints nothing, so a person watching is told what
+# the pause is. Never allowed to change the run's verdict. A subshell, because the run goes on after
+# it: the run's variables, its lock trap and the check lock are all left as they were.
+# The skip the run set for itself covers its apply and its after-snapshot only. The check asks the
+# per-user installation again, so a listing that still fails is recorded there as failed.
+closing_check() {  # fp_user_unreadable
+  if [[ -t 1 ]]; then printf '\nChecking for anything left to update…\n'; fi
+  (
+    if [[ "$1" == true ]]; then unset FLATPAK_USER_SKIP; fi
+    _KEMPT_CLOSING_CHECK=1
+    cmd_check >/dev/null 2>&1 || true
+  )
+}
+
 KEMPT_RETRY_DELAY="${KEMPT_RETRY_DELAY:-10}"
 
 # Surfaces are a closed set. An unknown one (a config typo, an older widget's value) must not
@@ -1498,10 +1512,18 @@ cmd_update() {
   fi
 
   reconcile_stage_after_live_run
-  # AFTER the reconciliation above, which is what decides whether a stage still stands, and BEFORE
-  # the check below, which is the slow half. The check publishes this too; this is the same fact,
-  # tens of seconds earlier, so no surface spends that window offering to stage what is already
-  # staged. See publish_staged_state.
+  # The widget leaves its busy pane on the first state.json write it sees, and shows what that write
+  # holds. So the closing check comes first: anything else written here carries the pre-run list,
+  # which came back on screen with its badge until the check landed. Only when the check lock is
+  # free: behind another check this would hold the result back for up to a minute, so that case
+  # checks after the notification instead.
+  local closing_done=false
+  if flock -n "$KEMPT_STATE_DIR/check.lock" true 2>/dev/null; then
+    closing_check "$fp_user_unreadable"
+    closing_done=true
+  fi
+  # AFTER the reconciliation above, which is what decides whether a stage still stands. This is the
+  # end signal for a closing check that wrote nothing. See publish_staged_state.
   # ...and BEFORE the notification below: the widget leaves its busy state when state.json moves,
   # so a notification that went out first had the popup still busy beside "Updates are staged".
   # Neither reads anything the summary or the notification writes.
@@ -1547,14 +1569,8 @@ cmd_update() {
   fi
   # The copy the summary was rendered from, when it could not be installed into the history.
   [[ -n "${hist_tmp:-}" ]] && rm -f "$hist_tmp"
-  # Best-effort self-refresh so a CLI-only user is not left staring at a pending list the run
-  # already emptied. Never allowed to change the run's verdict. It takes seconds and prints
-  # nothing, so a person watching is told what the pause is.
-  # The skip this run set for itself covers its apply and its after-snapshot only. The check asks the
-  # per-user installation again, so a listing that still fails is recorded there as failed.
-  [[ "$fp_user_unreadable" == true ]] && unset FLATPAK_USER_SKIP
-  [[ -t 1 ]] && printf '\nChecking for anything left to update…\n'
-  cmd_check >/dev/null 2>&1 || true
+  # Another check held the lock above, so the list has not been read since the run changed it.
+  [[ "$closing_done" == true ]] || closing_check "$fp_user_unreadable"
   return "$run_rc"
 }
 
